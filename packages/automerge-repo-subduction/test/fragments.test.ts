@@ -118,7 +118,7 @@ describe("local Subduction fragments", () => {
     const reloaded = create()
     const loaded = await initial(reloaded)
     expect(loaded.records).toEqual(records)
-    expect(loaded.event.checkpoint.heads).toEqual([cid(4)])
+    expect(loaded.event.marker.heads).toEqual([cid(4)])
     // Native hydrates on demand (not at open) and reads the stored fragment.
     const engine = (reloaded as unknown as { engine: N.Subduction }).engine
     const native = nativeId(tree)

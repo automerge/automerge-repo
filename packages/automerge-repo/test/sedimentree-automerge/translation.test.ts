@@ -21,7 +21,7 @@ import {
   extractNewRecords,
   getRecordMetadata,
   recordMetadataKey,
-  satisfiesCheckpoint,
+  satisfiesMarker,
   validateRecord,
 } from "../../src/sedimentree/automerge/index.js"
 
@@ -338,7 +338,7 @@ describe("incremental application", () => {
     let loaded = applyRecords(empty(), [commits[2]])
     expect(A.getHeads(loaded)).toEqual([])
     expect(A.getMissingDeps(loaded, [])).toContain(commits[1].id)
-    expect(satisfiesCheckpoint(loaded, [commits[2].id])).toBe(false)
+    expect(satisfiesMarker(loaded, [commits[2].id])).toBe(false)
     expect(applyRecords(loaded, [])).toBe(loaded)
     loaded = applyRecords(loaded, [commits[0]])
     loaded = A.change(loaded, { time: 0 }, doc => {
@@ -347,7 +347,7 @@ describe("incremental application", () => {
     loaded = applyRecords(loaded, [commits[1]])
     expect(loaded.n).toBe(2)
     expect(loaded.local).toBe(true)
-    expect(satisfiesCheckpoint(loaded, [commits[2].id])).toBe(true)
+    expect(satisfiesMarker(loaded, [commits[2].id])).toBe(true)
   })
 
   it("retains a pending fragment while later batches and local edits arrive", () => {
@@ -357,7 +357,7 @@ describe("incremental application", () => {
     let loaded = applyRecords(empty(), [partial])
     expect(A.getHeads(loaded)).toEqual([])
     expect(A.getMissingDeps(loaded, []).length).toBeGreaterThan(0)
-    expect(satisfiesCheckpoint(loaded, [partial.head])).toBe(false)
+    expect(satisfiesMarker(loaded, [partial.head])).toBe(false)
     loaded = A.change(loaded, { time: 0 }, doc => {
       doc.local = true
     })
@@ -367,7 +367,7 @@ describe("incremental application", () => {
     )
     expect(loaded.n).toBe(1999)
     expect(loaded.local).toBe(true)
-    expect(satisfiesCheckpoint(loaded, [partial.head])).toBe(true)
+    expect(satisfiesMarker(loaded, [partial.head])).toBe(true)
     expect(A.getMissingDeps(loaded, [])).toEqual([])
   })
 
@@ -393,7 +393,7 @@ describe("incremental application", () => {
   })
 })
 
-describe("source checkpoint satisfaction", () => {
+describe("source marker satisfaction", () => {
   it("uses historical inclusion with newer local edits, not head equality", () => {
     let loaded = applyRecords(empty(), records)
     const historical = A.getHeads(loaded).map(commitId)
@@ -401,18 +401,18 @@ describe("source checkpoint satisfaction", () => {
       doc.local = true
     })
     expect(A.getHeads(loaded)).not.toEqual(historical)
-    expect(satisfiesCheckpoint(loaded, historical)).toBe(true)
-    expect(satisfiesCheckpoint(loaded, [commits[0].id])).toBe(true)
-    expect(satisfiesCheckpoint(loaded, [commitId("ff".repeat(32))])).toBe(false)
+    expect(satisfiesMarker(loaded, historical)).toBe(true)
+    expect(satisfiesMarker(loaded, [commits[0].id])).toBe(true)
+    expect(satisfiesMarker(loaded, [commitId("ff".repeat(32))])).toBe(false)
     expect(
-      satisfiesCheckpoint(loaded, [commits[0].id, commitId("ff".repeat(32))])
+      satisfiesMarker(loaded, [commits[0].id, commitId("ff".repeat(32))])
     ).toBe(false)
   })
 
   it("rejects empty readiness proofs even on nonempty documents", () => {
-    expect(satisfiesCheckpoint(empty(), [])).toBe(false)
-    expect(satisfiesCheckpoint(fixture, [])).toBe(false)
-    expect(() => satisfiesCheckpoint(fixture, ["bad" as CommitId])).toThrow()
+    expect(satisfiesMarker(empty(), [])).toBe(false)
+    expect(satisfiesMarker(fixture, [])).toBe(false)
+    expect(() => satisfiesMarker(fixture, ["bad" as CommitId])).toThrow()
   })
 
   it("satisfies one complete source despite unrelated pending dependencies", () => {
@@ -426,11 +426,11 @@ describe("source checkpoint satisfaction", () => {
     const last = loose(A.getLastLocalChange(unrelated)!)
     let loaded = applyRecords(empty(), [last, commits[0]])
     expect(A.getMissingDeps(loaded, [])).toEqual(last.parents)
-    expect(satisfiesCheckpoint(loaded, [commits[0].id])).toBe(true)
-    expect(satisfiesCheckpoint(loaded, [last.id])).toBe(false)
+    expect(satisfiesMarker(loaded, [commits[0].id])).toBe(true)
+    expect(satisfiesMarker(loaded, [last.id])).toBe(false)
     loaded = applyRecords(loaded, [loose(A.getAllChanges(unrelated)[0])])
     expect(loaded.local).toBe(true)
-    expect(satisfiesCheckpoint(loaded, [last.id])).toBe(true)
+    expect(satisfiesMarker(loaded, [last.id])).toBe(true)
   })
 })
 
@@ -551,9 +551,9 @@ describe("payload and metadata validation", () => {
     ])
     const record = { ...commits[0], blob }
     expect(validateRecord(record)).toEqual(record)
-    expect(
-      satisfiesCheckpoint(applyRecords(empty(), [record]), [record.id])
-    ).toBe(true)
+    expect(satisfiesMarker(applyRecords(empty(), [record]), [record.id])).toBe(
+      true
+    )
     blob[4] ^= 0xff
     expect(() => validateRecord(record)).toThrow(/checksum/)
   })

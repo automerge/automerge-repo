@@ -29,7 +29,7 @@ async function initial(session: SedimentreeSession) {
   const records: LooseCommitRecord[] = []
   for (;;) {
     const result = await iterator.next()
-    if (result.done) throw new Error("Missing local load checkpoint")
+    if (result.done) throw new Error("Missing local load marker")
     if (result.value.type === "failure") throw result.value.error
     if (result.value.type === "records")
       records.push(...(result.value.records as LooseCommitRecord[]))
@@ -171,7 +171,7 @@ describe("real local Subduction", () => {
     expect(hydration).not.toHaveBeenCalled()
     expect(loadPrefix).toHaveBeenCalledOnce()
     expect(loaded.records).toEqual([record(1), record(2, [1])])
-    expect(loaded.complete.checkpoint.heads).toEqual([cid(2)])
+    expect(loaded.complete.marker.heads).toEqual([cid(2)])
     // Native hydrates on demand from storage and finds both commits.
     await expect(nativeCommits(reload)).resolves.toBe(2)
     const collection = reload.observeCollection()[Symbol.asyncIterator]()
@@ -209,8 +209,8 @@ describe("real local Subduction", () => {
         records: [record(1)],
       })
       expect(await next(loaded.iterator)).toMatchObject({
-        type: "checkpoint",
-        checkpoint: { heads: [cid(1)] },
+        type: "history-marker",
+        marker: { heads: [cid(1)] },
       })
       expect((await collection.next()).value).toMatchObject({
         type: "document",
@@ -306,12 +306,12 @@ describe("real local Subduction", () => {
     await writing
     expect((await next(iterator)).type).toBe("records")
     expect(await next(iterator)).toMatchObject({
-      type: "checkpoint",
-      checkpoint: { heads: [cid(1)] },
+      type: "history-marker",
+      marker: { heads: [cid(1)] },
     })
     expect(await next(iterator)).toMatchObject({
       type: "synchronized",
-      result: { outcome: "no-peers", checkpoint: { heads: [cid(1)] } },
+      result: { outcome: "no-peers", marker: { heads: [cid(1)] } },
     })
     const pending = iterator.next()
     await iterator.return!()
@@ -376,7 +376,7 @@ describe("real local Subduction", () => {
     ])
     const loaded = await initial(backend.open(tree))
     expect(loaded.records).toEqual(records)
-    expect(loaded.complete.checkpoint.heads).toEqual([cid(200)])
+    expect(loaded.complete.marker.heads).toEqual([cid(200)])
   })
 
   it("stores none of a batch after a mid-batch failure; a full retry completes it", async () => {
@@ -409,7 +409,7 @@ describe("real local Subduction", () => {
     ).toHaveLength(10)
     const reloaded = await initial(backend.open(tree))
     expect(reloaded.records).toEqual(records)
-    expect(reloaded.complete.checkpoint.heads).toEqual([cid(10)])
+    expect(reloaded.complete.marker.heads).toEqual([cid(10)])
     await backend.flush()
   })
 
@@ -423,7 +423,7 @@ describe("real local Subduction", () => {
     const reopened = create()
     const loaded = await initial(reopened.open(tree))
     expect(loaded.records).toHaveLength(40)
-    expect(loaded.complete.checkpoint.heads).toEqual([cid(40)])
+    expect(loaded.complete.marker.heads).toEqual([cid(40)])
     const collection = reopened.observeCollection()[Symbol.asyncIterator]()
     expect((await collection.next()).value).toMatchObject({
       type: "document",
@@ -434,7 +434,7 @@ describe("real local Subduction", () => {
     expect(await storage.list("subduction-v1/")).toEqual([])
   })
 
-  it("stores with constant storage work and no checkpoint rescans once complete", async () => {
+  it("stores with constant storage work and no marker rescans once complete", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
     const session = backend.open(tree)
@@ -447,11 +447,11 @@ describe("real local Subduction", () => {
       type: "records",
       records: [record(2, [1])],
     })
-    // Sync-round checkpoints come from delivered heads, not a storage reread.
+    // Sync-round markers come from delivered heads, not a storage reread.
     await session.synchronize()
     expect(await next(iterator)).toMatchObject({
       type: "synchronized",
-      result: { outcome: "no-peers", checkpoint: { heads: [cid(2)] } },
+      result: { outcome: "no-peers", marker: { heads: [cid(2)] } },
     })
     expect(list).not.toHaveBeenCalled()
     // One preflight lookup plus the bridge's own same-key check: per record,
@@ -465,7 +465,7 @@ describe("real local Subduction", () => {
     ])
   })
 
-  it("keeps emitting storage checkpoints while any session on the tree is incomplete", async () => {
+  it("keeps emitting storage markers while any session on the tree is incomplete", async () => {
     const backend = create()
     const done = backend.open(tree)
     const loading = backend.open(tree)
@@ -476,12 +476,12 @@ describe("real local Subduction", () => {
     for (const { iterator } of [a, b]) {
       expect((await next(iterator)).type).toBe("records")
       expect(await next(iterator)).toMatchObject({
-        type: "checkpoint",
-        checkpoint: { heads: [cid(1)] },
+        type: "history-marker",
+        marker: { heads: [cid(1)] },
       })
     }
     // The incomplete session can still become ready from live data; once it is
-    // also complete, checkpoints stop for the whole tree.
+    // also complete, markers stop for the whole tree.
     loading.markComplete!()
     const list = vi.spyOn(storage, "list")
     await backend.store(tree, [record(2, [1])])
@@ -489,7 +489,7 @@ describe("real local Subduction", () => {
     await done.synchronize()
     expect(await next(a.iterator)).toMatchObject({
       type: "synchronized",
-      result: { checkpoint: { heads: [cid(2)] } },
+      result: { marker: { heads: [cid(2)] } },
     })
     expect(list).not.toHaveBeenCalled()
   })
@@ -503,14 +503,14 @@ describe("real local Subduction", () => {
     await first.close()
     const second = backend.open(tree)
     const { iterator, complete } = await initial(second)
-    expect(complete.checkpoint.heads).toEqual([cid(2)])
+    expect(complete.marker.heads).toEqual([cid(2)])
     second.markComplete!()
     await backend.store(tree, [record(3, [2])])
     expect((await next(iterator)).type).toBe("records")
     await second.synchronize()
     expect(await next(iterator)).toMatchObject({
       type: "synchronized",
-      result: { checkpoint: { heads: [cid(3)] } },
+      result: { marker: { heads: [cid(3)] } },
     })
   })
 

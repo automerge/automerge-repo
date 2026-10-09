@@ -23,7 +23,7 @@ IDs are branded **lowercase hex strings**, constructed by `sedimentreeId`,
 All 16- and 32-byte logical IDs are accepted, including zero-padded IDs.
 Commit IDs are 32 bytes. Fragment checkpoint prefixes are 12 bytes, matching the
 sedimentree wire model; `checkpointForCommit` explicitly truncates a full commit
-ID. A stream's `HistoryCheckpoint` instead contains full commit heads.
+ID. A stream's `HistoryMarker` instead contains full commit heads.
 
 A record's logical key is its kind plus commit ID/fragment head, scoped to its
 tree. `copyRecord` canonicalizes metadata sets and copies bytes, including Buffer
@@ -37,7 +37,7 @@ and must not alias storage or another observer's buffers.
 ## Observation
 
 `open` establishes a finite initial cut **before the first pull**, followed by
-live updates. Initial records precede `local-load-complete`. Checkpoint delivery
+live updates. Initial records precede `local-load-complete`. Delivering a history marker
 is not acknowledgment that the consumer has applied its records; the translator
 must check history inclusion. An empty load is not a readiness proof.
 
@@ -80,12 +80,12 @@ bytes; batching is bounded by record count and target bytes. A single record may
 exceed the batch target but never the configured hard record-size limit. These
 are transport-buffer budgets, not a bound on the entire JS heap. The authoritative
 in-memory store retains history; overflow only drops replay, not stored records.
-Snapshot metadata is proportional to stored records, and checkpoint computation
+Snapshot metadata is proportional to stored records, and marker computation
 is a simple metadata scan. This is a test double, not a production large-store
 implementation.
 
 Stores finish synchronously in memory, so `flush` has an immediate barrier.
-`synchronize` reports `no-peers` with an ordered stream checkpoint. An already
+`synchronize` reports `no-peers` with an ordered history marker. An already
 aborted signal rejects that caller only. Ephemeral publication has no recipients
 and is a best-effort no-op, not simulated transport delivery. Backend close
 releases watches and memory; its process-local state cannot be reopened afterward.

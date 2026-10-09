@@ -11,7 +11,7 @@ import {
   type BackendOperation,
   type CollectionObservation,
   type CommitId,
-  type HistoryCheckpoint,
+  type HistoryMarker,
   type LooseCommitRecord,
   type SedimentreeRecord,
   type RecordBatch,
@@ -112,17 +112,17 @@ class Heads {
     const head = recordHead(record)
     if (!this.parents.has(head)) this.heads.add(head)
   }
-  checkpoint(sequence: number): HistoryCheckpoint {
+  marker(sequence: number): HistoryMarker {
     return { sequence, heads: [...this.heads].sort() }
   }
 }
-function checkpoint(
+function marker(
   sequence: number,
   records: readonly SedimentreeRecord[]
-): HistoryCheckpoint {
+): HistoryMarker {
   const heads = new Heads()
   for (const record of records) heads.add(record)
-  return heads.checkpoint(sequence)
+  return heads.marker(sequence)
 }
 /** Greedy split by record count and encoded bytes; never returns an empty
  * group, and a record larger than `maxBytes` occupies a group by itself. */
@@ -159,19 +159,19 @@ function copyEvent(value: SedimentreeEvent): SedimentreeEvent {
     }
   if (value.type === "records")
     return { ...value, records: value.records.map(copyRecord) }
-  if (value.type === "checkpoint" || value.type === "local-load-complete")
+  if (value.type === "history-marker" || value.type === "local-load-complete")
     return {
       ...value,
-      checkpoint: { ...value.checkpoint, heads: [...value.checkpoint.heads] },
+      marker: { ...value.marker, heads: [...value.marker.heads] },
     }
   if (value.type === "synchronized")
     return {
       ...value,
       result: {
         ...value.result,
-        checkpoint: {
-          ...value.result.checkpoint,
-          heads: [...value.result.checkpoint.heads],
+        marker: {
+          ...value.result.marker,
+          heads: [...value.result.marker.heads],
         },
         peers: value.result.peers.map(p => ({
           ...p,
@@ -217,7 +217,7 @@ export class SubductionBackend implements SedimentreeBackend {
     SedimentreeId,
     { generation: EngineGeneration; again: boolean }
   >()
-  private readonly checkpoints = new Set<SedimentreeId>()
+  private readonly markers = new Set<SedimentreeId>()
   private tail: Promise<unknown> = Promise.resolve()
   private closed = false
   private closing?: Promise<void>
@@ -228,7 +228,7 @@ export class SubductionBackend implements SedimentreeBackend {
   /** Sessions whose consumer verified a complete snapshot (markComplete). */
   private readonly completed = new Set<Watch<SedimentreeEvent>>()
   /** Heads of history delivered per open tree; replaces storage rescans for
-   * checkpoints once every session on the tree is complete. */
+   * markers once every session on the tree is complete. */
   private readonly delivered = new Map<SedimentreeId, Heads>()
   private readonly collections = new Set<Watch<CollectionObservation>>()
   private readonly attempts = new Set<{
@@ -634,10 +634,10 @@ export class SubductionBackend implements SedimentreeBackend {
       }
       this.checkNetwork(generation, id)
       let result!: SyncRoundResult
-      const publish = (checkpoint: HistoryCheckpoint) => {
+      const publish = (marker: HistoryMarker) => {
         result = {
           roundId,
-          checkpoint,
+          marker,
           outcome: !peers.length
             ? "no-peers"
             : outcomes.every(p => p.outcome === "complete")
@@ -650,7 +650,7 @@ export class SubductionBackend implements SedimentreeBackend {
             if (tree === id && (!recipient || watch === recipient))
               watch.push(
                 { type: "synchronized", result },
-                64 + result.checkpoint.heads.length * 32 + outcomes.length * 128
+                64 + result.marker.heads.length * 32 + outcomes.length * 128
               )
       }
       const delivered = this.delivered.get(id)
@@ -658,10 +658,10 @@ export class SubductionBackend implements SedimentreeBackend {
         // Every session already verified readiness: order behind the records
         // this round ingested without rereading the whole tree from storage.
         await this.bridge.drain()
-        publish(delivered.checkpoint(++this.sequence))
+        publish(delivered.marker(++this.sequence))
       } else {
         await this.bridge.records(native, records =>
-          publish(checkpoint(++this.sequence, records))
+          publish(marker(++this.sequence, records))
         )
       }
       return result
@@ -687,7 +687,7 @@ export class SubductionBackend implements SedimentreeBackend {
     this.tail = work.catch(() => {})
     return work
   }
-  /** True when no open session on this tree still needs storage checkpoints. */
+  /** True when no open session on this tree still needs storage markers. */
   private settled(id: SedimentreeId): boolean {
     for (const [watch, tree] of this.watches)
       if (tree === id && !this.completed.has(watch)) return false
@@ -705,29 +705,29 @@ export class SubductionBackend implements SedimentreeBackend {
         )
     for (const watch of this.collections)
       watch.push({ type: "document", sequence, phase: "live", id })
-    // Checkpoints only establish readiness. Once every session on this tree
+    // Markers only establish readiness. Once every session on this tree
     // has verified its snapshot, the authoritative storage cut is not needed.
     if (this.settled(id)) return
     // This applies equally to local writes and unsolicited native ingestion.
     // Queue the cut behind the current complete bridge transaction, coalescing
     // batches. Never use onRemoteHeads (which precedes ingest) as completeness.
-    if (!this.checkpoints.has(id)) {
-      this.checkpoints.add(id)
+    if (!this.markers.has(id)) {
+      this.markers.add(id)
       const native = nativeId(id)
       void this.bridge
         .records(native, records => {
-          this.checkpoints.delete(id)
+          this.markers.delete(id)
           if (this.closed || this.deleting.has(id)) return
-          const target = checkpoint(++this.sequence, records)
+          const target = marker(++this.sequence, records)
           for (const [watch, tree] of this.watches)
             if (tree === id)
               watch.push(
-                { type: "checkpoint", checkpoint: target },
+                { type: "history-marker", marker: target },
                 32 + target.heads.length * 32
               )
         })
         .catch(() => {
-          this.checkpoints.delete(id)
+          this.markers.delete(id)
           this.requireRescan(id)
         })
         .finally(() => native.free())
@@ -801,7 +801,7 @@ export class SubductionBackend implements SedimentreeBackend {
           ...this.batches(records, sequence),
           {
             type: "local-load-complete",
-            checkpoint: heads.checkpoint(sequence),
+            marker: heads.marker(sequence),
             found: records.length > 0,
           },
         ])

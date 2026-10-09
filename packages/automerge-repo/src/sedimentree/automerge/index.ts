@@ -286,7 +286,7 @@ function positiveInteger(value: number): number {
  * History inclusion, not head equality or global pending-dependency emptiness.
  * Empty targets are never evidence that a document is ready.
  */
-export function satisfiesCheckpoint(
+export function satisfiesMarker(
   doc: A.Doc<unknown>,
   heads: readonly CommitId[]
 ): boolean {

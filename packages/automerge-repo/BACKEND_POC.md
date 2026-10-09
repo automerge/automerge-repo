@@ -31,7 +31,7 @@ and changes awaitable; remove legacy adapters; defer the new query interface.
 - `clone()` is async because it allocates and stores a new document. It preserves
   the source history rather than introducing an empty preliminary change.
 - `find()` returns the shared DocHandle and honors paths, fixed heads and abortable
-  waits. Backend readiness requires verified checkpoint history, not the first
+  waits. Backend readiness requires history verified against a marker, not the first
   record, advertised remote heads, or successful network round alone.
 - `findWithProgress()` remains functional but is deprecated. Existing progress
   `peek`/`subscribe`/`whenReady` support remains; no public `query()`, `RepoQuery`,
@@ -66,7 +66,7 @@ the same event machinery but bypasses local persistence. Reentrant dispatch is
 queued in snapshot order so patch payloads remain internally consistent. Remote
 heads and sync-info timestamps live on the shared Document, not on its delegate.
 
-`DocumentDelegate` translates records, verifies checkpoints, tracks representation
+`DocumentDelegate` translates records, verifies history markers, tracks representation
 separately from save confirmation and owns exact unsaved batches. Ambiguous writes
 retry original bytes; self-echoes neither generate writes nor acknowledge failures.
 Known applied heads are skipped during delegate materialization (including
@@ -74,7 +74,7 @@ self-echoes); this is not a record-validation or persistence guarantee. Unknown
 heads still pass through full record validation and loading.
 Rescan keeps document state and unsaved history, resetting source readiness targets.
 Delegate construction installs its commit hook and initial query source immediately;
-checkpoint verification uses query snapshot state rather than separate completion
+marker verification uses query snapshot state rather than separate completion
 or failure flags. Document owns closed/deleted lifecycle state.
 
 `RepoScheduler` owns sessions, per-ID write ordering, bounded cross-document local
@@ -133,7 +133,7 @@ strings in those events are not interchangeable with legacy storage identities.
 | Legacy packages left referencing removed exports | Adapter packages and incompatible dependents removed                          |
 
 Kept the guide's plain contract packaging, no default backend, record translation,
-local-durability distinction, checkpoint verification and original-byte retry
+local-durability distinction, marker verification and original-byte retry
 lessons. The private document controller and new public query/handle types were
 not ported.
 
@@ -265,10 +265,10 @@ focused backend/native test typechecks, oxlint, repository formatting and
 `git diff --check` pass. No browser integration run or multi-owner safety claim.
 
 Final lifecycle review also found an incomplete-history failure case: a source
-became unavailable after delivering a prefix, but the checkpoint gate left the
+became unavailable after delivering a prefix, but the marker gate left the
 query loading indefinitely. The query now becomes unavailable if no source is
 pending, without exposing the incomplete prefix as ready. A later verified
-checkpoint still recovers to ready. The regression was reproduced before the fix.
+marker still recovers to ready. The regression was reproduced before the fix.
 
 Final verification: 982 tests passed, three skipped (54 files passed, one skipped).
 All retained packages build; focused backend/native test typechecks, lint,

@@ -132,7 +132,7 @@ export class MemoryBackend implements SedimentreeBackend {
         yield { type: "records", phase: "initial", sequence, records }
       yield {
         type: "local-load-complete",
-        checkpoint: { sequence, heads },
+        marker: { sequence, heads },
         found: snapshot.length > 0,
       }
     }
@@ -156,7 +156,7 @@ export class MemoryBackend implements SedimentreeBackend {
         sequence => {
           result = {
             roundId,
-            checkpoint: { sequence, heads },
+            marker: { sequence, heads },
             outcome: "no-peers",
             peers: [],
           }
@@ -217,7 +217,7 @@ export class MemoryBackend implements SedimentreeBackend {
     }
     const heads = headsOf([...tree.records.values()])
     tree.log.append(
-      sequence => ({ type: "checkpoint", checkpoint: { sequence, heads } }),
+      sequence => ({ type: "history-marker", marker: { sequence, heads } }),
       heads.length * 32 + 32
     )
     this.#collection.append(
@@ -372,7 +372,7 @@ function headsOf(records: readonly SedimentreeRecord[]): CommitId[] {
 function copySyncResult(result: SyncRoundResult): SyncRoundResult {
   return {
     ...result,
-    checkpoint: { ...result.checkpoint, heads: [...result.checkpoint.heads] },
+    marker: { ...result.marker, heads: [...result.marker.heads] },
     peers: [],
   }
 }
@@ -382,10 +382,10 @@ function copyEvent(event: SedimentreeEvent): SedimentreeEvent {
     case "records":
       return { ...event, records: event.records.map(copyRecord) }
     case "local-load-complete":
-    case "checkpoint":
+    case "history-marker":
       return {
         ...event,
-        checkpoint: { ...event.checkpoint, heads: [...event.checkpoint.heads] },
+        marker: { ...event.marker, heads: [...event.marker.heads] },
       }
     case "synchronized":
       return { ...event, result: copySyncResult(event.result) }

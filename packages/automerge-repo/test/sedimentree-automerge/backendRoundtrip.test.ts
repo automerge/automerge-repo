@@ -12,7 +12,7 @@ import { MemoryBackend } from "../../src/sedimentree/testing/index.js"
 import {
   applyRecords,
   extractRecords,
-  satisfiesCheckpoint,
+  satisfiesMarker,
 } from "../../src/sedimentree/automerge/index.js"
 
 const id = sedimentreeId("42".repeat(16))
@@ -63,9 +63,7 @@ describe("Automerge through the plain backend boundary", () => {
     const a = memory.open(id)
     const first = await load(a)
     expect(first.doc).toEqual(original)
-    expect(satisfiesCheckpoint(first.doc, first.event.checkpoint.heads)).toBe(
-      true
-    )
+    expect(satisfiesMarker(first.doc, first.event.marker.heads)).toBe(true)
     await a.close()
     const b = memory.open(id)
     const second = await load(b)
@@ -90,7 +88,7 @@ describe("Automerge through the plain backend boundary", () => {
       const event = await next(iterator)
       if (event.type === "local-load-complete") {
         expect(applied).toBeGreaterThan(1)
-        expect(satisfiesCheckpoint(doc, event.checkpoint.heads)).toBe(true)
+        expect(satisfiesMarker(doc, event.marker.heads)).toBe(true)
         expect(doc).toEqual(original)
         break
       }
@@ -99,9 +97,9 @@ describe("Automerge through the plain backend boundary", () => {
       applied++
       if (applied === 1) {
         expect(A.getHeads(doc).length).toBeGreaterThan(0)
-        expect(
-          satisfiesCheckpoint(doc, A.getHeads(original).map(commitId))
-        ).toBe(false)
+        expect(satisfiesMarker(doc, A.getHeads(original).map(commitId))).toBe(
+          false
+        )
       }
     }
   })
@@ -126,34 +124,32 @@ describe("Automerge through the plain backend boundary", () => {
     const reopened = await load(memory.open(id), doc)
     expect(reopened.doc.count).toBe(11)
     expect(reopened.doc.local).toBe(true)
-    expect(
-      satisfiesCheckpoint(reopened.doc, reopened.event.checkpoint.heads)
-    ).toBe(true)
+    expect(satisfiesMarker(reopened.doc, reopened.event.marker.heads)).toBe(
+      true
+    )
     // The local branch also survives persistence through the same contract.
     await memory.store(id, extractRecords(reopened.doc))
     await memory.flush()
     expect((await load(memory.open(id))).doc).toEqual(reopened.doc)
   })
 
-  it("orders data before synchronization checkpoints, independently of promise resolution", async () => {
+  it("orders data before synchronization markers, independently of promise resolution", async () => {
     const memory = backend()
     const session = memory.open(id)
     const empty = await load(session)
     expect(empty.event.found).toBe(false)
-    expect(satisfiesCheckpoint(empty.doc, empty.event.checkpoint.heads)).toBe(
-      false
-    )
+    expect(satisfiesMarker(empty.doc, empty.event.marker.heads)).toBe(false)
     const original = fixture()
     await memory.store(id, extractRecords(original))
     const round = await session.synchronize()
-    expect(satisfiesCheckpoint(empty.doc, round.checkpoint.heads)).toBe(false)
+    expect(satisfiesMarker(empty.doc, round.marker.heads)).toBe(false)
     let doc = empty.doc
     while (true) {
       const event = await next(empty.iterator)
       if (event.type === "records") doc = applyRecords(doc, event.records)
       if (event.type === "synchronized") {
         expect(event.result).toEqual(round)
-        expect(satisfiesCheckpoint(doc, round.checkpoint.heads)).toBe(true)
+        expect(satisfiesMarker(doc, round.marker.heads)).toBe(true)
         break
       }
     }

@@ -187,7 +187,7 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
     this.#recompute()
   }
 
-  /** One complete source checkpoint has been verified against document history. */
+  /** One complete source marker has been verified against document history. */
   markInitialSnapshotComplete(): void {
     this.#initialSnapshotPending = false
     this.#recompute()

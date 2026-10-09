@@ -200,7 +200,7 @@ export class RepoScheduler {
     const session = this.backend.open(delegate.id)
     this.#delegates.add(delegate)
     this.#sessions.set(delegate, session)
-    // Let the backend skip checkpoint work once Repo has a verified snapshot.
+    // Let the backend skip history-marker work once Repo has a verified snapshot.
     delegate.onComplete = () => {
       if (this.#sessions.get(delegate) === session) session.markComplete?.()
     }

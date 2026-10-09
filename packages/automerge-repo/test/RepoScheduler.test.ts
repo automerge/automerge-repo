@@ -286,7 +286,7 @@ describe("RepoScheduler", () => {
     attach(scheduler, id(1))
     expect(marks).toEqual([id(1)])
 
-    // Opened empty: not complete until live data satisfies a checkpoint.
+    // Opened empty: not complete until live data satisfies a marker.
     const document = new Document<{ count: number }>(
       id(2) as unknown as DocumentId,
       A.init()

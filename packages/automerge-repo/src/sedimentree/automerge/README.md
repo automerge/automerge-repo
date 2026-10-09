@@ -17,7 +17,7 @@ extractRecords(doc: Doc<unknown>, select?: RecordPredicate): SedimentreeRecord[]
 extractNewRecords(before: Doc<unknown>, after: Doc<unknown>): SedimentreeRecord[]
 validateRecord(record: SedimentreeRecord): SedimentreeRecord
 applyRecords<T>(doc: Doc<T>, records: RecordBatch, options?: ApplyRecordsOptions): Doc<T>
-satisfiesCheckpoint(doc: Doc<unknown>, heads: readonly CommitId[]): boolean
+satisfiesMarker(doc: Doc<unknown>, heads: readonly CommitId[]): boolean
 ```
 
 `RecordMetadata` is the contract's commit/fragment union without `blob`;
@@ -71,9 +71,9 @@ first load, but this is **not a transaction**: a later Automerge load failure ha
 no rollback guarantee. There is no asynchronous borrowing of caller buffers,
 including `Buffer` and `Uint8Array.subarray` inputs.
 
-`satisfiesCheckpoint` checks **history inclusion** with `hasHeads`. An older
-checkpoint remains satisfied after newer local edits, and unrelated pending
-changes do not prevent one complete source from satisfying its checkpoint.
+`satisfiesMarker` checks **history inclusion** with `hasHeads`. An older
+marker remains satisfied after newer local edits, and unrelated pending
+changes do not prevent one complete source from satisfying its marker.
 An empty target always returns false: it is not evidence of document readiness.
 Targets are full commit IDs, not fragment checkpoint prefixes.
 
@@ -111,7 +111,7 @@ Targets are full commit IDs, not fragment checkpoint prefixes.
 
 Tests use a fixed-actor, all-times-zero 2,000-change fixture, plus deterministic
 forks. They cover metadata-only selection, fragments and loose commits, duplicates,
-bounded mixed loads, pending dependencies, edits during loading, checkpoint
+bounded mixed loads, pending dependencies, edits during loading, history
 inclusion, malformed metadata/payloads, and buffer ownership.
 
 From the workspace root:

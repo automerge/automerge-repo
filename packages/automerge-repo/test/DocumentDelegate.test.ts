@@ -34,7 +34,7 @@ function setup(
   const sync = vi.fn(
     async (): Promise<SyncRoundResult> => ({
       roundId: "1",
-      checkpoint: { sequence: 0, heads: [] },
+      marker: { sequence: 0, heads: [] },
       outcome: "no-peers",
       peers: [],
     })
@@ -156,7 +156,7 @@ describe("DocumentDelegate", () => {
     expect(completed).toBe(true)
   })
 
-  it("gates a nonempty prefix on a complete checkpoint", () => {
+  it("gates a nonempty prefix on a complete history marker", () => {
     let remote = A.from({ count: 1 })
     const first = extractRecords(remote)
     remote = A.change(remote, d => {
@@ -173,7 +173,7 @@ describe("DocumentDelegate", () => {
     delegate.onEvent({
       type: "local-load-complete",
       found: true,
-      checkpoint: { sequence: 1, heads: A.getHeads(remote).map(commitId) },
+      marker: { sequence: 1, heads: A.getHeads(remote).map(commitId) },
     })
     expect(query.peek().state).toBe("loading")
     delegate.onEvent({
@@ -190,13 +190,13 @@ describe("DocumentDelegate", () => {
     delegate.onEvent({
       type: "local-load-complete",
       found: false,
-      checkpoint: { sequence: 0, heads: [] },
+      marker: { sequence: 0, heads: [] },
     })
     delegate.onEvent({
       type: "synchronized",
       result: {
         roundId: "empty",
-        checkpoint: { sequence: 0, heads: [] },
+        marker: { sequence: 0, heads: [] },
         outcome: "no-peers",
         peers: [],
       },
@@ -210,8 +210,8 @@ describe("DocumentDelegate", () => {
       sequence: 1,
     })
     delegate.onEvent({
-      type: "checkpoint",
-      checkpoint: { sequence: 1, heads: A.getHeads(remote).map(commitId) },
+      type: "history-marker",
+      marker: { sequence: 1, heads: A.getHeads(remote).map(commitId) },
     })
     expect(query.peek().state).toBe("ready")
   })
@@ -400,7 +400,7 @@ describe("DocumentDelegate", () => {
       () => Promise.reject(reason),
       async () => ({
         roundId: "1",
-        checkpoint: { sequence: 0, heads: [] },
+        marker: { sequence: 0, heads: [] },
         outcome: "no-peers",
         peers: [],
       }),
@@ -515,13 +515,13 @@ describe("DocumentDelegate", () => {
     delegate.onEvent({
       type: "local-load-complete",
       found: false,
-      checkpoint: { sequence: 0, heads: [] },
+      marker: { sequence: 0, heads: [] },
     })
     delegate.onEvent({
       type: "synchronized",
       result: {
         roundId: "1",
-        checkpoint: { sequence: 0, heads: [] },
+        marker: { sequence: 0, heads: [] },
         outcome: "failed",
         peers: [],
       },
@@ -531,7 +531,7 @@ describe("DocumentDelegate", () => {
       type: "synchronized",
       result: {
         roundId: "2",
-        checkpoint: { sequence: 0, heads: [] },
+        marker: { sequence: 0, heads: [] },
         outcome: "no-peers",
         peers: [],
       },
@@ -540,7 +540,7 @@ describe("DocumentDelegate", () => {
     expect(query.peek().sources.backend).toBe("unavailable")
   })
 
-  it("logs backend failures without poisoning a later checkpoint or edits", async () => {
+  it("logs backend failures without poisoning a later history marker or edits", async () => {
     const { delegate, query, handle } = setup()
     delegate.onEvent({
       type: "failure",
@@ -562,8 +562,8 @@ describe("DocumentDelegate", () => {
       phase: "live",
     })
     delegate.onEvent({
-      type: "checkpoint",
-      checkpoint: {
+      type: "history-marker",
+      marker: {
         sequence: 2,
         heads: A.getHeads(remote).map(commitId),
       },
@@ -606,7 +606,7 @@ describe("DocumentDelegate", () => {
     delegate.onEvent({
       type: "local-load-complete",
       found: true,
-      checkpoint: { sequence: 0, heads: A.getHeads(complete).map(commitId) },
+      marker: { sequence: 0, heads: A.getHeads(complete).map(commitId) },
     })
     expect(query.peek().state).toBe("loading")
     const waiting = query.whenReady()
@@ -634,7 +634,7 @@ describe("DocumentDelegate", () => {
     delegate.onEvent({
       type: "local-load-complete",
       found: true,
-      checkpoint: { sequence: 1, heads: [commitId("ff".repeat(32))] },
+      marker: { sequence: 1, heads: [commitId("ff".repeat(32))] },
     })
     await expect(
       handle.change(d => {
@@ -648,7 +648,7 @@ describe("DocumentDelegate", () => {
     delegate.onEvent({
       type: "local-load-complete",
       found: true,
-      checkpoint: {
+      marker: {
         sequence: 1,
         heads: A.getHeads(handle.fullDoc()).map(commitId),
       },

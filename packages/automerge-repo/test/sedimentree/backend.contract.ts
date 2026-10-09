@@ -81,22 +81,22 @@ export function backendContract(
       expect(loaded.records.map(recordHead)).toEqual([cid(1)])
       expect(loaded.complete).toMatchObject({
         found: true,
-        checkpoint: { heads: [cid(1)] },
+        marker: { heads: [cid(1)] },
       })
       const live = await event(iterator, "records")
       expect(live.phase).toBe("live")
       expect(live.records.map(recordHead)).toEqual([cid(2)])
-      expect(live.sequence).toBeGreaterThan(loaded.complete.checkpoint.sequence)
+      expect(live.sequence).toBeGreaterThan(loaded.complete.marker.sequence)
     })
 
-    it("reports an empty initial checkpoint before synchronization events", async () => {
+    it("reports an empty initial marker before synchronization events", async () => {
       const session = backend.open(treeId())
       const iterator = session.events[Symbol.asyncIterator]()
       const round = session.synchronize()
       const loaded = await initial(iterator)
       expect(loaded.complete).toMatchObject({
         found: false,
-        checkpoint: { heads: [] },
+        marker: { heads: [] },
       })
       expect((await event(iterator, "synchronized")).result).toBeDefined()
       await round

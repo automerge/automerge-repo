@@ -438,7 +438,7 @@ describe("public Repo with native Subduction", () => {
     await p.repo.shutdown()
     p.storage.beforeSave = undefined
     // A partially stored batch would leave commits whose parents never
-    // arrive: the checkpoint could never be satisfied and find would hang.
+    // arrive: the marker could never be satisfied and find would hang.
     const reloaded = await Promise.race([
       peer(p.storage).repo.find<State>(handle.url),
       new Promise<never>((_, reject) =>

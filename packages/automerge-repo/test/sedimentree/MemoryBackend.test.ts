@@ -91,14 +91,14 @@ describe("MemoryBackend exact-representation / no-network model", () => {
       await backend.store(treeId(), [commit(n + 3)])
     }
     expect(await event(iterator, "local-load-complete")).toMatchObject({
-      checkpoint: { sequence: first.sequence, heads: [cid(1), cid(2), cid(3)] },
+      marker: { sequence: first.sequence, heads: [cid(1), cid(2), cid(3)] },
     })
     for (const n of [4, 5, 6]) {
       const live = await event(iterator, "records")
       expect(live).toMatchObject({ phase: "live", records: [commit(n)] })
       expect(live.sequence).toBeGreaterThan(first.sequence)
       expect(
-        (await event(iterator, "checkpoint")).checkpoint.sequence
+        (await event(iterator, "history-marker")).marker.sequence
       ).toBeGreaterThan(live.sequence)
     }
   })
@@ -115,7 +115,7 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     expect((await event(iterator, "records")).records).toEqual([
       commit(4, [cid(2), cid(3)]),
     ])
-    await event(iterator, "checkpoint")
+    await event(iterator, "history-marker")
     await next(collection)
     await backend.store(treeId(), [input])
     // A round is a deterministic sentinel: duplicates must not precede it.
@@ -134,7 +134,7 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     const loaded = await initial(
       backend.open(treeId()).events[Symbol.asyncIterator]()
     )
-    expect(loaded.complete.checkpoint.heads).toEqual([cid(4), cid(5)])
+    expect(loaded.complete.marker.heads).toEqual([cid(4), cid(5)])
   })
 
   it("retains a commit and fragment with the same head as distinct records", async () => {
@@ -242,14 +242,14 @@ describe("MemoryBackend exact-representation / no-network model", () => {
       backend.open(treeId()).events[Symbol.asyncIterator]()
     )
     expect(load.records).toEqual([child, f])
-    expect(load.complete.checkpoint.heads).toEqual([cid(3), cid(4)])
+    expect(load.complete.marker.heads).toEqual([cid(3), cid(4)])
     await backend.store(treeId(), [commit(2, [cid(1)]), commit(1)])
     load = await initial(backend.open(treeId()).events[Symbol.asyncIterator]())
     expect(load.records).toEqual([child, f, commit(2, [cid(1)]), commit(1)])
-    expect(load.complete.checkpoint.heads).toEqual([cid(3), cid(4)])
+    expect(load.complete.marker.heads).toEqual([cid(3), cid(4)])
   })
 
-  it("orders no-peer synchronization checkpoints after data and correlates results with stream markers", async () => {
+  it("orders no-peer synchronization markers after data and correlates results with stream markers", async () => {
     const backend = create()
     const session = backend.open(treeId())
     const other = backend.open(treeId())
@@ -262,28 +262,24 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     expect(round).toMatchObject({
       outcome: "no-peers",
       peers: [],
-      checkpoint: { heads: [cid(1), cid(2)] },
+      marker: { heads: [cid(1), cid(2)] },
     })
     const records = await event(iterator, "records")
-    const checkpoint = await event(iterator, "checkpoint")
+    const marker = await event(iterator, "history-marker")
     const sync = await event(iterator, "synchronized")
-    expect(cut.complete.checkpoint.sequence).toBeLessThan(records.sequence)
-    expect(records.sequence).toBeLessThan(checkpoint.checkpoint.sequence)
-    expect(checkpoint.checkpoint.sequence).toBeLessThan(
-      sync.result.checkpoint.sequence
-    )
+    expect(cut.complete.marker.sequence).toBeLessThan(records.sequence)
+    expect(records.sequence).toBeLessThan(marker.marker.sequence)
+    expect(marker.marker.sequence).toBeLessThan(sync.result.marker.sequence)
     expect(sync.result).toEqual(round)
     await event(oi, "records")
-    expect((await event(oi, "checkpoint")).checkpoint.heads).toEqual([
+    expect((await event(oi, "history-marker")).marker.heads).toEqual([
       cid(1),
       cid(2),
     ])
     expect((await event(oi, "synchronized")).result).toEqual(round)
     const second = await other.synchronize()
     expect(second.roundId).not.toBe(round.roundId)
-    expect(second.checkpoint.sequence).toBeGreaterThan(
-      round.checkpoint.sequence
-    )
+    expect(second.marker.sequence).toBeGreaterThan(round.marker.sequence)
   })
 
   it("aborting one caller does not cancel other sessions, interest, or accepted persistence", async () => {
@@ -305,7 +301,7 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     const round = await b.synchronize()
     for (const iterator of [ai, bi]) {
       expect((await event(iterator, "records")).records).toEqual([commit(1)])
-      await event(iterator, "checkpoint")
+      await event(iterator, "history-marker")
       expect((await event(iterator, "synchronized")).result).toEqual(round)
     }
     expect((await a.synchronize()).outcome).toBe("no-peers")
@@ -321,7 +317,7 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     await settled(backend.flush())
     await write
     await event(iterator, "records")
-    await event(iterator, "checkpoint")
+    await event(iterator, "history-marker")
     const pending = iterator.next()
     await expectPending(pending)
     const result = await session.synchronize()
@@ -341,7 +337,7 @@ describe("MemoryBackend exact-representation / no-network model", () => {
       const slow = backend.open(treeId())
       const iterator = slow.events[Symbol.asyncIterator]()
       await initial(iterator)
-      await backend.store(treeId(), [commit(1)]) // Records plus checkpoint overflow either limit.
+      await backend.store(treeId(), [commit(1)]) // Records plus marker overflow either limit.
       const overflow = await event(iterator, "rescan-required")
       expect(overflow.sequence).toBeGreaterThan(0)
       expect((await settled(iterator.next())).done).toBe(true)
@@ -352,7 +348,7 @@ describe("MemoryBackend exact-representation / no-network model", () => {
         backend.open(treeId()).events[Symbol.asyncIterator]()
       )
       expect(recovered.records).toEqual([commit(1)])
-      expect(recovered.complete.checkpoint.sequence).toBe(overflow.sequence)
+      expect(recovered.complete.marker.sequence).toBe(overflow.sequence)
     }
   )
 
@@ -363,9 +359,9 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     expect((await event(iterator, "records")).records).toEqual([commit(1)])
     await backend.store(treeId(), [commit(3)])
     expect((await event(iterator, "records")).records).toEqual([commit(2)])
-    expect(
-      (await event(iterator, "local-load-complete")).checkpoint.heads
-    ).toEqual([cid(1), cid(2)])
+    expect((await event(iterator, "local-load-complete")).marker.heads).toEqual(
+      [cid(1), cid(2)]
+    )
     await event(iterator, "rescan-required")
     expect((await settled(iterator.next())).done).toBe(true)
     expect(

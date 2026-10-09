@@ -257,7 +257,7 @@ capped: whatever was accepted can always be reopened, enumerated, synced and
 deleted. Opening a tree still reads its whole history into memory, so very
 large trees cost time and heap proportional to their size rather than being
 refused. Once every session on a tree has called `markComplete()`, live and
-sync-round checkpoints are reported from the heads delivered so far instead of
+sync-round markers are reported from the heads delivered so far instead of
 rereading storage. These limits bound delivery and replay, not stored record
 size, total heap use, session count, or queued operations. This is not a streaming or production
 large-history write path.

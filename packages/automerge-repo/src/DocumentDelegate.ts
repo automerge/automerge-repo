@@ -7,7 +7,7 @@ import type { PeerId } from "./types.js"
 import {
   copyRecord,
   recordHead,
-  type HistoryCheckpoint,
+  type HistoryMarker,
   type RecordBatch,
   type SedimentreeEvent,
   type SedimentreeId,
@@ -16,7 +16,7 @@ import {
 import {
   applyRecords,
   extractNewRecords,
-  satisfiesCheckpoint,
+  satisfiesMarker,
 } from "./sedimentree/automerge/index.js"
 
 import type { WriteSource } from "./RepoScheduler.js"
@@ -32,7 +32,7 @@ type WriteJob = {
 export class DocumentDelegate<T> {
   #unsaved = new Set<WriteJob>()
   #pending?: Promise<void>
-  #targets = new Map<"local" | "live" | "sync", HistoryCheckpoint>()
+  #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
   /** Set by the scheduler; notifies the live session once a snapshot is verified. */
   onComplete?: () => void
 
@@ -153,20 +153,20 @@ export class DocumentDelegate<T> {
         break
       }
       case "local-load-complete":
-        this.#checkpoint("local", event.checkpoint)
+        this.#marker("local", event.marker)
         if (this.query.snapshotPending)
           void this.synchronize().catch(error => this.sourceUnavailable(error))
         break
-      case "checkpoint":
-        this.#checkpoint("live", event.checkpoint)
+      case "history-marker":
+        this.#marker("live", event.marker)
         break
       case "synchronized": {
-        this.#checkpoint("sync", event.result.checkpoint)
-        const { outcome, peers, checkpoint } = event.result
+        this.#marker("sync", event.result.marker)
+        const { outcome, peers, marker } = event.result
         if (
           this.query.snapshotPending &&
           this.#targets.size === 0 &&
-          checkpoint.heads.length === 0 &&
+          marker.heads.length === 0 &&
           A.getHeads(this.document.doc).length === 0 &&
           (outcome === "no-peers" ||
             (outcome === "complete" &&
@@ -241,24 +241,21 @@ export class DocumentDelegate<T> {
     if (notify) this.document.registry.dispatchDelete()
   }
 
-  #checkpoint(
-    source: "local" | "live" | "sync",
-    checkpoint: HistoryCheckpoint
-  ): void {
+  #marker(source: "local" | "live" | "sync", marker: HistoryMarker): void {
     if (
       this.query.peek().state === "failed" ||
       !this.query.snapshotPending ||
-      checkpoint.heads.length === 0
+      marker.heads.length === 0
     )
       return
-    if (!this.#targets.has(source)) this.#targets.set(source, checkpoint)
+    if (!this.#targets.has(source)) this.#targets.set(source, marker)
     this.#checkTargets()
   }
 
   #checkTargets(): void {
     if (!this.query.snapshotPending) return
     for (const target of this.#targets.values()) {
-      if (satisfiesCheckpoint(this.document.doc, target.heads)) {
+      if (satisfiesMarker(this.document.doc, target.heads)) {
         this.#targets.clear()
         this.query.markInitialSnapshotComplete()
         this.query.sourceReady("backend")

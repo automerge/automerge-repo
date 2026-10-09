@@ -26,12 +26,12 @@ import type { RecordBatch } from "./records.js"
  * - `records`: history to merge. `phase: "initial"` belongs to the pinned cut;
  *   `phase: "live"` follows it. Delivery is not a local-durability receipt:
  *   events may race a store promise or expose remote data before it is persisted.
- * - `local-load-complete`: local enumeration reached its checkpoint. `found`
+ * - `local-load-complete`: local enumeration reached its marker. `found`
  *   says whether that cut contained records, not whether their dependencies are
- *   materialized or any peer has data. When `found` is false, checkpoint heads
+ *   materialized or any peer has data. When `found` is false, marker heads
  *   are empty. Empty local storage is not global absence. Sync events follow
  *   this initial completion event, not precede it.
- * - `checkpoint`: a position and history heads, ordered after associated record
+ * - `history-marker`: a position and history heads, ordered after associated record
  *   deliveries. The consumer must process those records and verify history
  *   inclusion using its CRDT; nonempty heads or the first blob are not enough.
  * - `synchronized`: the result of a bounded synchronization round, ordered after
@@ -55,7 +55,7 @@ import type { RecordBatch } from "./records.js"
  *   superseding queued old-generation data. This is not a replicated tombstone.
  *
  * Readiness requires a complete initial snapshot from any one usable source,
- * verified by the CRDT consumer against the delivered checkpoint. Other sources
+ * verified by the CRDT consumer against the delivered marker. Other sources
  * may continue loading. A lookup failure or timeout is never proof of absence.
  * Sequence positions are process-local, scoped to their log and lifetime, not
  * portable cursors or comparable across backends/documents/generations. Initial
@@ -165,7 +165,7 @@ export interface SedimentreeSession {
 
   /**
    * Request a bounded round under backend policy, e.g. for an explicit retry.
-   * The result correlates with a `synchronized` event whose checkpoint follows
+   * The result correlates with a `synchronized` event whose marker follows
    * the associated records. Completion does not imply those records were applied
    * by the consumer, all peers were contacted, or remote durability was obtained.
    * Aborting cancels only this wait, not other sessions or accepted persistence.
@@ -182,8 +182,8 @@ export interface SedimentreeSession {
 
   /**
    * Optional hint that the consumer has verified a complete initial snapshot.
-   * Afterwards a backend may stop computing `checkpoint` heads from storage
-   * for this session and may report sync-round checkpoints from the heads it
+   * Afterwards a backend may stop computing `history-marker` heads from storage
+   * for this session and may report sync-round markers from the heads it
    * last delivered. Records, sync results and failures continue unchanged.
    */
   markComplete?(): void
@@ -242,14 +242,14 @@ export interface EphemeralEnvelope {
  * A process-local position in one log/lifetime, not a portable/durable cursor.
  * A result's position orders delivery, not application by the stream consumer.
  */
-export interface HistoryCheckpoint {
+export interface HistoryMarker {
   readonly sequence: number
   readonly heads: readonly CommitId[]
 }
 
 export interface SyncRoundResult {
   readonly roundId: string
-  readonly checkpoint: HistoryCheckpoint
+  readonly marker: HistoryMarker
   readonly outcome: "complete" | "no-peers" | "failed"
   readonly peers: readonly {
     peer: BackendIdentity
@@ -267,10 +267,10 @@ export type SedimentreeEvent =
     }
   | {
       readonly type: "local-load-complete"
-      readonly checkpoint: HistoryCheckpoint
+      readonly marker: HistoryMarker
       readonly found: boolean
     }
-  | { readonly type: "checkpoint"; readonly checkpoint: HistoryCheckpoint }
+  | { readonly type: "history-marker"; readonly marker: HistoryMarker }
   | { readonly type: "synchronized"; readonly result: SyncRoundResult }
   | {
       readonly type: "remote-heads"
