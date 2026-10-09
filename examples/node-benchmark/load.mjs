@@ -366,18 +366,91 @@ for (let round = 0; round < runs; round++) {
     }
   }
 }
+// Incremental edits leave loose commits behind each fragment; imports don't.
+// Write one document, then time loading it from a fresh Repo on the same store.
+const history = []
+const historyEdits = smoke ? 1000 : 3000
+for (let round = 0; round < runs; round++) {
+  const historyStore = new MemoryStore()
+  const writer = open(historyStore)
+  let url
+  const pending = []
+  const writeStart = performance.now()
+  try {
+    const handle = await writer.create({
+      count: 0,
+      items: Array(32).fill("initial"),
+    })
+    url = handle.url
+    for (let i = 1; i <= historyEdits; i++) {
+      const write = handle.change(
+        doc => {
+          doc.count = i
+          doc.items[i % 32] = `revision-${i}`
+        },
+        { time: 0 }
+      )
+      if (write) pending.push(write)
+      // Yield so a synchronous edit loop can't retain every pending write.
+      if (i % 100 === 0) await new Promise(resolve => setImmediate(resolve))
+    }
+    await Promise.all([writer.flush(), Promise.all(pending)])
+  } finally {
+    await writer.close()
+  }
+  const writeMs = performance.now() - writeStart
+  const keys = historyStore.keys()
+  const count = part =>
+    keys.filter(key => typeof key === "string" && key.includes(`/${part}/`))
+      .length
+  const stored = {
+    ...historyStore.size(),
+    // Only PoC keys distinguish loose commits from fragments.
+    commits: target === "poc" ? count("commits") : null,
+    fragments: target === "poc" ? count("fragments") : null,
+  }
+  historyStore.resetStats()
+  const reader = open(historyStore)
+  let loadMs, storage
+  try {
+    const start = performance.now()
+    const doc = (await reader.find(url)).doc()
+    loadMs = performance.now() - start
+    storage = historyStore.stats()
+    if (
+      doc?.count !== historyEdits ||
+      doc.items[historyEdits % 32] !== `revision-${historyEdits}`
+    )
+      throw new Error("history reopen verification failed")
+  } finally {
+    await reader.close()
+  }
+  history.push({
+    round: round + 1,
+    edits: historyEdits,
+    writeMs,
+    loadMs,
+    stored,
+    storage,
+    verified: true,
+  })
+  console.log(
+    `${target} round ${round + 1}/${runs}, history ${historyEdits} edits: write ${writeMs.toFixed(1)} ms, load ${loadMs.toFixed(1)} ms, ${stored.keys} keys`
+  )
+}
 profiler?.disconnect()
 await writeFile(
   output,
   JSON.stringify(
     {
-      schema: 3,
+      schema: 4,
       target,
       node: process.version,
       fixtureSha256,
       seed: before,
       samples,
       writes,
+      history,
       imports,
       importFixtureSha256,
     },

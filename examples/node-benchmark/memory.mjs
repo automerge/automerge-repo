@@ -31,6 +31,13 @@ export class MemoryStore {
     return Object.fromEntries(this.#stats)
   }
 
+  /** Stored keys in each adapter's native shape (string or array). */
+  keys() {
+    return [...this.#keys.values()].map(key =>
+      Array.isArray(key) ? key.slice() : key
+    )
+  }
+
   size() {
     return {
       keys: this.#data.size,

@@ -173,14 +173,42 @@ const importSummary = Object.fromEntries(
     ),
   ])
 )
+const historySummary = Object.fromEntries(
+  names.map(name => {
+    const samples = results[name].history
+    const pick = key => {
+      const values = samples.map(sample => sample[key])
+      return {
+        median: median(values),
+        min: Math.min(...values),
+        max: Math.max(...values),
+      }
+    }
+    const { stored } = samples[0]
+    return [
+      name,
+      {
+        edits: samples[0].edits,
+        writeMs: pick("writeMs"),
+        loadMs: pick("loadMs"),
+        keys: stored.keys,
+        bytes: stored.bytes,
+        commits: stored.commits,
+        fragments: stored.fragments,
+        verified: samples.every(sample => sample.verified),
+      },
+    ]
+  })
+)
 const report = {
-  schema: 3,
+  schema: 4,
   mode: "node-memory-load-write",
   smoke,
   runs,
   results,
   summary,
   writeSummary,
+  historySummary,
   importSummary,
 }
 const file = join(
@@ -190,5 +218,6 @@ const file = join(
 await writeFile(file, JSON.stringify(report, null, 2) + "\n")
 console.log(JSON.stringify(summary, null, 2))
 console.log(JSON.stringify(writeSummary, null, 2))
+console.log(JSON.stringify(historySummary, null, 2))
 console.log(JSON.stringify(importSummary, null, 2))
 console.log(`Saved ${file}`)

@@ -37,6 +37,10 @@ test("both adapters share copying, prefix, and reopen semantics", async () => {
     "subduction-v1/tree/commits/a",
   ])
   assert.equal(store.size().keys, 2)
+  assert.deepEqual(store.keys().map(String).sort(), [
+    "doc,commits,a",
+    "subduction-v1/tree/commits/a",
+  ])
   assert.equal((await store.legacy().loadRange(["doc"])).length, 1)
   assert.equal(
     (await store.bytes().loadPrefix("subduction-v1/tree/")).length,
