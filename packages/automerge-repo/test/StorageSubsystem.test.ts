@@ -537,6 +537,22 @@ describe("StorageSubsystem", () => {
   })
 })
 
+describe("StorageSubsystem bookkeeping", () => {
+  it("re-saves a removed document even when its heads are unchanged", async () => {
+    const adapter = new DummyStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const doc = A.from({ foo: "bar" })
+
+    await storage.saveDoc(documentId, doc)
+    await storage.removeDoc(documentId)
+    await storage.saveDoc(documentId, doc)
+
+    const reloaded = await new StorageSubsystem(adapter).loadDoc(documentId)
+    assert.deepStrictEqual(reloaded, doc)
+  })
+})
+
 describe("StorageSubsystem compaction recovery", () => {
   it("keeps compacting after a failed snapshot write (does not get stuck not-compacting)", async () => {
     // Simulate a storage write that fails mid-compaction. Real, usually
