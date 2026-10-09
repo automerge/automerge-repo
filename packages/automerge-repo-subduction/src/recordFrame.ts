@@ -83,11 +83,8 @@ export function decodeRecordFrame(
   tree: Uint8Array,
   kind: Kind,
   key: string,
-  value: Uint8Array,
-  maxRecordBytes: number
+  value: Uint8Array
 ): { encoded: Uint8Array; blob: Uint8Array } {
-  if (value.byteLength > maxRecordBytes + HEADER)
-    throw new Error("Compound record too large")
   if (
     value.length < HEADER ||
     value[0] !== VERSION ||

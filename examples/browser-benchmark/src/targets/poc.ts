@@ -34,6 +34,16 @@ function profile(
         stats.save.elapsedMs += performance.now() - start
       }
     },
+    // Each batch is one IndexedDB transaction, counted as one save.
+    async saveBatch(entries) {
+      const start = performance.now()
+      try {
+        return await store.saveBatch(entries)
+      } finally {
+        stats.save.calls++
+        stats.save.elapsedMs += performance.now() - start
+      }
+    },
     async list(prefix) {
       const start = performance.now()
       try {

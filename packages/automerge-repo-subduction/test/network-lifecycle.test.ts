@@ -2,9 +2,6 @@ import * as A from "@automerge/automerge"
 // Fullfat initializes the runtime used by the backend's slim import.
 import * as N from "@automerge/subduction"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { mkdtemp, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import {
   recordKey,
   sedimentreeId,
@@ -13,7 +10,7 @@ import {
 } from "@automerge/automerge-repo/sedimentree"
 import { extractRecords } from "@automerge/automerge-repo/sedimentree/automerge"
 import { SubductionBackend } from "../src/index.js"
-import { DiskStore, deferred } from "./storage.js"
+import { TestStore, deferred } from "./storage.js"
 import { PairedTransport } from "./transport.js"
 
 const tree = sedimentreeId("71".repeat(16))
@@ -33,7 +30,7 @@ const persistedRecords = [...baseline, ...records].sort((a, b) =>
   recordKey(a).localeCompare(recordKey(b))
 )
 type Peer = {
-  storage: DiskStore
+  storage: TestStore
   signer: N.MemorySigner
   backend: SubductionBackend
 }
@@ -87,7 +84,6 @@ function errorText(value: unknown): string {
 }
 
 describe("authenticated network failure and lifecycle barriers", () => {
-  let root: string
   const peers: Peer[] = []
   const transports: PairedTransport[] = []
   const releases: (() => void)[] = []
@@ -101,11 +97,11 @@ describe("authenticated network failure and lifecycle barriers", () => {
     void promise.catch(() => {})
     return promise
   }
-  function peer(storage?: DiskStore): Peer {
+  function peer(storage?: TestStore): Peer {
     const signer = N.MemorySigner.fromBytes(
       new Uint8Array(32).fill(peers.length + 21)
     )
-    const disk = storage ?? new DiskStore(join(root, `peer-${peers.length}`))
+    const disk = storage ?? new TestStore()
     const result = {
       signer,
       storage: disk,
@@ -232,9 +228,6 @@ describe("authenticated network failure and lifecycle barriers", () => {
     return { left, right, wire }
   }
 
-  beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), "repo-subduction-network-lifecycle-"))
-  })
   afterEach(async () => {
     releases.splice(0).forEach(release => release())
     await bounded(
@@ -249,7 +242,6 @@ describe("authenticated network failure and lifecycle barriers", () => {
     await bounded(Promise.allSettled(work.splice(0)), "pending work cleanup")
     peers.splice(0).forEach(p => p.signer.free())
     vi.restoreAllMocks()
-    await rm(root, { recursive: true, force: true })
   }, 30000)
 
   it("keeps observing native successful empty replies, and later pushes still persist", async () => {
@@ -647,17 +639,15 @@ describe("authenticated network failure and lifecycle barriers", () => {
       wire: [oldWire],
     } = await settledConnection(a, b)
     const inventory = await collection(b)
-    const save = b.storage.save.bind(b.storage)
     const persisted = deferred()
     let fail = true
-    vi.spyOn(b.storage, "save").mockImplementation(async (key, value) => {
-      await save(key, value)
-      if (key.includes("/commits/") && fail) {
+    b.storage.afterSave = keys => {
+      if (keys.some(key => key.includes("/commits/")) && fail) {
         fail = false
         persisted.resolve()
         throw new Error("ambiguous incoming record save")
       }
-    })
+    }
     await a.backend.store(tree, records)
     await bounded(persisted.promise, "persist then reject incoming save")
     await bounded(

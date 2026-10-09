@@ -85,24 +85,30 @@ export class IndexedDBByteStore implements LocalByteStore {
     return new Promise<T>((resolve, reject) => {
       let result: T
       let failure: unknown
-      const request = operation(
-        transaction.objectStore(this.options.store ?? "bytes"),
-        value => {
-          result = value
-        },
-        cause => {
-          failure = cause
-          transaction.abort()
-        }
-      )
+      let request: IDBRequest | undefined
       transaction.onabort = () =>
         reject(
           failure ??
             transaction.error ??
-            request.error ??
+            request?.error ??
             new Error("IndexedDB transaction failed")
         )
       transaction.oncomplete = () => resolve(result)
+      try {
+        request = operation(
+          transaction.objectStore(this.options.store ?? "bytes"),
+          value => {
+            result = value
+          },
+          cause => {
+            failure = cause
+            transaction.abort()
+          }
+        )
+      } catch (error) {
+        failure = error
+        transaction.abort()
+      }
     })
   }
 
@@ -125,6 +131,19 @@ export class IndexedDBByteStore implements LocalByteStore {
     // Snapshot synchronously, before waiting for the database to open.
     const copy = new Uint8Array(bytes)
     return this.run("readwrite", store => store.put(copy, key))
+  }
+
+  /** One readwrite transaction: IndexedDB commits every put or none. */
+  saveBatch(entries: readonly [string, Uint8Array][]): Promise<void> {
+    const copies = entries.map(
+      ([key, bytes]) => [key, new Uint8Array(bytes)] as const
+    )
+    if (!copies.length) return Promise.resolve()
+    return this.run("readwrite", store => {
+      let request!: IDBRequest
+      for (const [key, bytes] of copies) request = store.put(bytes, key)
+      return request
+    })
   }
 
   remove(key: string): Promise<void> {

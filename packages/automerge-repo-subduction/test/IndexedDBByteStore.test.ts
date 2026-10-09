@@ -150,6 +150,37 @@ for (const [name, create] of [
       await saving
       expect(await store.load("key")).toEqual(new Uint8Array([1]))
     })
+
+    it("saves a batch as one visible cut and snapshots its bytes", async () => {
+      await store.save("b/1", new Uint8Array([0]))
+      const one = new Uint8Array([1])
+      const saving = store.saveBatch([
+        ["b/1", one],
+        ["b/2", new Uint8Array([2])],
+        ["b/3", new Uint8Array([3])],
+      ])
+      const reading = store.loadPrefix("b/")
+      one[0] = 9
+      const seen = await reading
+      await saving
+      // A concurrent read sees the whole batch or none of it.
+      expect([
+        JSON.stringify([["b/1", [0]]]),
+        JSON.stringify([
+          ["b/1", [1]],
+          ["b/2", [2]],
+          ["b/3", [3]],
+        ]),
+      ]).toContain(
+        JSON.stringify(seen.map(([key, value]) => [key, [...value]]))
+      )
+      expect(await store.loadPrefix("b/")).toEqual([
+        ["b/1", new Uint8Array([1])],
+        ["b/2", new Uint8Array([2])],
+        ["b/3", new Uint8Array([3])],
+      ])
+      await store.saveBatch([])
+    })
   })
 }
 
@@ -356,6 +387,61 @@ describe("IndexedDBByteStore", () => {
       expect(await store.load("key")).toEqual(new Uint8Array([1]))
       await store.save("key", new Uint8Array([3]))
       expect(await store.load("key")).toEqual(new Uint8Array([3]))
+    } finally {
+      await store.close()
+    }
+  })
+
+  it("commits none of a batch whose transaction aborts part-way", async () => {
+    const open = vi.spyOn(indexedDB, "open")
+    const store = new IndexedDBByteStore({ database: "batch-aborted" })
+    try {
+      await store.save("a", new Uint8Array([1]))
+      const db = open.mock.results[0].value.result as IDBDatabase
+      const transaction = db.transaction.bind(db)
+      vi.spyOn(db, "transaction").mockImplementationOnce((...args) => {
+        const tx = transaction(...args)
+        const objectStore = tx.objectStore("bytes")
+        const put = objectStore.put.bind(objectStore)
+        let puts = 0
+        vi.spyOn(tx, "objectStore").mockReturnValue(objectStore)
+        vi.spyOn(objectStore, "put").mockImplementation((...putArgs) => {
+          const request = put(...putArgs)
+          // The first two puts succeed; the transaction aborts on the third.
+          if (++puts === 3)
+            request.addEventListener("success", () => tx.abort(), {
+              once: true,
+            })
+          return request
+        })
+        return tx
+      })
+      await expect(
+        store.saveBatch([
+          ["a", new Uint8Array([2])],
+          ["b", new Uint8Array([2])],
+          ["c", new Uint8Array([2])],
+        ])
+      ).rejects.toThrow("IndexedDB transaction failed")
+      expect(await store.loadPrefix("")).toEqual([["a", new Uint8Array([1])]])
+      await store.saveBatch([["b", new Uint8Array([3])]])
+      expect(await store.load("b")).toEqual(new Uint8Array([3]))
+    } finally {
+      await store.close()
+    }
+  })
+
+  it("commits none of a batch when a later put throws synchronously", async () => {
+    const store = new IndexedDBByteStore({ database: "batch-invalid-key" })
+    try {
+      await store.save("a", new Uint8Array([1]))
+      await expect(
+        store.saveBatch([
+          ["a", new Uint8Array([2])],
+          [undefined as unknown as string, new Uint8Array([3])],
+        ])
+      ).rejects.toMatchObject({ name: "DataError" })
+      expect(await store.loadPrefix("")).toEqual([["a", new Uint8Array([1])]])
     } finally {
       await store.close()
     }

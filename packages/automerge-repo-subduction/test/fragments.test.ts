@@ -2,14 +2,10 @@
 import * as N from "@automerge/subduction"
 import * as A from "@automerge/automerge"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { mkdtemp, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import {
   checkpointForCommit,
   commitId,
   copyRecord,
-  recordBytes,
   sedimentreeId,
   type FragmentRecord,
   type LooseCommitRecord,
@@ -23,7 +19,7 @@ import {
 } from "../src/index.js"
 import { nativeId, type StorageBridge } from "../src/storage.js"
 import { extractRecords } from "@automerge/automerge-repo/sedimentree/automerge"
-import { DiskStore, deferred } from "./storage.js"
+import { TestStore, deferred } from "./storage.js"
 import { corruptFrame, signedBytes } from "./frame.js"
 
 const tree = sedimentreeId("ab".repeat(16))
@@ -80,7 +76,7 @@ async function initial(backend: SubductionBackend) {
 }
 
 describe("local Subduction fragments", () => {
-  let root: string, storage: DiskStore, signer: N.MemorySigner
+  let storage: TestStore, signer: N.MemorySigner
   let backends: SubductionBackend[]
   function create(limits: Partial<SubductionBackendOptions> = {}) {
     const backend = new SubductionBackend({
@@ -92,8 +88,7 @@ describe("local Subduction fragments", () => {
     return backend
   }
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), "repo-fragments-"))
-    storage = new DiskStore(root)
+    storage = new TestStore()
     signer = N.MemorySigner.fromBytes(new Uint8Array(32).fill(42))
     backends = []
   })
@@ -104,17 +99,20 @@ describe("local Subduction fragments", () => {
     }
     signer.free()
     vi.restoreAllMocks()
-    await rm(root, { recursive: true, force: true })
   })
 
   it("retains full records across native minimization, including a commit and fragment with the same head", async () => {
     const backend = create()
     const records = [loose(1), loose(4, [1]), fragment(4)]
     await backend.store(tree, records)
-    const saves = vi.spyOn(storage, "save")
+    const saves = vi.spyOn(storage, "saveBatch")
     await backend.store(tree, records)
     // Exact retries may touch the ID marker, but must not rewrite records.
-    expect(saves.mock.calls.filter(([key]) => !key.endsWith("/id"))).toEqual([])
+    expect(
+      saves.mock.calls.flatMap(([entries]) =>
+        entries.map(([key]) => key).filter(key => !key.endsWith("/id"))
+      )
+    ).toEqual([])
     expect((await initial(backend)).records).toEqual(records)
     await backend.close()
     const reloaded = create()
@@ -305,7 +303,7 @@ describe("local Subduction fragments", () => {
     }
   )
 
-  it("retries a partially saved mixed batch, preserving commit and fragment observations after rescan", async () => {
+  it("retries a failed mixed batch without exposing any of it", async () => {
     const backend = create()
     const watching = await initial(backend)
     storage.beforeSave = async key => {
@@ -316,7 +314,11 @@ describe("local Subduction fragments", () => {
     expect(await next(watching.iterator)).toMatchObject({
       type: "rescan-required",
     })
-    expect((await initial(backend)).records).toEqual([loose(1)])
+    expect((await initial(backend)).records).toEqual([])
+    // Native may save the tree marker on its own first; no record is stored.
+    expect(
+      (await storage.list("subduction-v1/")).filter(key => !key.endsWith("/id"))
+    ).toEqual([])
     await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     storage.beforeSave = undefined
     await backend.store(tree, records)
@@ -325,7 +327,7 @@ describe("local Subduction fragments", () => {
   })
 
   it.each([1, 2, 3])(
-    "keeps acknowledged records after a batch fails at record save %s",
+    "stores none of a batch that fails at record %s, keeping acknowledged history",
     async failurePosition => {
       const backend = create()
       const acknowledged = loose(9)
@@ -346,8 +348,7 @@ describe("local Subduction fragments", () => {
       storage.beforeSave = undefined
 
       const reopened = create()
-      const { records } = await initial(reopened)
-      expect(records).toContainEqual(acknowledged)
+      expect((await initial(reopened)).records).toEqual([acknowledged])
       await reopened.store(tree, pending)
       const recovered = (await initial(reopened)).records
       expect(recovered).toEqual(
@@ -361,15 +362,13 @@ describe("local Subduction fragments", () => {
     const watching = await initial(backend)
     const collection = backend.observeCollection()[Symbol.asyncIterator]()
     await collection.next()
-    const save = storage.save.bind(storage)
     let fail = true
-    vi.spyOn(storage, "save").mockImplementation(async (key, value) => {
-      await save(key, value)
-      if (key.includes("/fragments/") && fail) {
+    storage.afterSave = keys => {
+      if (keys.some(key => key.includes("/fragments/")) && fail) {
         fail = false
         throw new Error("ambiguous save")
       }
-    })
+    }
     await expect(backend.store(tree, [fragment(4)])).rejects.toThrow()
     expect(await next(watching.iterator)).toMatchObject({
       type: "rescan-required",
@@ -383,15 +382,19 @@ describe("local Subduction fragments", () => {
     await backend.flush()
   })
 
-  it("reloads both kinds regardless of total history size; only single records are bounded", async () => {
-    const larger = create()
-    await larger.store(tree, [loose(1), fragment(4)])
-    await larger.close()
-    expect((await initial(create())).records).toEqual([loose(1), fragment(4)])
-    const stream = create({ maxRecordBytes: recordBytes(loose(1)) })
-      .open(tree)
-      .events[Symbol.asyncIterator]()
-    expect(await next(stream)).toMatchObject({ type: "failure" })
+  it("stores and reloads a record larger than the former 16 MiB limit", async () => {
+    const large = {
+      ...loose(1),
+      blob: new Uint8Array(17 * 1024 * 1024).fill(7),
+    }
+    const backend = create()
+    await backend.store(tree, [large, fragment(4)])
+    await backend.close()
+    // Compare bytes directly: a failing toEqual would try to print 17 MiB.
+    const [stored, other] = (await initial(create())).records
+    expect(stored.kind === "commit" && stored.id).toBe(large.id)
+    expect(Buffer.compare(stored.blob, large.blob)).toBe(0)
+    expect(other).toEqual(fragment(4))
   })
 
   it.each(["commits", "fragments"])(
@@ -412,11 +415,15 @@ describe("local Subduction fragments", () => {
 
   it("opens with exactly one storage read, whatever the history size", async () => {
     await create().store(tree, [loose(1), loose(4, [1]), fragment(4)])
-    // Count top-level calls on a wrapper, not the DiskStore's own internals.
+    // Count top-level calls on a wrapper, not the store's own internals.
     const calls: string[] = []
     const counted: LocalByteStore = {
       load: key => (calls.push("load"), storage.load(key)),
       save: (key, data) => (calls.push("save"), storage.save(key, data)),
+      saveBatch: entries => (
+        calls.push("saveBatch"),
+        storage.saveBatch(entries)
+      ),
       remove: key => (calls.push("remove"), storage.remove(key)),
       list: prefix => (calls.push("list"), storage.list(prefix)),
       loadPrefix: prefix => (

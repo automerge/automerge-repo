@@ -46,6 +46,117 @@ function attach(scheduler: RepoScheduler, documentId = id(1), open = true) {
 }
 
 describe("RepoScheduler", () => {
+  it("retries failed history together with a later dependent edit", async () => {
+    const backend = new MemoryBackend()
+    const store = vi
+      .spyOn(backend, "store")
+      .mockRejectedValueOnce(new Error("disk full"))
+    const scheduler = new RepoScheduler(backend)
+    const { handle, delegate, document } = attach(scheduler, id(1), false)
+    const initial = A.clone(document.doc)
+    await expect(
+      handle.change(d => {
+        d.count = 1
+      })
+    ).rejects.toThrow("disk full")
+    const failed = store.mock.calls[0][1]
+    await handle.change(d => {
+      d.count = 2
+    })
+    const merged = store.mock.calls[1][1]
+    expect(merged.slice(0, failed.length)).toEqual(failed)
+    expect(A.getHeads(applyRecords(initial, merged))).toEqual(
+      A.getHeads(document.doc)
+    )
+    expect(delegate.hasUnsavedHistory).toBe(false)
+    await scheduler.close()
+  })
+
+  it("coalesces queued edits per document and retries their failed predecessor", async () => {
+    const backend = new MemoryBackend()
+    const blocked = gate()
+    const store = vi
+      .spyOn(backend, "store")
+      .mockImplementationOnce(async () => {
+        await blocked.promise
+        throw new Error("disk full")
+      })
+    const scheduler = new RepoScheduler(backend, { concurrency: 2 })
+    const { handle, delegate } = attach(scheduler, id(1), false)
+    const other = attach(scheduler, id(2), false)
+    const first = expect(
+      handle.change(d => {
+        d.count = 1
+      })
+    ).rejects.toThrow("disk full")
+    await vi.waitFor(() => expect(store).toHaveBeenCalledOnce())
+    const second = handle.change(d => {
+      d.count = 2
+    })
+    const third = handle.change(d => {
+      d.count = 3
+    })
+    await other.handle.change(d => {
+      d.count = 4
+    })
+    expect(store.mock.calls.map(([id]) => id)).toEqual([id(1), id(2)])
+    blocked.resolve()
+    await first
+    await Promise.all([second, third])
+    expect(store.mock.calls.map(([id]) => id)).toEqual([id(1), id(2), id(1)])
+    expect(store.mock.calls[2][1]).toHaveLength(3)
+    expect(delegate.hasUnsavedHistory).toBe(false)
+    await scheduler.close()
+  })
+
+  it("resolves joined empty writes without calling storage", async () => {
+    const backend = new MemoryBackend()
+    const store = vi.spyOn(backend, "store")
+    const scheduler = new RepoScheduler(backend)
+    const source = vi.fn(
+      async (save: (batch: ReturnType<typeof records>) => Promise<void>) =>
+        save([])
+    )
+    const first = scheduler.submit(id(1), source)
+    expect(scheduler.submit(id(1), source)).toBe(first)
+    await first
+    expect(source).toHaveBeenCalledOnce()
+    expect(store).not.toHaveBeenCalled()
+    await scheduler.close()
+  })
+
+  it("flush does not wait for edits queued after its captured write", async () => {
+    const backend = new MemoryBackend()
+    const firstGate = gate(),
+      laterGate = gate()
+    const store = vi
+      .spyOn(backend, "store")
+      .mockImplementationOnce(() => firstGate.promise)
+      .mockImplementationOnce(() => laterGate.promise)
+    const scheduler = new RepoScheduler(backend)
+    const { handle, delegate } = attach(scheduler)
+    try {
+      const first = handle.change(d => {
+        d.count = 1
+      })
+      await vi.waitFor(() => expect(store).toHaveBeenCalledOnce())
+      const flushed = scheduler.flush()
+      const later = handle.change(d => {
+        d.count = 2
+      })
+      firstGate.resolve()
+      await flushed
+      await first
+      expect(delegate.hasUnsavedHistory).toBe(true)
+      laterGate.resolve()
+      await later
+      expect(delegate.hasUnsavedHistory).toBe(false)
+    } finally {
+      firstGate.resolve()
+      laterGate.resolve()
+      await scheduler.close()
+    }
+  })
   it("marks an unexpectedly ended observation unavailable without closing the handle", async () => {
     const backend = new MemoryBackend()
     const originalOpen = backend.open.bind(backend)

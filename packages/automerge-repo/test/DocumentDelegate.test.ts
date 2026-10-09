@@ -31,17 +31,19 @@ function setup(
   const document = new Document("test" as DocumentId, doc)
   const handle = new DocHandle(document)
   const query = new DocumentQuery(handle)
-  const sync = vi.fn(async (): Promise<SyncRoundResult> => ({
-    roundId: "1",
-    checkpoint: { sequence: 0, heads: [] },
-    outcome: "no-peers",
-    peers: [],
-  }))
+  const sync = vi.fn(
+    async (): Promise<SyncRoundResult> => ({
+      roundId: "1",
+      checkpoint: { sequence: 0, heads: [] },
+      outcome: "no-peers",
+      peers: [],
+    })
+  )
   const delegate = new DocumentDelegate(
     sedimentreeId("01".repeat(16)),
     document,
     query,
-    submit,
+    (id, source) => source(records => submit(id, records)),
     sync,
     created
   )
@@ -387,9 +389,42 @@ describe("DocumentDelegate", () => {
     expect(attempts[1]).toEqual(attempts[0])
   })
 
+  it("retains the reason when a scheduled write rejects before preparing records", async () => {
+    const reason = new Error("Document generation deleted")
+    const document = new Document("test" as DocumentId, A.from({ count: 0 }))
+    const handle = new DocHandle(document)
+    const delegate = new DocumentDelegate(
+      sedimentreeId("01".repeat(16)),
+      document,
+      new DocumentQuery(handle),
+      () => Promise.reject(reason),
+      async () => ({
+        roundId: "1",
+        checkpoint: { sequence: 0, heads: [] },
+        outcome: "no-peers",
+        peers: [],
+      }),
+      true
+    )
+    await expect(
+      handle.change(d => {
+        d.count = 1
+      })
+    ).rejects.toBe(reason)
+    await expect(delegate.flush()).rejects.toMatchObject({ errors: [reason] })
+  })
+
   it("retries a boundary batch with its original fragment bytes", async () => {
-    const initial = A.from({ count: 0 }, { actor: "abcdef" })
-    let fork = A.clone(initial)
+    // Fixed actors and times make change hashes, and so fragment depths, stable.
+    // A.from stamps the current time and A.clone picks a random actor.
+    const initial = A.change(
+      A.init<{ count: number }>({ actor: "abcdef" }),
+      { time: 0 },
+      doc => {
+        doc.count = 0
+      }
+    )
+    let fork = A.clone(initial, { actor: "fedcba" })
     for (let count = 1; count <= 500; count++)
       fork = A.change(fork, { time: 0 }, doc => {
         doc.count = count

@@ -8,11 +8,8 @@ import {
   type DocHandle,
 } from "@automerge/automerge-repo"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { mkdtemp, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import { SubductionBackend } from "../src/index.js"
-import { DiskStore, deferred } from "./storage.js"
+import { TestStore, deferred } from "./storage.js"
 import { corruptFrame } from "./frame.js"
 import { repoFragmentFixture } from "./repoFixture.js"
 import { RepoTransport } from "./repoTransport.js"
@@ -21,7 +18,7 @@ type State = { count: number; left?: number; right?: number }
 type Peer = {
   repo: Repo
   backend: SubductionBackend
-  storage: DiskStore
+  storage: TestStore
   signer: N.MemorySigner
 }
 const wait = { timeout: 8000, interval: 20 }
@@ -31,16 +28,15 @@ async function ready<T>(handle: DocHandle<T>, state: T) {
 }
 
 describe("public Repo with native Subduction", () => {
-  let root: string
   const peers: Peer[] = []
   const wires: RepoTransport[] = []
   const gates: ReturnType<typeof deferred>[] = []
 
-  function peer(storage?: DiskStore): Peer {
+  function peer(storage?: TestStore): Peer {
     const signer = N.MemorySigner.fromBytes(
       new Uint8Array(32).fill(peers.length + 1)
     )
-    const disk = storage ?? new DiskStore(join(root, `peer-${peers.length}`))
+    const disk = storage ?? new TestStore()
     const backend = new SubductionBackend({
       storage: disk,
       signer,
@@ -100,16 +96,12 @@ describe("public Repo with native Subduction", () => {
     }
   }
 
-  beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), "repo-public-subduction-"))
-  })
   afterEach(async () => {
     gates.splice(0).forEach(gate => gate.resolve())
     await Promise.allSettled(wires.splice(0).map(wire => wire.disconnect()))
     await Promise.allSettled(peers.map(p => p.repo.shutdown()))
     await Promise.allSettled(peers.map(p => p.backend.close()))
     peers.splice(0).forEach(p => p.signer.free())
-    await rm(root, { recursive: true, force: true })
   }, 20000)
 
   it("changes state and emits events immediately, but awaits recoverable storage", async () => {
@@ -426,6 +418,34 @@ describe("public Repo with native Subduction", () => {
     expect(handle.doc()).toEqual({ count: 1 })
     await expect(p.repo.flush()).rejects.toThrow()
     await expect(p.repo.shutdown()).resolves.toBeUndefined()
+  })
+
+  it("reloads acknowledged history after a failed fragmented write", async () => {
+    const p = peer()
+    const handle = await p.repo.create<State>({ count: 0 })
+    let fork = A.clone(handle.fullDoc())
+    for (let count = 1; count <= 2000; count++)
+      fork = A.change(fork, { time: 0 }, doc => {
+        doc.count = count
+      })
+    // Fail the batch at its first fragment, after commits were checked.
+    p.storage.beforeSave = async key => {
+      if (key.includes("/fragments/")) throw new Error("Disk unavailable")
+    }
+    await expect(
+      handle.update(doc => A.merge(doc, A.clone(fork)))
+    ).rejects.toThrow()
+    await p.repo.shutdown()
+    p.storage.beforeSave = undefined
+    // A partially stored batch would leave commits whose parents never
+    // arrive: the checkpoint could never be satisfied and find would hang.
+    const reloaded = await Promise.race([
+      peer(p.storage).repo.find<State>(handle.url),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("find did not settle")), 3000)
+      ),
+    ])
+    expect(reloaded.doc()).toEqual({ count: 0 })
   })
 
   it("keeps an empty connected lookup open for later data", async () => {

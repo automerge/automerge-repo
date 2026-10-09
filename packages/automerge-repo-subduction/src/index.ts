@@ -72,8 +72,6 @@ export interface SubductionBackendOptions {
   storage: LocalByteStore
   /** Native request deadline, not a deadline on local storage or handshake. */
   syncTimeoutMilliseconds?: number
-  /** Largest single record (signed metadata plus blob). */
-  maxRecordBytes?: number
   /** Initial-delivery record count per `records` event. */
   batchRecords?: number
   /** Initial-delivery batch target per `records` event. */
@@ -251,7 +249,6 @@ export class SubductionBackend implements SedimentreeBackend {
     }
     this.limits = {
       syncTimeoutMilliseconds: options.syncTimeoutMilliseconds ?? 5000,
-      maxRecordBytes: options.maxRecordBytes ?? 16 * 1024 * 1024,
       batchRecords: options.batchRecords ?? 128,
       batchBytes: options.batchBytes ?? 1024 * 1024,
       replayEvents: options.replayEvents ?? 128,
@@ -264,7 +261,6 @@ export class SubductionBackend implements SedimentreeBackend {
       throw new TypeError("Sync timeout exceeds native u32 range")
     this.bridge = new StorageBridge(
       options.storage,
-      this.limits,
       (id, record) => this.persisted(id, record),
       id => this.storageFailed(id)
     )
@@ -971,12 +967,6 @@ export class SubductionBackend implements SedimentreeBackend {
           )
         )
           throw new Error("Fragment metadata exceeds native wire count limits")
-        // Only single records are bounded here; a submission of any size is
-        // accepted, so an import never has to be pre-split.
-        if (
-          records.some(r => recordBytes(r) + 512 > this.limits.maxRecordBytes)
-        )
-          throw new Error("Record exceeds maxRecordBytes")
       } catch (cause) {
         throw new BackendError(
           "store",

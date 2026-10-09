@@ -11,9 +11,18 @@ import type { DocumentDelegate } from "./DocumentDelegate.js"
 
 type Delegate = DocumentDelegate<any>
 
+/** Prepare and acknowledge a write inside the scheduler's per-document queue. */
+export type WriteSource = (
+  submitRecords: (records: RecordBatch) => Promise<void>
+) => Promise<void>
+
 /** Owns backend sessions and ordered per-ID persistence, bounded across IDs. */
 export class RepoScheduler {
   #tails = new Map<SedimentreeId, Promise<void>>()
+  #queued = new Map<
+    SedimentreeId,
+    { source: WriteSource; job: Promise<void> }
+  >()
   #creating = new Map<Promise<unknown>, SedimentreeId | undefined>()
   #sessions = new Map<Delegate, SedimentreeSession>()
   #delegates = new Set<Delegate>()
@@ -45,6 +54,7 @@ export class RepoScheduler {
       return Promise.reject(new Error("Document deletion in progress"))
     const owned = records.map(copyRecord)
     const requested = options?.documentId
+    if (requested) this.#queued.delete(requested)
     const generation = requested ? (this.#generations.get(requested) ?? 0) : 0
     const previous = requested
       ? (this.#tails.get(requested) ?? Promise.resolve())
@@ -68,30 +78,42 @@ export class RepoScheduler {
     return job
   }
 
-  submit(id: SedimentreeId, records: RecordBatch): Promise<void> {
+  submit(id: SedimentreeId, records: RecordBatch | WriteSource): Promise<void> {
     return this.#submit(id, records)
   }
 
   #submit(
     id: SedimentreeId,
-    records: RecordBatch,
+    records: RecordBatch | WriteSource,
     draining = false
   ): Promise<void> {
     if (this.#stopping && !draining)
       return Promise.reject(new Error("Scheduler is closed"))
     if (this.#deleting.has(id))
       return Promise.reject(new Error("Document deletion in progress"))
-    const owned = records.map(copyRecord)
+    const source = typeof records === "function" ? records : undefined
+    const queued = this.#queued.get(id)
+    if (source && queued?.source === source) return queued.job
+    // Raw submissions and different producers preserve their position in the queue.
+    this.#queued.delete(id)
+    const owned = source ? undefined : (records as RecordBatch).map(copyRecord)
     const generation = this.#generations.get(id) ?? 0
     const previous = this.#tails.get(id) ?? Promise.resolve()
     const job = previous.then(() =>
-      this.#run(() => {
+      this.#run(async () => {
+        if (this.#queued.get(id)?.job === job) this.#queued.delete(id)
         if ((this.#generations.get(id) ?? 0) !== generation)
           throw new Error("Document generation deleted")
-        return this.backend.store(id, owned)
+        const submitRecords = (batch: RecordBatch) =>
+          batch.length
+            ? this.backend.store(id, batch.map(copyRecord))
+            : Promise.resolve()
+        if (source) await source(submitRecords)
+        else await submitRecords(owned!)
       })
     )
     this.#setTail(id, job)
+    if (source) this.#queued.set(id, { source, job })
     return job
   }
 
@@ -353,7 +375,7 @@ export class RepoScheduler {
           Promise.resolve().then(() => session.close())
         ),
         ...[...this.#delegates].map(delegate =>
-          delegate.drain((id, records) => this.#submit(id, records, true))
+          delegate.drain((id, source) => this.#submit(id, source, true))
         ),
       ])
       const errors = results

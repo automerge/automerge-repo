@@ -19,15 +19,19 @@ import {
   satisfiesCheckpoint,
 } from "./sedimentree/automerge/index.js"
 
+import type { WriteSource } from "./RepoScheduler.js"
+
 type WriteJob = {
   records: RecordBatch
-  pending?: Promise<void>
   error?: unknown
 }
 
-/** Per-document CRDT consumer and owner of exact, retryable local write batches. */
+/** Per-document CRDT consumer and owner of exact, retryable local write batches.
+ * The scheduler orders writes; the delegate prepares and acknowledges records.
+ */
 export class DocumentDelegate<T> {
   #unsaved = new Set<WriteJob>()
+  #pending?: Promise<void>
   #targets = new Map<"local" | "live" | "sync", HistoryCheckpoint>()
   /** Set by the scheduler; notifies the live session once a snapshot is verified. */
   onComplete?: () => void
@@ -36,7 +40,7 @@ export class DocumentDelegate<T> {
     readonly id: SedimentreeId,
     readonly document: Document<T>,
     readonly query: DocumentQuery<T>,
-    private submit: (id: SedimentreeId, records: RecordBatch) => Promise<void>,
+    private submit: (id: SedimentreeId, source: WriteSource) => Promise<void>,
     private synchronize: () => Promise<SyncRoundResult>,
     created = false,
     private origin?: string
@@ -61,60 +65,64 @@ export class DocumentDelegate<T> {
   commit(before: A.Doc<T>, doc: A.Doc<T>): Promise<void> {
     if (this.document.closed)
       return Promise.reject(new Error("Delegate is closed"))
-    const attempts = [...this.#unsaved].map(
-      job => job.pending ?? this.#schedule(job)
-    )
     const records = extractNewRecords(before, doc)
-    if (records.length) {
-      const job: WriteJob = { records }
-      this.#unsaved.add(job)
-      attempts.push(this.#schedule(job))
-    }
-    const stored = Promise.all(attempts).then(() => {})
+    if (records.length) this.#unsaved.add({ records })
+    if (!this.#unsaved.size) return Promise.resolve()
+    const stored = this.#write()
     void stored.catch(() => {})
     return stored
   }
 
-  #schedule(job: WriteJob, submit = this.submit): Promise<void> {
-    // Give each attempt its own buffers; failed bytes remain unchanged for retry.
+  /** Reserve work immediately so scheduler lifecycle barriers capture it. */
+  #write(submit = this.submit): Promise<void> {
+    const jobs = [...this.#unsaved]
     let attempt: Promise<void>
     try {
-      attempt = submit(this.id, job.records.map(copyRecord))
+      attempt = submit(this.id, this.#persist)
     } catch (error) {
       attempt = Promise.reject(error)
     }
-    job.pending = attempt
-    void attempt.then(
-      () => {
-        this.#unsaved.delete(job)
-        job.pending = undefined
-        job.error = undefined
-      },
-      error => {
-        job.pending = undefined
-        job.error = error
-      }
-    )
-    return attempt
+    // The scheduler can reject before calling #persist (e.g. a deleted
+    // generation). Preserve that reason for jobs covered by this attempt.
+    const tracked = attempt.catch(error => {
+      for (const job of jobs) if (this.#unsaved.has(job)) job.error = error
+      throw error
+    })
+    this.#pending = tracked
+    return tracked
   }
 
-  /** Capture now. Later edits are excluded, but retries may queue behind them. */
+  // Stable identity lets the scheduler coalesce not-yet-started requests.
+  #persist: WriteSource = async submitRecords => {
+    const jobs = new Set(this.#unsaved)
+    if (!jobs.size) return
+    try {
+      await submitRecords([...jobs].flatMap(job => job.records.map(copyRecord)))
+    } catch (error) {
+      for (const job of jobs) job.error = error
+      throw error
+    }
+    for (const job of jobs) this.#unsaved.delete(job)
+  }
+
+  /** Capture accepted work now, then retry any captured jobs still unsaved.
+   * Never call scheduler.flush here: that barrier itself drains delegates. */
   async flush(submit = this.submit): Promise<void> {
     const captured = [...this.#unsaved]
-    await Promise.allSettled(
-      captured.flatMap(job => (job.pending ? [job.pending] : []))
-    )
-    await Promise.allSettled(
-      captured
-        .filter(job => this.#unsaved.has(job))
-        .map(job => job.pending ?? this.#schedule(job, submit))
-    )
+    if (!captured.length) return
+    await this.#pending?.catch(() => {})
+    if (captured.some(job => this.#unsaved.has(job)))
+      await this.#write(submit).catch(() => {})
     const failures = captured.filter(job => this.#unsaved.has(job))
     if (failures.length)
       throw new AggregateError(
-        failures.map(
-          job => job.error ?? new Error("Unstored document history")
-        ),
+        [
+          ...new Set(
+            failures.map(
+              job => job.error ?? new Error("Unstored document history")
+            )
+          ),
+        ],
         "Document still has unsaved history"
       )
   }

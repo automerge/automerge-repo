@@ -20,23 +20,20 @@ import {
 
 /** Exclusively owned namespace. save MUST atomically replace one whole value.
  * list returns full keys beginning with prefix; missing load returns undefined.
- * Implementations must not mutate passed bytes. No batch atomicity is required.
+ * Implementations must not mutate passed bytes.
  */
 export interface LocalByteStore {
   load(key: string): Promise<Uint8Array | undefined>
   save(key: string, data: Uint8Array): Promise<void>
+  /** All entries become visible together, or none do. Each Repo write is one
+   * batch, so a failure never leaves a change stored without its parents. */
+  saveBatch(entries: readonly [key: string, data: Uint8Array][]): Promise<void>
   remove(key: string): Promise<void>
   list(prefix: string): Promise<string[]>
   /** Every entry whose key begins with `prefix`, sorted by key, from one
    * consistent read (like main's StorageAdapter.loadRange). Returned bytes are
    * owned by the caller. */
   loadPrefix(prefix: string): Promise<[key: string, data: Uint8Array][]>
-}
-
-/** Per-record bound only. Total history per tree is not capped: a store that
- * accepted writes must always be able to read, sync and delete them again. */
-export interface ReadLimits {
-  maxRecordBytes: number
 }
 
 const ROOT = "subduction-v1/"
@@ -250,7 +247,6 @@ export class StorageBridge implements N.SedimentreeStorage {
 
   constructor(
     private readonly storage: LocalByteStore,
-    private readonly limits: ReadLimits,
     private readonly saved: (
       id: SedimentreeId,
       record: SedimentreeRecord
@@ -391,8 +387,7 @@ export class StorageBridge implements N.SedimentreeStorage {
       treeBytes,
       ref.kind,
       ref.key,
-      value,
-      this.limits.maxRecordBytes
+      value
     )
     // Tree, key and blob were checked when written; the frame checksum and
     // Repo's record validation cover damage since.
@@ -590,8 +585,6 @@ export class StorageBridge implements N.SedimentreeStorage {
     record: SedimentreeRecord,
     encoded: Uint8Array
   ): Prepared {
-    if (encoded.length + record.blob.length > this.limits.maxRecordBytes)
-      throw new Error("Record limit exceeded")
     if ((record.kind === "commit" ? record.id : record.head) !== key)
       throw new Error("Signed record key does not match storage key")
     const ref: RecordKey =
@@ -610,26 +603,41 @@ export class StorageBridge implements N.SedimentreeStorage {
       frame: encodeRecordFrame(id.toBytes(), keyBytes, record, encoded),
     }
   }
-  private async savePrepared(value: Prepared): Promise<void> {
-    const { tree, sid, ref, record, frame } = value
-    // Same-key lookup only: whole-history budgets are enforced on reads.
-    const existing = await this.read(tree, ref)
-    if (existing) {
-      existing.signed.free()
-      if (!equalRecords(existing.record, record))
-        throw new BackendError(
-          "store",
-          "conflict",
-          `Different representation for an existing ${record.kind} key`
-        )
-      // Another writer or an ambiguous save may have missed this notification.
-      this.saved(sid, record)
-      return
+  /** Check each record against its own key only, then write the new ones and
+   * any extra entries in one atomic batch. */
+  private async savePrepared(
+    values: readonly Prepared[],
+    extra: [key: string, data: Uint8Array][] = []
+  ): Promise<void> {
+    const writes = new Map(extra)
+    const batch = new Map<string, SedimentreeRecord>()
+    const conflict = (record: SedimentreeRecord) =>
+      new BackendError(
+        "store",
+        "conflict",
+        `Different representation for an existing ${record.kind} key`
+      )
+    for (const { tree, ref, record, frame } of values) {
+      const path = recordPath(tree, ref)
+      const earlier = batch.get(path)
+      if (earlier) {
+        if (!equalRecords(earlier, record)) throw conflict(record)
+        continue
+      }
+      batch.set(path, record)
+      const existing = await this.read(tree, ref)
+      if (existing) {
+        existing.signed.free()
+        if (!equalRecords(existing.record, record)) throw conflict(record)
+        continue
+      }
+      writes.set(path, frame)
     }
-    await this.storage.save(recordPath(tree, ref), frame)
+    if (writes.size) await this.storage.saveBatch([...writes])
     // Only resolved saves notify. Ambiguous failures are handled by the owner's
-    // rescan/retry path; an already saved record notifies on retry.
-    this.saved(sid, record)
+    // rescan/retry path. Already stored records notify too: another writer or
+    // an ambiguous save may have missed the notification.
+    for (const { sid, record } of values) this.saved(sid, record)
   }
 
   async saveCommit(
@@ -640,7 +648,7 @@ export class StorageBridge implements N.SedimentreeStorage {
   ): Promise<void> {
     return this.mutate(id, () => {
       const value = this.prepareCommit(id, key, signed, blob)
-      return () => this.savePrepared(value)
+      return () => this.savePrepared([value])
     })
   }
   async loadCommit(
@@ -708,7 +716,7 @@ export class StorageBridge implements N.SedimentreeStorage {
   ): Promise<void> {
     return this.mutate(id, () => {
       const value = this.prepareFragment(id, key, signed, blob)
-      return () => this.savePrepared(value)
+      return () => this.savePrepared([value])
     })
   }
   async loadFragment(
@@ -788,9 +796,14 @@ export class StorageBridge implements N.SedimentreeStorage {
           this.prepareFragment(id, f.fragmentHead, f.signedFragment, f.blob)
         ),
       ]
+      // This batch includes a tree marker. Native may have saved one before
+      // calling us; marker-only trees are treated as absent on reads.
+      const marker: [string, Uint8Array] = [
+        `${prefix(tree)}id`,
+        new Uint8Array([1]),
+      ]
       return async () => {
-        await this.storage.save(`${prefix(tree)}id`, new Uint8Array([1]))
-        for (const value of copies) await this.savePrepared(value)
+        await this.savePrepared(copies, [marker])
         return copies.length
       }
     })

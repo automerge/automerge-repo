@@ -12,8 +12,19 @@ export class MemoryByteStore implements LocalByteStore {
   }
 
   async save(key: string, bytes: Uint8Array): Promise<void> {
+    this.#put(key, bytes.slice())
+  }
+
+  async saveBatch(entries: readonly [string, Uint8Array][]): Promise<void> {
+    // Copy everything first; then apply synchronously, so readers see all
+    // entries or none.
+    const copies = entries.map(([key, bytes]) => [key, bytes.slice()] as const)
+    for (const [key, bytes] of copies) this.#put(key, bytes)
+  }
+
+  #put(key: string, bytes: Uint8Array): void {
     if (!this.#data.has(key)) this.#keys.splice(this.#lowerBound(key), 0, key)
-    this.#data.set(key, bytes.slice())
+    this.#data.set(key, bytes)
   }
 
   async remove(key: string): Promise<void> {

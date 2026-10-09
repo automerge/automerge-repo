@@ -38,8 +38,9 @@ keys, as native code can panic on invalid keys.
 For persistent local history in a browser, pass `new IndexedDBByteStore()` as
 `storage`. It uses the `automerge-repo-subduction` database and `bytes` object
 store by default; pass `{ database, store }` to override them. Existing object
-stores must use out-of-line keys without autoIncrement. A completed save does
-not guarantee fsync or protection from browser eviction.
+stores must use out-of-line keys without autoIncrement. Each `saveBatch` is one
+readwrite transaction. A completed save does not guarantee fsync or protection
+from browser eviction.
 
 After shutting down Repo and closing the peer, call `await storage.close()` to
 release its database connection. If an open is blocked, close other database
@@ -134,6 +135,7 @@ The injected `LocalByteStore` has exactly:
 ```ts
 load(key: string): Promise<Uint8Array | undefined>
 save(key: string, data: Uint8Array): Promise<void>
+saveBatch(entries: [key: string, data: Uint8Array][]): Promise<void>
 remove(key: string): Promise<void>
 list(prefix: string): Promise<string[]> // full keys with this prefix
 loadPrefix(prefix: string): Promise<[key: string, data: Uint8Array][]>
@@ -147,8 +149,11 @@ separate `load`s is not equivalent unless nothing else can write meanwhile.
 Returned bytes are owned by the caller. Opening a document is a single
 `loadPrefix` call.
 
-`save` **must atomically replace one entire value**. Successful resolution must
-mean recoverable under the store's documented guarantees (not necessarily fsync).
+`save` **must atomically replace one entire value**. `saveBatch` (required;
+custom stores written against the earlier interface must add it) **must make
+every entry visible, or none**, including to a concurrent `loadPrefix`. Successful
+resolution must mean recoverable under the store's documented guarantees (not
+necessarily fsync).
 Missing values are `undefined`; `remove` is idempotent. Do not mutate supplied
 bytes. The `subduction-v1/` namespace must be exclusively owned by this backend.
 Storage is borrowed and is not closed or erased by backend close. Concurrent
@@ -209,9 +214,16 @@ acknowledgment; messages have no receipts, retries, or replay after reconnection
 
 ## Persistence and integrity
 
-Records are saved atomically **per record**, not as a batch transaction. A
-partially failed batch may already be observable. Malformed records fail rather
-than appearing absent; the checksum detects damage, not malicious tampering.
+Each `store()`/`create()` submission, and each batch native sync receives, is
+written with one atomic `saveBatch` that includes a tree ID marker. Native may
+save the marker separately first; a marker-only tree reads as absent. A failed
+batch stores none of its records, so a change is never stored without the
+changes it depends on. A save that commits and then rejects is ambiguous:
+observers are told to rescan, and an exact retry dedupes. Repo serializes each
+document's writes and retries any unsaved changes together with later edits. A
+write that keeps failing therefore blocks later persistence of that document,
+and `flush()` keeps reporting it. Malformed records fail rather than appearing
+absent; the checksum detects damage, not malicious tampering.
 A different representation of an existing commit ID is rejected. As in native
 Subduction storage, fragments are keyed by head plus payload digest: valid
 same-head variants coexist, and a head lookup returns the one native keeps
@@ -229,28 +241,25 @@ Default limits:
 | Option                    |                                                  Default |
 | ------------------------- | -------------------------------------------------------: |
 | `syncTimeoutMilliseconds` |                         5,000 ms per native peer request |
-| `maxRecordBytes`          |                16 MiB (native signed metadata plus blob) |
 | `batchRecords`            |                           128 records per delivery event |
 | `batchBytes`              | 1 MiB initial delivery target; one larger record allowed |
 | `replayEvents`            |                                            128 per watch |
 | `replayBytes`             |                                          4 MiB per watch |
 
-A save reads only its own key (to detect a conflicting representation and
-duplicate notifications) and then writes; it does not rescan the tree. A
+A write reads only the keys it writes (to detect a conflicting representation
+and duplicate notifications); it does not rescan the tree. A
 `store()`/`create()` submission of any size is accepted: it is validated up
-front (per-record size, wire counts, same-key conflicts within the batch and
-against storage), then written in one native call. It is not split: a
-document must already fit in Automerge's WASM memory, which is exhausted long
-before a submission would strain Subduction's. Records are saved one at a time,
-so a failed write can leave some of them durable; the whole batch is safe to
-retry and already-written records dedupe. There is **no cap on a tree's total
-history**: whatever was accepted can always be reopened, enumerated, synced and
+front (wire counts, commit conflicts within the batch and against storage),
+then written in one native call. It is not split: a document must already fit
+in Automerge's WASM memory, which is exhausted long before a submission would
+strain Subduction's. Neither a single record nor a tree's total history is
+capped: whatever was accepted can always be reopened, enumerated, synced and
 deleted. Opening a tree still reads its whole history into memory, so very
 large trees cost time and heap proportional to their size rather than being
 refused. Once every session on a tree has called `markComplete()`, live and
 sync-round checkpoints are reported from the heads delivered so far instead of
-rereading storage. These limits bound encoded records, not total heap use,
-session count, or queued operations. This is not a streaming or production
+rereading storage. These limits bound delivery and replay, not stored record
+size, total heap use, session count, or queued operations. This is not a streaming or production
 large-history write path.
 
 ## Dependency and tests

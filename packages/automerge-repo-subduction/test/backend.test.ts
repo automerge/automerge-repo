@@ -1,9 +1,6 @@
 // Node fullfat initializes the SAME runtime used by implementation's slim import.
 import * as N from "@automerge/subduction"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { mkdtemp, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import {
   commitId,
   sedimentreeId,
@@ -16,7 +13,7 @@ import {
   type SubductionBackendOptions,
 } from "../src/index.js"
 import { nativeId, logicalId } from "../src/storage.js"
-import { DiskStore, deferred } from "./storage.js"
+import { TestStore, deferred, savedKeys } from "./storage.js"
 import { corruptFrame, signedBytes } from "./frame.js"
 
 const tree = sedimentreeId("ab".repeat(16))
@@ -60,7 +57,7 @@ async function next(iterator: AsyncIterator<SedimentreeEvent>) {
 }
 
 describe("real local Subduction", () => {
-  let root: string, storage: DiskStore, signer: N.MemorySigner
+  let storage: TestStore, signer: N.MemorySigner
   let backends: SubductionBackend[]
   const create = (limits: Partial<SubductionBackendOptions> = {}) => {
     const backend = new SubductionBackend({
@@ -74,7 +71,7 @@ describe("real local Subduction", () => {
   /** Bridge-encoded frame for `record`, produced by a scratch backend on its
    * own store, so a test can plant a stored representation directly. */
   async function encodedFrame(record: LooseCommitRecord): Promise<Uint8Array> {
-    const scratch = new DiskStore(await mkdtemp(join(tmpdir(), "frame-")))
+    const scratch = new TestStore()
     const backend = new SubductionBackend({ storage: scratch, signer })
     try {
       await backend.store(tree, [record])
@@ -84,12 +81,10 @@ describe("real local Subduction", () => {
       return (await scratch.load(key))!
     } finally {
       await backend.close()
-      await rm(scratch.root, { recursive: true, force: true })
     }
   }
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), "repo-subduction-"))
-    storage = new DiskStore(root)
+    storage = new TestStore()
     signer = N.MemorySigner.fromBytes(new Uint8Array(32).fill(42))
     backends = []
   })
@@ -100,7 +95,6 @@ describe("real local Subduction", () => {
     }
     signer.free()
     vi.restoreAllMocks()
-    await rm(root, { recursive: true, force: true })
   })
 
   it("mints distinct IDs and stores initial history before returning", async () => {
@@ -207,7 +201,7 @@ describe("real local Subduction", () => {
       })
       if (timing === "after") await a.store(tree, [record(1)])
       // Sequential external writes test notification recovery, not shared ownership.
-      const save = vi.spyOn(storage, "save")
+      const save = vi.spyOn(storage, "saveBatch")
       await b.store(tree, [record(1)])
       expect(await next(loaded.iterator)).toMatchObject({
         type: "records",
@@ -223,9 +217,9 @@ describe("real local Subduction", () => {
         phase: "live",
         id: tree,
       })
-      expect(
-        save.mock.calls.filter(([key]) => key.includes("/commits/"))
-      ).toEqual([])
+      expect(savedKeys(save).filter(key => key.includes("/commits/"))).toEqual(
+        []
+      )
       expect((await initial(b.open(tree))).records).toEqual([record(1)])
       // The local write hydrated native, which holds the one record.
       await expect(nativeCommits(b)).resolves.toBe(1)
@@ -238,13 +232,11 @@ describe("real local Subduction", () => {
     const backend = create({ replayEvents: 2 })
     await backend.store(tree, [record(1)])
     const { iterator } = await initial(backend.open(tree))
-    const save = vi.spyOn(storage, "save")
+    const save = vi.spyOn(storage, "saveBatch")
     for (let i = 0; i < 3; i++) await backend.store(tree, [record(1)])
     expect(await next(iterator)).toMatchObject({ type: "rescan-required" })
     expect((await iterator.next()).done).toBe(true)
-    expect(
-      save.mock.calls.filter(([key]) => key.includes("/commits/"))
-    ).toEqual([])
+    expect(savedKeys(save).filter(key => key.includes("/commits/"))).toEqual([])
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])
   })
 
@@ -333,7 +325,7 @@ describe("real local Subduction", () => {
     const backend = create()
     await backend.store(tree, [record(1)])
     const list = vi.spyOn(storage, "list")
-    const save = vi.spyOn(storage, "save")
+    const save = vi.spyOn(storage, "saveBatch")
     const variant = { ...record(1), blob: new Uint8Array([9, 42]) }
     await expect(backend.store(tree, [variant])).rejects.toMatchObject({
       operation: "store",
@@ -387,7 +379,7 @@ describe("real local Subduction", () => {
     expect(loaded.complete.checkpoint.heads).toEqual([cid(200)])
   })
 
-  it("keeps records saved before a mid-batch failure; a full retry completes and dedupes", async () => {
+  it("stores none of a batch after a mid-batch failure; a full retry completes it", async () => {
     const backend = create()
     const { iterator } = await initial(backend.open(tree))
     const records = Array.from({ length: 10 }, (_, i) =>
@@ -395,24 +387,26 @@ describe("real local Subduction", () => {
     )
     let writes = 0
     storage.beforeSave = async key => {
-      // The bridge saves record by record: fail the 5th.
+      // Fail the 5th record: the whole batch must be refused.
       if (key.includes("/commits/") && ++writes === 5)
         throw new Error("disk failed")
     }
     await expect(backend.store(tree, records)).rejects.toThrow()
     expect(await next(iterator)).toMatchObject({ type: "rescan-required" })
-    expect((await initial(backend.open(tree))).records).toEqual(
-      records.slice(0, 4)
-    )
+    expect((await initial(backend.open(tree))).records).toEqual([])
     await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     storage.beforeSave = undefined
-    const save = vi.spyOn(storage, "save")
+    const save = vi.spyOn(storage, "saveBatch")
     await backend.store(tree, records)
-    // The retry resubmits everything; already saved records are not rewritten.
-    const commitSaves = save.mock.calls.filter(([key]) =>
-      key.includes("/commits/")
-    )
-    expect(commitSaves).toHaveLength(6)
+    // Native may also save the tree marker on its own; records go in one batch.
+    expect(
+      save.mock.calls.filter(([entries]) =>
+        entries.some(([key]) => key.includes("/commits/"))
+      )
+    ).toHaveLength(1)
+    expect(
+      savedKeys(save).filter(key => key.includes("/commits/"))
+    ).toHaveLength(10)
     const reloaded = await initial(backend.open(tree))
     expect(reloaded.records).toEqual(records)
     expect(reloaded.complete.checkpoint.heads).toEqual([cid(10)])
@@ -581,7 +575,7 @@ describe("real local Subduction", () => {
     expect((await iterator.next()).done).toBe(true)
   })
 
-  it("rescans partial persisted saves, reports historical failure to flush, and retries safely", async () => {
+  it("rescans after a failed batch, reports historical failure to flush, and retries safely", async () => {
     const backend = create()
     const { iterator } = await initial(backend.open(tree))
     let count = 0
@@ -592,7 +586,7 @@ describe("real local Subduction", () => {
     await expect(backend.store(tree, [record(1), record(2)])).rejects.toThrow()
     expect(await next(iterator)).toMatchObject({ type: "rescan-required" })
     expect((await iterator.next()).done).toBe(true)
-    expect((await initial(backend.open(tree))).records).toEqual([record(1)])
+    expect((await initial(backend.open(tree))).records).toEqual([])
     await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     storage.beforeSave = undefined
     await backend.store(tree, [record(1), record(2)])
@@ -608,15 +602,14 @@ describe("real local Subduction", () => {
     const { iterator } = await initial(backend.open(tree))
     const collection = backend.observeCollection()[Symbol.asyncIterator]()
     await collection.next()
-    const save = storage.save.bind(storage)
     let fail = true
-    vi.spyOn(storage, "save").mockImplementation(async (key, value) => {
-      await save(key, value)
-      if (key.includes("/commits/") && fail) {
+    storage.afterSave = keys => {
+      if (keys.some(key => key.includes("/commits/")) && fail) {
         fail = false
         throw new Error("ambiguous write outcome")
       }
-    })
+    }
+    const save = vi.spyOn(storage, "saveBatch")
     await expect(backend.store(tree, [record(1)])).rejects.toThrow()
     expect(await next(iterator)).toMatchObject({ type: "rescan-required" })
     expect((await collection.next()).value).toMatchObject({
@@ -624,9 +617,9 @@ describe("real local Subduction", () => {
     })
     const retry = await initial(backend.open(tree))
     expect(retry.records).toEqual([record(1)])
-    const writes = vi
-      .mocked(storage.save)
-      .mock.calls.filter(([key]) => key.includes("/commits/")).length
+    const writes = savedKeys(save).filter(key =>
+      key.includes("/commits/")
+    ).length
     await backend.store(tree, [record(1)])
     expect(await next(retry.iterator)).toMatchObject({
       type: "records",
@@ -634,9 +627,7 @@ describe("real local Subduction", () => {
       records: [record(1)],
     })
     expect(
-      vi
-        .mocked(storage.save)
-        .mock.calls.filter(([key]) => key.includes("/commits/"))
+      savedKeys(save).filter(key => key.includes("/commits/"))
     ).toHaveLength(writes)
     await retry.iterator.return!()
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])

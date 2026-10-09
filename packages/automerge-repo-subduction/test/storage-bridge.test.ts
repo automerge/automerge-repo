@@ -36,13 +36,15 @@ const fragment: FragmentRecord = {
   blob: new Uint8Array([8, 42]),
 }
 const conflict = { ...commit(1), blob: new Uint8Array([9, 42]) }
-const limits = { maxRecordBytes: 4096 }
 
 class MemoryStore implements LocalByteStore {
   readonly values = new Map<string, Uint8Array>()
   readonly calls: string[] = []
+  /** Every key committed by save or saveBatch, in order. */
+  readonly written: string[] = []
   before?: (op: string, key: string) => Promise<void>
-  afterSave?: (key: string) => void
+  /** Runs after a write commits; a throw makes the outcome ambiguous. */
+  afterSave?: (keys: string[]) => void
   active = 0
   maxActive = 0
   private async run<T>(op: string, key: string, action: () => T): Promise<T> {
@@ -59,10 +61,16 @@ class MemoryStore implements LocalByteStore {
     return this.run("load", key, () => this.values.get(key)?.slice())
   }
   save(key: string, bytes: Uint8Array) {
-    return this.run("save", key, () => {
-      this.values.set(key, bytes.slice())
-      this.afterSave?.(key)
-    })
+    return this.run("save", key, () => this.commit([[key, bytes]]))
+  }
+  saveBatch(entries: readonly [string, Uint8Array][]) {
+    const keys = entries.map(([key]) => key)
+    return this.run("saveBatch", keys.join(","), () => this.commit(entries))
+  }
+  private commit(entries: readonly [string, Uint8Array][]) {
+    for (const [key, bytes] of entries) this.values.set(key, bytes.slice())
+    this.written.push(...entries.map(([key]) => key))
+    this.afterSave?.(entries.map(([key]) => key))
   }
   remove(key: string) {
     return this.run("remove", key, () => {
@@ -93,7 +101,7 @@ beforeAll(async () => {
   try {
     for (const record of [first, second, third, conflict, fragment]) {
       const storage = new MemoryStore()
-      const bridge = new StorageBridge(storage, limits, () => {})
+      const bridge = new StorageBridge(storage, () => {})
       const engine = new N.Subduction({ signer, storage: bridge })
       const id = nativeId(tree)
       try {
@@ -218,7 +226,7 @@ function dispose(value: unknown): void {
 describe("StorageBridge native transaction serialization", () => {
   it("rejects a signed record under a different storage key", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, limits, () => {})
+    const bridge = new StorageBridge(storage, () => {})
     const wrong = N.CommitId.fromHexString(second.id)
     const value = N.SignedLooseCommit.tryDecode(signed.get(first)!)
     try {
@@ -242,7 +250,7 @@ describe("StorageBridge native transaction serialization", () => {
     async (kind, path) => {
       const storage = new MemoryStore()
       const saved = vi.fn()
-      const bridge = new StorageBridge(storage, limits, saved)
+      const bridge = new StorageBridge(storage, saved)
       const record = kind === "commit" ? first : fragment
       // Signed for `tree`, offered under `other`, as a remote peer could.
       const write =
@@ -259,22 +267,20 @@ describe("StorageBridge native transaction serialization", () => {
     const storage = new MemoryStore()
     const firstSaved = vi.fn(),
       secondSaved = vi.fn()
-    const a = new StorageBridge(storage, limits, firstSaved)
-    const b = new StorageBridge(storage, limits, secondSaved)
+    const a = new StorageBridge(storage, firstSaved)
+    const b = new StorageBridge(storage, secondSaved)
     await save(a, first)
     await save(b, first)
     expect(firstSaved.mock.calls).toEqual([[tree, first]])
     expect(secondSaved.mock.calls).toEqual([[tree, first]])
-    expect(storage.calls.filter(call => call.startsWith("save:"))).toHaveLength(
-      1
-    )
+    expect(storage.written).toHaveLength(1)
   })
 
   it("serializes same-head conflicts and exact retries, but allows both kinds", async () => {
     const storage = new MemoryStore(),
       saved = vi.fn(),
       failed = vi.fn()
-    const bridge = new StorageBridge(storage, limits, saved, failed)
+    const bridge = new StorageBridge(storage, saved, failed)
     const outcomes = await Promise.allSettled([
       save(bridge, first),
       save(bridge, first),
@@ -298,13 +304,13 @@ describe("StorageBridge native transaction serialization", () => {
     ])
     expect(failed).toHaveBeenCalledOnce()
     expect(await withId(id => bridge.records(id))).toEqual([first, fragment])
-    expect(storage.calls.filter(c => c.startsWith("save:"))).toHaveLength(2)
+    expect(storage.written).toHaveLength(2)
     expect(storage.maxActive).toBe(1)
   })
 
   it("owns decoded blobs after the stored frame changes", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, limits, () => {})
+    const bridge = new StorageBridge(storage, () => {})
     await save(bridge, first)
     const [record] = await withId(id => bridge.records(id))
     const frame = [...storage.values.values()][0]
@@ -312,43 +318,25 @@ describe("StorageBridge native transaction serialization", () => {
     expect(record.blob).toEqual(first.blob)
   })
 
-  it("bounds single records but never the total history of a tree", async () => {
-    const storage = new MemoryStore()
-    // The budget admits exactly one signed record. Two together exceed it,
-    // yet both must be writable and readable: accepted history is never
-    // refused on reload for its total size.
-    const perRecord = Math.max(
-      ...[first, second].map(r => signed.get(r)!.length + r.blob.length)
-    )
-    const bridge = new StorageBridge(
-      storage,
-      { maxRecordBytes: perRecord },
-      () => {}
-    )
-    await save(bridge, first)
-    await save(bridge, second)
-    expect(await withId(id => bridge.records(id))).toEqual([first, second])
-  })
-
   it("saves without reading the rest of the tree's history", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, limits, () => {})
+    const bridge = new StorageBridge(storage, () => {})
     await save(bridge, first)
     await save(bridge, fragment)
     storage.calls.length = 0
     await save(bridge, second)
     // One same-key lookup and one write; no list or whole-history loads.
     const path = `subduction-v1/${tree.padEnd(64, "0")}/commits/${cid(2)}`
-    expect(storage.calls).toEqual([`load:${path}`, `save:${path}`])
+    expect(storage.calls).toEqual([`load:${path}`, `saveBatch:${path}`])
   })
 
   it("keeps batches, reads, and cleanup in acceptance order with freed inputs", async () => {
     const storage = new MemoryStore(),
       saved = vi.fn()
-    const bridge = new StorageBridge(storage, limits, saved)
+    const bridge = new StorageBridge(storage, saved)
     const gate = pause(
       storage,
-      (op, key) => op === "save" && key.endsWith(cid(1))
+      (op, key) => op === "saveBatch" && key.includes(cid(1))
     )
     const writing = batch(bridge, [first, second, fragment])
     const snapshot = withId(id => bridge.records(id))
@@ -374,7 +362,7 @@ describe("StorageBridge native transaction serialization", () => {
 
   it("queues every native read/delete transaction behind accepted writes", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, limits, () => {})
+    const bridge = new StorageBridge(storage, () => {})
     await Promise.all([save(bridge, first), save(bridge, fragment)])
     const gate = pause(
       storage,
@@ -417,49 +405,81 @@ describe("StorageBridge native transaction serialization", () => {
     expect(storage.maxActive).toBe(1)
   })
 
-  it("preserves durable batch prefixes and reports ambiguous saves without notifying success", async () => {
+  it("writes a batch and its tree marker together, or none of them", async () => {
     const storage = new MemoryStore(),
       saved = vi.fn(),
       failed = vi.fn()
-    const bridge = new StorageBridge(storage, limits, saved, failed)
+    const bridge = new StorageBridge(storage, saved, failed)
+    const error = new Error("disk failed")
+    storage.before = async op => {
+      if (op === "saveBatch") throw error
+    }
+    await expect(batch(bridge, [first, second, fragment])).rejects.toBe(error)
+    expect(storage.values.size).toBe(0)
+    expect(saved).not.toHaveBeenCalled()
+    expect(failed.mock.calls).toEqual([[tree, error]])
+    expect(await withId(id => bridge.containsSedimentreeId(id))).toBe(false)
+    storage.before = undefined
+    await batch(bridge, [first, second, fragment])
+    expect(storage.calls.filter(call => call.startsWith("saveBatch:"))).toEqual(
+      [expect.stringContaining("/id"), expect.stringContaining("/id")]
+    )
+    expect(storage.written).toHaveLength(4)
+    expect(await withId(id => bridge.records(id))).toEqual([
+      first,
+      second,
+      fragment,
+    ])
+  })
+
+  it("reports an ambiguous batch save without notifying success; a retry recovers notifications", async () => {
+    const storage = new MemoryStore(),
+      saved = vi.fn(),
+      failed = vi.fn()
+    const bridge = new StorageBridge(storage, saved, failed)
     const error = new Error("saved, then rejected")
-    storage.afterSave = key => {
-      if (key.endsWith(cid(2))) throw error
+    storage.afterSave = () => {
+      throw error
     }
     await expect(batch(bridge, [first, second, third])).rejects.toBe(error)
-    expect(saved.mock.calls).toEqual([[tree, first]])
+    expect(saved).not.toHaveBeenCalled()
     expect(failed.mock.calls).toEqual([[tree, error]])
-    expect(await withId(id => bridge.records(id))).toEqual([first, second])
+    expect(await withId(id => bridge.records(id))).toEqual([
+      first,
+      second,
+      third,
+    ])
     await expect(bridge.flush()).rejects.toMatchObject({ errors: [error] })
     await expect(bridge.flush()).resolves.toBeUndefined()
     storage.afterSave = undefined
+    const written = storage.written.length
     await batch(bridge, [first, second, third])
-    // An exact retry doesn't save again, but recovers missed notifications.
+    // An exact retry doesn't rewrite records, but recovers missed notifications.
     expect(saved.mock.calls).toEqual([
-      [tree, first],
       [tree, first],
       [tree, second],
       [tree, third],
     ])
     expect(
-      storage.calls.filter(
-        call => call.startsWith("save:") && call.includes("/commits/")
-      )
-    ).toHaveLength(3)
+      storage.written.slice(written).filter(key => key.includes("/commits/"))
+    ).toEqual([])
   })
 
   it("reports synchronous preparation errors through failed and flush", async () => {
     const storage = new MemoryStore(),
       failed = vi.fn()
-    const bridge = new StorageBridge(
-      storage,
-      { ...limits, maxRecordBytes: 1 },
-      () => {},
-      failed
-    )
-    const operation = save(bridge, first)
+    const bridge = new StorageBridge(storage, () => {}, failed)
+    const wrong = N.CommitId.fromHexString(second.id)
+    const value = N.SignedLooseCommit.tryDecode(signed.get(first)!)
+    let operation: Promise<void>
+    try {
+      operation = withId(id => bridge.saveCommit(id, wrong, value, first.blob))
+    } finally {
+      wrong.free()
+      value.free()
+    }
     const flushed = bridge.flush()
-    await expect(operation).rejects.toThrow("Record limit exceeded")
+    await expect(operation).rejects.toThrow(/key/)
     await expect(flushed).rejects.toMatchObject({ errors: [expect.any(Error)] })
     expect(failed.mock.calls[0][0]).toBe(tree)
     expect(storage.calls).toEqual([])
@@ -470,7 +490,7 @@ describe("StorageBridge native transaction serialization", () => {
   it("flush captures relevant pending/failed mutations, waits ALL and clears reported failures", async () => {
     const storage = new MemoryStore(),
       failed = vi.fn()
-    const bridge = new StorageBridge(storage, limits, () => {}, failed)
+    const bridge = new StorageBridge(storage, () => {}, failed)
     const errorA = new Error("A"),
       errorB = new Error("B")
     const gate = pause(
@@ -513,7 +533,7 @@ describe("StorageBridge native transaction serialization", () => {
 
   it("drain captures reads, settles after failures, and does not wait for later calls", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, limits, () => {})
+    const bridge = new StorageBridge(storage, () => {})
     const readGate = pause(storage, op => op === "loadPrefix")
     const error = new Error("read failed")
     const originalLoadPrefix = storage.loadPrefix.bind(storage)
@@ -543,7 +563,6 @@ describe("StorageBridge native transaction serialization", () => {
     const storage = new MemoryStore()
     const bridge = new StorageBridge(
       storage,
-      limits,
       () => {},
       () => {
         throw new Error("callback")
