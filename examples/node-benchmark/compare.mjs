@@ -86,6 +86,10 @@ try {
 }
 const hashes = new Set(Object.values(results).map(r => r.fixtureSha256))
 if (hashes.size !== 1) throw new Error("Fixture hashes differ")
+const importHashes = new Set(
+  Object.values(results).map(r => r.importFixtureSha256)
+)
+if (importHashes.size !== 1) throw new Error("Import fixture hashes differ")
 const counts = smoke ? [10] : [10, 100, 500, 1000]
 const median = values =>
   [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]
@@ -109,13 +113,75 @@ const summary = Object.fromEntries(
     ),
   ])
 )
+const writeSummary = Object.fromEntries(
+  ["creates", "burst"].map(kind => [
+    kind,
+    Object.fromEntries(
+      names.map(name => {
+        const samples = results[name].writes[kind]
+        const percentile = values =>
+          [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.95) - 1]
+        const pick = key => {
+          const values = samples.map(sample => sample[key])
+          return {
+            median: median(values),
+            min: Math.min(...values),
+            max: Math.max(...values),
+          }
+        }
+        return [
+          name,
+          {
+            count: samples[0].count,
+            submitMs: pick("submitMs"),
+            drainMs: pick("drainMs"),
+            totalMs: pick("totalMs"),
+            opsPerSecond: pick("opsPerSecond"),
+            callP95Ms: median(samples.map(sample => percentile(sample.callMs))),
+            verified: samples.every(sample => sample.verified),
+          },
+        ]
+      })
+    ),
+  ])
+)
+const importSummary = Object.fromEntries(
+  [
+    ...new Set(
+      Object.values(results).flatMap(result =>
+        result.imports.map(s => s.fixture)
+      )
+    ),
+  ].map(fixture => [
+    fixture,
+    Object.fromEntries(
+      names.map(name => {
+        const samples = results[name].imports.filter(s => s.fixture === fixture)
+        const failures = samples.filter(s => !s.verified).length
+        const pick = key => (failures ? null : median(samples.map(s => s[key])))
+        return [
+          name,
+          {
+            records: samples[0].records,
+            samples: samples.length,
+            failures,
+            importMs: pick("importMs"),
+            flushMs: pick("flushMs"),
+          },
+        ]
+      })
+    ),
+  ])
+)
 const report = {
-  schema: 1,
-  mode: "node-memory-load",
+  schema: 3,
+  mode: "node-memory-load-write",
   smoke,
   runs,
   results,
   summary,
+  writeSummary,
+  importSummary,
 }
 const file = join(
   resultDirectory,
@@ -123,4 +189,6 @@ const file = join(
 )
 await writeFile(file, JSON.stringify(report, null, 2) + "\n")
 console.log(JSON.stringify(summary, null, 2))
+console.log(JSON.stringify(writeSummary, null, 2))
+console.log(JSON.stringify(importSummary, null, 2))
 console.log(`Saved ${file}`)

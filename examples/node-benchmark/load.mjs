@@ -32,6 +32,44 @@ const fixtures = await Promise.all(
     return bytes
   })
 )
+const rawImportManifest = await readFile(join(fixtureDirectory, "imports.json"))
+const importFixtureSha256 = createHash("sha256")
+  .update(rawImportManifest)
+  .digest("hex")
+const importManifest = JSON.parse(rawImportManifest)
+if (importManifest.version !== 1 || !importManifest.files.length)
+  throw new Error("Missing import fixtures: run pnpm bench:fixtures")
+const importClasses = [
+  {
+    name: "small",
+    records: manifest.changes + 1,
+    files: fixtures.slice(0, smoke ? 3 : 20).map(bytes => ({
+      bytes,
+      count: 50,
+    })),
+  },
+  ...importManifest.files
+    .filter(item => !smoke || "count" in item)
+    .map(item => ({
+      name: item.name.replace(/^import-|\.automerge$/g, ""),
+      records: item.records,
+      files: Array.from({ length: smoke ? 1 : 3 }, () => item),
+    })),
+]
+for (const entry of importClasses) {
+  entry.files = await Promise.all(
+    entry.files.map(async item => {
+      if (item.bytes instanceof Uint8Array) return item
+      const bytes = await readFile(join(fixtureDirectory, item.name))
+      if (
+        bytes.length !== item.bytes ||
+        createHash("sha256").update(bytes).digest("hex") !== item.sha256
+      )
+        throw new Error(`Fixture mismatch: ${item.name}`)
+      return { ...item, bytes }
+    })
+  )
+}
 
 async function fromFile(path) {
   return import(pathToFileURL(path).href)
@@ -48,6 +86,7 @@ if (target === "poc") {
     const repo = new Repo({ backend: peer.backend })
     return {
       import: bytes => repo.import(bytes),
+      create: initial => repo.create(initial),
       find: url => repo.find(url),
       flush: () => repo.flush(),
       close: async () => {
@@ -80,6 +119,7 @@ if (target === "poc") {
     })
     return {
       import: bytes => repo.import(bytes),
+      create: initial => repo.create(initial),
       find: url => repo.find(url),
       flush: () => repo.flush(),
       close: () => repo.shutdown(),
@@ -164,17 +204,182 @@ for (let round = 0; round < runs; round++) {
     )
   }
 }
+const imports = []
+for (let round = 0; round < runs; round++) {
+  for (const entry of importClasses) {
+    for (const fixture of entry.files) {
+      const importStore = new MemoryStore()
+      const session = open(importStore)
+      const sample = {
+        round: round + 1,
+        fixture: entry.name,
+        records: entry.records,
+        bytes: fixture.bytes.length,
+        importMs: null,
+        flushMs: null,
+        verified: false,
+        error: null,
+        storage: null,
+        size: null,
+      }
+      let url
+      try {
+        try {
+          const started = performance.now()
+          url = (await session.import(fixture.bytes.slice())).url
+          sample.importMs = performance.now() - started
+          const flushStarted = performance.now()
+          await session.flush()
+          sample.flushMs = performance.now() - flushStarted
+          sample.storage = importStore.stats()
+        } finally {
+          await session.close()
+        }
+        sample.size = importStore.size()
+        const reopened = open(importStore)
+        try {
+          const doc = (await reopened.find(url)).doc()
+          if ("count" in fixture) {
+            if (doc?.count !== fixture.count)
+              throw new Error("Reopened count did not match")
+          } else {
+            const text = doc?.text
+            if (
+              typeof text !== "string" ||
+              text.length !== fixture.textLength ||
+              createHash("sha256").update(text).digest("hex") !==
+                fixture.textSha256
+            )
+              throw new Error("Reopened text did not match")
+          }
+          sample.verified = true
+        } finally {
+          await reopened.close()
+        }
+      } catch (error) {
+        sample.error = String(error)
+      }
+      imports.push(sample)
+      console.log(
+        `${target} round ${round + 1}/${runs}, import ${entry.name}: ${sample.importMs?.toFixed(1) ?? "failed"} ms${sample.error ? ` (${sample.error})` : ""}`
+      )
+    }
+  }
+}
+const writes = { creates: [], burst: [] }
+for (let round = 0; round < runs; round++) {
+  for (const kind of ["creates", "burst"]) {
+    const count = kind === "creates" ? (smoke ? 10 : 100) : smoke ? 30 : 500
+    const writeStore = new MemoryStore()
+    const session = open(writeStore)
+    const urls = []
+    const callMs = []
+    const pending = []
+    let handle
+    try {
+      if (kind === "burst") {
+        handle = await session.create({
+          count: 0,
+          items: Array(32).fill("initial"),
+        })
+        urls.push(handle.url)
+        await session.flush()
+      }
+      writeStore.resetStats()
+      const started = performance.now()
+      if (kind === "creates") {
+        for (let i = 0; i < count; i += 20) {
+          const batch = await Promise.all(
+            Array.from({ length: Math.min(20, count - i) }, async (_, j) => {
+              const start = performance.now()
+              const created = await session.create({
+                count: i + j,
+                items: Array(32).fill("initial"),
+              })
+              return { url: created.url, ms: performance.now() - start }
+            })
+          )
+          for (const item of batch) {
+            urls.push(item.url)
+            callMs.push(item.ms)
+          }
+        }
+      } else {
+        for (let i = 1; i <= count; i++) {
+          const start = performance.now()
+          const write = handle.change(
+            doc => {
+              doc.count = i
+              doc.items[i % 32] = `revision-${i}`
+            },
+            { time: 0 }
+          )
+          callMs.push(performance.now() - start)
+          if (write) pending.push(write)
+        }
+      }
+      const submitMs = performance.now() - started
+      const drainStart = performance.now()
+      await Promise.all([session.flush(), Promise.all(pending)])
+      const drainMs = performance.now() - drainStart
+      const totalMs = performance.now() - started
+      const storage = writeStore.stats()
+      await session.close()
+      const size = writeStore.size()
+      const reopened = open(writeStore)
+      try {
+        for (let i = 0; i < urls.length; i++) {
+          const restored = await reopened.find(urls[i])
+          const doc = restored.doc()
+          const expected = kind === "creates" ? i : count
+          if (
+            doc?.count !== expected ||
+            doc.items[expected % 32] !==
+              (kind === "creates" ? "initial" : `revision-${count}`)
+          )
+            throw new Error(`${kind} reopen verification failed at ${i}`)
+        }
+      } finally {
+        await reopened.close()
+      }
+      writes[kind].push({
+        round: round + 1,
+        count,
+        submitMs,
+        drainMs,
+        totalMs,
+        opsPerSecond: (count * 1000) / totalMs,
+        callMs,
+        storage,
+        size,
+        verified: true,
+      })
+      console.log(
+        `${target} round ${round + 1}/${runs}, ${kind}: ${totalMs.toFixed(1)} ms`
+      )
+    } catch (error) {
+      // Failed samples must not look like fast, successful writes.
+      throw new Error(
+        `${target} round ${round + 1} ${kind}: ${String(error)}`,
+        { cause: error }
+      )
+    }
+  }
+}
 profiler?.disconnect()
 await writeFile(
   output,
   JSON.stringify(
     {
-      schema: 1,
+      schema: 3,
       target,
       node: process.version,
       fixtureSha256,
       seed: before,
       samples,
+      writes,
+      imports,
+      importFixtureSha256,
     },
     null,
     2

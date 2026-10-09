@@ -58,9 +58,13 @@ for (let round = 0; round < runs; round++) {
       env
     )
     ;(results[name] ??= []).push(JSON.parse(await readFile(file, "utf8")))
-    if (!results[name].at(-1).edits?.verified)
+    if (
+      ["edits", "creates", "burst"].some(
+        kind => !results[name].at(-1)[kind]?.verified
+      )
+    )
       console.warn(
-        `${name} persistence incomplete; load and edit-call samples still available`
+        `${name} persistence incomplete; unverified write metrics excluded`
       )
   }
 }
@@ -98,6 +102,24 @@ metrics.editCallP95Ms = r =>
   ]
 metrics.worstFrameMs = r => Math.max(...r.edits.frameGapMs)
 metrics.drainMs = r => (r.edits.verified ? r.edits.drainMs : null)
+for (const kind of ["creates", "burst"]) {
+  const valid = r => (r[kind]?.verified ? r[kind] : null)
+  metrics[`${kind}SubmitMs`] = r => valid(r)?.submitMs ?? null
+  metrics[`${kind}DrainMs`] = r => valid(r)?.drainMs ?? null
+  metrics[`${kind}TotalMs`] = r => valid(r)?.totalMs ?? null
+  metrics[`${kind}OpsPerSecond`] = r => valid(r)?.opsPerSecond ?? null
+  metrics[`${kind}CallP95Ms`] = r => {
+    const calls = valid(r)?.callMs
+    return calls?.length
+      ? [...calls].sort((a, b) => a - b)[Math.ceil(calls.length * 0.95) - 1]
+      : null
+  }
+  metrics[`${kind}WorstFrameMs`] = r => {
+    const frames = valid(r)?.frameGapMs
+    return frames?.length ? Math.max(...frames) : null
+  }
+  metrics[`${kind}LongTasks`] = r => valid(r)?.longTasksMs.length ?? null
+}
 
 const summary = {}
 const fixtureHashes = new Set(

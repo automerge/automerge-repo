@@ -2,6 +2,18 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { MemoryStore } from "../memory.mjs"
 
+test("byte-store batch writes copy data and survive adapter reopen", async () => {
+  const store = new MemoryStore()
+  const value = Uint8Array.of(1, 2)
+  await store.bytes().saveBatch([["tree/commit/a", value]])
+  value[0] = 9
+  assert.deepEqual(
+    await store.bytes().load("tree/commit/a"),
+    Uint8Array.of(1, 2)
+  )
+  assert.equal(store.stats().saveBatch.calls, 1)
+})
+
 test("both adapters share copying, prefix, and reopen semantics", async () => {
   const store = new MemoryStore()
   const old = store.legacy()

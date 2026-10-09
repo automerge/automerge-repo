@@ -73,8 +73,22 @@ type ImportResult = {
   flushP50Ms: number | null
   failures: number
 }
+type WriteResult = {
+  count: number
+  callMs: number[]
+  submitMs: number
+  drainMs: number | null
+  totalMs: number | null
+  opsPerSecond: number | null
+  verified: boolean
+  frameGapMs: number[]
+  longTasksMs: number[]
+  storage: StorageStats
+  storeKeys: number | null
+  storeBytes: number | null
+}
 type Result = {
-  schema: 3
+  schema: 4
   target: { id: string; adapter: string }
   mode: "full" | "smoke" | "custom"
   fixtureSha256: string
@@ -92,6 +106,8 @@ type Result = {
   editDatabase?: string
   loads: LoadResult[]
   imports: ImportResult[]
+  creates?: WriteResult
+  burst?: WriteResult
   edits?: {
     count: number
     callMs: number[]
@@ -118,6 +134,7 @@ const status = element("status")
 const bar = element("bar")
 const loadRows = element("loads")
 const importRows = element("imports")
+const writeRows = element("writes")
 const report = element("report")
 const fmt = (n: number) => `${n.toFixed(1)} ms`
 const percentile = (values: number[], p: number) => {
@@ -266,6 +283,163 @@ function memory() {
     memory?: { usedJSHeapSize: number }
   }
   return perf.memory?.usedJSHeapSize ?? null
+}
+
+/** Observe UI stalls through submission and persistence drain. */
+function watchFrames() {
+  const frameGapMs: number[] = []
+  const longTasksMs: number[] = []
+  let active = true
+  let previous = performance.now()
+  const frame = (now: number) => {
+    if (!active) return
+    frameGapMs.push(now - previous)
+    previous = now
+    requestAnimationFrame(frame)
+  }
+  const observer = new PerformanceObserver(list => {
+    for (const entry of list.getEntries()) longTasksMs.push(entry.duration)
+  })
+  if (PerformanceObserver.supportedEntryTypes.includes("longtask"))
+    observer.observe({ type: "longtask", buffered: false })
+  requestAnimationFrame(frame)
+  return {
+    frameGapMs,
+    longTasksMs,
+    stop() {
+      active = false
+      observer.disconnect()
+    },
+  }
+}
+
+/** Fresh database for each workload; only submission + drain are timed. */
+async function writes(
+  kind: "creates" | "burst",
+  count: number
+): Promise<WriteResult> {
+  const database = `automerge-repo-benchmark-${targetName}-v1-${kind}-${crypto.randomUUID()}`
+  const stats = storageStats()
+  const session = target.open(database, stats)
+  const sample: WriteResult = {
+    count,
+    callMs: [],
+    submitMs: 0,
+    drainMs: null,
+    totalMs: null,
+    opsPerSecond: null,
+    verified: false,
+    frameGapMs: [],
+    longTasksMs: [],
+    storage: stats,
+    storeKeys: null,
+    storeBytes: null,
+  }
+  const urls: string[] = []
+  const pending: Promise<void>[] = []
+  let timedOut = false
+  let watch: ReturnType<typeof watchFrames> | undefined
+  try {
+    let handle:
+      | Awaited<
+          ReturnType<typeof session.create<{ count: number; items: string[] }>>
+        >
+      | undefined
+    if (kind === "burst") {
+      handle = await session.create({
+        count: 0,
+        items: Array(32).fill("initial"),
+      })
+      urls.push(handle.url)
+      await session.flush() // Exclude setup from burst timing.
+    }
+    for (const entry of Object.values(stats)) {
+      entry.calls = 0
+      entry.elapsedMs = 0
+      entry.values = 0
+    }
+    watch = watchFrames()
+    sample.frameGapMs = watch.frameGapMs
+    sample.longTasksMs = watch.longTasksMs
+    const started = performance.now()
+    if (kind === "creates") {
+      // Same batch width as fixture seeding, but no fixture fetch or decode.
+      for (let i = 0; i < count; i += 20) {
+        const batch = await Promise.all(
+          Array.from({ length: Math.min(20, count - i) }, async (_, j) => {
+            const start = performance.now()
+            const created = await session.create({
+              count: i + j,
+              items: Array(32).fill("initial"),
+            })
+            return { url: created.url, ms: performance.now() - start }
+          })
+        )
+        for (const item of batch) {
+          urls.push(item.url)
+          sample.callMs.push(item.ms)
+        }
+        progress(`Creating: ${urls.length}/${count}`, urls.length / count)
+      }
+    } else {
+      for (let i = 1; i <= count; i++) {
+        const start = performance.now()
+        const write = handle!.change(
+          doc => {
+            doc.count = i
+            doc.items[i % 32] = `revision-${i}`
+          },
+          { time: 0 }
+        )
+        sample.callMs.push(performance.now() - start)
+        if (write) pending.push(write)
+      }
+    }
+    sample.submitMs = performance.now() - started
+    const drainStart = performance.now()
+    try {
+      await within(
+        Promise.all([session.flush(), Promise.all(pending)]),
+        drainStart + 120_000
+      )
+    } catch (error) {
+      if (!(error instanceof Timeout)) throw error
+      timedOut = true
+      return sample // Work may still be running; never claim durability or reuse DB.
+    }
+    sample.drainMs = performance.now() - drainStart
+    sample.totalMs = performance.now() - started
+    sample.opsPerSecond = (count * 1000) / sample.totalMs
+    // Let the next frame record a stall caused by the last write/drain.
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+  } finally {
+    watch?.stop()
+    if (!timedOut) await session.close()
+  }
+  const size = await storeSize(database)
+  sample.storeKeys = size.keys
+  sample.storeBytes = size.bytes
+  const reopened = target.open(database)
+  try {
+    for (let i = 0; i < urls.length; i++) {
+      const restored = await reopened.find<{ count: number; items: string[] }>(
+        urls[i]
+      )
+      const doc = restored.doc()
+      const expected = kind === "creates" ? i : count
+      if (
+        doc?.count !== expected ||
+        doc.items[expected % 32] !==
+          (kind === "creates" ? "initial" : `revision-${count}`)
+      )
+        throw new Error(`${kind} reopen verification failed at ${i}`)
+    }
+    sample.verified = true
+  } finally {
+    await reopened.close()
+    await deleteDatabase(database).catch(() => {})
+  }
+  return sample
 }
 
 async function prepare() {
@@ -626,13 +800,14 @@ async function run() {
   downloadButton.disabled = true
   loadRows.replaceChildren()
   importRows.replaceChildren()
+  writeRows.replaceChildren()
   report.textContent = "Running…"
   try {
     progress("Reading fixture manifest", 0, true)
     const { manifest, hash } = await fixtures()
     const importSet = await importFixtures()
     result = {
-      schema: 3,
+      schema: 4,
       target: { id: targetName, adapter: target.adapter },
       mode:
         requestedEdits === (smoke ? 30 : 5000)
@@ -751,6 +926,29 @@ async function run() {
       }
       importRows.append(row)
     }
+    for (const [kind, count] of [
+      ["creates", smoke ? 10 : 100],
+      ["burst", smoke ? 30 : 500],
+    ] as const) {
+      progress(`${kind}: ${count}`, 0, true)
+      const sample = await writes(kind, count)
+      result[kind] = sample
+      const row = document.createElement("tr")
+      for (const value of [
+        kind,
+        String(count),
+        fmt(sample.submitMs),
+        sample.drainMs === null ? "timeout" : fmt(sample.drainMs),
+        fmt(percentile(sample.callMs, 0.95)),
+        sample.frameGapMs.length ? fmt(Math.max(...sample.frameGapMs)) : "–",
+        String(sample.verified),
+      ]) {
+        const cell = document.createElement("td")
+        cell.textContent = value
+        row.append(cell)
+      }
+      writeRows.append(row)
+    }
     progress("Editing new document", 0, true)
     const editDatabase = `automerge-repo-benchmark-${targetName}-v1-edits-${crypto.randomUUID()}`
     result.editDatabase = editDatabase
@@ -758,13 +956,17 @@ async function run() {
       result!.edits = samples
     })
     progress(
-      result.edits.verified
+      result.edits.verified &&
+        result.creates?.verified &&
+        result.burst?.verified
         ? "Complete: all states verified"
-        : "Incomplete: persistence drain timed out",
+        : "Incomplete: at least one write did not verify",
       1,
       true
     )
     downloadButton.disabled = false
+    const creates = result.creates!
+    const burst = result.burst!
     report.textContent = JSON.stringify(
       {
         fixtureSha256: hash,
@@ -778,6 +980,22 @@ async function run() {
             ),
           ],
         })),
+        creates: {
+          ...creates,
+          callMs: undefined,
+          callP95Ms: percentile(creates.callMs, 0.95),
+          worstFrameMs: creates.frameGapMs.length
+            ? Math.max(...creates.frameGapMs)
+            : null,
+        },
+        burst: {
+          ...burst,
+          callMs: undefined,
+          callP95Ms: percentile(burst.callMs, 0.95),
+          worstFrameMs: burst.frameGapMs.length
+            ? Math.max(...burst.frameGapMs)
+            : null,
+        },
         edits: {
           count: result.edits.count,
           callP95Ms: percentile(result.edits.callMs, 0.95),

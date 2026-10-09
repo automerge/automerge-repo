@@ -149,6 +149,10 @@ export class MemoryStore {
     return {
       load: key => this.#measure("load", () => this.#data.get(key)?.slice()),
       save: (key, bytes) => this.#measure("save", () => this.#put(key, bytes)),
+      saveBatch: entries =>
+        this.#measure("saveBatch", () => {
+          for (const [key, data] of entries) this.#put(key, data)
+        }),
       remove: key => this.#measure("remove", () => this.#delete(key)),
       list: prefix =>
         this.#measure("list", () => this.#entries(prefix).map(([key]) => key)),
