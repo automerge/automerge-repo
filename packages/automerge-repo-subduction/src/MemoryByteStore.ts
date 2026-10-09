@@ -31,6 +31,12 @@ export class MemoryByteStore implements LocalByteStore {
     if (this.#data.delete(key)) this.#keys.splice(this.#lowerBound(key), 1)
   }
 
+  async removeBatch(keys: readonly string[]): Promise<void> {
+    // Applied synchronously, so readers see all removals or none.
+    for (const key of keys)
+      if (this.#data.delete(key)) this.#keys.splice(this.#lowerBound(key), 1)
+  }
+
   async list(prefix: string): Promise<string[]> {
     return this.#range(prefix)
   }

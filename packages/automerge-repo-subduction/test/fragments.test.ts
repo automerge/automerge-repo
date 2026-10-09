@@ -508,6 +508,10 @@ describe("local Subduction fragments", () => {
         storage.saveBatch(entries)
       ),
       remove: key => (calls.push("remove"), storage.remove(key)),
+      removeBatch: keys => (
+        calls.push("removeBatch"),
+        storage.removeBatch(keys)
+      ),
       list: prefix => (calls.push("list"), storage.list(prefix)),
       loadPrefix: prefix => (
         calls.push("loadPrefix"),

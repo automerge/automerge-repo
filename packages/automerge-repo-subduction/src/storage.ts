@@ -29,6 +29,8 @@ export interface LocalByteStore {
    * batch, so a failure never leaves a change stored without its parents. */
   saveBatch(entries: readonly [key: string, data: Uint8Array][]): Promise<void>
   remove(key: string): Promise<void>
+  /** Removes every key, or none; missing keys are ignored. */
+  removeBatch(keys: readonly string[]): Promise<void>
   list(prefix: string): Promise<string[]>
   /** Every entry whose key begins with `prefix`, sorted by key, from one
    * consistent read (like main's StorageAdapter.loadRange). Returned bytes are

@@ -181,6 +181,35 @@ for (const [name, create] of [
       ])
       await store.saveBatch([])
     })
+
+    it("removes a batch as one visible cut, ignoring missing keys", async () => {
+      await store.saveBatch([
+        ["r/1", new Uint8Array([1])],
+        ["r/2", new Uint8Array([2])],
+        ["r/3", new Uint8Array([3])],
+      ])
+      const keys = ["r/1", "r/missing", "r/3"]
+      const removing = store.removeBatch(keys)
+      const reading = store.loadPrefix("r/")
+      keys.length = 0
+      const seen = await reading
+      await removing
+      expect([
+        JSON.stringify([
+          ["r/1", [1]],
+          ["r/2", [2]],
+          ["r/3", [3]],
+        ]),
+        JSON.stringify([["r/2", [2]]]),
+      ]).toContain(
+        JSON.stringify(seen.map(([key, value]) => [key, [...value]]))
+      )
+      expect(await store.loadPrefix("r/")).toEqual([
+        ["r/2", new Uint8Array([2])],
+      ])
+      await store.removeBatch([])
+      await store.removeBatch(["r/1"])
+    })
   })
 }
 
@@ -442,6 +471,57 @@ describe("IndexedDBByteStore", () => {
         ])
       ).rejects.toMatchObject({ name: "DataError" })
       expect(await store.loadPrefix("")).toEqual([["a", new Uint8Array([1])]])
+    } finally {
+      await store.close()
+    }
+  })
+
+  it("removes none of a batch whose transaction aborts part-way", async () => {
+    const open = vi.spyOn(indexedDB, "open")
+    const store = new IndexedDBByteStore({ database: "remove-aborted" })
+    try {
+      await store.saveBatch([
+        ["a", new Uint8Array([1])],
+        ["b", new Uint8Array([2])],
+      ])
+      const db = open.mock.results[0].value.result as IDBDatabase
+      const transaction = db.transaction.bind(db)
+      vi.spyOn(db, "transaction").mockImplementationOnce((...args) => {
+        const tx = transaction(...args)
+        const objectStore = tx.objectStore("bytes")
+        const remove = objectStore.delete.bind(objectStore)
+        let deletes = 0
+        vi.spyOn(tx, "objectStore").mockReturnValue(objectStore)
+        vi.spyOn(objectStore, "delete").mockImplementation(key => {
+          const request = remove(key)
+          if (++deletes === 2)
+            request.addEventListener("success", () => tx.abort(), {
+              once: true,
+            })
+          return request
+        })
+        return tx
+      })
+      await expect(store.removeBatch(["a", "b"])).rejects.toThrow(
+        "IndexedDB transaction failed"
+      )
+      expect((await store.loadPrefix("")).map(([key]) => key)).toEqual([
+        "a",
+        "b",
+      ])
+    } finally {
+      await store.close()
+    }
+  })
+
+  it("removes none of a batch when a later delete throws synchronously", async () => {
+    const store = new IndexedDBByteStore({ database: "remove-invalid-key" })
+    try {
+      await store.save("a", new Uint8Array([1]))
+      await expect(
+        store.removeBatch(["a", undefined as unknown as string])
+      ).rejects.toMatchObject({ name: "DataError" })
+      expect(await store.load("a")).toEqual(new Uint8Array([1]))
     } finally {
       await store.close()
     }

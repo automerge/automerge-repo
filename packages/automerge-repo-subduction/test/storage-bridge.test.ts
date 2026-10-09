@@ -77,6 +77,11 @@ class MemoryStore implements LocalByteStore {
       this.values.delete(key)
     })
   }
+  removeBatch(keys: readonly string[]) {
+    return this.run("removeBatch", keys.join(","), () => {
+      for (const key of keys) this.values.delete(key)
+    })
+  }
   loadPrefix(prefix: string) {
     return this.run("loadPrefix", prefix, () =>
       [...this.values.keys()]

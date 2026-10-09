@@ -150,6 +150,17 @@ export class IndexedDBByteStore implements LocalByteStore {
     return this.run("readwrite", store => store.delete(key))
   }
 
+  /** One readwrite transaction: IndexedDB commits every delete or none. */
+  removeBatch(keys: readonly string[]): Promise<void> {
+    const owned = [...keys]
+    if (!owned.length) return Promise.resolve()
+    return this.run("readwrite", store => {
+      let request!: IDBRequest
+      for (const key of owned) request = store.delete(key)
+      return request
+    })
+  }
+
   list(prefix: string): Promise<string[]> {
     return this.run("readonly", (store, done) => {
       const keys: string[] = []

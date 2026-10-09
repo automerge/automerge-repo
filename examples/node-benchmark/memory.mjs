@@ -20,6 +20,7 @@ export class MemoryStore {
         "loadRange",
         "removeRange",
         "saveBatch",
+        "removeBatch",
         "list",
         "loadPrefix",
       ].map(op => [op, { calls: 0, elapsedMs: 0, values: 0 }])
@@ -154,6 +155,10 @@ export class MemoryStore {
           for (const [key, data] of entries) this.#put(key, data)
         }),
       remove: key => this.#measure("remove", () => this.#delete(key)),
+      removeBatch: keys =>
+        this.#measure("removeBatch", () => {
+          for (const key of keys) this.#delete(key)
+        }),
       list: prefix =>
         this.#measure("list", () => this.#entries(prefix).map(([key]) => key)),
       loadPrefix: prefix =>

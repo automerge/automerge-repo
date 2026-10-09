@@ -64,6 +64,16 @@ function profile(
         stats.remove.elapsedMs += performance.now() - start
       }
     },
+    // Each batch is one IndexedDB transaction, counted as one remove.
+    async removeBatch(keys) {
+      const start = performance.now()
+      try {
+        return await store.removeBatch(keys)
+      } finally {
+        stats.remove.calls++
+        stats.remove.elapsedMs += performance.now() - start
+      }
+    },
     async loadPrefix(prefix) {
       const start = performance.now()
       try {

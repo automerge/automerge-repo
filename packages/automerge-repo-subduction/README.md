@@ -137,6 +137,7 @@ load(key: string): Promise<Uint8Array | undefined>
 save(key: string, data: Uint8Array): Promise<void>
 saveBatch(entries: [key: string, data: Uint8Array][]): Promise<void>
 remove(key: string): Promise<void>
+removeBatch(keys: string[]): Promise<void>
 list(prefix: string): Promise<string[]> // full keys with this prefix
 loadPrefix(prefix: string): Promise<[key: string, data: Uint8Array][]>
 ```
@@ -154,7 +155,9 @@ custom stores written against the earlier interface must add it) **must make
 every entry visible, or none**, including to a concurrent `loadPrefix`. Successful
 resolution must mean recoverable under the store's documented guarantees (not
 necessarily fsync).
-Missing values are `undefined`; `remove` is idempotent. Do not mutate supplied
+`removeBatch` (required) **must remove every key, or none**, with the same
+visibility and resolution guarantees. Missing values are `undefined`; `remove`
+and `removeBatch` ignore missing keys. Do not mutate supplied
 bytes. The `subduction-v1/` namespace must be exclusively owned by this backend.
 Storage is borrowed and is not closed or erased by backend close. Concurrent
 multi-owner access and hostile storage are unsupported.
