@@ -11,5 +11,6 @@
     "@automerge/automerge-repo": "workspace:*",
     "@automerge/automerge-repo-subduction": "workspace:*",
     "@automerge/subduction": "0.23.0"
-  }
+  },
+  "version": "3.0.0-experimental.2"
 }

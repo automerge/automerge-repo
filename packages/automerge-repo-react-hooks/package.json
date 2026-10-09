@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-react-hooks",
-  "version": "3.0.0-experimental.1",
+  "version": "3.0.0-experimental.2",
   "description": "Hooks to access an Automerge Repo from your react app.",
   "repository": {
     "type": "git",

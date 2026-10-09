@@ -22,5 +22,6 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plugin-wasm": "catalog:"
-  }
+  },
+  "version": "3.0.0-experimental.2"
 }

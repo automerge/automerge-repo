@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-solid-primitives",
-  "version": "3.0.0-experimental.1",
+  "version": "3.0.0-experimental.2",
   "description": "Access Automerge Repo in your SolidJS application",
   "type": "module",
   "main": "dist/index.js",
