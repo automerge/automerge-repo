@@ -66,6 +66,47 @@ beforeAll(() => {
 afterEach(() => vi.restoreAllMocks())
 
 describe("metadata-first extraction", () => {
+  it("rebuilds both arrival orders of concurrent level-1 and level-2 fragments from covering records", () => {
+    // Three fixed actors: F is level 1; H (level 1) and K (level 2)
+    // independently descend from F. Their hash prefixes are part of the fixture.
+    const [f, k, h] = [
+      "856f4a8300779194010a0001aa0101b002000000",
+      "856f4a8300001334012b01007791944ed174f20cb0268401fab1528d20835916d604b0a0fe591eb690ad2201bb0101de8a01000000",
+      "856f4a8300619aad012a01007791944ed174f20cb0268401fab1528d20835916d604b0a0fe591eb690ad2201cc0101fd02000000",
+    ].map(hex => new Uint8Array(Buffer.from(hex, "hex")))
+    const ids = [f, k, h].map(blob => A.decodeChange(blob).hash)
+    expect(ids[0].startsWith("00")).toBe(true)
+    expect(ids[1].startsWith("0000")).toBe(true)
+    expect(ids[2].startsWith("00")).toBe(true)
+    for (const order of [
+      [f, h, k],
+      [f, k, h],
+    ]) {
+      let doc = empty()
+      for (const blob of order) [doc] = A.applyChanges(doc, [blob])
+      const metadata = A.getFragmentMetadata(doc)
+      const deeper = metadata.find(meta => meta.head === ids[1])
+      const sibling = metadata.find(meta => meta.head === ids[2])
+      expect(deeper?.level).toBe(2)
+      expect(deeper?.members).toContain(ids[0])
+      expect(sibling?.level).toBe(1)
+      expect(sibling?.boundary).toEqual(order[1] === h ? [ids[0]] : [])
+      const covering = extractRecords(doc)
+      expect(
+        covering.some(r => r.kind === "fragment" && r.head === ids[1])
+      ).toBe(true)
+      // Earlier fragments may wait for later records supplying their boundary.
+      const restored = applyRecords(empty(), covering, { maxBatchRecords: 1 })
+      expect(A.getHeads(restored)).toEqual(A.getHeads(doc))
+      expect(A.getMissingDeps(restored)).toEqual([])
+      expect(
+        A.getAllChanges(restored)
+          .map(blob => A.decodeChange(blob).hash)
+          .sort()
+      ).toEqual([...ids].sort())
+    }
+  })
+
   it("extracts ordinary changes directly without re-bundling history", () => {
     expect(commits[1].id.startsWith("00")).toBe(false)
     const [before] = A.applyChanges(empty("abcdef"), [changes[0]])

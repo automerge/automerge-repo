@@ -1,11 +1,20 @@
 // Fullfat initializes the runtime used by the backend's slim imports.
 import * as N from "@automerge/subduction"
 import * as A from "@automerge/automerge"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import {
   checkpointForCommit,
   commitId,
   copyRecord,
+  recordKey,
   sedimentreeId,
   type FragmentRecord,
   type LooseCommitRecord,
@@ -18,9 +27,14 @@ import {
   type SubductionBackendOptions,
 } from "../src/index.js"
 import { nativeId, type StorageBridge } from "../src/storage.js"
-import { extractRecords } from "@automerge/automerge-repo/sedimentree/automerge"
+import {
+  applyRecords,
+  extractNewRecords,
+  extractRecords,
+} from "@automerge/automerge-repo/sedimentree/automerge"
 import { TestStore, deferred } from "./storage.js"
 import { corruptFrame, signedBytes } from "./frame.js"
+import { repoFragmentFixture } from "./repoFixture.js"
 
 const tree = sedimentreeId("ab".repeat(16))
 const cid = (n: number) => commitId(n.toString(16).padStart(2, "0").repeat(32))
@@ -78,6 +92,42 @@ async function initial(backend: SubductionBackend) {
 describe("local Subduction fragments", () => {
   let storage: TestStore, signer: N.MemorySigner
   let backends: SubductionBackend[]
+  let realBoundary: {
+    acknowledged: SedimentreeRecord[]
+    pending: SedimentreeRecord[]
+    prior: A.Doc<{ count: number }>
+    after: A.Doc<{ count: number }>
+  }
+  beforeAll(() => {
+    const changes = A.getAllChanges(repoFragmentFixture())
+    const boundary = changes.findIndex(blob =>
+      A.decodeChange(blob).hash.startsWith("00")
+    )
+    if (boundary < 1 || boundary + 1 >= changes.length)
+      throw new Error("Fixture needs a boundary and a later loose commit")
+    const [prior] = A.applyChanges(
+      A.init<{ count: number }>({ actor: "abcdef" }),
+      changes.slice(0, boundary)
+    )
+    // Snapshot before advancing: Automerge may mutate a prior doc's fragment cache.
+    const acknowledged = extractRecords(prior)
+    const [after] = A.applyChanges(
+      A.clone(prior),
+      changes.slice(boundary, boundary + 2)
+    )
+    realBoundary = {
+      acknowledged,
+      pending: extractNewRecords(prior, after),
+      prior,
+      after,
+    }
+    if (
+      realBoundary.pending.length !== 2 ||
+      !realBoundary.pending.some(r => r.kind === "fragment") ||
+      !realBoundary.pending.some(r => r.kind === "commit")
+    )
+      throw new Error("Fixture must write a fragment and its dependent commit")
+  }, 30_000)
   function create(limits: Partial<SubductionBackendOptions> = {}) {
     const backend = new SubductionBackend({
       signer,
@@ -356,6 +406,39 @@ describe("local Subduction fragments", () => {
       )
     }
   )
+
+  it("keeps acknowledged Automerge history when a real boundary batch fails", async () => {
+    const { acknowledged, pending, prior, after } = realBoundary
+    const backend = create()
+    await backend.store(tree, acknowledged)
+    await backend.close()
+    let inspected = 0
+    storage.beforeSave = key => {
+      if (!key.includes("/commits/") && !key.includes("/fragments/")) return
+      if (++inspected === 2) throw new Error("boundary failed")
+    }
+    const interrupted = create()
+    await expect(interrupted.store(tree, pending)).rejects.toThrow()
+    expect(inspected).toBe(2)
+    await interrupted.close().catch(() => {})
+    storage.beforeSave = undefined
+
+    const reopened = create()
+    const stored = (await initial(reopened)).records
+    expect(stored.map(recordKey).sort()).toEqual(
+      acknowledged.map(recordKey).sort()
+    )
+    expect(applyRecords(A.init<{ count: number }>(), stored)).toEqual(prior)
+    await reopened.store(tree, pending)
+    await reopened.close()
+    const restored = (await initial(create())).records
+    const loaded = applyRecords(A.init<{ count: number }>(), restored)
+    expect(loaded).toEqual(after)
+    expect(A.getHeads(loaded)).toEqual(A.getHeads(after))
+    expect(
+      A.getAllChanges(loaded).map(blob => A.decodeChange(blob).hash)
+    ).toEqual(A.getAllChanges(after).map(blob => A.decodeChange(blob).hash))
+  })
 
   it("rescans ambiguous fragment saves for document and collection observers", async () => {
     const backend = create()
