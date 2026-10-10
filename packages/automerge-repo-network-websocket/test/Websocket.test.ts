@@ -18,7 +18,7 @@ import * as CBOR from "cbor-x"
 import { EventEmitter, once } from "events"
 import http from "http"
 import { getPortPromise as getAvailablePort } from "portfinder"
-import { afterEach, describe, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import WebSocket, { WebSocketServer } from "ws"
 import { WebSocketClientAdapter } from "../src/WebSocketClientAdapter.js"
 import { WebSocketServerAdapter } from "../src/WebSocketServerAdapter.js"
@@ -364,6 +364,31 @@ describe("Websocket adapters", () => {
       })
 
       server.close()
+    })
+
+    it("should use the provided socket factory to connect", async () => {
+      const port = await getPort() //?
+      const retryInterval = 100
+      const socketFactory = vi
+        .fn()
+        .mockImplementation(
+          url => new WebSocket(url, ["protocol1", "protocol2"])
+        )
+
+      const browserAdapter = await setupClient({
+        port,
+        retryInterval,
+        socketFactory,
+      })
+
+      const _browserRepo = new Repo({
+        network: [browserAdapter],
+        peerId: browserPeerId,
+      })
+
+      const { serverAdapter } = await setupServer({ port, retryInterval })
+
+      expect(socketFactory).toHaveBeenCalled()
     })
   })
 
@@ -945,9 +970,10 @@ const setupClient = async (options: SetupOptions = {}) => {
     clientCount = 1,
     retryInterval = 1000,
     port = await getPort(),
+    socketFactory,
   } = options
   const serverUrl = `ws://localhost:${port}`
-  return new WebSocketClientAdapter(serverUrl, retryInterval)
+  return new WebSocketClientAdapter(serverUrl, retryInterval, socketFactory)
 }
 
 const pause = (t = 0) =>
@@ -979,4 +1005,5 @@ type SetupOptions = {
   clientCount?: number
   retryInterval?: number
   port?: number
+  socketFactory?: (url: string) => WebSocket
 }
