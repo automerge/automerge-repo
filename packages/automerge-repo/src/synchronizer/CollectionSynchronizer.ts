@@ -13,6 +13,7 @@ import { AutomergeUrl, DocumentId, PeerId } from "../types.js"
 import { DocSynchronizer, SHARE_POLICY_CONCURRENCY } from "./DocSynchronizer.js"
 import type { ShareConfig } from "./DocSynchronizer.js"
 import { semaphore, type Limit } from "../helpers/semaphore.js"
+import { WeakValueMap } from "../helpers/WeakValueMap.js"
 import type { DocumentSource } from "../DocumentSource.js"
 import type { DocumentQuery, SourcePriority } from "../DocumentQuery.js"
 import type { SyncStatePayload, DocSyncMetrics } from "./Synchronizer.js"
@@ -98,7 +99,16 @@ export class CollectionSynchronizer
   readonly priority: SourcePriority
 
   #peers: Set<PeerId> = new Set()
-  #docSynchronizers: Record<DocumentId, DocSynchronizer> = {}
+
+  /**
+   * Per-document synchronizers, held weakly. A DocSynchronizer is retained
+   * by its own document cluster (its handle listeners and query
+   * subscription close over it) and by in-flight work (peer activation,
+   * networkReady, sync-throttle timers), so an entry lives exactly as long
+   * as its document. A later inbound message re-creates it via
+   * ensureQuery/attach, re-loading persisted sync state.
+   */
+  #docSynchronizers = new WeakValueMap<DocumentId, DocSynchronizer>()
   #denylist: DocumentId[]
   #config: AutomergeSyncConfig
   #networkReady: Promise<void>
@@ -129,9 +139,10 @@ export class CollectionSynchronizer
     )
   }
 
-  /** Expose doc synchronizers for Repo access (e.g. metrics) */
+  /** Expose doc synchronizers for Repo access (e.g. metrics). A snapshot
+   *  of the currently-live entries. */
   get docSynchronizers(): Record<DocumentId, DocSynchronizer> {
-    return this.#docSynchronizers
+    return Object.fromEntries(this.#docSynchronizers.entries())
   }
 
   // DOCUMENT SOURCE INTERFACE
@@ -143,10 +154,10 @@ export class CollectionSynchronizer
    * share policy internally.
    */
   attach(query: DocumentQuery<unknown>): void {
-    if (this.#docSynchronizers[query.documentId]) return
+    if (this.#docSynchronizers.has(query.documentId)) return
 
     const docSync = this.#initDocSynchronizer(query.handle, query)
-    this.#docSynchronizers[query.documentId] = docSync
+    this.#docSynchronizers.set(query.documentId, docSync)
 
     for (const peerId of this.#peers) {
       this.#addPeerToDoc(peerId, docSync, [])
@@ -156,13 +167,13 @@ export class CollectionSynchronizer
   /** {@link DocumentSource.detach} — removes a document and stops syncing. */
   detach(documentId: DocumentId): void {
     this.#log.debug(`removing document ${documentId}`)
-    const docSync = this.#docSynchronizers[documentId]
+    const docSync = this.#docSynchronizers.get(documentId)
     if (docSync) {
       for (const peerId of this.peers) {
         docSync.removePeer(peerId)
       }
     }
-    delete this.#docSynchronizers[documentId]
+    this.#docSynchronizers.delete(documentId)
   }
 
   // PEER MANAGEMENT
@@ -170,7 +181,7 @@ export class CollectionSynchronizer
   addPeer(peerId: PeerId): void {
     this.#log.debug(`adding ${peerId} & synchronizing with them`)
     this.#peers.add(peerId)
-    for (const docSync of Object.values(this.#docSynchronizers)) {
+    for (const docSync of this.#docSynchronizers.values()) {
       this.#addPeerToDoc(peerId, docSync, [])
     }
   }
@@ -178,7 +189,7 @@ export class CollectionSynchronizer
   removePeer(peerId: PeerId): void {
     this.#log.debug(`removing peer ${peerId}`)
     this.#peers.delete(peerId)
-    for (const docSync of Object.values(this.#docSynchronizers)) {
+    for (const docSync of this.#docSynchronizers.values()) {
       docSync.removePeer(peerId)
     }
   }
@@ -213,10 +224,10 @@ export class CollectionSynchronizer
 
     // Ensure we have a DocSynchronizer for this document.
     // ensureQuery calls attach which no-ops if already registered.
-    let docSync = this.#docSynchronizers[documentId]
+    let docSync = this.#docSynchronizers.get(documentId)
     if (!docSync) {
       this.#config.ensureQuery(documentId)
-      docSync = this.#docSynchronizers[documentId]!
+      docSync = this.#docSynchronizers.get(documentId)!
     }
 
     // Ephemeral and doc-unavailable messages may have a senderId that is
@@ -242,7 +253,7 @@ export class CollectionSynchronizer
   // SHARE POLICY
 
   reevaluateDocumentShare(): void {
-    for (const docSync of Object.values(this.#docSynchronizers)) {
+    for (const docSync of this.#docSynchronizers.values()) {
       docSync.reevaluateSharePolicy(this.#sharePolicyLimit)
     }
   }
@@ -254,7 +265,8 @@ export class CollectionSynchronizer
     }
   } {
     return Object.fromEntries(
-      Object.entries(this.#docSynchronizers).map(
+      Array.from(
+        this.#docSynchronizers.entries(),
         ([documentId, synchronizer]) => {
           return [documentId, synchronizer.metrics()]
         }

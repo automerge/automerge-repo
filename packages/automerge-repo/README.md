@@ -281,6 +281,59 @@ And you're finished! You can test that your sync server is opening the same docu
 different browsers (e.g. Chrome and Firefox). (Note that with our current trivial implementation
 you'll need to manually copy the `rootDocId` value between the browsers.)
 
+## Memory lifetime — consumer responsibilities
+
+`Repo` follows consumer lifetime decisions: while you observe a document — by holding a strong reference to a `DocHandle` (or a `DocumentProgress`), or by keeping a listener attached — the repo keeps it loaded. Once nothing observes it, the repo automatically releases the associated coordination state (query, synchronizer entry, sync info, save listener).
+
+### The contract
+
+- **Holding a strong reference keeps the document loaded.** Storage backing, sync state, and the synchronizer entry stay alive as long as your reference does.
+- **An attached listener also keeps it loaded.** `handle.on(...)` (and an active `DocumentProgress.subscribe(...)` or a pending `whenReady`) roots the document in the repo, so events keep flowing even if you drop the handle itself. Remove the listener (`off`, `removeAllListeners`, the unsubscribe function) to release that root — a listener you never remove pins its document for the life of the `Repo`.
+- **Public listener removal is safe cleanup.** `off(event)` and `removeAllListeners()` remove only listeners added through the public API. The repo's own internal listeners (storage autosave, query updates, sync) are unaffected, so a teardown path that sweeps a handle's listeners releases retention without breaking the document for other consumers.
+- **Dropping every reference and removing every listener releases everything.** Once garbage collection reclaims the document, the repo's per-document state is cleaned up automatically. No call to `repo.removeFromCache(id)` is required.
+- **In-memory peer sync info lives with the document.** `handle.getSyncInfo(storageId)` reports what this process has learned since the document was last loaded; after the document is released and re-loaded it returns `undefined` until fresh sync messages arrive, just as it does after a process restart. Peer engagement itself is restored from persisted sync state.
+- **A consumer-side `WeakMap<DocHandle, ...>` for derived state works as expected.** The repo no longer pins the handle unconditionally, so weak-map entries are released when you drop your references.
+
+**Opt-in modules with their own teardown.** Some optional modules layer their own long-lived state on top of a handle — most notably [`Presence`](src/presence/Presence.ts), which schedules heartbeat and peer-pruning intervals in the host timer queue. The timer queue is an external GC root that keeps the `Presence` (and its handle) alive until cleared, so dropping references is **not** enough for those: call `presence.stop()` deterministically (typically in a `pagehide` / unmount path) before releasing. See the relevant module's docs for the specifics.
+
+### Flush unsaved changes before dropping
+
+Pending throttled saves keep the handle alive briefly via the timer queue, so they always reach storage. But if you need a deterministic point at which all writes are persisted, `await repo.flush([documentId])` first:
+
+```ts
+await repo.flush([handle.documentId]) // ensure pending changes hit storage
+handle = null // drop the reference; GC will follow when ready
+```
+
+### `removeFromCache` is for explicit teardown
+
+`repo.removeFromCache(documentId)` is still available. Its semantics changed from "force-clean the entry" to "force-clean _now_ instead of waiting for GC." It also severs listener-based rooting, so a document you tear down explicitly is released even if some listener was never removed. Use it when you need synchronous teardown (e.g. shutting down a subsystem with a known doc list); for typical reference-dropping patterns it is no longer needed.
+
+### Consumer-managed LRU (sync servers, long-running processes)
+
+`Repo` does not include a built-in LRU or grace-period cache. The right level for these policies is the consumer: you know your access pattern, your eviction criterion (time, count, memory pressure), and your tolerance for re-loading on the next access.
+
+A consumer LRU is just a strong-reference map under your own policy. When a handle should be evicted, drop the reference — the repo follows:
+
+```ts
+class HandleLRU<T> {
+  #strong = new Map<DocumentId, DocHandle<T>>() // strong refs, your LRU policy
+  // ... your own eviction logic (time, count, memory) ...
+
+  evict(documentId: DocumentId) {
+    this.#strong.delete(documentId)
+    // No removeFromCache call needed: dropping the strong reference is enough.
+    // The repo releases coordination state when GC reclaims the handle.
+  }
+}
+```
+
+### Behavior change vs. previous versions
+
+In earlier versions, `Repo` strongly retained every handle it created for the lifetime of the `Repo`. Consumers needed `removeFromCache(id)` for every doc they wanted to release. Code that relied on that retention (e.g. assuming a previously-`find()`-ed handle would still be in the cache without holding the reference or a listener yourself) needs review.
+
+For most application code the change is transparent — you were already holding handles or listening where you needed them. The change affects code that _implicitly_ relied on the repo as a permanent cache.
+
 ## Acknowledgements
 
 Originally authored by Peter van Hardenberg.
