@@ -191,7 +191,7 @@ describe("public Repo with native Subduction", () => {
       expect(A.getHeads(receiver.fullDoc())).toEqual(A.getHeads(fixture))
     }, wait)
     await b.repo.flush()
-    const keys = await b.storage.list("subduction-v1/")
+    const keys = await b.storage.list("subduction-v2/")
     expect(keys.some(key => key.includes("/fragments/"))).toBe(true)
     expect(keys.some(key => key.includes("/commits/"))).toBe(true)
     await wires[0].disconnect()
@@ -342,8 +342,8 @@ describe("public Repo with native Subduction", () => {
     await p.repo.flush()
     await p.repo.shutdown()
     // The backend no longer re-checks blobs on read: Repo's validation must.
-    const key = (await p.storage.list("subduction-v1/")).find(k =>
-      k.includes("/commits/")
+    const key = (await p.storage.list("subduction-v2/")).find(k =>
+      k.includes("/commits/0blob/")
     )!
     await p.storage.save(
       key,
@@ -461,7 +461,7 @@ describe("public Repo with native Subduction", () => {
     })
     await vi.waitFor(async () => {
       expect(
-        (await b.storage.list("subduction-v1/")).some(key =>
+        (await b.storage.list("subduction-v2/")).some(key =>
           key.includes("/commits/")
         )
       ).toBe(true)

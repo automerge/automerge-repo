@@ -5,65 +5,38 @@ export class IndexedDBByteStore implements LocalByteStore {
   private db?: Promise<IDBDatabase>
 
   constructor(
-    private readonly options: {
-      database?: string
-      store?: string
-    } = {}
+    private readonly options: { database?: string; store?: string } = {}
   ) {}
+
+  private get storeName(): string {
+    return this.options.store ?? "bytes"
+  }
 
   private open(): Promise<IDBDatabase> {
     if (this.db) return this.db
     const name = this.options.database ?? "automerge-repo-subduction"
-    const store = this.options.store ?? "bytes"
     const opening = new Promise<IDBDatabase>((resolve, reject) => {
-      let abandoned = false
-      const openVersion = (version?: number) => {
-        const request =
-          version === undefined
-            ? indexedDB.open(name)
-            : indexedDB.open(name, version)
-        request.onupgradeneeded = () => {
-          if (!request.result.objectStoreNames.contains(store))
-            request.result.createObjectStore(store)
+      const request = indexedDB.open(name)
+      request.onupgradeneeded = () =>
+        request.result.createObjectStore(this.storeName)
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => {
+        const db = request.result
+        if (this.db !== opening) {
+          db.close()
+          resolve(db)
+          return
         }
-        request.onerror = () => reject(request.error)
-        request.onblocked = () => {
-          abandoned = true
-          reject(new Error(`IndexedDB open blocked: ${name}`))
+        const invalidate = () => {
+          if (this.db === opening) this.db = undefined
         }
-        request.onsuccess = () => {
-          const db = request.result
-          if (abandoned || this.db !== opening) {
-            db.close()
-            resolve(db)
-          } else if (!db.objectStoreNames.contains(store)) {
-            const nextVersion = db.version + 1
-            db.close()
-            openVersion(nextVersion)
-          } else {
-            const schema = db.transaction(store, "readonly").objectStore(store)
-            if (schema.keyPath !== null || schema.autoIncrement) {
-              db.close()
-              reject(
-                new TypeError(
-                  `Invalid IndexedDB object store ${name}/${store}: expected out-of-line keys without autoIncrement`
-                )
-              )
-              return
-            }
-            const invalidate = () => {
-              if (this.db === opening) this.db = undefined
-            }
-            db.onclose = invalidate
-            db.onversionchange = () => {
-              db.close()
-              invalidate()
-            }
-            resolve(db)
-          }
+        db.onclose = invalidate
+        db.onversionchange = () => {
+          db.close()
+          invalidate()
         }
+        resolve(db)
       }
-      openVersion()
     })
     this.db = opening
     void opening.catch(() => {
@@ -74,63 +47,47 @@ export class IndexedDBByteStore implements LocalByteStore {
 
   private async run<T>(
     mode: IDBTransactionMode,
-    operation: (
-      store: IDBObjectStore,
-      result: (value: T) => void,
-      fail: (cause: unknown) => void
-    ) => IDBRequest
+    operation: (store: IDBObjectStore) => () => T
   ): Promise<T> {
     const db = await this.open()
-    const transaction = db.transaction(this.options.store ?? "bytes", mode)
+    const transaction = db.transaction(this.storeName, mode)
     return new Promise<T>((resolve, reject) => {
-      let result: T
-      let failure: unknown
-      let request: IDBRequest | undefined
       transaction.onabort = () =>
-        reject(
-          failure ??
-            transaction.error ??
-            request?.error ??
-            new Error("IndexedDB transaction failed")
-        )
-      transaction.oncomplete = () => resolve(result)
+        reject(transaction.error ?? new Error("IndexedDB transaction failed"))
       try {
-        request = operation(
-          transaction.objectStore(this.options.store ?? "bytes"),
-          value => {
-            result = value
-          },
-          cause => {
-            failure = cause
-            transaction.abort()
+        const result = operation(transaction.objectStore(this.storeName))
+        // Request success alone is not a committed write.
+        transaction.oncomplete = () => {
+          try {
+            resolve(result())
+          } catch (error) {
+            reject(error)
           }
-        )
+        }
       } catch (error) {
-        failure = error
         transaction.abort()
+        reject(error)
       }
     })
   }
 
-  load(key: string): Promise<Uint8Array | undefined> {
-    return this.run("readonly", (store, done, fail) => {
-      const request = store.get(key)
-      request.onsuccess = () => {
-        const value: unknown = request.result
-        if (value !== undefined && !(value instanceof Uint8Array)) {
-          fail(new TypeError(`Invalid IndexedDB byte value for ${key}`))
-          return
-        }
-        done(value as Uint8Array | undefined)
-      }
-      return request
+  async load(key: string): Promise<Uint8Array | undefined> {
+    const [value] = await this.loadMany([key])
+    return value
+  }
+
+  loadMany(keys: readonly string[]): Promise<(Uint8Array | undefined)[]> {
+    if (!keys.length) return Promise.resolve([])
+    const owned = [...keys]
+    return this.run("readonly", store => {
+      const requests = owned.map(key => store.get(key))
+      return () =>
+        requests.map(request => request.result as Uint8Array | undefined)
     })
   }
 
   save(key: string, bytes: Uint8Array): Promise<void> {
-    // Snapshot synchronously, before waiting for the database to open.
-    const copy = new Uint8Array(bytes)
-    return this.run("readwrite", store => store.put(copy, key))
+    return this.saveBatch([[key, bytes]])
   }
 
   /** One readwrite transaction: IndexedDB commits every put or none. */
@@ -140,14 +97,13 @@ export class IndexedDBByteStore implements LocalByteStore {
     )
     if (!copies.length) return Promise.resolve()
     return this.run("readwrite", store => {
-      let request!: IDBRequest
-      for (const [key, bytes] of copies) request = store.put(bytes, key)
-      return request
+      for (const [key, bytes] of copies) store.put(bytes, key)
+      return () => {}
     })
   }
 
   remove(key: string): Promise<void> {
-    return this.run("readwrite", store => store.delete(key))
+    return this.removeBatch([key])
   }
 
   /** One readwrite transaction: IndexedDB commits every delete or none. */
@@ -155,57 +111,36 @@ export class IndexedDBByteStore implements LocalByteStore {
     const owned = [...keys]
     if (!owned.length) return Promise.resolve()
     return this.run("readwrite", store => {
-      let request!: IDBRequest
-      for (const key of owned) request = store.delete(key)
-      return request
+      for (const key of owned) store.delete(key)
+      return () => {}
+    })
+  }
+
+  removeRange(prefix: string): Promise<void> {
+    return this.run("readwrite", store => {
+      store.delete(IDBKeyRange.bound(prefix, prefix + "\uffff"))
+      return () => {}
     })
   }
 
   list(prefix: string): Promise<string[]> {
-    return this.run("readonly", (store, done) => {
-      const keys: string[] = []
-      const request = store.openKeyCursor(IDBKeyRange.lowerBound(prefix))
-      request.onsuccess = () => {
-        const cursor = request.result
-        if (
-          cursor &&
-          typeof cursor.key === "string" &&
-          cursor.key.startsWith(prefix)
-        ) {
-          keys.push(cursor.key)
-          cursor.continue()
-        } else done(keys)
-      }
-      return request
+    return this.run("readonly", store => {
+      const request = store.getAllKeys(
+        IDBKeyRange.bound(prefix, prefix + "\uffff")
+      )
+      return () => request.result as string[]
     })
   }
 
   loadPrefix(prefix: string): Promise<[string, Uint8Array][]> {
-    // One readonly transaction gives a consistent cut. Walk from the prefix
-    // and stop at the first non-matching key: keys may contain \uffff, so an
-    // upper-bound range would be wrong.
-    return this.run("readonly", (store, done, fail) => {
-      const entries: [string, Uint8Array][] = []
-      const request = store.openCursor(IDBKeyRange.lowerBound(prefix))
-      request.onsuccess = () => {
-        const cursor = request.result
-        if (
-          !cursor ||
-          typeof cursor.key !== "string" ||
-          !cursor.key.startsWith(prefix)
-        ) {
-          done(entries)
-          return
-        }
-        const value: unknown = cursor.value
-        if (!(value instanceof Uint8Array)) {
-          fail(new TypeError(`Invalid IndexedDB byte value for ${cursor.key}`))
-          return
-        }
-        entries.push([cursor.key, value])
-        cursor.continue()
-      }
-      return request
+    return this.run("readonly", store => {
+      const range = IDBKeyRange.bound(prefix, prefix + "\uffff")
+      const values = store.getAll(range)
+      const keys = store.getAllKeys(range)
+      return () =>
+        (keys.result as string[]).map(
+          (key, index) => [key, values.result[index]] as [string, Uint8Array]
+        )
     })
   }
 

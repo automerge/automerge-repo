@@ -37,14 +37,13 @@ keys, as native code can panic on invalid keys.
 
 For persistent local history in a browser, pass `new IndexedDBByteStore()` as
 `storage`. It uses the `automerge-repo-subduction` database and `bytes` object
-store by default; pass `{ database, store }` to override them. Existing object
-stores must use out-of-line keys without autoIncrement. Each `saveBatch` is one
+store; pass `{ database, store }` to choose names for another dedicated database.
+The chosen store is created only when the database is new. Each `saveBatch` is one
 readwrite transaction. A completed save does not guarantee fsync or protection
 from browser eviction.
 
 After shutting down Repo and closing the peer, call `await storage.close()` to
-release its database connection. If an open is blocked, close other database
-clients before retrying.
+release its database connection.
 
 ```ts
 // Node initializer shown; browsers must await their native WASM initializer.
@@ -134,19 +133,23 @@ The injected `LocalByteStore` has exactly:
 
 ```ts
 load(key: string): Promise<Uint8Array | undefined>
+loadMany(keys: readonly string[]): Promise<(Uint8Array | undefined)[]>
 save(key: string, data: Uint8Array): Promise<void>
 saveBatch(entries: [key: string, data: Uint8Array][]): Promise<void>
 remove(key: string): Promise<void>
 removeBatch(keys: string[]): Promise<void>
+removeRange(prefix: string): Promise<void>
 list(prefix: string): Promise<string[]> // full keys with this prefix
 loadPrefix(prefix: string): Promise<[key: string, data: Uint8Array][]>
 ```
 
-`loadPrefix` is required (custom stores written against the earlier four-method
-interface must add it). It returns every entry whose key starts with `prefix`,
+`loadMany` returns requested values in input order from one consistent read;
+paired metadata and blob point lookups must not straddle transactions.
+`loadPrefix` returns every entry whose key starts with `prefix`,
 as full keys sorted by key, from **one consistent read**: a concurrent `save` or
 `remove` must appear entirely before or entirely after it, so `list` followed by
 separate `load`s is not equivalent unless nothing else can write meanwhile.
+Keys and prefixes are backend-owned ASCII strings.
 Returned bytes are owned by the caller. Opening a document is a single
 `loadPrefix` call.
 
@@ -157,8 +160,10 @@ resolution must mean recoverable under the store's documented guarantees (not
 necessarily fsync).
 `removeBatch` (required) **must remove every key, or none**, with the same
 visibility and resolution guarantees. Missing values are `undefined`; `remove`
-and `removeBatch` ignore missing keys. Do not mutate supplied
-bytes. The `subduction-v1/` namespace must be exclusively owned by this backend.
+and `removeBatch` ignore missing keys. `removeRange` atomically removes every
+key with the given prefix, including on an empty prefix. Do not mutate supplied
+bytes. The `subduction-v2/` namespace must be exclusively owned by this backend;
+the earlier `subduction-v1/` format is not migrated or read.
 Storage is borrowed and is not closed or erased by backend close. Concurrent
 multi-owner access and hostile storage are unsupported.
 
@@ -226,7 +231,10 @@ observers are told to rescan, and an exact retry dedupes. Repo serializes each
 document's writes and retries any unsaved changes together with later edits. A
 write that keeps failing therefore blocks later persistence of that document,
 and `flush()` keeps reporting it. Malformed records fail rather than appearing
-absent; the checksum detects damage, not malicious tampering.
+absent. Each record uses separate `0blob/<id>` and `1meta/<id>` keys under
+`commits/` or `fragments/`, read together in one transaction; missing halves
+fail loudly. Metadata decoding detects malformed signed bytes; native hydration
+checks blob digests. Storage is not protected against malicious tampering.
 A different representation of an existing commit ID is rejected. As in native
 Subduction storage, fragments are keyed by head plus payload digest: valid
 same-head variants coexist, and a head lookup returns the one native keeps

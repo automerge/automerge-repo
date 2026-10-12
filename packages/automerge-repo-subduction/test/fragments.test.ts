@@ -185,8 +185,8 @@ describe("local Subduction fragments", () => {
       id: tree,
     })
     await collection.return!()
-    const key = (await storage.list("subduction-v1/")).find(k =>
-      k.includes("/fragments/")
+    const key = (await storage.list("subduction-v2/")).find(k =>
+      k.includes("/fragments/1meta/")
     )!
     const signed = N.SignedFragment.tryDecode(
       signedBytes((await storage.load(key))!)
@@ -334,16 +334,22 @@ describe("local Subduction fragments", () => {
 
   // Tree/key relocation and blob damage are not re-checked on read (see the
   // native hydration test below for blobs).
-  it.each(["signed", "kind"])(
+  it.each(["signed", "missing-blob"] as const)(
     "detects persisted fragment %s corruption",
     async field => {
       const backend = create()
       await backend.store(tree, [fragment(4)])
       await backend.close()
-      const key = (await storage.list("subduction-v1/")).find(k =>
-        k.includes("/fragments/")
+      const key = (await storage.list("subduction-v2/")).find(k =>
+        k.includes("/fragments/1meta/")
       )!
-      await storage.save(key, corruptFrame((await storage.load(key))!, field))
+      if (field === "missing-blob")
+        await storage.remove(key.replace("/1meta/", "/0blob/"))
+      else
+        await storage.save(
+          key,
+          corruptFrame((await storage.load(key))!, "signed")
+        )
       const reloaded = create()
       const stream = reloaded.open(tree).events[Symbol.asyncIterator]()
       expect(await next(stream)).toMatchObject({ type: "failure" })
@@ -367,7 +373,7 @@ describe("local Subduction fragments", () => {
     expect((await initial(backend)).records).toEqual([])
     // Native may save the tree marker on its own first; no record is stored.
     expect(
-      (await storage.list("subduction-v1/")).filter(key => !key.endsWith("/id"))
+      (await storage.list("subduction-v2/")).filter(key => !key.endsWith("/id"))
     ).toEqual([])
     await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     storage.beforeSave = undefined
@@ -484,8 +490,8 @@ describe("local Subduction fragments", () => {
     "a persisted %s blob corrupted on disk is rejected by native hydration",
     async kind => {
       await create().store(tree, [loose(1), fragment(4)])
-      const key = (await storage.list("subduction-v1/")).find(k =>
-        k.includes(`/${kind}/`)
+      const key = (await storage.list("subduction-v2/")).find(k =>
+        k.includes(`/${kind}/0blob/`)
       )!
       // Same size, different digest: only the blob content check can catch it.
       await storage.save(key, corruptFrame((await storage.load(key))!, "blob"))
@@ -502,6 +508,7 @@ describe("local Subduction fragments", () => {
     const calls: string[] = []
     const counted: LocalByteStore = {
       load: key => (calls.push("load"), storage.load(key)),
+      loadMany: keys => (calls.push("loadMany"), storage.loadMany(keys)),
       save: (key, data) => (calls.push("save"), storage.save(key, data)),
       saveBatch: entries => (
         calls.push("saveBatch"),
@@ -511,6 +518,10 @@ describe("local Subduction fragments", () => {
       removeBatch: keys => (
         calls.push("removeBatch"),
         storage.removeBatch(keys)
+      ),
+      removeRange: prefix => (
+        calls.push("removeRange"),
+        storage.removeRange(prefix)
       ),
       list: prefix => (calls.push("list"), storage.list(prefix)),
       loadPrefix: prefix => (
@@ -530,12 +541,12 @@ describe("local Subduction fragments", () => {
       const reopened = create()
       // Open reads and validates storage before the corruption, so it succeeds.
       expect((await initial(reopened)).records).toHaveLength(2)
-      const key = (await storage.list("subduction-v1/")).find(k =>
-        k.includes(`/${kind}/`)
+      const key = (await storage.list("subduction-v2/")).find(k =>
+        k.includes(`/${kind}/1meta/`)
       )!
       await storage.save(
         key,
-        corruptFrame((await storage.load(key))!, "digest")
+        corruptFrame((await storage.load(key))!, "signed")
       )
       // The first local write hydrates native, which reads both kinds.
       await expect(reopened.store(tree, [loose(5, [4])])).rejects.toThrow()
@@ -552,7 +563,7 @@ describe("local Subduction fragments", () => {
     await expect(
       backend.store(tree, [{ ...fragment(4), boundary }])
     ).rejects.toMatchObject({ code: "invalid-record" })
-    expect(await storage.list("subduction-v1/")).toEqual([])
+    expect(await storage.list("subduction-v2/")).toEqual([])
     await backend.flush()
   })
 
@@ -577,7 +588,7 @@ describe("local Subduction fragments", () => {
     })
     expect((await collection.next()).done).toBe(true)
     await backend.deleteLocal(tree)
-    expect(await storage.list("subduction-v1/")).toEqual([])
+    expect(await storage.list("subduction-v2/")).toEqual([])
     const fresh = backend.observeCollection()[Symbol.asyncIterator]()
     expect((await fresh.next()).value).toMatchObject({
       type: "local-load-complete",
@@ -615,7 +626,7 @@ describe("local Subduction fragments", () => {
       await writing
       await ending
       if (operation === "delete") {
-        expect(await storage.list("subduction-v1/")).toEqual([])
+        expect(await storage.list("subduction-v2/")).toEqual([])
         await backend.store(tree, [fragment(4)])
         expect((await initial(backend)).records).toEqual([fragment(4)])
       } else expect((await initial(create())).records).toEqual([fragment(4)])

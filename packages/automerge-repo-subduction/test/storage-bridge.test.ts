@@ -60,6 +60,11 @@ class MemoryStore implements LocalByteStore {
   load(key: string) {
     return this.run("load", key, () => this.values.get(key)?.slice())
   }
+  loadMany(keys: readonly string[]) {
+    return this.run("loadMany", keys.join(","), () =>
+      keys.map(key => this.values.get(key)?.slice())
+    )
+  }
   save(key: string, bytes: Uint8Array) {
     return this.run("save", key, () => this.commit([[key, bytes]]))
   }
@@ -80,6 +85,12 @@ class MemoryStore implements LocalByteStore {
   removeBatch(keys: readonly string[]) {
     return this.run("removeBatch", keys.join(","), () => {
       for (const key of keys) this.values.delete(key)
+    })
+  }
+  removeRange(prefix: string) {
+    return this.run("removeRange", prefix, () => {
+      for (const key of this.values.keys())
+        if (key.startsWith(prefix)) this.values.delete(key)
     })
   }
   loadPrefix(prefix: string) {
@@ -119,8 +130,8 @@ beforeAll(async () => {
             ? [new N.FragmentInput(unsignedFragment(id, record), record.blob)]
             : []
         )
-        const value = [...storage.values.entries()].find(
-          ([k]) => !k.endsWith("/id")
+        const value = [...storage.values.entries()].find(([k]) =>
+          k.includes("/1meta/")
         )![1]
         signed.set(record, signedBytes(value))
       } finally {
@@ -229,6 +240,17 @@ function dispose(value: unknown): void {
 }
 
 describe("StorageBridge native transaction serialization", () => {
+  it("ignores earlier storage namespaces without erasing them", async () => {
+    const storage = new MemoryStore()
+    const key = `subduction-v1/${tree.padEnd(64, "0")}/id`
+    storage.values.set(key, new Uint8Array([1]))
+    const bridge = new StorageBridge(storage, () => {})
+    expect(await withId(id => bridge.records(id))).toEqual([])
+    await save(bridge, first)
+    expect(await withId(id => bridge.records(id))).toEqual([first])
+    expect(storage.values.get(key)).toEqual(new Uint8Array([1]))
+  })
+
   it("rejects a signed record under a different storage key", async () => {
     const storage = new MemoryStore()
     const bridge = new StorageBridge(storage, () => {})
@@ -278,7 +300,7 @@ describe("StorageBridge native transaction serialization", () => {
     await save(b, first)
     expect(firstSaved.mock.calls).toEqual([[tree, first]])
     expect(secondSaved.mock.calls).toEqual([[tree, first]])
-    expect(storage.written).toHaveLength(1)
+    expect(storage.written).toHaveLength(2)
   })
 
   it("serializes same-head conflicts and exact retries, but allows both kinds", async () => {
@@ -309,19 +331,45 @@ describe("StorageBridge native transaction serialization", () => {
     ])
     expect(failed).toHaveBeenCalledOnce()
     expect(await withId(id => bridge.records(id))).toEqual([first, fragment])
-    expect(storage.written).toHaveLength(2)
+    expect(storage.written).toHaveLength(4)
     expect(storage.maxActive).toBe(1)
   })
 
-  it("owns decoded blobs after the stored frame changes", async () => {
+  it("owns decoded blobs after the stored bytes change", async () => {
     const storage = new MemoryStore()
     const bridge = new StorageBridge(storage, () => {})
     await save(bridge, first)
     const [record] = await withId(id => bridge.records(id))
-    const frame = [...storage.values.values()][0]
-    frame[frame.length - 1] ^= 0xff
+    const blob = [...storage.values.entries()].find(([key]) =>
+      key.includes("/0blob/")
+    )![1]
+    blob[blob.length - 1] ^= 0xff
     expect(record.blob).toEqual(first.blob)
   })
+
+  it.each(["meta", "blob"] as const)(
+    "rejects incomplete %s records in both point and bulk reads",
+    async part => {
+      const storage = new MemoryStore()
+      const bridge = new StorageBridge(storage, () => {})
+      await save(bridge, first)
+      const key = [...storage.values.keys()].find(k =>
+        k.includes(part === "meta" ? "/1meta/" : "/0blob/")
+      )!
+      storage.values.delete(key)
+      const id = N.CommitId.fromHexString(first.id)
+      try {
+        await expect(
+          withId(treeId => bridge.loadCommit(treeId, id))
+        ).rejects.toThrow("Incomplete stored record")
+        await expect(withId(treeId => bridge.records(treeId))).rejects.toThrow(
+          "Incomplete stored record"
+        )
+      } finally {
+        id.free()
+      }
+    }
+  )
 
   it("saves without reading the rest of the tree's history", async () => {
     const storage = new MemoryStore()
@@ -331,8 +379,13 @@ describe("StorageBridge native transaction serialization", () => {
     storage.calls.length = 0
     await save(bridge, second)
     // One same-key lookup and one write; no list or whole-history loads.
-    const path = `subduction-v1/${tree.padEnd(64, "0")}/commits/${cid(2)}`
-    expect(storage.calls).toEqual([`load:${path}`, `saveBatch:${path}`])
+    const path = `subduction-v2/${tree.padEnd(64, "0")}/commits/`
+    const meta = `${path}1meta/${cid(2)}`
+    const blob = `${path}0blob/${cid(2)}`
+    expect(storage.calls).toEqual([
+      `loadMany:${meta},${blob}`,
+      `saveBatch:${meta},${blob}`,
+    ])
   })
 
   it("keeps batches, reads, and cleanup in acceptance order with freed inputs", async () => {
@@ -429,7 +482,7 @@ describe("StorageBridge native transaction serialization", () => {
     expect(storage.calls.filter(call => call.startsWith("saveBatch:"))).toEqual(
       [expect.stringContaining("/id"), expect.stringContaining("/id")]
     )
-    expect(storage.written).toHaveLength(4)
+    expect(storage.written).toHaveLength(7)
     expect(await withId(id => bridge.records(id))).toEqual([
       first,
       second,

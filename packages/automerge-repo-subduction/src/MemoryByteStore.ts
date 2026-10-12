@@ -11,6 +11,10 @@ export class MemoryByteStore implements LocalByteStore {
     return this.#data.get(key)?.slice()
   }
 
+  async loadMany(keys: readonly string[]): Promise<(Uint8Array | undefined)[]> {
+    return keys.map(key => this.#data.get(key)?.slice())
+  }
+
   async save(key: string, bytes: Uint8Array): Promise<void> {
     this.#put(key, bytes.slice())
   }
@@ -35,6 +39,15 @@ export class MemoryByteStore implements LocalByteStore {
     // Applied synchronously, so readers see all removals or none.
     for (const key of keys)
       if (this.#data.delete(key)) this.#keys.splice(this.#lowerBound(key), 1)
+  }
+
+  async removeRange(prefix: string): Promise<void> {
+    const start = this.#lowerBound(prefix)
+    let end = start
+    while (end < this.#keys.length && this.#keys[end].startsWith(prefix)) {
+      this.#data.delete(this.#keys[end++])
+    }
+    this.#keys.splice(start, end - start)
   }
 
   async list(prefix: string): Promise<string[]> {

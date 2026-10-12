@@ -68,17 +68,17 @@ describe("real local Subduction", () => {
     backends.push(backend)
     return backend
   }
-  /** Bridge-encoded frame for `record`, produced by a scratch backend on its
-   * own store, so a test can plant a stored representation directly. */
-  async function encodedFrame(record: LooseCommitRecord): Promise<Uint8Array> {
+  /** Paired values for `record`, produced by a scratch backend. */
+  async function encodedPair(
+    record: LooseCommitRecord
+  ): Promise<[string, Uint8Array][]> {
     const scratch = new TestStore()
     const backend = new SubductionBackend({ storage: scratch, signer })
     try {
       await backend.store(tree, [record])
-      const key = (await scratch.list("subduction-v1/")).find(k =>
-        k.endsWith(`/commits/${record.id}`)
-      )!
-      return (await scratch.load(key))!
+      return (await scratch.loadPrefix("subduction-v2/")).filter(([key]) =>
+        key.includes("/commits/")
+      )
     } finally {
       await backend.close()
     }
@@ -140,8 +140,8 @@ describe("real local Subduction", () => {
   it("persists native signed bytes, opaque commit identities and parents; reloads through a fresh engine", async () => {
     const backend = create()
     await backend.store(tree, [record(2, [1]), record(1)])
-    const keys = await storage.list("subduction-v1/")
-    const key = keys.find(k => k.endsWith(`/commits/${cid(2)}`))!
+    const keys = await storage.list("subduction-v2/")
+    const key = keys.find(k => k.endsWith(`/1meta/${cid(2)}`))!
     const signed = N.SignedLooseCommit.tryDecode(
       signedBytes((await storage.load(key))!)
     )
@@ -346,21 +346,21 @@ describe("real local Subduction", () => {
     // this store rather than being borrowed from another operation.
     const backend = create()
     const variant = { ...record(1), blob: new Uint8Array([9, 42]) }
-    const original = storage.load.bind(storage)
+    const original = storage.loadMany.bind(storage)
     let seeded = false
-    vi.spyOn(storage, "load").mockImplementation(async key => {
-      if (!seeded && key.endsWith(`/commits/${cid(1)}`)) {
+    vi.spyOn(storage, "loadMany").mockImplementation(async keys => {
+      if (!seeded && keys[0].endsWith(`/1meta/${cid(1)}`)) {
         seeded = true
         // Preflight sees "absent"; then the variant appears before the write.
-        await storage.save(key, await encodedFrame(variant))
-        return undefined
+        await storage.saveBatch(await encodedPair(variant))
+        return keys.map(() => undefined)
       }
-      return original(key)
+      return original(keys)
     })
     const failure = await backend.store(tree, [record(1)]).catch(e => e)
     expect(failure).toMatchObject({ operation: "store", code: "io" })
     expect(failure.retryable).toBe(true)
-    vi.mocked(storage.load).mockRestore()
+    vi.mocked(storage.loadMany).mockRestore()
     expect((await initial(backend.open(tree))).records).toEqual([variant])
   })
 
@@ -406,7 +406,7 @@ describe("real local Subduction", () => {
     ).toHaveLength(1)
     expect(
       savedKeys(save).filter(key => key.includes("/commits/"))
-    ).toHaveLength(10)
+    ).toHaveLength(20)
     const reloaded = await initial(backend.open(tree))
     expect(reloaded.records).toEqual(records)
     expect(reloaded.complete.marker.heads).toEqual([cid(10)])
@@ -431,7 +431,7 @@ describe("real local Subduction", () => {
     })
     await collection.return!()
     await reopened.deleteLocal(tree)
-    expect(await storage.list("subduction-v1/")).toEqual([])
+    expect(await storage.list("subduction-v2/")).toEqual([])
   })
 
   it("stores with constant storage work and no marker rescans once complete", async () => {
@@ -441,7 +441,7 @@ describe("real local Subduction", () => {
     const { iterator } = await initial(session)
     session.markComplete!()
     const list = vi.spyOn(storage, "list")
-    const load = vi.spyOn(storage, "load")
+    const load = vi.spyOn(storage, "loadMany")
     await backend.store(tree, [record(2, [1])])
     expect(await next(iterator)).toMatchObject({
       type: "records",
@@ -456,8 +456,9 @@ describe("real local Subduction", () => {
     expect(list).not.toHaveBeenCalled()
     // One preflight lookup plus the bridge's own same-key check: per record,
     // independent of how much history the tree holds.
-    const path = `subduction-v1/${tree.padEnd(64, "0")}/commits/${cid(2)}`
-    expect(load.mock.calls.map(([key]) => key)).toEqual([path, path])
+    const path = `subduction-v2/${tree.padEnd(64, "0")}/commits/`
+    const pair = [`${path}1meta/${cid(2)}`, `${path}0blob/${cid(2)}`]
+    expect(load.mock.calls.map(([keys]) => keys)).toEqual([pair, pair])
     // Readers still validate the authoritative stored history.
     expect((await initial(backend.open(tree))).records).toEqual([
       record(1),
@@ -528,7 +529,7 @@ describe("real local Subduction", () => {
   it("reports malformed persisted fragments rather than treating them as absent", async () => {
     const backend = create()
     await storage.save(
-      `subduction-v1/${tree.padEnd(64, "0")}/fragments/${cid(1)}`,
+      `subduction-v2/${tree.padEnd(64, "0")}/fragments/1meta/${cid(1)}`,
       new Uint8Array([1])
     )
     const iterator = backend.open(tree).events[Symbol.asyncIterator]()
@@ -543,37 +544,34 @@ describe("real local Subduction", () => {
       error: { code: "io" },
     })
     await expect(backend.deleteLocal(tree)).rejects.toThrow()
-    expect(await storage.list("subduction-v1/")).toHaveLength(1)
+    expect(await storage.list("subduction-v2/")).toHaveLength(1)
   })
 
   // Tree/key relocation and blob damage are not re-checked on read: writes
   // check the tree, native checks blobs, and Repo validates records.
-  it.each([
-    "malformed",
-    "version",
-    "tree",
-    "kind",
-    "key",
-    "length",
-    "signed",
-    "digest",
-  ] as const)("fails loudly on persisted %s corruption", async kind => {
-    const backend = create()
-    await backend.store(tree, [record(1)])
-    await backend.close()
-    const key = (await storage.list("subduction-v1/")).find(k =>
-      k.includes("/commits/")
-    )!
-    await storage.save(
-      key,
-      kind === "malformed"
-        ? new Uint8Array([1])
-        : corruptFrame((await storage.load(key))!, kind)
-    )
-    const iterator = create().open(tree).events[Symbol.asyncIterator]()
-    expect(await next(iterator)).toMatchObject({ type: "failure" })
-    expect((await iterator.next()).done).toBe(true)
-  })
+  it.each(["malformed", "missing-blob", "signed"] as const)(
+    "fails loudly on persisted %s corruption",
+    async kind => {
+      const backend = create()
+      await backend.store(tree, [record(1)])
+      await backend.close()
+      const key = (await storage.list("subduction-v2/")).find(k =>
+        k.includes("/commits/1meta/")
+      )!
+      if (kind === "missing-blob")
+        await storage.remove(key.replace("/1meta/", "/0blob/"))
+      else
+        await storage.save(
+          key,
+          kind === "malformed"
+            ? new Uint8Array([1])
+            : corruptFrame((await storage.load(key))!, "signed")
+        )
+      const iterator = create().open(tree).events[Symbol.asyncIterator]()
+      expect(await next(iterator)).toMatchObject({ type: "failure" })
+      expect((await iterator.next()).done).toBe(true)
+    }
+  )
 
   it("rescans after a failed batch, reports historical failure to flush, and retries safely", async () => {
     const backend = create()
@@ -660,11 +658,11 @@ describe("real local Subduction", () => {
       enteredFirst = deferred(),
       enteredSecond = deferred()
     storage.beforeSave = async key => {
-      if (key.endsWith(`/commits/${cid(1)}`)) {
+      if (key.endsWith(`/1meta/${cid(1)}`)) {
         enteredFirst.resolve()
         await first.promise
       }
-      if (key.endsWith(`/commits/${cid(2)}`)) {
+      if (key.endsWith(`/1meta/${cid(2)}`)) {
         enteredSecond.resolve()
         await second.promise
       }
@@ -708,7 +706,7 @@ describe("real local Subduction", () => {
     gate.resolve()
     await writing
     await deleting
-    expect(await storage.list("subduction-v1/")).toEqual([])
+    expect(await storage.list("subduction-v2/")).toEqual([])
     expect((await initial(backend.open(tree))).complete.found).toBe(false)
     await backend.store(tree, [record(2)])
     expect((await initial(backend.open(tree))).records).toEqual([record(2)])
@@ -768,8 +766,8 @@ describe("real local Subduction", () => {
     const gate = deferred(),
       entered = deferred()
     storage.beforeSave = async key => {
-      if (key.endsWith(`/commits/${cid(1)}`)) throw new Error("first failed")
-      if (key.endsWith(`/commits/${cid(2)}`)) {
+      if (key.endsWith(`/1meta/${cid(1)}`)) throw new Error("first failed")
+      if (key.endsWith(`/1meta/${cid(2)}`)) {
         entered.resolve()
         await gate.promise
       }

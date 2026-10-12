@@ -281,7 +281,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     await a.backend.store(tree, records)
     await vi.waitFor(async () => {
       expect(
-        (await b.storage.list("subduction-v1/")).some(key =>
+        (await b.storage.list("subduction-v2/")).some(key =>
           key.includes("/commits/")
         )
       ).toBe(true)
@@ -368,16 +368,16 @@ describe("authenticated network failure and lifecycle barriers", () => {
       "store unopened document during paused onboarding",
       800
     )
-    expect(await b.storage.list("subduction-v1/")).toEqual([])
+    expect(await b.storage.list("subduction-v2/")).toEqual([])
     release.resolve()
     await bounded(onboarding, "resume onboarding")
     // No remote session or explicit sync may mask a missed automatic replay.
     await vi.waitFor(
       async () => {
-        const stored = await b.storage.list("subduction-v1/")
-        expect(stored.filter(key => key.includes("/commits/"))).toHaveLength(
-          records.length
-        )
+        const stored = await b.storage.list("subduction-v2/")
+        expect(
+          stored.filter(key => key.includes("/commits/1meta/"))
+        ).toHaveLength(records.length)
       },
       { ...wait, timeout: 2000 }
     )
@@ -597,7 +597,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     })
     gate.release()
     await bounded(deleting, "delete drains old incoming save")
-    expect(await b.storage.list("subduction-v1/")).toEqual([])
+    expect(await b.storage.list("subduction-v2/")).toEqual([])
     expect(oldA.disconnected).toBe(true)
     expect(oldB.disconnected).toBe(true)
     const fresh = await observe(b)
@@ -616,7 +616,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     await expect(oldA.sendBytes(new Uint8Array([1]))).rejects.toThrow(
       "disconnected"
     )
-    expect(await b.storage.list("subduction-v1/")).toEqual([])
+    expect(await b.storage.list("subduction-v2/")).toEqual([])
     expect(await fresh.session.synchronize()).toMatchObject({
       outcome: "no-peers",
     })
@@ -677,11 +677,11 @@ describe("authenticated network failure and lifecycle barriers", () => {
     // A retry can repair the optional inventory marker omitted by the failed
     // transaction. The signed record itself must remain byte-for-byte stable.
     const recordKeys = async () =>
-      (await b.storage.list("subduction-v1/")).filter(key =>
+      (await b.storage.list("subduction-v2/")).filter(key =>
         key.includes("/commits/")
       )
     const keys = await recordKeys()
-    expect(keys).toHaveLength(persistedRecords.length)
+    expect(keys).toHaveLength(persistedRecords.length * 2)
     const bytes = await Promise.all(keys.map(key => b.storage.load(key)))
     await connect(a, b)
     for (let i = 0; i < 2; i++) {

@@ -1,10 +1,5 @@
 import * as N from "@automerge/subduction/slim"
 import {
-  decodeRecordFrame,
-  encodeRecordFrame,
-  fragmentPayloadDigest,
-} from "./recordFrame.js"
-import {
   BackendError,
   checkpointId,
   commitId,
@@ -18,12 +13,14 @@ import {
   type SedimentreeRecord,
 } from "@automerge/automerge-repo/sedimentree"
 
-/** Exclusively owned namespace. save MUST atomically replace one whole value.
- * list returns full keys beginning with prefix; missing load returns undefined.
- * Implementations must not mutate passed bytes.
+/** Exclusively owned ASCII-key namespace. Batch writes/deletes and
+ * loadMany/loadPrefix must see one atomic cut. list returns full keys beginning
+ * with prefix; missing load returns undefined. Do not mutate passed bytes.
  */
 export interface LocalByteStore {
   load(key: string): Promise<Uint8Array | undefined>
+  /** One consistent read of the requested keys, in input order. */
+  loadMany(keys: readonly string[]): Promise<(Uint8Array | undefined)[]>
   save(key: string, data: Uint8Array): Promise<void>
   /** All entries become visible together, or none do. Each Repo write is one
    * batch, so a failure never leaves a change stored without its parents. */
@@ -31,6 +28,8 @@ export interface LocalByteStore {
   remove(key: string): Promise<void>
   /** Removes every key, or none; missing keys are ignored. */
   removeBatch(keys: readonly string[]): Promise<void>
+  /** Removes all keys beginning with prefix in one atomic operation. */
+  removeRange(prefix: string): Promise<void>
   list(prefix: string): Promise<string[]>
   /** Every entry whose key begins with `prefix`, sorted by key, from one
    * consistent read (like main's StorageAdapter.loadRange). Returned bytes are
@@ -38,9 +37,27 @@ export interface LocalByteStore {
   loadPrefix(prefix: string): Promise<[key: string, data: Uint8Array][]>
 }
 
-const ROOT = "subduction-v1/"
+const ROOT = "subduction-v2/"
 export const hex = (bytes: Uint8Array): string =>
   Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("")
+
+// Subduction's same-head tie-break hashes Fragment.encode(), not the signed
+// envelope. Fragment.encode() = schema(4) + fields; Signed<Fragment>.encode()
+// = schema(4) + issuer(32) + fields + signature(64).
+function fragmentPayloadDigest(signed: Uint8Array): Uint8Array {
+  if (signed.length < 100) throw new Error("Signed fragment is too short")
+  const payload = new Uint8Array(signed.length - 96)
+  payload.set(signed.subarray(0, 4))
+  payload.set(signed.subarray(36, signed.length - 64), 4)
+  const meta = new N.BlobMeta(payload)
+  const hash = meta.digest()
+  try {
+    return hash.toBytes()
+  } finally {
+    hash.free()
+    meta.free()
+  }
+}
 function bytes(value: unknown): Uint8Array {
   if (typeof value !== "string" || !/^(?:[0-9a-f]{2})+$/.test(value))
     throw new Error("Invalid encoded bytes")
@@ -70,20 +87,34 @@ type RecordKey =
 
 const kindPrefix = (tree: string, kind: Kind) =>
   `${prefix(tree)}${kind === "commit" ? "commits" : "fragments"}/`
-const recordPath = (tree: string, ref: RecordKey) =>
-  `${kindPrefix(tree, ref.kind)}${ref.key}${ref.kind === "fragment" ? `.${ref.variant}` : ""}`
+type Part = "blob" | "meta"
+const partPrefix = (tree: string, kind: Kind, part: Part) =>
+  `${kindPrefix(tree, kind)}${part === "blob" ? "0blob" : "1meta"}/`
+const recordPath = (tree: string, ref: RecordKey, part: Part) =>
+  `${partPrefix(tree, ref.kind, part)}${ref.key}${ref.kind === "fragment" ? `.${ref.variant}` : ""}`
 
 /** Parse a key relative to its tree prefix; the tree marker is `undefined`. */
-function parseRecordKey(relative: string): RecordKey | undefined {
+function parseRecordKey(
+  relative: string
+): (RecordKey & { part: Part }) | undefined {
   if (relative === "id") return undefined
   const match =
-    /^(?:commits\/([0-9a-f]{64})|fragments\/([0-9a-f]{64})\.([0-9a-f]{64}))$/.exec(
+    /^(?:commits\/(0blob|1meta)\/([0-9a-f]{64})|fragments\/(0blob|1meta)\/([0-9a-f]{64})\.([0-9a-f]{64}))$/.exec(
       relative
     )
   if (!match) throw new Error("Malformed storage key")
-  return match[1]
-    ? { kind: "commit", key: match[1] }
-    : { kind: "fragment", key: match[2], variant: match[3] }
+  return match[2]
+    ? {
+        kind: "commit",
+        part: match[1] === "0blob" ? "blob" : "meta",
+        key: match[2],
+      }
+    : {
+        kind: "fragment",
+        part: match[3] === "0blob" ? "blob" : "meta",
+        key: match[4],
+        variant: match[5],
+      }
 }
 
 /** Native unsigned commit for a local write, from a Repo record. */
@@ -132,9 +163,8 @@ export function unsignedFragment(
   }
 }
 
-/** Record fields from a signed commit's payload. Performs no checks: on write,
- * native has already verified the blob and derived the key from this payload;
- * on read, the envelope checksum and Repo's record validation cover it. */
+/** Record fields from a signed commit's payload. On write, native has already
+ * verified the blob and derived the key; Repo validates records on delivery. */
 function plain(
   signed: N.SignedLooseCommit,
   blob: Uint8Array,
@@ -232,10 +262,10 @@ interface Prepared {
   sid: SedimentreeId
   ref: RecordKey
   record: SedimentreeRecord
-  frame: Uint8Array
+  encoded: Uint8Array
 }
 
-/** Private authoritative compound-record bridge; never compacts history.
+/** Private authoritative signed-metadata/blob bridge; never compacts history.
  * Native networking calls storage independently of the owner's local-work queue,
  * so every transaction (including reads) is serialized here as well.
  */
@@ -349,10 +379,14 @@ export class StorageBridge implements N.SedimentreeStorage {
     tree: string,
     ref: RecordKey
   ): Promise<Stored | undefined> {
-    const value = await this.storage.load(recordPath(tree, ref))
-    return value === undefined
-      ? undefined
-      : this.decode(idBytes(sedimentreeId(tree)), ref, value)
+    const [encoded, blob] = await this.storage.loadMany([
+      recordPath(tree, ref, "meta"),
+      recordPath(tree, ref, "blob"),
+    ])
+    if (encoded === undefined && blob === undefined) return undefined
+    if (encoded === undefined || blob === undefined)
+      throw new Error("Incomplete stored record")
+    return this.decode(ref, encoded, blob)
   }
 
   /** The variant native would keep for this head: keys sort by payload
@@ -361,41 +395,28 @@ export class StorageBridge implements N.SedimentreeStorage {
     tree: string,
     head: string
   ): Promise<Extract<Stored, { kind: "fragment" }> | undefined> {
-    const variants = this.decodeAll(
-      tree,
-      await this.storage.loadPrefix(`${kindPrefix(tree, "fragment")}${head}.`)
+    const variants = await this.keys(
+      `${partPrefix(tree, "fragment", "meta")}${head}.`
     )
-    let first: Extract<Stored, { kind: "fragment" }> | undefined
-    for (const value of variants) {
-      if (
-        value.kind === "fragment" &&
-        (!first || value.variant < first.variant)
-      ) {
-        first?.signed.free()
-        first = value
-      } else value.signed.free()
-    }
-    return first
+    if (!variants.length) return undefined
+    const variant = variants[0].slice(variants[0].lastIndexOf(".") + 1)
+    const value = await this.read(tree, {
+      kind: "fragment",
+      key: head,
+      variant,
+    })
+    if (!value || value.kind !== "fragment")
+      throw new Error("Incomplete stored fragment")
+    return value
   }
 
-  /** Validate and decode one stored compound record. Every read path, single
-   * key or bulk, goes through here so the checks are identical. */
+  /** Decode one stored record, for both single-key and bulk reads. */
   private decode(
-    treeBytes: Uint8Array,
     ref: RecordKey,
-    value: Uint8Array
+    encoded: Uint8Array,
+    blob: Uint8Array
   ): Stored {
-    const { encoded, blob } = decodeRecordFrame(
-      treeBytes,
-      ref.kind,
-      ref.key,
-      value
-    )
-    // Tree, key and blob were checked when written; the frame checksum and
-    // Repo's record validation cover damage since.
     if (ref.kind === "fragment") {
-      if (ref.variant !== hex(fragmentPayloadDigest(encoded)))
-        throw new Error("Fragment key does not match its signed payload")
       const signed = N.SignedFragment.tryDecode(encoded)
       try {
         return {
@@ -422,7 +443,7 @@ export class StorageBridge implements N.SedimentreeStorage {
     const p = prefix(tree)
     return (await this.keys(p)).flatMap(key => {
       const ref = parseRecordKey(key.slice(p.length))
-      return ref ? [ref] : []
+      return ref?.part === "meta" ? [ref] : []
     })
   }
 
@@ -444,9 +465,12 @@ export class StorageBridge implements N.SedimentreeStorage {
 
   private decodeAll(tree: string, entries: [string, Uint8Array][]): Stored[] {
     const p = prefix(tree)
-    const treeBytes = idBytes(sedimentreeId(tree))
     const values: Stored[] = []
     try {
+      const parts = new Map<
+        string,
+        { ref: RecordKey; meta?: Uint8Array; blob?: Uint8Array }
+      >()
       for (const [fullKey, value] of entries) {
         if (!fullKey.startsWith(p))
           throw new Error("Storage returned an out-of-prefix key")
@@ -456,7 +480,15 @@ export class StorageBridge implements N.SedimentreeStorage {
             throw new Error("Malformed tree marker")
           continue
         }
-        values.push(this.decode(treeBytes, ref, value))
+        const path = recordPath(tree, ref, "meta")
+        const pair = parts.get(path) ?? { ref }
+        pair[ref.part] = value
+        parts.set(path, pair)
+      }
+      for (const { ref, meta, blob } of parts.values()) {
+        if (meta === undefined || blob === undefined)
+          throw new Error("Incomplete stored record")
+        values.push(this.decode(ref, meta, blob))
       }
       return values
     } catch (error) {
@@ -478,7 +510,7 @@ export class StorageBridge implements N.SedimentreeStorage {
     })
   }
 
-  /** Stored commits with these IDs (undefined where absent). One key read
+  /** Stored commits with these IDs (undefined where absent). One paired read
    * each; never a tree scan. Serialized like other reads. */
   lookupCommits(
     id: N.SedimentreeId,
@@ -568,7 +600,7 @@ export class StorageBridge implements N.SedimentreeStorage {
   ): Prepared {
     const cid = key.toHexString()
     const record = plain(signed, blob, id)
-    return this.prepare(id, cid, key.toBytes(), record, signed.encode())
+    return this.prepare(id, cid, record, signed.encode())
   }
   private prepareFragment(
     id: N.SedimentreeId,
@@ -578,12 +610,11 @@ export class StorageBridge implements N.SedimentreeStorage {
   ): Prepared {
     const head = key.toHexString()
     const record = plainFragment(signed, blob, treeHex(id))
-    return this.prepare(id, head, key.toBytes(), record, signed.encode())
+    return this.prepare(id, head, record, signed.encode())
   }
   private prepare(
     id: N.SedimentreeId,
     key: string,
-    keyBytes: Uint8Array,
     record: SedimentreeRecord,
     encoded: Uint8Array
   ): Prepared {
@@ -602,7 +633,7 @@ export class StorageBridge implements N.SedimentreeStorage {
       sid: logicalId(id),
       ref,
       record,
-      frame: encodeRecordFrame(id.toBytes(), keyBytes, record, encoded),
+      encoded,
     }
   }
   /** Check each record against its own key only, then write the new ones and
@@ -619,8 +650,8 @@ export class StorageBridge implements N.SedimentreeStorage {
         "conflict",
         `Different representation for an existing ${record.kind} key`
       )
-    for (const { tree, ref, record, frame } of values) {
-      const path = recordPath(tree, ref)
+    for (const { tree, ref, record, encoded } of values) {
+      const path = recordPath(tree, ref, "meta")
       const earlier = batch.get(path)
       if (earlier) {
         if (!equalRecords(earlier, record)) throw conflict(record)
@@ -633,7 +664,8 @@ export class StorageBridge implements N.SedimentreeStorage {
         if (!equalRecords(existing.record, record)) throw conflict(record)
         continue
       }
-      writes.set(path, frame)
+      writes.set(path, encoded)
+      writes.set(recordPath(tree, ref, "blob"), record.blob)
     }
     if (writes.size) await this.storage.saveBatch([...writes])
     // Only resolved saves notify. Ambiguous failures are handled by the owner's
@@ -699,14 +731,18 @@ export class StorageBridge implements N.SedimentreeStorage {
   }
   async deleteCommit(id: N.SedimentreeId, key: N.CommitId): Promise<void> {
     return this.mutate(id, tree => {
-      const path = recordPath(tree, { kind: "commit", key: key.toHexString() })
-      return () => this.storage.remove(path)
+      const ref: RecordKey = { kind: "commit", key: key.toHexString() }
+      return () =>
+        this.storage.removeBatch([
+          recordPath(tree, ref, "meta"),
+          recordPath(tree, ref, "blob"),
+        ])
     })
   }
   async deleteAllCommits(id: N.SedimentreeId): Promise<void> {
     return this.mutate(
       id,
-      tree => () => this.removeKeys(kindPrefix(tree, "commit"))
+      tree => () => this.storage.removeRange(kindPrefix(tree, "commit"))
     )
   }
 
@@ -772,14 +808,19 @@ export class StorageBridge implements N.SedimentreeStorage {
   async deleteFragment(id: N.SedimentreeId, key: N.CommitId): Promise<void> {
     // Like native, a head-only delete removes every variant of that head.
     return this.mutate(id, tree => {
-      const variants = `${kindPrefix(tree, "fragment")}${key.toHexString()}.`
-      return () => this.removeKeys(variants)
+      const variants = `${partPrefix(tree, "fragment", "meta")}${key.toHexString()}.`
+      return async () => {
+        const metas = await this.keys(variants)
+        await this.storage.removeBatch(
+          metas.flatMap(meta => [meta, meta.replace("/1meta/", "/0blob/")])
+        )
+      }
     })
   }
   async deleteAllFragments(id: N.SedimentreeId): Promise<void> {
     return this.mutate(
       id,
-      tree => () => this.removeKeys(kindPrefix(tree, "fragment"))
+      tree => () => this.storage.removeRange(kindPrefix(tree, "fragment"))
     )
   }
   async saveBatchAll(
@@ -812,9 +853,6 @@ export class StorageBridge implements N.SedimentreeStorage {
   }
   async cleanup(id: N.SedimentreeId): Promise<void> {
     // Also clears phantom markers, with no compaction or coverage inference.
-    return this.mutate(id, tree => () => this.removeKeys(prefix(tree)))
-  }
-  private async removeKeys(p: string): Promise<void> {
-    for (const key of await this.keys(p)) await this.storage.remove(key)
+    return this.mutate(id, tree => () => this.storage.removeRange(prefix(tree)))
   }
 }
