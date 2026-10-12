@@ -643,10 +643,11 @@ export class StorageBridge implements N.SedimentreeStorage {
   }
   async listCommitIds(id: N.SedimentreeId): Promise<N.CommitId[]> {
     const tree = treeHex(id)
+    const p = partPrefix(tree, "commit", "meta")
     return this.enqueue(async () =>
-      (await this.recordsFor(tree))
-        .filter((r): r is LooseCommitRecord => r.kind === "commit")
-        .map(r => N.CommitId.fromHexString(r.id))
+      (await this.keys(p)).map(key =>
+        N.CommitId.fromHexString(key.slice(p.length))
+      )
     )
   }
   async loadAllCommits(id: N.SedimentreeId): Promise<N.CommitWithBlob[]> {
@@ -715,12 +716,11 @@ export class StorageBridge implements N.SedimentreeStorage {
   }
   async listFragmentIds(id: N.SedimentreeId): Promise<N.CommitId[]> {
     const tree = treeHex(id)
+    const p = partPrefix(tree, "fragment", "meta")
     return this.enqueue(async () =>
       [
         ...new Set(
-          (await this.recordsFor(tree))
-            .filter((r): r is FragmentRecord => r.kind === "fragment")
-            .map(r => r.head)
+          (await this.keys(p)).map(key => key.slice(p.length, p.length + 64))
         ),
       ].map(head => N.CommitId.fromHexString(head))
     )

@@ -390,6 +390,28 @@ describe("StorageBridge native transaction serialization", () => {
     ])
   })
 
+  it("lists commit IDs and fragment heads from metadata keys only", async () => {
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage, () => {})
+    await save(bridge, first)
+    await save(bridge, second)
+    await save(bridge, fragment)
+    storage.calls.length = 0
+    const commits = await withId(id => bridge.listCommitIds(id))
+    const fragments = await withId(id => bridge.listFragmentIds(id))
+    try {
+      expect(commits.map(id => id.toHexString())).toEqual([cid(1), cid(2)])
+      expect(fragments.map(id => id.toHexString())).toEqual([cid(1)])
+    } finally {
+      commits.forEach(id => id.free())
+      fragments.forEach(id => id.free())
+    }
+    expect(storage.calls).toEqual([
+      `list:subduction-v2/trees/${tree.padEnd(64, "0")}/commits/meta/`,
+      `list:subduction-v2/trees/${tree.padEnd(64, "0")}/fragments/meta/`,
+    ])
+  })
+
   it("keeps batches, reads, and cleanup in acceptance order with freed inputs", async () => {
     const storage = new MemoryStore(),
       saved = vi.fn()

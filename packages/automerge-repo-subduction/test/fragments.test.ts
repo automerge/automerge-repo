@@ -240,6 +240,7 @@ describe("local Subduction fragments", () => {
       const head = N.CommitId.fromHexString(ordered[0].head)
       try {
         const bulk = await bridge.loadAllFragments(native)
+        const heads = await bridge.listFragmentIds(native)
         const loadPrefix = storage.loadPrefix.bind(storage)
         vi.spyOn(storage, "loadPrefix").mockImplementation(async prefix =>
           prefix.endsWith(`${ordered[0].head}.`)
@@ -250,6 +251,9 @@ describe("local Subduction fragments", () => {
         const chosen = (await engine.getFragments(native)) ?? []
         try {
           expect(bulk).toHaveLength(2)
+          expect(heads.map(value => value.toHexString())).toEqual([
+            ordered[0].head,
+          ])
           expect(point).not.toBeNull()
           expect(
             bulk.some(value =>
@@ -267,6 +271,7 @@ describe("local Subduction fragments", () => {
           boundary.forEach(value => value.free())
         } finally {
           bulk.forEach(value => value.free())
+          heads.forEach(value => value.free())
           point?.free()
           chosen.forEach(value => value.free())
         }
