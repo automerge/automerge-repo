@@ -64,26 +64,26 @@ const kindPrefix = (tree: string, kind: Kind) =>
   `${prefix(tree)}${kind === "commit" ? "commits" : "fragments"}/`
 type Part = "blob" | "meta"
 const partPrefix = (tree: string, kind: Kind, part: Part) =>
-  `${kindPrefix(tree, kind)}${part === "blob" ? "0blob" : "1meta"}/`
+  `${kindPrefix(tree, kind)}${part}/`
 const recordPath = (tree: string, ref: RecordKey, part: Part) =>
   `${partPrefix(tree, ref.kind, part)}${ref.key}${ref.kind === "fragment" ? `.${ref.variant}` : ""}`
 
 /** Parse a key relative to its tree prefix. */
 function parseRecordKey(relative: string): RecordKey & { part: Part } {
   const match =
-    /^(?:commits\/(0blob|1meta)\/([0-9a-f]{64})|fragments\/(0blob|1meta)\/([0-9a-f]{64})\.([0-9a-f]{64}))$/.exec(
+    /^(?:commits\/(blob|meta)\/([0-9a-f]{64})|fragments\/(blob|meta)\/([0-9a-f]{64})\.([0-9a-f]{64}))$/.exec(
       relative
     )
   if (!match) throw new Error("Malformed storage key")
   return match[2]
     ? {
         kind: "commit",
-        part: match[1] === "0blob" ? "blob" : "meta",
+        part: match[1] as Part,
         key: match[2],
       }
     : {
         kind: "fragment",
-        part: match[3] === "0blob" ? "blob" : "meta",
+        part: match[3] as Part,
         key: match[4],
         variant: match[5],
       }
@@ -754,7 +754,7 @@ export class StorageBridge implements N.SedimentreeStorage {
       return async () => {
         const metas = await this.keys(variants)
         await this.storage.removeBatch(
-          metas.flatMap(meta => [meta, meta.replace("/1meta/", "/0blob/")])
+          metas.flatMap(meta => [meta, meta.replace("/meta/", "/blob/")])
         )
       }
     })

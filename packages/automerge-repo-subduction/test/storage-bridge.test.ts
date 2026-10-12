@@ -133,7 +133,7 @@ beforeAll(async () => {
             : []
         )
         const value = [...storage.values.entries()].find(([k]) =>
-          k.includes("/1meta/")
+          k.includes("/meta/")
         )![1]
         signed.set(record, signedBytes(value))
       } finally {
@@ -343,7 +343,7 @@ describe("StorageBridge native transaction serialization", () => {
     await save(bridge, first)
     const [record] = await withId(id => bridge.records(id))
     const blob = [...storage.values.entries()].find(([key]) =>
-      key.includes("/0blob/")
+      key.includes("/blob/")
     )![1]
     blob[blob.length - 1] ^= 0xff
     expect(record.blob).toEqual(first.blob)
@@ -356,7 +356,7 @@ describe("StorageBridge native transaction serialization", () => {
       const bridge = new StorageBridge(storage, () => {})
       await save(bridge, first)
       const key = [...storage.values.keys()].find(k =>
-        k.includes(part === "meta" ? "/1meta/" : "/0blob/")
+        k.includes(part === "meta" ? "/meta/" : "/blob/")
       )!
       storage.values.delete(key)
       const id = N.CommitId.fromHexString(first.id)
@@ -382,8 +382,8 @@ describe("StorageBridge native transaction serialization", () => {
     await save(bridge, second)
     // One same-key lookup and one write; no list or whole-history loads.
     const path = `subduction-v2/trees/${tree.padEnd(64, "0")}/commits/`
-    const meta = `${path}1meta/${cid(2)}`
-    const blob = `${path}0blob/${cid(2)}`
+    const meta = `${path}meta/${cid(2)}`
+    const blob = `${path}blob/${cid(2)}`
     expect(storage.calls).toEqual([
       `loadMany:${meta},${blob}`,
       `saveBatch:${meta},${blob}`,

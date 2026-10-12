@@ -376,7 +376,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
       async () => {
         const stored = await b.storage.list("subduction-v2/")
         expect(
-          stored.filter(key => key.includes("/commits/1meta/"))
+          stored.filter(key => key.includes("/commits/meta/"))
         ).toHaveLength(records.length)
       },
       { ...wait, timeout: 2000 }

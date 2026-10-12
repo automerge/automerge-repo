@@ -188,7 +188,7 @@ describe("local Subduction fragments", () => {
     })
     await collection.return!()
     const key = (await storage.list("subduction-v2/")).find(k =>
-      k.includes("/fragments/1meta/")
+      k.includes("/fragments/meta/")
     )!
     const signed = N.SignedFragment.tryDecode(
       signedBytes((await storage.load(key))!)
@@ -343,10 +343,10 @@ describe("local Subduction fragments", () => {
       await backend.store(tree, [fragment(4)])
       await backend.close()
       const key = (await storage.list("subduction-v2/")).find(k =>
-        k.includes("/fragments/1meta/")
+        k.includes("/fragments/meta/")
       )!
       if (field === "missing-blob")
-        await storage.remove(key.replace("/1meta/", "/0blob/"))
+        await storage.remove(key.replace("/meta/", "/blob/"))
       else
         await storage.save(
           key,
@@ -499,7 +499,7 @@ describe("local Subduction fragments", () => {
     async kind => {
       await create().store(tree, [loose(1), fragment(4)])
       const key = (await storage.list("subduction-v2/")).find(k =>
-        k.includes(`/${kind}/0blob/`)
+        k.includes(`/${kind}/blob/`)
       )!
       // Same size, different digest: only the blob content check can catch it.
       await storage.save(key, corruptFrame((await storage.load(key))!, "blob"))
@@ -550,7 +550,7 @@ describe("local Subduction fragments", () => {
       // Open reads and validates storage before the corruption, so it succeeds.
       expect((await initial(reopened)).records).toHaveLength(2)
       const key = (await storage.list("subduction-v2/")).find(k =>
-        k.includes(`/${kind}/1meta/`)
+        k.includes(`/${kind}/meta/`)
       )!
       await storage.save(
         key,

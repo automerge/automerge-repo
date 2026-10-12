@@ -141,7 +141,7 @@ describe("real local Subduction", () => {
     const backend = create()
     await backend.store(tree, [record(2, [1]), record(1)])
     const keys = await storage.list("subduction-v2/")
-    const key = keys.find(k => k.endsWith(`/1meta/${cid(2)}`))!
+    const key = keys.find(k => k.endsWith(`/meta/${cid(2)}`))!
     const signed = N.SignedLooseCommit.tryDecode(
       signedBytes((await storage.load(key))!)
     )
@@ -349,7 +349,7 @@ describe("real local Subduction", () => {
     const original = storage.loadMany.bind(storage)
     let seeded = false
     vi.spyOn(storage, "loadMany").mockImplementation(async keys => {
-      if (!seeded && keys[0].endsWith(`/1meta/${cid(1)}`)) {
+      if (!seeded && keys[0].endsWith(`/meta/${cid(1)}`)) {
         seeded = true
         // Preflight sees "absent"; then the variant appears before the write.
         await storage.saveBatch(await encodedPair(variant))
@@ -457,7 +457,7 @@ describe("real local Subduction", () => {
     // One preflight lookup plus the bridge's own same-key check: per record,
     // independent of how much history the tree holds.
     const path = `subduction-v2/trees/${tree.padEnd(64, "0")}/commits/`
-    const pair = [`${path}1meta/${cid(2)}`, `${path}0blob/${cid(2)}`]
+    const pair = [`${path}meta/${cid(2)}`, `${path}blob/${cid(2)}`]
     expect(load.mock.calls.map(([keys]) => keys)).toEqual([pair, pair])
     // Readers still validate the authoritative stored history.
     expect((await initial(backend.open(tree))).records).toEqual([
@@ -529,7 +529,7 @@ describe("real local Subduction", () => {
   it("reports malformed persisted fragments rather than treating them as absent", async () => {
     const backend = create()
     await storage.save(
-      `subduction-v2/trees/${tree.padEnd(64, "0")}/fragments/1meta/${cid(1)}`,
+      `subduction-v2/trees/${tree.padEnd(64, "0")}/fragments/meta/${cid(1)}`,
       new Uint8Array([1])
     )
     const iterator = backend.open(tree).events[Symbol.asyncIterator]()
@@ -555,10 +555,10 @@ describe("real local Subduction", () => {
       await backend.store(tree, [record(1)])
       await backend.close()
       const key = (await storage.list("subduction-v2/")).find(k =>
-        k.includes("/commits/1meta/")
+        k.includes("/commits/meta/")
       )!
       if (kind === "missing-blob")
-        await storage.remove(key.replace("/1meta/", "/0blob/"))
+        await storage.remove(key.replace("/meta/", "/blob/"))
       else
         await storage.save(
           key,
@@ -658,11 +658,11 @@ describe("real local Subduction", () => {
       enteredFirst = deferred(),
       enteredSecond = deferred()
     storage.beforeSave = async key => {
-      if (key.endsWith(`/1meta/${cid(1)}`)) {
+      if (key.endsWith(`/meta/${cid(1)}`)) {
         enteredFirst.resolve()
         await first.promise
       }
-      if (key.endsWith(`/1meta/${cid(2)}`)) {
+      if (key.endsWith(`/meta/${cid(2)}`)) {
         enteredSecond.resolve()
         await second.promise
       }
@@ -766,8 +766,8 @@ describe("real local Subduction", () => {
     const gate = deferred(),
       entered = deferred()
     storage.beforeSave = async key => {
-      if (key.endsWith(`/1meta/${cid(1)}`)) throw new Error("first failed")
-      if (key.endsWith(`/1meta/${cid(2)}`)) {
+      if (key.endsWith(`/meta/${cid(1)}`)) throw new Error("first failed")
+      if (key.endsWith(`/meta/${cid(2)}`)) {
         entered.resolve()
         await gate.promise
       }

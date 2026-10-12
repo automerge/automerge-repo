@@ -343,7 +343,7 @@ describe("public Repo with native Subduction", () => {
     await p.repo.shutdown()
     // The backend no longer re-checks blobs on read: Repo's validation must.
     const key = (await p.storage.list("subduction-v2/")).find(k =>
-      k.includes("/commits/0blob/")
+      k.includes("/commits/blob/")
     )!
     await p.storage.save(
       key,

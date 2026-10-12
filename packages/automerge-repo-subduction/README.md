@@ -232,7 +232,7 @@ observers are told to rescan, and an exact retry dedupes. Repo serializes each
 document's writes and retries any unsaved changes together with later edits. A
 write that keeps failing therefore blocks later persistence of that document,
 and `flush()` keeps reporting it. Malformed records fail rather than appearing
-absent. Each record uses separate `0blob/<id>` and `1meta/<id>` keys under
+absent. Each record uses separate `blob/<id>` and `meta/<id>` keys under
 `commits/` or `fragments/`, read together in one transaction; missing halves
 fail loudly. Metadata decoding detects malformed signed bytes; native hydration
 checks blob digests. Storage is not protected against malicious tampering.
