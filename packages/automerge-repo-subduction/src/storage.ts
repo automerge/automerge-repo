@@ -18,9 +18,9 @@ const ROOT = "subduction-v2/"
 export const hex = (bytes: Uint8Array): string =>
   Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("")
 
-// Subduction's same-head tie-break hashes Fragment.encode(), not the signed
-// envelope. Fragment.encode() = schema(4) + fields; Signed<Fragment>.encode()
-// = schema(4) + issuer(32) + fields + signature(64).
+// Automerge can produce different fragments for the same head when changes
+// arrive in different orders (see ../test/fragments.test.ts, sameHeadVariants).
+// Hash the unsigned metadata—not the blob—so both get distinct storage keys.
 function fragmentPayloadDigest(signed: Uint8Array): Uint8Array {
   if (signed.length < 100) throw new Error("Signed fragment is too short")
   const payload = new Uint8Array(signed.length - 96)
@@ -35,6 +35,7 @@ function fragmentPayloadDigest(signed: Uint8Array): Uint8Array {
     meta.free()
   }
 }
+
 export function nativeId(id: SedimentreeId): N.SedimentreeId {
   return N.SedimentreeId.fromBytes(
     idBytes(sedimentreeId(id).padEnd(64, "0") as SedimentreeId)
