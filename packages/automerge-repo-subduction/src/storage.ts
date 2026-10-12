@@ -340,13 +340,6 @@ export class StorageBridge implements N.SedimentreeStorage {
       throw new AggregateError(errors, "Accepted bridge mutations failed")
   }
 
-  private async keys(p: string): Promise<string[]> {
-    const keys = await this.storage.list(p)
-    if (keys.some(k => !k.startsWith(p)))
-      throw new Error("Storage returned an out-of-prefix key")
-    return [...new Set(keys)].sort()
-  }
-
   private async read(
     tree: string,
     ref: RecordKey
@@ -367,7 +360,7 @@ export class StorageBridge implements N.SedimentreeStorage {
     tree: string,
     head: string
   ): Promise<Extract<Stored, { kind: "fragment" }> | undefined> {
-    const variants = await this.keys(
+    const variants = await this.storage.list(
       `${partPrefix(tree, "fragment", "meta")}${head}.`
     )
     if (!variants.length) return undefined
@@ -645,7 +638,7 @@ export class StorageBridge implements N.SedimentreeStorage {
     const tree = treeHex(id)
     const p = partPrefix(tree, "commit", "meta")
     return this.enqueue(async () =>
-      (await this.keys(p)).map(key =>
+      (await this.storage.list(p)).map(key =>
         N.CommitId.fromHexString(key.slice(p.length))
       )
     )
@@ -720,7 +713,9 @@ export class StorageBridge implements N.SedimentreeStorage {
     return this.enqueue(async () =>
       [
         ...new Set(
-          (await this.keys(p)).map(key => key.slice(p.length, p.length + 64))
+          (await this.storage.list(p)).map(key =>
+            key.slice(p.length, p.length + 64)
+          )
         ),
       ].map(head => N.CommitId.fromHexString(head))
     )
@@ -752,7 +747,7 @@ export class StorageBridge implements N.SedimentreeStorage {
     return this.mutate(id, tree => {
       const variants = `${partPrefix(tree, "fragment", "meta")}${key.toHexString()}.`
       return async () => {
-        const metas = await this.keys(variants)
+        const metas = await this.storage.list(variants)
         await this.storage.removeBatch(
           metas.flatMap(meta => [meta, meta.replace("/meta/", "/blob/")])
         )
