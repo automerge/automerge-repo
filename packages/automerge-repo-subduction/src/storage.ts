@@ -1,4 +1,5 @@
 import * as N from "@automerge/subduction/slim"
+import type { ByteStore } from "./ByteStore.js"
 import {
   BackendError,
   checkpointId,
@@ -12,30 +13,6 @@ import {
   type SedimentreeId,
   type SedimentreeRecord,
 } from "@automerge/automerge-repo/sedimentree"
-
-/** Exclusively owned ASCII-key namespace. Batch writes/deletes and
- * loadMany/loadPrefix must see one atomic cut. list returns full keys beginning
- * with prefix; missing load returns undefined. Do not mutate passed bytes.
- */
-export interface LocalByteStore {
-  load(key: string): Promise<Uint8Array | undefined>
-  /** One consistent read of the requested keys, in input order. */
-  loadMany(keys: readonly string[]): Promise<(Uint8Array | undefined)[]>
-  save(key: string, data: Uint8Array): Promise<void>
-  /** All entries become visible together, or none do. Each Repo write is one
-   * batch, so a failure never leaves a change stored without its parents. */
-  saveBatch(entries: readonly [key: string, data: Uint8Array][]): Promise<void>
-  remove(key: string): Promise<void>
-  /** Removes every key, or none; missing keys are ignored. */
-  removeBatch(keys: readonly string[]): Promise<void>
-  /** Removes all keys beginning with prefix in one atomic operation. */
-  removeRange(prefix: string): Promise<void>
-  list(prefix: string): Promise<string[]>
-  /** Every entry whose key begins with `prefix`, sorted by key, from one
-   * consistent read (like main's StorageAdapter.loadRange). Returned bytes are
-   * owned by the caller. */
-  loadPrefix(prefix: string): Promise<[key: string, data: Uint8Array][]>
-}
 
 const ROOT = "subduction-v2/"
 export const hex = (bytes: Uint8Array): string =>
@@ -278,7 +255,7 @@ export class StorageBridge implements N.SedimentreeStorage {
   }>()
 
   constructor(
-    private readonly storage: LocalByteStore,
+    private readonly storage: ByteStore,
     private readonly saved: (
       id: SedimentreeId,
       record: SedimentreeRecord

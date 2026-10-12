@@ -23,7 +23,7 @@ import {
 } from "@automerge/automerge-repo/sedimentree"
 import {
   SubductionBackend,
-  type LocalByteStore,
+  type ByteStore,
   type SubductionBackendOptions,
 } from "../src/index.js"
 import { nativeId, type StorageBridge } from "../src/storage.js"
@@ -506,7 +506,7 @@ describe("local Subduction fragments", () => {
     await create().store(tree, [loose(1), loose(4, [1]), fragment(4)])
     // Count top-level calls on a wrapper, not the store's own internals.
     const calls: string[] = []
-    const counted: LocalByteStore = {
+    const counted: ByteStore = {
       load: key => (calls.push("load"), storage.load(key)),
       loadMany: keys => (calls.push("loadMany"), storage.loadMany(keys)),
       save: (key, data) => (calls.push("save"), storage.save(key, data)),

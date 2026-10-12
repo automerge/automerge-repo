@@ -1,7 +1,7 @@
-import type { LocalByteStore } from "./storage.js"
+import type { ByteStore } from "./ByteStore.js"
 
 /** Browser byte store. Use one live Subduction backend per database. */
-export class IndexedDBByteStore implements LocalByteStore {
+export class IndexedDBByteStore implements ByteStore {
   private db?: Promise<IDBDatabase>
 
   constructor(

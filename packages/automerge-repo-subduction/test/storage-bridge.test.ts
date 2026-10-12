@@ -14,8 +14,8 @@ import {
   nativeId,
   unsigned,
   unsignedFragment,
-  type LocalByteStore,
 } from "../src/storage.js"
+import type { ByteStore } from "../src/ByteStore.js"
 import { deferred } from "./storage.js"
 import { signedBytes } from "./frame.js"
 
@@ -37,7 +37,7 @@ const fragment: FragmentRecord = {
 }
 const conflict = { ...commit(1), blob: new Uint8Array([9, 42]) }
 
-class MemoryStore implements LocalByteStore {
+class MemoryStore implements ByteStore {
   readonly values = new Map<string, Uint8Array>()
   readonly calls: string[] = []
   /** Every key committed by save or saveBatch, in order. */

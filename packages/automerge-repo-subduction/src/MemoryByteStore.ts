@@ -1,7 +1,7 @@
-import type { LocalByteStore } from "./storage.js"
+import type { ByteStore } from "./ByteStore.js"
 
 /** Process-local byte store for a standalone, offline Subduction backend. */
-export class MemoryByteStore implements LocalByteStore {
+export class MemoryByteStore implements ByteStore {
   #data = new Map<string, Uint8Array>()
   // Sorted index of #data's keys, so prefix reads cost the size of the result
   // rather than a scan of the whole store.

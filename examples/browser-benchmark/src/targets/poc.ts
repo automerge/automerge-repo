@@ -7,14 +7,11 @@ import { Repo } from "@automerge/automerge-repo"
 import {
   createSubductionPeer,
   IndexedDBByteStore,
-  type LocalByteStore,
+  type ByteStore,
 } from "@automerge/automerge-repo-subduction"
 import type { Handle, StorageStats, Target } from "../target.js"
 
-function profile(
-  store: IndexedDBByteStore,
-  stats: StorageStats
-): LocalByteStore {
+function profile(store: IndexedDBByteStore, stats: StorageStats): ByteStore {
   return {
     async load(key) {
       const start = performance.now()

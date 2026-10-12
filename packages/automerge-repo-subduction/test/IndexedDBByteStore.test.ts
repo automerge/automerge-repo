@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   IndexedDBByteStore,
   MemoryByteStore,
-  type LocalByteStore,
+  type ByteStore,
 } from "../src/index.js"
 
 beforeEach(() => {
@@ -19,8 +19,8 @@ for (const [name, create] of [
   ["memory", () => new MemoryByteStore()],
   ["indexeddb", () => new IndexedDBByteStore({ database: "contract" })],
 ] as const) {
-  describe(`${name} LocalByteStore`, () => {
-    let store: LocalByteStore
+  describe(`${name} ByteStore`, () => {
+    let store: ByteStore
     beforeEach(() => {
       store = create()
     })

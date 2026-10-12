@@ -27,8 +27,8 @@ import {
   logicalId,
   unsigned,
   unsignedFragment,
-  type LocalByteStore,
 } from "./storage.js"
+import type { ByteStore } from "./ByteStore.js"
 import { Watch } from "./watch.js"
 import { notifyBackendClosed } from "./backendLifecycle.js"
 import {
@@ -39,7 +39,7 @@ import {
   topicKey,
 } from "./ephemeral.js"
 
-export type { LocalByteStore } from "./storage.js"
+export type { ByteStore } from "./ByteStore.js"
 export { MemoryByteStore } from "./MemoryByteStore.js"
 export { IndexedDBByteStore } from "./IndexedDBByteStore.js"
 export { connectSubductionServer } from "./connect.js"
@@ -69,7 +69,7 @@ interface EngineGeneration {
 
 export interface SubductionBackendOptions {
   signer: NativeSigner
-  storage: LocalByteStore
+  storage: ByteStore
   /** Native request deadline, not a deadline on local storage or handshake. */
   syncTimeoutMilliseconds?: number
   /** Initial-delivery record count per `records` event. */

@@ -129,7 +129,7 @@ signer.free()
 Browser apps must initialize native WASM first. The signer is **borrowed**: keep
 it alive until close completes, then free it yourself.
 
-The injected `LocalByteStore` has exactly:
+The injected `ByteStore` has exactly:
 
 ```ts
 load(key: string): Promise<Uint8Array | undefined>
