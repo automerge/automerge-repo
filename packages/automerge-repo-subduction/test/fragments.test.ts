@@ -157,10 +157,12 @@ describe("local Subduction fragments", () => {
     await backend.store(tree, records)
     const saves = vi.spyOn(storage, "saveBatch")
     await backend.store(tree, records)
-    // Exact retries may touch the ID marker, but must not rewrite records.
+    // Exact retries may touch the ID index, but must not rewrite records.
     expect(
       saves.mock.calls.flatMap(([entries]) =>
-        entries.map(([key]) => key).filter(key => !key.endsWith("/id"))
+        entries
+          .map(([key]) => key)
+          .filter(key => !key.startsWith("subduction-v2/ids/"))
       )
     ).toEqual([])
     expect((await initial(backend)).records).toEqual(records)
@@ -355,7 +357,11 @@ describe("local Subduction fragments", () => {
       expect(await next(stream)).toMatchObject({ type: "failure" })
       expect((await stream.next()).done).toBe(true)
       const collection = reloaded.observeCollection()[Symbol.asyncIterator]()
-      expect((await collection.next()).value).toMatchObject({ type: "failure" })
+      expect((await collection.next()).value).toMatchObject({
+        type: "document",
+        id: tree,
+      })
+      await collection.return!()
     }
   )
 
@@ -371,9 +377,11 @@ describe("local Subduction fragments", () => {
       type: "rescan-required",
     })
     expect((await initial(backend)).records).toEqual([])
-    // Native may save the tree marker on its own first; no record is stored.
+    // Native may register the tree first; no record is stored.
     expect(
-      (await storage.list("subduction-v2/")).filter(key => !key.endsWith("/id"))
+      (await storage.list("subduction-v2/")).filter(
+        key => !key.startsWith("subduction-v2/ids/")
+      )
     ).toEqual([])
     await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     storage.beforeSave = undefined
@@ -577,7 +585,7 @@ describe("local Subduction fragments", () => {
     let fail = true
     vi.spyOn(storage, "remove").mockImplementation(async key => {
       await remove(key)
-      if (key.endsWith("/id") && fail) {
+      if (key.startsWith("subduction-v2/ids/") && fail) {
         fail = false
         throw new Error("ambiguous removal")
       }

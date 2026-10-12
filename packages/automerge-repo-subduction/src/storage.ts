@@ -35,11 +35,6 @@ function fragmentPayloadDigest(signed: Uint8Array): Uint8Array {
     meta.free()
   }
 }
-function bytes(value: unknown): Uint8Array {
-  if (typeof value !== "string" || !/^(?:[0-9a-f]{2})+$/.test(value))
-    throw new Error("Invalid encoded bytes")
-  return Uint8Array.from(value.match(/../g)!, b => parseInt(b, 16))
-}
 export function nativeId(id: SedimentreeId): N.SedimentreeId {
   return N.SedimentreeId.fromBytes(
     idBytes(sedimentreeId(id).padEnd(64, "0") as SedimentreeId)
@@ -52,7 +47,9 @@ export function logicalId(id: N.SedimentreeId): SedimentreeId {
   )
 }
 const treeHex = (id: N.SedimentreeId) => hex(id.toBytes())
-const prefix = (tree: string) => `${ROOT}${tree}/`
+const IDS = `${ROOT}ids/`
+const idKey = (tree: string) => `${IDS}${tree}`
+const prefix = (tree: string) => `${ROOT}trees/${tree}/`
 type Kind = SedimentreeRecord["kind"]
 
 /** Commits are keyed by ID. Fragments are keyed by head plus the digest of
@@ -70,11 +67,8 @@ const partPrefix = (tree: string, kind: Kind, part: Part) =>
 const recordPath = (tree: string, ref: RecordKey, part: Part) =>
   `${partPrefix(tree, ref.kind, part)}${ref.key}${ref.kind === "fragment" ? `.${ref.variant}` : ""}`
 
-/** Parse a key relative to its tree prefix; the tree marker is `undefined`. */
-function parseRecordKey(
-  relative: string
-): (RecordKey & { part: Part }) | undefined {
-  if (relative === "id") return undefined
+/** Parse a key relative to its tree prefix. */
+function parseRecordKey(relative: string): RecordKey & { part: Part } {
   const match =
     /^(?:commits\/(0blob|1meta)\/([0-9a-f]{64})|fragments\/(0blob|1meta)\/([0-9a-f]{64})\.([0-9a-f]{64}))$/.exec(
       relative
@@ -416,15 +410,7 @@ export class StorageBridge implements N.SedimentreeStorage {
     }
   }
 
-  private async recordKeys(tree: string): Promise<RecordKey[]> {
-    const p = prefix(tree)
-    return (await this.keys(p)).flatMap(key => {
-      const ref = parseRecordKey(key.slice(p.length))
-      return ref?.part === "meta" ? [ref] : []
-    })
-  }
-
-  /** One validated read of BOTH kinds and the marker, from a single
+  /** One validated read of BOTH kinds, from a single
    * `loadPrefix` (one storage transaction) rather than a list plus a load per
    * record. Every record is validated exactly as a single-key read would be. */
   private async snapshot(tree: string): Promise<Stored[]> {
@@ -452,11 +438,6 @@ export class StorageBridge implements N.SedimentreeStorage {
         if (!fullKey.startsWith(p))
           throw new Error("Storage returned an out-of-prefix key")
         const ref = parseRecordKey(fullKey.slice(p.length))
-        if (!ref) {
-          if (value.length !== 1 || value[0] !== 1)
-            throw new Error("Malformed tree marker")
-          continue
-        }
         const path = recordPath(tree, ref, "meta")
         const pair = parts.get(path) ?? { ref }
         pair[ref.part] = value
@@ -526,36 +507,22 @@ export class StorageBridge implements N.SedimentreeStorage {
   }
 
   async saveSedimentreeId(id: N.SedimentreeId): Promise<void> {
-    return this.mutate(
-      id,
-      tree => () => this.storage.save(`${prefix(tree)}id`, new Uint8Array([1]))
-    )
+    return this.mutate(id, tree => {
+      const value = id.toBytes()
+      return () => this.storage.save(idKey(tree), value)
+    })
   }
   async deleteSedimentreeId(id: N.SedimentreeId): Promise<void> {
-    return this.mutate(
-      id,
-      tree => () => this.storage.remove(`${prefix(tree)}id`)
-    )
+    return this.mutate(id, tree => () => this.storage.remove(idKey(tree)))
   }
   async loadAllSedimentreeIds(): Promise<N.SedimentreeId[]> {
     return this.enqueue(() => this.loadIds())
   }
   private async loadIds(): Promise<N.SedimentreeId[]> {
-    const trees = new Set<string>()
-    for (const key of await this.keys(ROOT)) {
-      const match = /^([0-9a-f]{64})\/(.*)$/s.exec(key.slice(ROOT.length))
-      if (!match) throw new Error("Malformed storage key")
-      parseRecordKey(match[2])
-      trees.add(match[1])
-    }
     const ids: N.SedimentreeId[] = []
     try {
-      for (const tree of trees) {
-        const values = await this.snapshot(tree)
-        values.forEach(v => v.signed.free())
-        // A marker may precede a failed first save: it is not collection data.
-        if (values.length) ids.push(N.SedimentreeId.fromBytes(bytes(tree)))
-      }
+      for (const [, value] of await this.storage.loadPrefix(IDS))
+        ids.push(N.SedimentreeId.fromBytes(value))
       return ids
     } catch (error) {
       ids.forEach(id => id.free())
@@ -564,8 +531,9 @@ export class StorageBridge implements N.SedimentreeStorage {
   }
   async containsSedimentreeId(id: N.SedimentreeId): Promise<boolean> {
     const tree = treeHex(id)
-    // A marker alone (left by a failed first save) is not stored history.
-    return this.enqueue(async () => (await this.recordKeys(tree)).length > 0)
+    return this.enqueue(
+      async () => (await this.storage.load(idKey(tree))) !== undefined
+    )
   }
 
   /** No native wrapper or caller-owned buffer survives into asynchronous I/O. */
@@ -613,13 +581,9 @@ export class StorageBridge implements N.SedimentreeStorage {
       encoded,
     }
   }
-  /** Check each record against its own key only, then write the new ones and
-   * any extra entries in one atomic batch. */
-  private async savePrepared(
-    values: readonly Prepared[],
-    extra: [key: string, data: Uint8Array][] = []
-  ): Promise<void> {
-    const writes = new Map(extra)
+  /** Check each record against its own key only, then write the new ones in one atomic batch. */
+  private async savePrepared(values: readonly Prepared[]): Promise<void> {
+    const writes = new Map<string, Uint8Array>()
     const batch = new Map<string, SedimentreeRecord>()
     const conflict = (record: SedimentreeRecord) =>
       new BackendError(
@@ -806,8 +770,8 @@ export class StorageBridge implements N.SedimentreeStorage {
     fragments: Parameters<N.SedimentreeStorage["saveBatchAll"]>[2]
   ): Promise<number> {
     // Snapshot and validate ALL native metadata and JS bytes before the first
-    // await, including the tree ID. Callers may immediately free/reuse inputs.
-    return this.mutate(id, tree => {
+    // await. Callers may immediately free/reuse inputs.
+    return this.mutate(id, () => {
       const copies = [
         ...commits.map(c =>
           this.prepareCommit(id, c.commitId, c.signedCommit, c.blob)
@@ -816,20 +780,14 @@ export class StorageBridge implements N.SedimentreeStorage {
           this.prepareFragment(id, f.fragmentHead, f.signedFragment, f.blob)
         ),
       ]
-      // This batch includes a tree marker. Native may have saved one before
-      // calling us; marker-only trees are treated as absent on reads.
-      const marker: [string, Uint8Array] = [
-        `${prefix(tree)}id`,
-        new Uint8Array([1]),
-      ]
       return async () => {
-        await this.savePrepared(copies, [marker])
+        await this.savePrepared(copies)
         return copies.length
       }
     })
   }
   async cleanup(id: N.SedimentreeId): Promise<void> {
-    // Also clears phantom markers, with no compaction or coverage inference.
+    // Local follow-up to native deletion; the ID index is managed by native.
     return this.mutate(id, tree => () => this.storage.removeRange(prefix(tree)))
   }
 }

@@ -317,7 +317,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
         if (result.status === "rejected") throw result.reason
         return result.value
       })
-      vi.spyOn(b.storage, "list").mockRejectedValueOnce(
+      vi.spyOn(b.storage, "loadPrefix").mockRejectedValueOnce(
         new Error("inventory unavailable")
       )
       await expect(b.backend.addConnection(right)).rejects.toThrow(

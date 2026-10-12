@@ -223,8 +223,9 @@ acknowledgment; messages have no receipts, retries, or replay after reconnection
 ## Persistence and integrity
 
 Each `store()`/`create()` submission, and each batch native sync receives, is
-written with one atomic `saveBatch` that includes a tree ID marker. Native may
-save the marker separately first; a marker-only tree reads as absent. A failed
+written with one atomic `saveBatch`. Subduction registers tree IDs separately
+under `subduction-v2/ids/<tree>`; records live under
+`subduction-v2/trees/<tree>/`. A registered tree can have no records. A failed
 batch stores none of its records, so a change is never stored without the
 changes it depends on. A save that commits and then rejects is ambiguous:
 observers are told to rescan, and an exact retry dedupes. Repo serializes each

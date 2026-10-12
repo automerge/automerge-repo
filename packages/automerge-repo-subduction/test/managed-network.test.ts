@@ -109,7 +109,7 @@ it("retries onboarding superseded by deletion without treating the backend as cl
   const entered = new Promise<void>(resolve => {
     enter = resolve
   })
-  vi.spyOn(storage, "list").mockImplementationOnce(async () => {
+  vi.spyOn(storage, "loadPrefix").mockImplementationOnce(async () => {
     enter()
     await paused
     return []

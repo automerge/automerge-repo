@@ -5,12 +5,14 @@ import {
   commitId,
   recordBytes,
   sedimentreeId,
+  type SedimentreeId,
   type FragmentRecord,
   type LooseCommitRecord,
   type SedimentreeRecord,
 } from "@automerge/automerge-repo/sedimentree"
 import {
   StorageBridge,
+  logicalId,
   nativeId,
   unsigned,
   unsignedFragment,
@@ -379,7 +381,7 @@ describe("StorageBridge native transaction serialization", () => {
     storage.calls.length = 0
     await save(bridge, second)
     // One same-key lookup and one write; no list or whole-history loads.
-    const path = `subduction-v2/${tree.padEnd(64, "0")}/commits/`
+    const path = `subduction-v2/trees/${tree.padEnd(64, "0")}/commits/`
     const meta = `${path}1meta/${cid(2)}`
     const blob = `${path}0blob/${cid(2)}`
     expect(storage.calls).toEqual([
@@ -424,7 +426,7 @@ describe("StorageBridge native transaction serialization", () => {
     await Promise.all([save(bridge, first), save(bridge, fragment)])
     const gate = pause(
       storage,
-      (op, key) => op === "save" && key.endsWith("/id")
+      (op, key) => op === "save" && key.startsWith("subduction-v2/ids/")
     )
     const marker = withId(id => bridge.saveSedimentreeId(id))
     await gate.entered
@@ -463,7 +465,7 @@ describe("StorageBridge native transaction serialization", () => {
     expect(storage.maxActive).toBe(1)
   })
 
-  it("writes a batch and its tree marker together, or none of them", async () => {
+  it("writes records atomically without registering the tree itself", async () => {
     const storage = new MemoryStore(),
       saved = vi.fn(),
       failed = vi.fn()
@@ -479,15 +481,40 @@ describe("StorageBridge native transaction serialization", () => {
     expect(await withId(id => bridge.containsSedimentreeId(id))).toBe(false)
     storage.before = undefined
     await batch(bridge, [first, second, fragment])
-    expect(storage.calls.filter(call => call.startsWith("saveBatch:"))).toEqual(
-      [expect.stringContaining("/id"), expect.stringContaining("/id")]
-    )
-    expect(storage.written).toHaveLength(7)
+    expect(storage.written).toHaveLength(6)
+    expect(await withId(id => bridge.containsSedimentreeId(id))).toBe(false)
     expect(await withId(id => bridge.records(id))).toEqual([
       first,
       second,
       fragment,
     ])
+  })
+
+  it("lists registered IDs without reading records, including empty trees", async () => {
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage, () => {})
+    await withId(id => bridge.saveSedimentreeId(id))
+    const key = `subduction-v2/ids/${tree.padEnd(64, "0")}`
+    expect(storage.values.get(key)).toEqual(withId(id => id.toBytes()))
+    storage.calls.length = 0
+    expect(await withId(id => bridge.containsSedimentreeId(id))).toBe(true)
+    expect(storage.calls).toEqual([`load:${key}`])
+    storage.calls.length = 0
+    const ids = await bridge.loadAllSedimentreeIds()
+    try {
+      expect(ids.map(logicalId)).toEqual([tree])
+    } finally {
+      ids.forEach(id => id.free())
+    }
+    const seen: SedimentreeId[][] = []
+    await bridge.inventory(ids => seen.push(ids))
+    expect(seen).toEqual([[tree]])
+    expect(storage.calls).toEqual([
+      "loadPrefix:subduction-v2/ids/",
+      "loadPrefix:subduction-v2/ids/",
+    ])
+    await withId(id => bridge.deleteSedimentreeId(id))
+    expect(await withId(id => bridge.containsSedimentreeId(id))).toBe(false)
   })
 
   it("reports an ambiguous batch save without notifying success; a retry recovers notifications", async () => {

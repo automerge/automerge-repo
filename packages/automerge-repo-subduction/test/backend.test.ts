@@ -398,7 +398,7 @@ describe("real local Subduction", () => {
     storage.beforeSave = undefined
     const save = vi.spyOn(storage, "saveBatch")
     await backend.store(tree, records)
-    // Native may also save the tree marker on its own; records go in one batch.
+    // Native registers the tree ID separately; records go in one batch.
     expect(
       save.mock.calls.filter(([entries]) =>
         entries.some(([key]) => key.includes("/commits/"))
@@ -456,7 +456,7 @@ describe("real local Subduction", () => {
     expect(list).not.toHaveBeenCalled()
     // One preflight lookup plus the bridge's own same-key check: per record,
     // independent of how much history the tree holds.
-    const path = `subduction-v2/${tree.padEnd(64, "0")}/commits/`
+    const path = `subduction-v2/trees/${tree.padEnd(64, "0")}/commits/`
     const pair = [`${path}1meta/${cid(2)}`, `${path}0blob/${cid(2)}`]
     expect(load.mock.calls.map(([keys]) => keys)).toEqual([pair, pair])
     // Readers still validate the authoritative stored history.
@@ -529,7 +529,7 @@ describe("real local Subduction", () => {
   it("reports malformed persisted fragments rather than treating them as absent", async () => {
     const backend = create()
     await storage.save(
-      `subduction-v2/${tree.padEnd(64, "0")}/fragments/1meta/${cid(1)}`,
+      `subduction-v2/trees/${tree.padEnd(64, "0")}/fragments/1meta/${cid(1)}`,
       new Uint8Array([1])
     )
     const iterator = backend.open(tree).events[Symbol.asyncIterator]()
@@ -540,8 +540,7 @@ describe("real local Subduction", () => {
     expect((await iterator.next()).done).toBe(true)
     const collection = backend.observeCollection()[Symbol.asyncIterator]()
     expect((await collection.next()).value).toMatchObject({
-      type: "failure",
-      error: { code: "io" },
+      type: "local-load-complete",
     })
     await expect(backend.deleteLocal(tree)).rejects.toThrow()
     expect(await storage.list("subduction-v2/")).toHaveLength(1)
@@ -638,7 +637,7 @@ describe("real local Subduction", () => {
     await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
   })
 
-  it("filters phantom ID markers from collection enumeration", async () => {
+  it("enumerates a registered tree even if its batch fails", async () => {
     const backend = create()
     storage.beforeSave = async key => {
       if (key.includes("/commits/")) throw new Error("disk failed")
@@ -646,7 +645,8 @@ describe("real local Subduction", () => {
     await expect(backend.store(tree, [record(1)])).rejects.toThrow()
     const iterator = backend.observeCollection()[Symbol.asyncIterator]()
     expect((await iterator.next()).value).toMatchObject({
-      type: "local-load-complete",
+      type: "document",
+      id: tree,
     })
     await iterator.return!()
   })
