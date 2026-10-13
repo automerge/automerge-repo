@@ -23,6 +23,7 @@ import {
   LegacyDocumentId,
   Message,
   PeerId,
+  PeerMetadata,
   SharePolicy,
 } from "../src/index.js"
 import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
@@ -531,6 +532,30 @@ describe("Repo", () => {
       const repo = new Repo({ storage: new ClosableStorage() })
       await repo.shutdown()
       assert.equal(closed, 1)
+    })
+
+    it("advertises the same storage id that storageId() returns and storage holds", async () => {
+      const advertised = Promise.withResolvers<StorageId | undefined>()
+      class MetadataCapturingAdapter extends DummyNetworkAdapter {
+        override connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
+          super.connect(peerId)
+          advertised.resolve(peerMetadata?.storageId)
+        }
+      }
+      const storage = new DummyStorageAdapter()
+      const repo = new Repo({
+        storage,
+        network: [new MetadataCapturingAdapter()],
+      })
+
+      const storageId = await repo.storageId()
+      const stored = new TextDecoder().decode(
+        await storage.load(["storage-adapter-id"])
+      )
+
+      assert.equal(await advertised.promise, storageId)
+      assert.equal(stored, storageId)
+      await repo.shutdown()
     })
 
     it("exports a document", async () => {
@@ -2437,6 +2462,13 @@ describe("Repo", () => {
         bob.networkSubsystem.whenReady(),
         server.networkSubsystem.whenReady(),
       ])
+      // The server's adapters connect once its storage id is known, and drop
+      // messages until then.
+      await vi.waitFor(() =>
+        expect(
+          server.networkSubsystem.adapters.map(adapter => adapter.peerId)
+        ).toEqual(["server", "server"])
+      )
 
       const aliceHandle = alice.create<{ foo: string }>({ foo: "v1" })
       const { documentId } = aliceHandle
