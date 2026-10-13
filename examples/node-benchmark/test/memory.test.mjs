@@ -69,3 +69,25 @@ test("Subduction JS prefixes isolate tree, not shared first segment", async () =
   assert.equal((await adapter.loadRange(["subduction", "commits"])).length, 2)
   assert.equal(store.stats().loadRange.values, 6)
 })
+
+test("v2 tree prefixes isolate trees and broad prefixes include all trees", async () => {
+  const store = new MemoryStore()
+  const bytes = store.bytes()
+  const a = "subduction-v2/trees/tree-a/commits/meta/a"
+  const b = "subduction-v2/trees/tree-b/commits/meta/b"
+  const id = "subduction-v2/ids/tree-a"
+  await bytes.saveBatch([
+    [a, Uint8Array.of(1)],
+    [b, Uint8Array.of(2)],
+    [id, Uint8Array.of(3)],
+  ])
+  assert.deepEqual(await bytes.list("subduction-v2/trees/tree-a/"), [a])
+  assert.deepEqual(await bytes.list("subduction-v2/trees/"), [a, b])
+  assert.deepEqual(await bytes.list("subduction-v2/trees/tree-"), [a, b])
+  assert.deepEqual(await bytes.list("subduction-v2/"), [id, a, b])
+  assert.deepEqual(await bytes.loadPrefix("subduction-v2/trees/tree-b/"), [
+    [b, Uint8Array.of(2)],
+  ])
+  await bytes.removeRange("subduction-v2/trees/tree-a/")
+  assert.deepEqual(await bytes.list("subduction-v2/trees/"), [b])
+})

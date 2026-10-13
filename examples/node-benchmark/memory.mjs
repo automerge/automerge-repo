@@ -15,6 +15,7 @@ export class MemoryStore {
     this.#stats = new Map(
       [
         "load",
+        "loadMany",
         "save",
         "remove",
         "loadRange",
@@ -65,6 +66,8 @@ export class MemoryStore {
     // Legacy storage shards by document ID; Subduction by tree ID.
     if (Array.isArray(key))
       return key[0] === "subduction" && key.length >= 3 ? key[2] : key[0]
+    if (key.startsWith("subduction-v2/trees/"))
+      return key.split("/").slice(0, 3).join("/")
     return key.split("/").slice(0, 2).join("/")
   }
 
@@ -107,7 +110,10 @@ export class MemoryStore {
       (Array.isArray(prefix) &&
         prefix[0] === "subduction" &&
         prefix.length < 3) ||
-      (!Array.isArray(prefix) && prefix.split("/").length < 3)
+      (!Array.isArray(prefix) &&
+        (prefix.split("/").length < 3 ||
+          (prefix.startsWith("subduction-v2/trees/") &&
+            prefix.split("/").length < 4)))
     const keys = fullScan
       ? this.#data.keys()
       : (this.#buckets.get(this.#bucket(prefix)) ?? [])
@@ -156,6 +162,10 @@ export class MemoryStore {
   bytes() {
     return {
       load: key => this.#measure("load", () => this.#data.get(key)?.slice()),
+      loadMany: keys =>
+        this.#measure("loadMany", () =>
+          keys.map(key => this.#data.get(key)?.slice())
+        ),
       save: (key, bytes) => this.#measure("save", () => this.#put(key, bytes)),
       saveBatch: entries =>
         this.#measure("saveBatch", () => {
@@ -165,6 +175,10 @@ export class MemoryStore {
       removeBatch: keys =>
         this.#measure("removeBatch", () => {
           for (const key of keys) this.#delete(key)
+        }),
+      removeRange: prefix =>
+        this.#measure("removeRange", () => {
+          for (const [key] of this.#entries(prefix)) this.#delete(key)
         }),
       list: prefix =>
         this.#measure("list", () => this.#entries(prefix).map(([key]) => key)),

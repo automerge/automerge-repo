@@ -22,6 +22,17 @@ function profile(store: IndexedDBByteStore, stats: StorageStats): ByteStore {
         stats.load.elapsedMs += performance.now() - start
       }
     },
+    async loadMany(keys) {
+      const start = performance.now()
+      try {
+        const values = await store.loadMany(keys)
+        stats.load.values += values.filter(value => value !== undefined).length
+        return values
+      } finally {
+        stats.load.calls++
+        stats.load.elapsedMs += performance.now() - start
+      }
+    },
     async save(key, bytes) {
       const start = performance.now()
       try {
@@ -66,6 +77,15 @@ function profile(store: IndexedDBByteStore, stats: StorageStats): ByteStore {
       const start = performance.now()
       try {
         return await store.removeBatch(keys)
+      } finally {
+        stats.remove.calls++
+        stats.remove.elapsedMs += performance.now() - start
+      }
+    },
+    async removeRange(prefix) {
+      const start = performance.now()
+      try {
+        return await store.removeRange(prefix)
       } finally {
         stats.remove.calls++
         stats.remove.elapsedMs += performance.now() - start
