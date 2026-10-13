@@ -147,8 +147,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-repo-subduction
       '@automerge/subduction':
-        specifier: 0.23.0
-        version: 0.23.0
+        specifier: 0.24.0
+        version: 0.24.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -178,8 +178,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-repo-subduction
       '@automerge/subduction':
-        specifier: 0.23.0
-        version: 0.23.0
+        specifier: 0.24.0
+        version: 0.24.0
 
   examples/react-todo:
     dependencies:
@@ -187,8 +187,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-react
       '@automerge/subduction':
-        specifier: 0.23.0
-        version: 0.23.0
+        specifier: 0.24.0
+        version: 0.24.0
       autoprefixer:
         specifier: ^10.5.2
         version: 10.6.1(postcss@8.5.28)
@@ -242,8 +242,8 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo-subduction
       '@automerge/subduction':
-        specifier: 0.23.0
-        version: 0.23.0
+        specifier: 0.24.0
+        version: 0.24.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -398,8 +398,8 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo
       '@automerge/subduction':
-        specifier: 0.23.0
-        version: 0.23.0
+        specifier: 0.24.0
+        version: 0.24.0
       cbor-x:
         specifier: 'catalog:'
         version: 1.6.4
@@ -445,8 +445,8 @@ packages:
   '@automerge/automerge@3.5.0':
     resolution: {integrity: sha512-ejbqJWfXWM2QbTcUK/5ugYiQiyOP7LYVAp/RuSvthCc07oek0FClMxEuouuhjrLjVPDSI34RP1ftGc45PF7WRA==}
 
-  '@automerge/subduction@0.23.0':
-    resolution: {integrity: sha512-daTtDStLmrUbt1R9yqzBr4B+Hn5PcKUzqQ3eScR0cwMQ2dZS9OxLZ5TyRYHU+685nEKlXEzRgxOZxQPUg+GsTA==}
+  '@automerge/subduction@0.24.0':
+    resolution: {integrity: sha512-Nlr8jvZA7Qw8FF3BZLKWtCWyk7qktuY0q+b5v2SVchlH7/ME/58TZJaQedfeenTUNkjfwD8iTMOrXHzOq1fcZQ==}
 
   '@babel/code-frame@7.29.0':
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
@@ -2960,7 +2960,7 @@ snapshots:
 
   '@automerge/automerge@3.5.0': {}
 
-  '@automerge/subduction@0.23.0': {}
+  '@automerge/subduction@0.24.0': {}
 
   '@babel/code-frame@7.29.0':
     dependencies:

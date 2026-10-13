@@ -733,6 +733,8 @@ describe("real local Subduction", () => {
 
   it("stores with constant storage work and no live marker rescans once complete", async () => {
     const backend = create()
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const getHeads = vi.spyOn(engine, "getHeads")
     await backend.store(tree, [record(1)])
     const session = backend.open(tree)
     const { iterator } = await initial(session)
@@ -744,13 +746,13 @@ describe("real local Subduction", () => {
       type: "records",
       records: [record(2, [1])],
     })
-    // Sync-round markers still fall back to a storage read until path 6.
     await session.synchronize()
     expect(await next(iterator)).toMatchObject({
       type: "synchronized",
       result: { outcome: "no-peers", marker: { heads: [cid(2)] } },
     })
     expect(list).not.toHaveBeenCalled()
+    expect(getHeads).toHaveBeenCalledOnce()
     // One preflight lookup plus the bridge's own same-key check: per record,
     // independent of how much history the tree holds.
     const path = `subduction-v2/trees/${tree.padEnd(64, "0")}/commits/`
@@ -765,6 +767,8 @@ describe("real local Subduction", () => {
 
   it("keeps emitting storage markers while any session on the tree is incomplete", async () => {
     const backend = create()
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const getHeads = vi.spyOn(engine, "getHeads")
     const done = backend.open(tree)
     const loading = backend.open(tree)
     const a = await initial(done)
@@ -778,10 +782,20 @@ describe("real local Subduction", () => {
         marker: { heads: [cid(1)] },
       })
     }
+    // Native saves first, then updates its in-memory tree; live markers must
+    // reflect the storage cut even if getHeads would still return old heads.
+    expect(getHeads).not.toHaveBeenCalled()
+    const listDuringSync = vi.spyOn(storage, "list")
+    await loading.synchronize()
+    expect(await next(b.iterator)).toMatchObject({
+      type: "synchronized",
+      result: { marker: { heads: [cid(1)] } },
+    })
+    expect(listDuringSync).not.toHaveBeenCalled()
     // The incomplete session can still become ready from live data; once it is
     // also complete, markers stop for the whole tree.
     loading.markComplete!()
-    const list = vi.spyOn(storage, "list")
+    listDuringSync.mockClear()
     await backend.store(tree, [record(2, [1])])
     expect((await next(a.iterator)).type).toBe("records")
     await done.synchronize()
@@ -789,7 +803,8 @@ describe("real local Subduction", () => {
       type: "synchronized",
       result: { marker: { heads: [cid(2)] } },
     })
-    expect(list).not.toHaveBeenCalled()
+    expect(listDuringSync).not.toHaveBeenCalled()
+    expect(getHeads).toHaveBeenCalledTimes(2)
   })
 
   it("reopening after a session closes reloads blobs and retains sync markers", async () => {

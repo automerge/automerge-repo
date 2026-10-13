@@ -22,7 +22,7 @@
     "@automerge/automerge-repo": "workspace:*",
     "@automerge/automerge-repo-react-hooks": "workspace:*",
     "@automerge/automerge-repo-subduction": "workspace:*",
-    "@automerge/subduction": "0.23.0"
+    "@automerge/subduction": "0.24.0"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",

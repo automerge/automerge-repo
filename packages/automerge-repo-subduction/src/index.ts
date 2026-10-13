@@ -95,34 +95,24 @@ function error(
     )
   return new BackendError(operation, "io", String(cause), !terminal, { cause })
 }
-/** Conservative heads of delivered history, maintained incrementally. */
-class Heads {
-  private readonly heads = new Set<CommitId>()
-  private readonly parents = new Set<CommitId>()
-  add(record: SedimentreeRecord): void {
-    // Loose-commit dependencies are validated by the translator. Fragment
-    // boundaries/checkpoint prefixes are not authenticated by a standalone blob:
-    // they cannot justify dropping another delivered head's readiness target.
-    // Extra historical heads are safe because readiness checks history inclusion.
-    if (record.kind === "commit")
-      for (const parent of record.parents) {
-        this.parents.add(parent)
-        this.heads.delete(parent)
-      }
-    const head = recordHead(record)
-    if (!this.parents.has(head)) this.heads.add(head)
-  }
-  marker(sequence: number): HistoryMarker {
-    return { sequence, heads: [...this.heads].sort() }
-  }
-}
+/** Conservative heads of stored history for live markers. Native heads can
+ * lag the storage callback: native updates its in-memory tree after saving. */
 function marker(
   sequence: number,
   records: readonly SedimentreeRecord[]
 ): HistoryMarker {
-  const heads = new Heads()
-  for (const record of records) heads.add(record)
-  return heads.marker(sequence)
+  const heads = new Set<CommitId>()
+  const parents = new Set<CommitId>()
+  for (const record of records) {
+    if (record.kind === "commit")
+      for (const parent of record.parents) {
+        parents.add(parent)
+        heads.delete(parent)
+      }
+    const head = recordHead(record)
+    if (!parents.has(head)) heads.add(head)
+  }
+  return { sequence, heads: [...heads].sort() }
 }
 function copyEvent(value: SedimentreeEvent): SedimentreeEvent {
   if (value.type === "ephemeral")
@@ -207,9 +197,6 @@ export class SubductionBackend implements SedimentreeBackend {
   private readonly watches = new Map<Watch<SedimentreeEvent>, SedimentreeId>()
   /** Sessions whose consumer verified a complete snapshot (markComplete). */
   private readonly completed = new Set<Watch<SedimentreeEvent>>()
-  /** Heads of history delivered per open tree; replaces storage rescans for
-   * markers once every session on the tree is complete. */
-  private readonly delivered = new Map<SedimentreeId, Heads>()
   private readonly collections = new Set<Watch<CollectionObservation>>()
   private readonly attempts = new Set<{
     id: SedimentreeId
@@ -633,17 +620,9 @@ export class SubductionBackend implements SedimentreeBackend {
                 64 + result.marker.heads.length * 32 + outcomes.length * 128
               )
       }
-      const delivered = this.delivered.get(id)
-      if (delivered && this.settled(id)) {
-        // Every session already verified readiness: order behind the records
-        // this round ingested without rereading the whole tree from storage.
-        await this.bridge.drain()
-        publish(delivered.marker(++this.sequence))
-      } else {
-        await this.bridge.records(native, records =>
-          publish(marker(++this.sequence, records))
-        )
-      }
+      // Wait for persistence before publishing heads from native history.
+      await this.bridge.drain()
+      publish(await this.headsMarker(engine, native))
       return result
     } finally {
       peers.forEach(peer => peer.free())
@@ -673,10 +652,23 @@ export class SubductionBackend implements SedimentreeBackend {
       if (tree === id && !this.completed.has(watch)) return false
     return true
   }
+  private async headsMarker(
+    engine: N.Subduction,
+    native: N.SedimentreeId
+  ): Promise<HistoryMarker> {
+    const heads = (await engine.getHeads(native)) ?? []
+    try {
+      return {
+        sequence: ++this.sequence,
+        heads: heads.map(head => commitId(head.toHexString())).sort(),
+      }
+    } finally {
+      heads.forEach(head => head.free())
+    }
+  }
   private persisted(id: SedimentreeId, record: SedimentreeRecord): void {
     if (this.closed || this.deleting.has(id)) return
     const sequence = ++this.sequence
-    this.delivered.get(id)?.add(record)
     for (const [watch, tree] of this.watches)
       if (tree === id)
         watch.push(
@@ -685,12 +677,12 @@ export class SubductionBackend implements SedimentreeBackend {
         )
     for (const watch of this.collections)
       watch.push({ type: "document", sequence, phase: "live", id })
-    // Markers only establish readiness. Once every session on this tree
-    // has verified its snapshot, the authoritative storage cut is not needed.
+    // Markers only establish readiness. Completed sessions no longer need them.
     if (this.settled(id)) return
     // This applies equally to local writes and unsolicited native ingestion.
-    // Queue the cut behind the current complete bridge transaction, coalescing
-    // batches. Never use onRemoteHeads (which precedes ingest) as completeness.
+    // Queue the authoritative storage cut behind the current transaction.
+    // Native updates its in-memory tree *after* persistence, so getHeads here
+    // could omit newly delivered records. Never use onRemoteHeads as completeness.
     if (!this.markers.has(id)) {
       this.markers.add(id)
       const native = nativeId(id)
@@ -737,7 +729,6 @@ export class SubductionBackend implements SedimentreeBackend {
         released = true
         this.watches.delete(watch)
         this.completed.delete(watch)
-        if (![...this.watches.values()].includes(id)) this.delivered.delete(id)
         this.reconcileInterest(id)
       }
     )

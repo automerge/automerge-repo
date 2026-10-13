@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@automerge/react": "workspace:*",
-    "@automerge/subduction": "0.23.0",
+    "@automerge/subduction": "0.24.0",
     "autoprefixer": "^10.5.2",
     "clsx": "^2.1.1",
     "postcss": "^8.5.26",
