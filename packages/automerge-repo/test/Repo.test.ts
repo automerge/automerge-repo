@@ -748,6 +748,25 @@ describe("Repo", () => {
         await repo.removeFromCache(badDocumentId)
         assert(Object.keys(repo.handles).length === handleCacheSize)
       })
+
+      it("importing an older binary after removeFromCache keeps newer stored changes", async () => {
+        const storage = new DummyStorageAdapter()
+        const repo = new Repo({ storage })
+        const handle = repo.create<TestDoc>({ foo: "bar" })
+        await repo.flush()
+        const older = A.save(handle.doc())
+        handle.change(d => {
+          d.baz = "newer"
+        })
+        await repo.flush()
+
+        await repo.removeFromCache(handle.documentId)
+        repo.import<TestDoc>(older, { docId: handle.documentId })
+        await repo.flush()
+
+        const reloaded = await new Repo({ storage }).find<TestDoc>(handle.url)
+        expect(reloaded.doc()).toEqual({ foo: "bar", baz: "newer" })
+      })
     })
 
     describe("registerHandleWithSubsystems", () => {

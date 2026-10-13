@@ -602,3 +602,64 @@ describe("StorageSubsystem compaction recovery", () => {
     assert.equal(reloaded?.n, 3, "a reload should see the latest update (n=3)")
   })
 })
+
+describe("StorageSubsystem saving a doc that lacks the stored heads", () => {
+  // Holds every save until the test releases it, so the test controls the
+  // order in which concurrent saves complete.
+  class GatedSaveAdapter extends DummyStorageAdapter {
+    held: Array<() => void> = []
+    override async save(key: string[], binary: Uint8Array) {
+      await new Promise<void>(resolve => this.held.push(resolve))
+      return super.save(key, binary)
+    }
+  }
+
+  for (const order of ["newer save first", "older save first"] as const) {
+    it(`keeps changes from a concurrent newer save (${order})`, async () => {
+      const adapter = new GatedSaveAdapter()
+      const storage = new StorageSubsystem(adapter)
+      const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+
+      const older = A.from<Record<string, number>>({ a: 1 })
+      const stored = A.change(A.clone(older), d => {
+        d.b = 2
+      })
+      const newer = A.change(A.clone(stored), d => {
+        d.c = 3
+      })
+      const saveReleased = async (doc: A.Doc<unknown>) => {
+        const saving = storage.saveDoc(documentId, doc)
+        adapter.held.shift()!()
+        await saving
+      }
+      await saveReleased(older)
+      await saveReleased(stored)
+
+      const savingNewer = storage.saveDoc(documentId, newer)
+      const savingOlder = storage.saveDoc(documentId, older)
+      expect(adapter.held.length).toBe(2)
+      const [releaseNewer, releaseOlder] = adapter.held.splice(0)
+      if (order === "newer save first") {
+        releaseNewer()
+        await savingNewer
+        releaseOlder()
+        await savingOlder
+      } else {
+        releaseOlder()
+        await savingOlder
+        releaseNewer()
+        await savingNewer
+      }
+
+      // A further save of the older lineage compacts the tracked chunks.
+      await saveReleased(
+        A.change(A.clone(older), d => {
+          d.z = 9
+        })
+      )
+
+      const reloaded = await new StorageSubsystem(adapter).loadDoc(documentId)
+      expect(reloaded).toEqual({ a: 1, b: 2, c: 3, z: 9 })
+    })
+  }
+})
