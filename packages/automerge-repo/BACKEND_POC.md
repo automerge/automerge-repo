@@ -77,14 +77,13 @@ Delegate construction installs its commit hook and initial query source immediat
 marker verification uses query snapshot state rather than separate completion
 or failure flags. Document owns closed/deleted lifecycle state.
 
-`RepoScheduler` owns sessions, per-ID write ordering, bounded cross-document local
-operation concurrency, rescan, detach, deletion generation fences and teardown.
+`RepoScheduler` owns sessions, per-ID write ordering, rescan, detach, deletion
+generation fences and teardown.
 Per-ID tails capture accepted submissions; delegates own retries and unsaved
 history. Creations remain tracked until settled, including those without an ID. Flush
 waits for captured submissions and retries before calling backend flush once;
 when nothing is pending it captures the backend barrier immediately. Later edits
 may run ahead of a delayed retry, so flush is not a strict execution-time cutoff.
-`flushConcurrency` currently bounds local operations (default 20), not just flush.
 Event replay is bounded by backend observation windows; the scheduler does not
 claim a bound on session count, queued operations, retained history or total heap.
 

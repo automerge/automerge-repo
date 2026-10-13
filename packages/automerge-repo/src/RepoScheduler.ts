@@ -16,7 +16,7 @@ export type WriteSource = (
   submitRecords: (records: RecordBatch) => Promise<void>
 ) => Promise<void>
 
-/** Owns backend sessions and ordered per-ID persistence, bounded across IDs. */
+/** Owns backend sessions and ordered per-ID persistence. */
 export class RepoScheduler {
   #tails = new Map<SedimentreeId, Promise<void>>()
   #queued = new Map<
@@ -30,20 +30,10 @@ export class RepoScheduler {
   #generations = new Map<SedimentreeId, number>()
   #deleting = new Map<SedimentreeId, Promise<void>>()
   #detaching = new Map<Delegate, Promise<void>>()
-  #active = 0
-  #waiting: (() => void)[] = []
   #closing?: Promise<void>
   #stopping = false
-  readonly #concurrency: number
 
-  constructor(
-    private backend: SedimentreeBackend,
-    options: { concurrency?: number } = {}
-  ) {
-    this.#concurrency = options.concurrency ?? 4
-    if (!Number.isSafeInteger(this.#concurrency) || this.#concurrency < 1)
-      throw new RangeError("Concurrency must be a positive integer")
-  }
+  constructor(private backend: SedimentreeBackend) {}
 
   create(
     records: RecordBatch,
@@ -59,16 +49,14 @@ export class RepoScheduler {
     const previous = requested
       ? (this.#tails.get(requested) ?? Promise.resolve())
       : Promise.resolve()
-    const job = previous.then(() =>
-      this.#run(() => {
-        if (requested && (this.#generations.get(requested) ?? 0) !== generation)
-          throw new Error("Document generation deleted")
-        return this.backend.create(
-          owned,
-          requested ? { documentId: requested } : undefined
-        )
-      })
-    )
+    const job = previous.then(() => {
+      if (requested && (this.#generations.get(requested) ?? 0) !== generation)
+        throw new Error("Document generation deleted")
+      return this.backend.create(
+        owned,
+        requested ? { documentId: requested } : undefined
+      )
+    })
     if (requested) this.#setTail(requested, job)
     this.#creating.set(job, requested)
     void job.then(
@@ -99,19 +87,17 @@ export class RepoScheduler {
     const owned = source ? undefined : (records as RecordBatch).map(copyRecord)
     const generation = this.#generations.get(id) ?? 0
     const previous = this.#tails.get(id) ?? Promise.resolve()
-    const job = previous.then(() =>
-      this.#run(async () => {
-        if (this.#queued.get(id)?.job === job) this.#queued.delete(id)
-        if ((this.#generations.get(id) ?? 0) !== generation)
-          throw new Error("Document generation deleted")
-        const submitRecords = (batch: RecordBatch) =>
-          batch.length
-            ? this.backend.store(id, batch.map(copyRecord))
-            : Promise.resolve()
-        if (source) await source(submitRecords)
-        else await submitRecords(owned!)
-      })
-    )
+    const job = previous.then(async () => {
+      if (this.#queued.get(id)?.job === job) this.#queued.delete(id)
+      if ((this.#generations.get(id) ?? 0) !== generation)
+        throw new Error("Document generation deleted")
+      const submitRecords = (batch: RecordBatch) =>
+        batch.length
+          ? this.backend.store(id, batch.map(copyRecord))
+          : Promise.resolve()
+      if (source) await source(submitRecords)
+      else await submitRecords(owned!)
+    })
     this.#setTail(id, job)
     if (source) this.#queued.set(id, { source, job })
     return job
@@ -126,19 +112,6 @@ export class RepoScheduler {
     void tail.then(() => {
       if (this.#tails.get(id) === tail) this.#tails.delete(id)
     })
-  }
-
-  async #run<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.#active >= this.#concurrency)
-      await new Promise<void>(resolve => this.#waiting.push(resolve))
-    else this.#active++
-    try {
-      return await operation()
-    } finally {
-      const next = this.#waiting.shift()
-      if (next) next()
-      else this.#active--
-    }
   }
 
   /** Capture submitted work and delegate retries at the call. */

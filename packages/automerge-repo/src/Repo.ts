@@ -51,12 +51,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   #shutdown?: Promise<void>
   #origin = { kind: "repo", id: crypto.randomUUID(), path: [] as string[] }
 
-  constructor({ backend, flushConcurrency = 20 }: RepoConfig = {}) {
+  constructor({ backend }: RepoConfig = {}) {
     super()
-    if (backend)
-      this.#scheduler = new RepoScheduler(backend, {
-        concurrency: flushConcurrency,
-      })
+    if (backend) this.#scheduler = new RepoScheduler(backend)
   }
 
   get handles(): Record<DocumentId, DocHandle<any>> {
@@ -395,8 +392,6 @@ export class Repo extends EventEmitter<RepoEvents> {
 
 export interface RepoConfig {
   backend?: SedimentreeBackend
-  /** Maximum concurrent local backend operations across documents. Defaults to 20. */
-  flushConcurrency?: number
 }
 
 export type RepoFindOptions = AbortOptions

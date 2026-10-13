@@ -81,7 +81,7 @@ describe("RepoScheduler", () => {
         await blocked.promise
         throw new Error("disk full")
       })
-    const scheduler = new RepoScheduler(backend, { concurrency: 2 })
+    const scheduler = new RepoScheduler(backend)
     const { handle, delegate } = attach(scheduler, id(1), false)
     const other = attach(scheduler, id(2), false)
     const first = expect(
@@ -181,7 +181,7 @@ describe("RepoScheduler", () => {
     await scheduler.close()
   })
 
-  it("bounds cross-document concurrency without global head-of-line blocking", async () => {
+  it("starts writes for unrelated documents without a cross-document cap", async () => {
     const backend = new MemoryBackend()
     const blocked = gate()
     const starts: SedimentreeId[] = []
@@ -191,15 +191,17 @@ describe("RepoScheduler", () => {
       if (documentId === id(1)) await blocked.promise
       await store(documentId, batch)
     })
-    const scheduler = new RepoScheduler(backend, { concurrency: 2 })
+    const scheduler = new RepoScheduler(backend)
     const first = scheduler.submit(id(1), records())
     const same = scheduler.submit(id(1), records())
-    const second = scheduler.submit(id(2), records())
-    await second
-    expect(starts).toEqual([id(1), id(2)])
+    const others = Array.from({ length: 21 }, (_, index) => id(index + 2))
+    await Promise.all(
+      others.map(documentId => scheduler.submit(documentId, records()))
+    )
+    expect(starts).toEqual([id(1), ...others])
     blocked.resolve()
     await Promise.all([first, same])
-    expect(starts).toEqual([id(1), id(2), id(1)])
+    expect(starts).toEqual([id(1), ...others, id(1)])
     await scheduler.close()
   })
 
@@ -707,8 +709,8 @@ describe("RepoScheduler", () => {
         publishEphemeral: message => session.publishEphemeral(message),
       }
     })
-    const scheduler = new RepoScheduler(backend, { concurrency: 1 })
-    const other = scheduler.submit(id(2), records())
+    const scheduler = new RepoScheduler(backend)
+    const other = scheduler.submit(id(1), records())
     const stale = scheduler.submit(id(1), records())
     const rejection = expect(stale).rejects.toThrow("generation deleted")
     const { handle } = attach(scheduler)
@@ -716,7 +718,7 @@ describe("RepoScheduler", () => {
     blocked.resolve()
     await other
     await rejection
-    expect(storedIds).toEqual([id(2)])
+    expect(storedIds).toEqual([id(1)])
     await scheduler.close()
   })
 

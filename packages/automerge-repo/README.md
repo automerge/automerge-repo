@@ -21,7 +21,7 @@ import { Repo } from "@automerge/automerge-repo"
 import type { SedimentreeBackend } from "@automerge/automerge-repo/sedimentree"
 
 function createRepo(backend: SedimentreeBackend) {
-  return new Repo({ backend, flushConcurrency: 20 })
+  return new Repo({ backend })
 }
 ```
 
