@@ -72,6 +72,8 @@ A `DocHandle` also emits these events:
 - `delete`  
   Called when the document is deleted locally.
 
+`handle.off(event)` and `handle.removeAllListeners()` do not remove the listeners the repo itself attaches for storage autosave, query updates and sync, so the document keeps saving and syncing. Listeners attached on your behalf, by `Presence` or by `subscribe`/`whenReady` on a `findWithProgress` result for a URL with heads, are removed along with your own.
+
 ## Creating a repo
 
 The repo needs to be configured with storage and network adapters. If you give it neither, it will
