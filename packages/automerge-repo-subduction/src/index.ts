@@ -743,28 +743,41 @@ export class SubductionBackend implements SedimentreeBackend {
     )
     watch.bufferBeforeInitialize()
     this.watches.set(watch, id)
-    void this.enqueue("open", async () => {
-      const native = nativeId(id)
-      try {
-        const blobs = await this.engine.getBlobs(native)
-        const sequence = ++this.sequence
-        watch.initialize([
-          ...(blobs.length
-            ? [{ type: "blobs" as const, sequence, blobs }]
-            : []),
-          {
-            type: "local-load-complete" as const,
-            found: blobs.length > 0,
-          },
-        ])
-      } finally {
-        native.free()
+    const load = async (): Promise<void> => {
+      this.check("open", id)
+      if (released) return
+      // Retirement snapshots generation.work once. Never join a generation
+      // after that snapshot; wait for the owner reset and borrow the new one.
+      if (!this.generation.active) {
+        await this.tail
+        return load()
       }
-      if (!released) {
-        this.reconcileInterest(id)
-        this.scheduleSync(id)
-      }
-    }).catch(cause =>
+      const generation = this.generation
+      const engine = this.engine
+      return this.nativeWork(generation, async () => {
+        const native = nativeId(id)
+        try {
+          const blobs = await engine.getBlobs(native)
+          const sequence = ++this.sequence
+          watch.initialize([
+            ...(blobs.length
+              ? [{ type: "blobs" as const, sequence, blobs }]
+              : []),
+            {
+              type: "local-load-complete" as const,
+              found: blobs.length > 0,
+            },
+          ])
+        } finally {
+          native.free()
+        }
+        if (!released) {
+          this.reconcileInterest(id)
+          this.scheduleSync(id)
+        }
+      })
+    }
+    void load().catch(cause =>
       watch.finish({
         type: "failure",
         sequence: ++this.sequence,

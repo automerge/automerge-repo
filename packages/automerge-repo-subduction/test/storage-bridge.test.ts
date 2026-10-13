@@ -241,7 +241,7 @@ function dispose(value: unknown): void {
     (value as { free(): void }).free()
 }
 
-describe("StorageBridge native transaction serialization", () => {
+describe("StorageBridge native transaction ordering", () => {
   it("ignores earlier storage namespaces without erasing them", async () => {
     const storage = new MemoryStore()
     const key = `subduction-v1/${tree.padEnd(64, "0")}/id`
@@ -442,22 +442,20 @@ describe("StorageBridge native transaction serialization", () => {
     expect(storage.values.size).toBe(0)
   })
 
-  it("queues every native read/delete transaction behind accepted writes", async () => {
+  it("queues document reads and deletes behind same-document writes", async () => {
     const storage = new MemoryStore()
     const bridge = new StorageBridge(storage, () => {})
     await Promise.all([save(bridge, first), save(bridge, fragment)])
     const gate = pause(
       storage,
-      (op, key) => op === "save" && key.startsWith("subduction-v2/ids/")
+      (op, key) => op === "saveBatch" && key.includes(cid(3))
     )
-    const marker = withId(id => bridge.saveSedimentreeId(id))
+    const writing = save(bridge, third)
     await gate.entered
     const calls = storage.calls.length
     const key = N.CommitId.fromHexString(cid(1))
     const operations = withId(id => [
       bridge.records(id),
-      bridge.loadAllSedimentreeIds(),
-      bridge.containsSedimentreeId(id),
       bridge.loadCommit(id, key),
       bridge.listCommitIds(id),
       bridge.loadAllCommits(id),
@@ -468,23 +466,71 @@ describe("StorageBridge native transaction serialization", () => {
       bridge.deleteFragment(id, key),
       bridge.deleteAllCommits(id),
       bridge.deleteAllFragments(id),
-      bridge.deleteSedimentreeId(id),
       bridge.cleanup(id),
     ])
     key.free()
     await Promise.resolve()
     expect(storage.calls).toHaveLength(calls)
     gate.release()
-    await marker
+    await writing
     const values = await Promise.all(operations)
-    expect(values[0]).toEqual([first, fragment])
-    expect(values[2]).toBe(true)
-    for (const index of [1, 4, 5, 7, 8]) expect(values[index]).toHaveLength(1)
-    expect(values[3]).toBeInstanceOf(N.CommitWithBlob)
-    expect(values[6]).toBeInstanceOf(N.FragmentWithBlob)
+    expect(values[0]).toEqual([first, third, fragment])
+    for (const index of [2, 3, 5, 6])
+      expect(values[index]).toHaveLength(index < 4 ? 2 : 1)
+    expect(values[1]).toBeInstanceOf(N.CommitWithBlob)
+    expect(values[4]).toBeInstanceOf(N.FragmentWithBlob)
     values.forEach(dispose)
     expect(storage.values.size).toBe(0)
     expect(storage.maxActive).toBe(1)
+  })
+
+  it("keeps ID inventory and index changes in acceptance order", async () => {
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage, () => {})
+    const gate = pause(
+      storage,
+      (op, key) => op === "save" && key.startsWith("subduction-v2/ids/")
+    )
+    const marker = withId(id => bridge.saveSedimentreeId(id))
+    await gate.entered
+    const inventory = bridge.loadAllSedimentreeIds()
+    const contains = withId(id => bridge.containsSedimentreeId(id))
+    const deletion = withId(id => bridge.deleteSedimentreeId(id))
+    const empty = bridge.loadAllSedimentreeIds()
+    gate.release()
+    await marker
+    const ids = await inventory
+    expect(ids).toHaveLength(1)
+    ids.forEach(id => id.free())
+    expect(await contains).toBe(true)
+    await deletion
+    expect(await empty).toEqual([])
+  })
+
+  it("overlaps reads of different documents and drains both", async () => {
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage, () => {})
+    const gate = pause(
+      storage,
+      (op, key) =>
+        op === "loadPrefix" &&
+        key.includes(`trees/${tree.padEnd(64, "0")}/commits/`)
+    )
+    const first = withId(id => bridge.loadAllCommits(id))
+    await gate.entered
+    const second = await withId(id => bridge.loadAllCommits(id), other)
+    expect(second).toEqual([])
+    let drained = false
+    const draining = bridge.drain().then(() => {
+      drained = true
+    })
+    await Promise.resolve()
+    expect(drained).toBe(false)
+    expect(storage.maxActive).toBe(2)
+    gate.release()
+    expect(await first).toEqual([])
+    await draining
+    expect(drained).toBe(true)
   })
 
   it("writes records atomically without registering the tree itself", async () => {

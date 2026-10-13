@@ -208,6 +208,123 @@ describe("real local Subduction", () => {
     })
   })
 
+  it("starts unrelated opens while another blob read is pending", async () => {
+    const backend = create()
+    const otherTree = sedimentreeId("cd".repeat(16))
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const original = engine.getBlobs.bind(engine)
+    const entered = deferred(),
+      release = deferred()
+    vi.spyOn(engine, "getBlobs").mockImplementation(async id => {
+      if (logicalId(id) === tree) {
+        entered.resolve()
+        await release.promise
+      }
+      return original(id)
+    })
+    const first = backend.open(tree)
+    await entered.promise
+    const other = await initial(backend.open(otherTree), otherTree)
+    expect(other.complete.found).toBe(false)
+    release.resolve()
+    expect((await initial(first)).complete.found).toBe(false)
+    await backend.close()
+  })
+
+  it("waits for a pending blob read before closing its engine", async () => {
+    const backend = create()
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const entered = deferred(),
+      release = deferred()
+    const original = engine.getBlobs.bind(engine)
+    vi.spyOn(engine, "getBlobs").mockImplementation(async id => {
+      entered.resolve()
+      await release.promise
+      return original(id)
+    })
+    const freed = vi.spyOn(engine, "free")
+    backend.open(tree)
+    await entered.promise
+    const closing = backend.close()
+    expect(freed).not.toHaveBeenCalled()
+    release.resolve()
+    await closing
+    expect(freed).toHaveBeenCalledOnce()
+  })
+
+  it("waits for a pending blob read before deleting and resetting its engine", async () => {
+    const backend = create()
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const entered = deferred(),
+      release = deferred()
+    const original = engine.getBlobs.bind(engine)
+    vi.spyOn(engine, "getBlobs").mockImplementation(async id => {
+      entered.resolve()
+      await release.promise
+      return original(id)
+    })
+    const freed = vi.spyOn(engine, "free")
+    backend.open(tree)
+    await entered.promise
+    const deletion = backend.deleteLocal(tree)
+    expect(freed).not.toHaveBeenCalled()
+    release.resolve()
+    await deletion
+    expect(freed).toHaveBeenCalledOnce()
+    await backend.close()
+  })
+
+  it("starts opens arriving during retirement on the replacement engine", async () => {
+    const backend = create()
+    const internals = backend as unknown as {
+      engine: N.Subduction
+      bridge: StorageBridge
+    }
+    const oldRead = vi.spyOn(internals.engine, "getBlobs")
+    const originalDrain = internals.bridge.drain.bind(internals.bridge)
+    const entered = deferred(),
+      release = deferred()
+    vi.spyOn(internals.bridge, "drain").mockImplementationOnce(async () => {
+      entered.resolve()
+      await release.promise
+      return originalDrain()
+    })
+    const deletion = backend.deleteLocal(tree)
+    await entered.promise
+    const otherTree = sedimentreeId("cd".repeat(16))
+    const session = backend.open(otherTree)
+    expect(oldRead).not.toHaveBeenCalled()
+    release.resolve()
+    await deletion
+    expect((await initial(session, otherTree)).complete.found).toBe(false)
+    expect(oldRead).not.toHaveBeenCalled()
+    await backend.close()
+  })
+
+  it("rescan-required wins over an initial read when live buffering overflows", async () => {
+    const backend = create({ replayEvents: 1 })
+    const internals = backend as unknown as {
+      engine: N.Subduction
+      persisted: (id: typeof tree, record: LooseCommitRecord) => void
+    }
+    const entered = deferred(),
+      release = deferred()
+    const original = internals.engine.getBlobs.bind(internals.engine)
+    vi.spyOn(internals.engine, "getBlobs").mockImplementation(async id => {
+      entered.resolve()
+      await release.promise
+      return original(id)
+    })
+    const iterator = backend.open(tree).events[Symbol.asyncIterator]()
+    await entered.promise
+    internals.persisted(tree, record(1))
+    internals.persisted(tree, record(2))
+    expect(await next(iterator)).toMatchObject({ type: "rescan-required" })
+    release.resolve()
+    expect((await iterator.next()).done).toBe(true)
+    await backend.close()
+  })
+
   it("buffers a save between native commit and fragment loads", async () => {
     const writer = create()
     await writer.store(tree, [record(1)])
@@ -238,6 +355,38 @@ describe("real local Subduction", () => {
       phase: "live",
       records: [record(2, [1])],
     })
+  })
+
+  it("orders a same-document save behind a pending load and replays it live", async () => {
+    const backend = create()
+    await backend.store(tree, [record(1)])
+    const load = storage.loadPrefix.bind(storage)
+    const entered = deferred(),
+      release = deferred()
+    let blocked = false
+    vi.spyOn(storage, "loadPrefix").mockImplementation(async prefix => {
+      if (!blocked && prefix.includes("/commits/")) {
+        blocked = true
+        const entries = await load(prefix)
+        entered.resolve()
+        await release.promise
+        return entries
+      }
+      return load(prefix)
+    })
+    const session = backend.open(tree)
+    await entered.promise
+    const write = backend.store(tree, [record(2, [1])])
+    release.resolve()
+    const loaded = await initial(session)
+    await write
+    expect(loaded.records).toEqual([record(1)])
+    expect(await next(loaded.iterator)).toMatchObject({
+      type: "records",
+      phase: "live",
+      records: [record(2, [1])],
+    })
+    await backend.close()
   })
 
   it("reports a rejected native blob read as a terminal open failure", async () => {
