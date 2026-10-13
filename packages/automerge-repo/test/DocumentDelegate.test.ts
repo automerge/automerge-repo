@@ -80,6 +80,98 @@ describe("DocumentDelegate", () => {
     expect(sync).not.toHaveBeenCalled()
   })
 
+  it("delivers initial change patches to root and scoped listeners", () => {
+    const source = A.from({ count: 1, nested: { value: 2 } })
+    const { delegate, handle } = setup()
+    const root = vi.fn()
+    const scoped = vi.fn()
+    handle.on("change", root)
+    handle.sub("nested").on("change", scoped)
+    delegate.onEvent({
+      type: "blobs",
+      sequence: 1,
+      blobs: A.getAllChanges(source),
+    })
+    expect(root).toHaveBeenCalledOnce()
+    expect(root.mock.calls[0][0].patches.length).toBeGreaterThan(0)
+    expect(scoped).toHaveBeenCalledOnce()
+    expect(scoped.mock.calls[0][0].doc).toEqual({ value: 2 })
+  })
+
+  it("delivers initial change to a listener attached during heads-changed", () => {
+    const source = A.from({ count: 1 })
+    const { delegate, handle } = setup()
+    const changed = vi.fn()
+    handle.once("heads-changed", () => handle.on("change", changed))
+    delegate.onEvent({
+      type: "blobs",
+      sequence: 1,
+      blobs: A.getAllChanges(source),
+    })
+    expect(changed).toHaveBeenCalledOnce()
+    expect(changed.mock.calls[0][0].doc).toEqual({ count: 1 })
+  })
+
+  it("does not dispatch an initial change with no change listeners", () => {
+    const source = A.from({ count: 1 })
+    const { delegate, document, handle } = setup()
+    const dispatch = vi.spyOn(document.registry, "dispatchChange")
+    const heads = vi.fn()
+    handle.on("heads-changed", heads)
+    delegate.onEvent({
+      type: "blobs",
+      sequence: 1,
+      blobs: A.getAllChanges(source),
+    })
+    expect(handle.doc()).toEqual({ count: 1 })
+    expect(heads).toHaveBeenCalledOnce()
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+
+  it("only treats the first incoming sync update as initial", () => {
+    const first = A.from({ count: 1 })
+    const firstRecords = extractRecords(first)
+    const second = A.change(first, doc => {
+      doc.count = 2
+    })
+    const { delegate, document, handle } = setup()
+    const initialCheck = vi.spyOn(document.registry, "hasChangeListeners")
+    delegate.onEvent({
+      type: "records",
+      phase: "live",
+      sequence: 1,
+      records: firstRecords,
+    })
+    expect(initialCheck).toHaveBeenCalledOnce()
+    const changed = vi.fn()
+    handle.on("change", changed)
+    const beforeHeads = A.getHeads(document.doc)
+    delegate.onEvent({
+      type: "records",
+      phase: "live",
+      sequence: 2,
+      records: extractRecords(second),
+    })
+    expect(initialCheck).toHaveBeenCalledOnce()
+    expect(handle.doc()).toEqual({ count: 2 })
+    expect(A.getHeads(document.doc)).not.toEqual(beforeHeads)
+    expect(
+      A.diff(document.doc, beforeHeads, A.getHeads(document.doc)).length
+    ).toBeGreaterThan(0)
+    expect(changed).toHaveBeenCalledOnce()
+    expect(changed.mock.calls[0][0].doc).toEqual({ count: 2 })
+  })
+
+  it("still delivers the first local edit as a change", async () => {
+    const { handle } = setup()
+    const changed = vi.fn()
+    handle.on("change", changed)
+    await handle.change(doc => {
+      doc.count = 1
+    })
+    expect(changed).toHaveBeenCalledOnce()
+  })
+
   it("continues syncing after an empty blob-based local load", () => {
     const { delegate, query, sync } = setup()
     delegate.onEvent({ type: "local-load-complete", found: false })

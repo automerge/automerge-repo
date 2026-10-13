@@ -86,7 +86,7 @@ export class Document<T = unknown> {
    */
   applyMutation(
     mutator: (doc: A.Doc<any>) => A.Doc<any>,
-    options: { incoming?: boolean } = {}
+    options: { incoming?: boolean; initial?: boolean } = {}
   ): Promise<void> {
     if (this.deleted) throw new Error("Document is deleted")
     if (this.closed) throw new Error("Document is closed")
@@ -103,11 +103,16 @@ export class Document<T = unknown> {
       : (this.commit?.(before, after) ?? Promise.resolve())
     void stored.catch(() => {})
     if (arrayEqual(beforeHeads, afterHeads)) return stored
-    const patches = A.diff(after, beforeHeads, afterHeads)
+    const initial =
+      options.incoming && options.initial && beforeHeads.length === 0
+    const patches = initial ? undefined : A.diff(after, beforeHeads, afterHeads)
     this.#events.push(() => {
       this.registry.dispatchHeadsChanged(after)
-      if (patches.length > 0) {
-        this.registry.dispatchChange(after, patches, {
+      // A heads listener can attach a change listener during dispatch.
+      if (initial && !this.registry.hasChangeListeners()) return
+      const changes = patches ?? A.diff(after, beforeHeads, afterHeads)
+      if (changes.length > 0) {
+        this.registry.dispatchChange(after, changes, {
           before,
           after,
           source: "change",

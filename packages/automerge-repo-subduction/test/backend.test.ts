@@ -807,6 +807,63 @@ describe("real local Subduction", () => {
     expect(getHeads).toHaveBeenCalledTimes(2)
   })
 
+  it("waits past a delayed save before publishing native heads to an incomplete session", async () => {
+    const backend = create()
+    await backend.store(tree, [record(1)])
+    const { iterator } = await initial(backend.open(tree))
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const native = nativeId(tree)
+    const entered = deferred(),
+      release = deferred()
+    const headsDuringSave: string[][] = []
+    storage.afterSave = async keys => {
+      if (!keys.some(key => key.endsWith(`/meta/${cid(2)}`))) return
+      const heads = (await engine.getHeads(native)) ?? []
+      try {
+        headsDuringSave.push(heads.map(head => head.toHexString()))
+      } finally {
+        heads.forEach(head => head.free())
+      }
+      entered.resolve()
+      await release.promise
+    }
+    try {
+      const writing = backend.store(tree, [record(2, [1])])
+      await entered.promise
+      expect(headsDuringSave).toEqual([[cid(1)]])
+      release.resolve()
+      await writing
+      expect(await next(iterator)).toMatchObject({
+        type: "records",
+        records: [record(2, [1])],
+      })
+      expect(await next(iterator)).toMatchObject({
+        type: "history-marker",
+        marker: { heads: [cid(2)] },
+      })
+    } finally {
+      release.resolve()
+      native.free()
+      storage.afterSave = undefined
+    }
+  })
+
+  it("publishes both branches from a batch as live heads", async () => {
+    const backend = create()
+    await backend.store(tree, [record(1)])
+    const { iterator } = await initial(backend.open(tree))
+    await backend.store(tree, [record(2, [1]), record(3, [1])])
+    const live = [await next(iterator), await next(iterator)]
+    expect(live).toEqual([
+      expect.objectContaining({ type: "records", records: [record(2, [1])] }),
+      expect.objectContaining({ type: "records", records: [record(3, [1])] }),
+    ])
+    expect(await next(iterator)).toMatchObject({
+      type: "history-marker",
+      marker: { heads: [cid(2), cid(3)] },
+    })
+  })
+
   it("reopening after a session closes reloads blobs and retains sync markers", async () => {
     const backend = create()
     await backend.store(tree, [record(1), record(2, [1])])

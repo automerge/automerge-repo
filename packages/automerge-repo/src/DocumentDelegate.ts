@@ -156,7 +156,10 @@ export class DocumentDelegate<T> {
           }
           if (input.byteLength) {
             const next = A.loadIncremental(this.document.doc, input)
-            void this.document.applyMutation(() => next, { incoming: true })
+            void this.document.applyMutation(() => next, {
+              incoming: true,
+              initial: this.query.snapshotPending,
+            })
           }
         }
         break
@@ -170,7 +173,10 @@ export class DocumentDelegate<T> {
         )
         if (unknown.length) {
           const next = applyRecords(this.document.doc, unknown)
-          void this.document.applyMutation(() => next, { incoming: true })
+          void this.document.applyMutation(() => next, {
+            incoming: true,
+            initial: this.query.snapshotPending,
+          })
         }
         this.#checkTargets()
         break

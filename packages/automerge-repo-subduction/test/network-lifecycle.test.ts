@@ -520,6 +520,25 @@ describe("authenticated network failure and lifecycle barriers", () => {
     }, wait)
   }, 20000)
 
+  it("publishes remote ingested heads to an incomplete session's live marker", async () => {
+    const a = peer(),
+      b = peer()
+    const { right } = await settledConnection(a, b)
+    const before = right.events.length
+    await a.backend.store(tree, records)
+    await vi.waitFor(() => {
+      const live = right.events.slice(before)
+      expect(live.some(e => e.type === "records")).toBe(true)
+      const markers = live.filter(e => e.type === "history-marker")
+      expect(markers.at(-1)?.marker.heads).toEqual(
+        [baseline[0].id, records[0].id].sort()
+      )
+    }, wait)
+    expect((await right.session.synchronize()).marker.heads).toEqual(
+      [baseline[0].id, records[0].id].sort()
+    )
+  }, 20000)
+
   it("flush drains an accepted incoming disk write; close ends watches immediately but waits for that write", async () => {
     const a = peer(),
       b = peer()

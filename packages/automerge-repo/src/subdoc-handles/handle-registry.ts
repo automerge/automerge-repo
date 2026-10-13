@@ -249,6 +249,13 @@ export class HandleRegistry {
     return this.#listeners.get(handle)?.get(event)?.size ?? 0
   }
 
+  /** Whether diff patches could reach a writable handle right now. */
+  hasChangeListeners(): boolean {
+    for (const [handle, events] of this.#listeners)
+      if (!handle.isReadOnly() && events.has("change")) return true
+    return false
+  }
+
   eventNamesFor<T>(handle: DocHandle<T>): string[] {
     const m = this.#listeners.get(handle)
     return m ? Array.from(m.keys()) : []
