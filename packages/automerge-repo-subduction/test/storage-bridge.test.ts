@@ -349,6 +349,90 @@ describe("StorageBridge native transaction ordering", () => {
     expect(record.blob).toEqual(first.blob)
   })
 
+  it("passes bulk records to Subduction without materializing Repo records", async () => {
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage, () => {})
+    await save(bridge, first)
+    await save(bridge, fragment)
+    const commitPayload = vi
+      .spyOn(N.SignedLooseCommit.prototype, "payload", "get")
+      .mockImplementation(() => {
+        throw new Error("materialized commit")
+      })
+    const fragmentPayload = vi
+      .spyOn(N.SignedFragment.prototype, "payload", "get")
+      .mockImplementation(() => {
+        throw new Error("materialized fragment")
+      })
+    try {
+      const commits = await withId(id => bridge.loadAllCommits(id))
+      const fragments = await withId(id => bridge.loadAllFragments(id))
+      expect(commits.map(c => c.blob)).toEqual([first.blob])
+      expect(fragments.map(f => f.blob)).toEqual([fragment.blob])
+      commits.forEach(c => c.free())
+      fragments.forEach(f => f.free())
+      expect(commitPayload).not.toHaveBeenCalled()
+      expect(fragmentPayload).not.toHaveBeenCalled()
+    } finally {
+      commitPayload.mockRestore()
+      fragmentPayload.mockRestore()
+    }
+  })
+
+  it("passes an empty stored blob through without bridge validation", async () => {
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage, () => {})
+    await save(bridge, first)
+    const blobKey = [...storage.values.keys()].find(k =>
+      k.includes(`/commits/blob/${first.id}`)
+    )!
+    storage.values.set(blobKey, new Uint8Array())
+    const commits = await withId(id => bridge.loadAllCommits(id))
+    try {
+      expect(commits).toHaveLength(1)
+      expect(commits[0].blob).toEqual(new Uint8Array())
+    } finally {
+      commits.forEach(c => c.free())
+    }
+  })
+
+  it("frees already built native wrappers when a later bulk frame is malformed", async () => {
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage, () => {})
+    await save(bridge, first)
+    await save(bridge, second)
+    const key = [...storage.values.keys()].find(k =>
+      k.includes(`/commits/meta/${second.id}`)
+    )!
+    storage.values.set(key, new Uint8Array([1]))
+    const free = vi.spyOn(N.CommitWithBlob.prototype, "free")
+    try {
+      await expect(withId(id => bridge.loadAllCommits(id))).rejects.toThrow()
+      expect(free).toHaveBeenCalledOnce()
+    } finally {
+      free.mockRestore()
+    }
+  })
+
+  it("frees already built fragments when a later bulk frame is malformed", async () => {
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage, () => {})
+    await save(bridge, fragment)
+    const metaKey = [...storage.values.keys()].find(k =>
+      k.includes("/fragments/meta/")
+    )!
+    const otherKey = metaKey.replace(fragment.head, cid(2))
+    storage.values.set(otherKey, new Uint8Array([1]))
+    storage.values.set(otherKey.replace("/meta/", "/blob/"), fragment.blob)
+    const free = vi.spyOn(N.FragmentWithBlob.prototype, "free")
+    try {
+      await expect(withId(id => bridge.loadAllFragments(id))).rejects.toThrow()
+      expect(free).toHaveBeenCalledOnce()
+    } finally {
+      free.mockRestore()
+    }
+  })
+
   it.each(["meta", "blob"] as const)(
     "rejects incomplete %s records in both point and bulk reads",
     async part => {
@@ -367,6 +451,9 @@ describe("StorageBridge native transaction ordering", () => {
         await expect(withId(treeId => bridge.records(treeId))).rejects.toThrow(
           "Incomplete stored record"
         )
+        await expect(
+          withId(treeId => bridge.loadAllCommits(treeId))
+        ).rejects.toThrow("Incomplete stored record")
       } finally {
         id.free()
       }

@@ -843,9 +843,9 @@ describe("real local Subduction", () => {
     expect(await storage.list("subduction-v2/")).toHaveLength(1)
   })
 
-  // Tree/key relocation and blob damage are not re-checked on read: writes
-  // check the tree, native checks blobs, and Repo validates records.
-  it.each(["malformed", "missing-blob", "signed"] as const)(
+  // The bridge pairs stored values and decodes signed frames; Subduction
+  // checks blob integrity after receiving them.
+  it.each(["malformed", "missing-blob", "signed", "blob"] as const)(
     "fails loudly on persisted %s corruption",
     async kind => {
       const backend = create()
@@ -856,6 +856,11 @@ describe("real local Subduction", () => {
       )!
       if (kind === "missing-blob")
         await storage.remove(key.replace("/meta/", "/blob/"))
+      else if (kind === "blob")
+        await storage.save(
+          key.replace("/meta/", "/blob/"),
+          new Uint8Array([99])
+        )
       else
         await storage.save(
           key,

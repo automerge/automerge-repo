@@ -426,37 +426,36 @@ export class StorageBridge implements N.SedimentreeStorage {
     return this.decodeAll(tree, await this.storage.loadPrefix(prefix(tree)))
   }
 
-  /** One kind only, for native hydration's per-kind calls. Native always asks
-   * for both kinds, so corruption in either still fails hydration. */
-  private async kindSnapshot(tree: string, kind: Kind): Promise<Stored[]> {
-    return this.decodeAll(
-      tree,
-      await this.storage.loadPrefix(kindPrefix(tree, kind))
-    )
+  /** Pair the two stored values for each key without interpreting record data. */
+  private pairs(tree: string, entries: [string, Uint8Array][]) {
+    const p = prefix(tree)
+    const parts = new Map<
+      string,
+      { ref: RecordKey; meta?: Uint8Array; blob?: Uint8Array }
+    >()
+    for (const [fullKey, value] of entries) {
+      if (!fullKey.startsWith(p))
+        throw new Error("Storage returned an out-of-prefix key")
+      const ref = parseRecordKey(fullKey.slice(p.length))
+      const path = recordPath(tree, ref, "meta")
+      const pair = parts.get(path) ?? { ref }
+      pair[ref.part] = value
+      parts.set(path, pair)
+    }
+    const paired: { ref: RecordKey; meta: Uint8Array; blob: Uint8Array }[] = []
+    for (const { ref, meta, blob } of parts.values()) {
+      if (meta === undefined || blob === undefined)
+        throw new Error("Incomplete stored record")
+      paired.push({ ref, meta, blob })
+    }
+    return paired
   }
 
   private decodeAll(tree: string, entries: [string, Uint8Array][]): Stored[] {
-    const p = prefix(tree)
     const values: Stored[] = []
     try {
-      const parts = new Map<
-        string,
-        { ref: RecordKey; meta?: Uint8Array; blob?: Uint8Array }
-      >()
-      for (const [fullKey, value] of entries) {
-        if (!fullKey.startsWith(p))
-          throw new Error("Storage returned an out-of-prefix key")
-        const ref = parseRecordKey(fullKey.slice(p.length))
-        const path = recordPath(tree, ref, "meta")
-        const pair = parts.get(path) ?? { ref }
-        pair[ref.part] = value
-        parts.set(path, pair)
-      }
-      for (const { ref, meta, blob } of parts.values()) {
-        if (meta === undefined || blob === undefined)
-          throw new Error("Incomplete stored record")
+      for (const { ref, meta, blob } of this.pairs(tree, entries))
         values.push(this.decode(ref, meta, blob))
-      }
       return values
     } catch (error) {
       values.forEach(v => v.signed.free())
@@ -669,19 +668,23 @@ export class StorageBridge implements N.SedimentreeStorage {
     return this.enqueue(() => this.loadCommits(tree), tree)
   }
   private async loadCommits(tree: string): Promise<N.CommitWithBlob[]> {
-    const values = await this.kindSnapshot(tree, "commit")
+    const pairs = this.pairs(
+      tree,
+      await this.storage.loadPrefix(kindPrefix(tree, "commit"))
+    )
     const result: N.CommitWithBlob[] = []
-    let consumed = 0
     try {
-      for (const value of values) {
-        if (value.kind === "commit")
-          result.push(new N.CommitWithBlob(value.signed, value.record.blob))
-        else value.signed.free()
-        consumed++
+      for (const { meta, blob } of pairs) {
+        const signed = N.SignedLooseCommit.tryDecode(meta)
+        try {
+          result.push(new N.CommitWithBlob(signed, blob))
+        } catch (error) {
+          signed.free()
+          throw error
+        }
       }
       return result
     } catch (error) {
-      values.slice(consumed).forEach(v => v.signed.free())
       result.forEach(c => c.free())
       throw error
     }
@@ -748,19 +751,23 @@ export class StorageBridge implements N.SedimentreeStorage {
     return this.enqueue(() => this.loadFragments(tree), tree)
   }
   private async loadFragments(tree: string): Promise<N.FragmentWithBlob[]> {
-    const values = await this.kindSnapshot(tree, "fragment")
+    const pairs = this.pairs(
+      tree,
+      await this.storage.loadPrefix(kindPrefix(tree, "fragment"))
+    )
     const result: N.FragmentWithBlob[] = []
-    let consumed = 0
     try {
-      for (const value of values) {
-        if (value.kind === "fragment")
-          result.push(new N.FragmentWithBlob(value.signed, value.record.blob))
-        else value.signed.free()
-        consumed++
+      for (const { meta, blob } of pairs) {
+        const signed = N.SignedFragment.tryDecode(meta)
+        try {
+          result.push(new N.FragmentWithBlob(signed, blob))
+        } catch (error) {
+          signed.free()
+          throw error
+        }
       }
       return result
     } catch (error) {
-      values.slice(consumed).forEach(v => v.signed.free())
       result.forEach(f => f.free())
       throw error
     }
