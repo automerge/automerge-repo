@@ -15,6 +15,42 @@ function buffer(events = 2, bytes = 100) {
 }
 
 describe("lossy observation buffering", () => {
+  it("buffers pre-initialization durable updates behind the initial batch", async () => {
+    const watch = new Watch<string>(
+      2,
+      100,
+      value => value,
+      () => "rescan",
+      vi.fn()
+    )
+    watch.bufferBeforeInitialize()
+    watch.push("live", 10)
+    expect(watch.active).toBe(false)
+    watch.initialize(["initial", "complete"])
+    expect((await watch.next()).value).toBe("initial")
+    expect((await watch.next()).value).toBe("complete")
+    expect((await watch.next()).value).toBe("live")
+    await watch.return()
+  })
+
+  it("ends with rescan if pre-initialization live buffering overflows", async () => {
+    const released = vi.fn()
+    const watch = new Watch<string>(
+      1,
+      10,
+      value => value,
+      () => "rescan",
+      released
+    )
+    watch.bufferBeforeInitialize()
+    watch.push("one", 10)
+    watch.push("two", 1)
+    watch.initialize(["stale"])
+    expect((await watch.next()).value).toBe("rescan")
+    expect((await watch.next()).done).toBe(true)
+    expect(released).toHaveBeenCalledOnce()
+  })
+
   it("drops ephemerals on event overflow without closing the watch", async () => {
     const { watch, released } = buffer(1)
     watch.push("first", 10, true)

@@ -138,6 +138,29 @@ export class DocumentDelegate<T> {
   onEvent(event: SedimentreeEvent): void {
     if (this.document.closed || this.query.peek().state === "failed") return
     switch (event.type) {
+      case "blobs": {
+        if (event.blobs.length) {
+          // Avoid concatenation when Subduction returned only one blob.
+          let input = event.blobs[0]
+          if (event.blobs.length > 1) {
+            const bytes = event.blobs.reduce(
+              (size, blob) => size + blob.byteLength,
+              0
+            )
+            input = new Uint8Array(bytes)
+            let offset = 0
+            for (const blob of event.blobs) {
+              input.set(blob, offset)
+              offset += blob.byteLength
+            }
+          }
+          if (input.byteLength) {
+            const next = A.loadIncremental(this.document.doc, input)
+            void this.document.applyMutation(() => next, { incoming: true })
+          }
+        }
+        break
+      }
       case "records": {
         // An applied head includes all its dependencies, even when delivered
         // through a fragment. Pending heads are not reported by hasHeads.
@@ -153,7 +176,13 @@ export class DocumentDelegate<T> {
         break
       }
       case "local-load-complete":
-        this.#marker("local", event.marker)
+        if (event.marker) this.#marker("local", event.marker)
+        else if (event.found && A.getHeads(this.document.doc).length) {
+          this.#targets.clear()
+          this.query.markInitialSnapshotComplete()
+          this.query.sourceReady("backend")
+          this.onComplete?.()
+        }
         if (this.query.snapshotPending)
           void this.synchronize().catch(error => this.sourceUnavailable(error))
         break

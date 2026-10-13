@@ -26,7 +26,7 @@ import {
   type ByteStore,
   type SubductionBackendOptions,
 } from "../src/index.js"
-import { nativeId, type StorageBridge } from "../src/storage.js"
+import { nativeId, StorageBridge } from "../src/storage.js"
 import {
   applyRecords,
   extractNewRecords,
@@ -77,15 +77,29 @@ async function next(iterator: AsyncIterator<SedimentreeEvent>) {
   if (result.done) throw new Error("Unexpected end")
   return result.value
 }
-async function initial(backend: SubductionBackend) {
+let currentStorage: TestStore
+async function initial(backend: SubductionBackend, inspectRecords = true) {
   const iterator = backend.open(tree).events[Symbol.asyncIterator]()
   const records: SedimentreeRecord[] = []
+  const blobs: Uint8Array[] = []
   for (;;) {
     const event = await next(iterator)
     if (event.type === "failure") throw event.error
     if (event.type === "records") records.push(...event.records)
-    if (event.type === "local-load-complete")
-      return { records, event, iterator }
+    if (event.type === "blobs") blobs.push(...event.blobs)
+    if (event.type === "local-load-complete") {
+      if (!inspectRecords) return { records, blobs, event, iterator }
+      const native = nativeId(tree)
+      try {
+        records.push(
+          ...(await new StorageBridge(currentStorage, () => {}).records(native))
+        )
+      } finally {
+        native.free()
+      }
+      expect(blobs).toEqual(records.map(record => record.blob))
+      return { records, blobs, event, iterator }
+    }
   }
 }
 
@@ -139,6 +153,7 @@ describe("local Subduction fragments", () => {
   }
   beforeEach(async () => {
     storage = new TestStore()
+    currentStorage = storage
     signer = N.MemorySigner.fromBytes(new Uint8Array(32).fill(42))
     backends = []
   })
@@ -170,7 +185,7 @@ describe("local Subduction fragments", () => {
     const reloaded = create()
     const loaded = await initial(reloaded)
     expect(loaded.records).toEqual(records)
-    expect(loaded.event.marker.heads).toEqual([cid(4)])
+    expect(loaded.event.marker).toBeUndefined()
     // Native hydrates on demand (not at open) and reads the stored fragment.
     const engine = (reloaded as unknown as { engine: N.Subduction }).engine
     const native = nativeId(tree)
@@ -493,10 +508,10 @@ describe("local Subduction fragments", () => {
     await backend.store(tree, [large, fragment(4)])
     await backend.close()
     // Compare bytes directly: a failing toEqual would try to print 17 MiB.
-    const [stored, other] = (await initial(create())).records
-    expect(stored.kind === "commit" && stored.id).toBe(large.id)
-    expect(Buffer.compare(stored.blob, large.blob)).toBe(0)
-    expect(other).toEqual(fragment(4))
+    const blobs = (await initial(create(), false)).blobs
+    expect(blobs).toHaveLength(2)
+    expect(Buffer.compare(blobs[0], large.blob)).toBe(0)
+    expect(blobs[1]).toEqual(fragment(4).blob)
   })
 
   it.each(["commits", "fragments"])(
@@ -509,13 +524,19 @@ describe("local Subduction fragments", () => {
       // Same size, different digest: only the blob content check can catch it.
       await storage.save(key, corruptFrame((await storage.load(key))!, "blob"))
       const reopened = create()
-      expect((await initial(reopened)).records).toHaveLength(2)
+      const session = reopened.open(tree)
+      const iterator = session.events[Symbol.asyncIterator]()
+      expect(await next(iterator)).toMatchObject({
+        type: "failure",
+        error: { operation: "open" },
+      })
+      expect((await iterator.next()).done).toBe(true)
       // The first local write hydrates native, which verifies every blob.
       await expect(reopened.store(tree, [loose(5, [4])])).rejects.toThrow()
     }
   )
 
-  it("opens with exactly one storage read, whatever the history size", async () => {
+  it("opens through Subduction's two per-kind storage reads", async () => {
     await create().store(tree, [loose(1), loose(4, [1]), fragment(4)])
     // Count top-level calls on a wrapper, not the store's own internals.
     const calls: string[] = []
@@ -544,7 +565,7 @@ describe("local Subduction fragments", () => {
     }
     const loaded = await initial(create({ storage: counted }))
     expect(loaded.records).toHaveLength(3)
-    expect(calls).toEqual(["loadPrefix"])
+    expect(calls).toEqual(["loadPrefix", "loadPrefix"])
   })
 
   it.each(["commits", "fragments"])(

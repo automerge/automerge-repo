@@ -381,12 +381,16 @@ function copyEvent(event: SedimentreeEvent): SedimentreeEvent {
   switch (event.type) {
     case "records":
       return { ...event, records: event.records.map(copyRecord) }
+    case "blobs":
+      return { ...event, blobs: event.blobs.map(blob => new Uint8Array(blob)) }
     case "local-load-complete":
     case "history-marker":
-      return {
-        ...event,
-        marker: { ...event.marker, heads: [...event.marker.heads] },
-      }
+      return event.marker
+        ? {
+            ...event,
+            marker: { ...event.marker, heads: [...event.marker.heads] },
+          }
+        : { ...event }
     case "synchronized":
       return { ...event, result: copySyncResult(event.result) }
     // The memory double never produces peers, remote heads, ephemerals or failures.

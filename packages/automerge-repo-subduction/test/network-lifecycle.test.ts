@@ -149,9 +149,14 @@ describe("authenticated network failure and lifecycle barriers", () => {
     return observed
   }
   function initialRecords(events: SedimentreeEvent[]) {
-    return events.flatMap(e =>
-      e.type === "records" && e.phase === "initial" ? e.records : []
-    )
+    const blobs = events.flatMap(e => (e.type === "blobs" ? e.blobs : []))
+    return blobs.map(blob => {
+      const found = persistedRecords.find(record =>
+        Buffer.from(record.blob).equals(blob)
+      )
+      if (!found) throw new Error("Unknown initial blob")
+      return found
+    })
   }
   function delayIncoming(p: Peer) {
     const entered = deferred(),
@@ -508,7 +513,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     await a.backend.store(tree, records)
     await vi.waitFor(() => {
       const received = right.events.flatMap(e =>
-        e.type === "records" ? e.records : []
+        e.type === "records" ? e.records : initialRecords([e])
       )
       expect(received).toEqual(expect.arrayContaining(persistedRecords))
       expect(received).toHaveLength(persistedRecords.length)

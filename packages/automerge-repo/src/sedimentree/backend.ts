@@ -9,11 +9,13 @@ import type { RecordBatch } from "./records.js"
  *
  * ## Observation and readiness
  *
- * `open()` establishes a finite initial local cut and live observation together,
- * before the first pull. Initial record batches reconstruct that cut; later
- * updates follow without a gap. Concurrent writes must not indefinitely extend
- * initial loading. Opening expresses interest, not a network connection, and
- * does not by itself create stored history or a public document handle.
+ * `open()` establishes initial local loading and live observation together,
+ * before the first pull. Initial records reconstruct a pinned cut; a backend
+ * may instead deliver a blob batch without a verified history marker. Live
+ * updates follow initial loading without a gap (duplicates are permitted).
+ * Concurrent writes must not indefinitely extend initial loading. Opening
+ * expresses interest, not a network connection, and does not by itself create
+ * stored history or a public document handle.
  *
  * Each stream is single-consumer, with at most one outstanding `next()`. Batches
  * and live replay are bounded. Overlap, duplicate records and self-echoes are
@@ -26,11 +28,13 @@ import type { RecordBatch } from "./records.js"
  * - `records`: history to merge. `phase: "initial"` belongs to the pinned cut;
  *   `phase: "live"` follows it. Delivery is not a local-durability receipt:
  *   events may race a store promise or expose remote data before it is persisted.
- * - `local-load-complete`: local enumeration reached its marker. `found`
- *   says whether that cut contained records, not whether their dependencies are
- *   materialized or any peer has data. When `found` is false, marker heads
- *   are empty. Empty local storage is not global absence. Sync events follow
- *   this initial completion event, not precede it.
+ * - `blobs`: one initial batch of unlabelled local bytes. Apply the whole batch
+ *   before interpreting `local-load-complete`; it has no source-head marker.
+ * - `local-load-complete`: local enumeration finished. With record delivery its
+ *   marker identifies history to verify; blob delivery has no marker. `found`
+ *   says whether that load contained data, not whether dependencies are
+ *   materialized or any peer has data. Empty local storage is not global
+ *   absence. Sync events follow this completion event, not precede it.
  * - `history-marker`: a position and history heads, ordered after associated record
  *   deliveries. The consumer must process those records and verify history
  *   inclusion using its CRDT; nonempty heads or the first blob are not enough.
@@ -54,9 +58,11 @@ import type { RecordBatch } from "./records.js"
  * - `deleted`: invalidates the old local generation and ends its stream,
  *   superseding queued old-generation data. This is not a replicated tombstone.
  *
- * Readiness requires a complete initial snapshot from any one usable source,
- * verified by the CRDT consumer against the delivered marker. Other sources
- * may continue loading. A lookup failure or timeout is never proof of absence.
+ * Record-based readiness verifies a complete initial snapshot against the
+ * delivered marker. Blob-only readiness currently trusts a successful full
+ * load and nonempty materialized CRDT heads, without an independent source-head
+ * completeness check. Other sources may continue loading. A lookup failure or
+ * timeout is never proof of absence.
  * Sequence positions are process-local, scoped to their log and lifetime, not
  * portable cursors or comparable across backends/documents/generations. Initial
  * batches can share the cut's sequence; it is not a unique ID for each batch.
@@ -266,8 +272,15 @@ export type SedimentreeEvent =
       readonly records: RecordBatch
     }
   | {
+      /** Initial local bytes, delivered together without record metadata. */
+      readonly type: "blobs"
+      readonly sequence: number
+      readonly blobs: readonly Uint8Array[]
+    }
+  | {
       readonly type: "local-load-complete"
-      readonly marker: HistoryMarker
+      /** Absent for blob-based initial loads; no independent heads were read. */
+      readonly marker?: HistoryMarker
       readonly found: boolean
     }
   | { readonly type: "history-marker"; readonly marker: HistoryMarker }

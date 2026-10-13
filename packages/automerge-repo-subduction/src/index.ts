@@ -72,9 +72,9 @@ export interface SubductionBackendOptions {
   storage: ByteStore
   /** Native request deadline, not a deadline on local storage or handshake. */
   syncTimeoutMilliseconds?: number
-  /** Initial-delivery record count per `records` event. */
+  /** Reserved from record-based initial delivery; blob load is one event. */
   batchRecords?: number
-  /** Initial-delivery batch target per `records` event. */
+  /** Reserved from record-based initial delivery; blob load is one event. */
   batchBytes?: number
   replayEvents?: number
   replayBytes?: number
@@ -124,32 +124,6 @@ function marker(
   for (const record of records) heads.add(record)
   return heads.marker(sequence)
 }
-/** Greedy split by record count and encoded bytes; never returns an empty
- * group, and a record larger than `maxBytes` occupies a group by itself. */
-function split(
-  records: readonly SedimentreeRecord[],
-  maxRecords: number,
-  maxBytes: number
-): SedimentreeRecord[][] {
-  const groups: SedimentreeRecord[][] = []
-  let group: SedimentreeRecord[] = []
-  let size = 0
-  for (const record of records) {
-    const bytes = recordBytes(record)
-    if (
-      group.length &&
-      (group.length >= maxRecords || size + bytes > maxBytes)
-    ) {
-      groups.push(group)
-      group = []
-      size = 0
-    }
-    group.push(record)
-    size += bytes
-  }
-  if (group.length) groups.push(group)
-  return groups
-}
 function copyEvent(value: SedimentreeEvent): SedimentreeEvent {
   if (value.type === "ephemeral")
     return {
@@ -159,11 +133,17 @@ function copyEvent(value: SedimentreeEvent): SedimentreeEvent {
     }
   if (value.type === "records")
     return { ...value, records: value.records.map(copyRecord) }
+  if (value.type === "blobs")
+    // getBlobs returns owned JS arrays, one result per open. The initial
+    // event has one consumer and is never replayed to another watch.
+    return value
   if (value.type === "history-marker" || value.type === "local-load-complete")
-    return {
-      ...value,
-      marker: { ...value.marker, heads: [...value.marker.heads] },
-    }
+    return value.marker
+      ? {
+          ...value,
+          marker: { ...value.marker, heads: [...value.marker.heads] },
+        }
+      : { ...value }
   if (value.type === "synchronized")
     return {
       ...value,
@@ -737,39 +717,12 @@ export class SubductionBackend implements SedimentreeBackend {
     if (this.closed) return
     const sequence = ++this.sequence
     // save() can commit a value and still reject (e.g. an ambiguous I/O result).
-    // Its notification was then missed. Never let deduplicating a retry hide
-    // that record: active observations must reconcile authoritative storage.
-    // Not-yet-initialized watches have later queued cuts and recover it there.
+    // Its notification was then missed. A concurrent getBlobs() is not an
+    // atomic observation cut, so pre-initialized watches must rescan too.
     for (const [watch, tree] of this.watches)
-      if (tree === id && watch.active)
-        watch.finish({ type: "rescan-required", sequence })
+      if (tree === id) watch.finish({ type: "rescan-required", sequence })
     for (const watch of this.collections)
       if (watch.active) watch.finish({ type: "rescan-required", sequence })
-  }
-  private async snapshot(
-    id: SedimentreeId,
-    consume?: (records: SedimentreeRecord[]) => void
-  ): Promise<SedimentreeRecord[]> {
-    const native = nativeId(id)
-    try {
-      // One read of authoritative storage. Native is not hydrated here: it
-      // hydrates on demand (first sync, local write or incoming record) and
-      // reads storage at that moment, so nothing persisted can be missed.
-      // Install the cut inside the serialized read, before another save can
-      // notify, so no persisted record falls between the cut and the watch.
-      return await this.bridge.records(native, consume)
-    } finally {
-      native.free()
-    }
-  }
-  /** Initial-delivery `records` events; one larger record is allowed alone. */
-  private batches(
-    records: readonly SedimentreeRecord[],
-    sequence: number
-  ): SedimentreeEvent[] {
-    return split(records, this.limits.batchRecords, this.limits.batchBytes).map(
-      batch => ({ type: "records", sequence, phase: "initial", records: batch })
-    )
   }
   open(input: SedimentreeId): SedimentreeSession {
     const id = sedimentreeId(input)
@@ -788,24 +741,25 @@ export class SubductionBackend implements SedimentreeBackend {
         this.reconcileInterest(id)
       }
     )
+    watch.bufferBeforeInitialize()
     this.watches.set(watch, id)
     void this.enqueue("open", async () => {
-      await this.snapshot(id, records => {
+      const native = nativeId(id)
+      try {
+        const blobs = await this.engine.getBlobs(native)
         const sequence = ++this.sequence
-        // The cut is installed inside the serialized read, so delivered heads
-        // seeded here stay ahead of any later persisted() notification.
-        const heads = new Heads()
-        for (const record of records) heads.add(record)
-        if (!released) this.delivered.set(id, heads)
         watch.initialize([
-          ...this.batches(records, sequence),
+          ...(blobs.length
+            ? [{ type: "blobs" as const, sequence, blobs }]
+            : []),
           {
-            type: "local-load-complete",
-            marker: heads.marker(sequence),
-            found: records.length > 0,
+            type: "local-load-complete" as const,
+            found: blobs.length > 0,
           },
         ])
-      })
+      } finally {
+        native.free()
+      }
       if (!released) {
         this.reconcileInterest(id)
         this.scheduleSync(id)

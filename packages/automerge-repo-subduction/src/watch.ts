@@ -1,11 +1,12 @@
-/** Single-consumer observation buffer, not a history store. Initial cuts are
- * separately bounded by the storage read limits; only live replay uses this cap. */
+/** Single-consumer observation buffer, not a history store. Initial blob
+ * delivery is one batch; only live replay uses this cap. */
 export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
   private initial: T[] = []
   private initialIndex = 0
   private live: { value: T; bytes: number; droppable: boolean }[] = []
   private liveBytes = 0
   private ready = false
+  private buffering = false
   private ended = false
   private claimed = false
   private pulling = false
@@ -25,15 +26,20 @@ export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
     this.claimed = true
     return this
   }
+  /** Buffer live notifications before a non-atomic initial read completes. */
+  bufferBeforeInitialize(): void {
+    if (!this.ended) this.buffering = true
+  }
   initialize(values: T[]): void {
     if (this.ended) return
     this.initial = values
     this.ready = true
     this.active = true
+    this.buffering = false
     this.wake?.()
   }
   push(value: T, bytes = 64, droppable = false): void {
-    if (this.ended || !this.active) return
+    if (this.ended || (!this.active && !this.buffering)) return
     while (
       this.live.length >= this.maxEvents ||
       this.liveBytes + bytes > this.maxBytes
@@ -55,6 +61,7 @@ export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
     if (this.ended) return
     this.ended = true
     this.active = false
+    this.buffering = false
     this.initial = final === undefined ? [] : [final]
     this.initialIndex = 0
     this.live = []

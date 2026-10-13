@@ -51,6 +51,42 @@ function setup(
 }
 
 describe("DocumentDelegate", () => {
+  it("applies one initial blob without retaining its input bytes", () => {
+    const blob = A.getAllChanges(A.from({ count: 1 }))[0]
+    const { delegate, handle } = setup()
+    delegate.onEvent({ type: "blobs", sequence: 1, blobs: [blob] })
+    expect(handle.doc()).toEqual({ count: 1 })
+    blob.fill(0)
+    expect(handle.doc()).toEqual({ count: 1 })
+  })
+
+  it("applies initial blobs in one update and becomes ready only on completion", () => {
+    const source = A.change(A.from({ count: 1 }), doc => {
+      doc.count = 2
+    })
+    const { delegate, query, handle, sync } = setup()
+    const changed = vi.fn()
+    handle.on("change", changed)
+    delegate.onEvent({
+      type: "blobs",
+      sequence: 1,
+      blobs: A.getAllChanges(source),
+    })
+    expect(query.peek().state).toBe("loading")
+    expect(handle.doc()).toEqual({ count: 2 })
+    expect(changed).toHaveBeenCalledOnce()
+    delegate.onEvent({ type: "local-load-complete", found: true })
+    expect(query.peek().state).toBe("ready")
+    expect(sync).not.toHaveBeenCalled()
+  })
+
+  it("continues syncing after an empty blob-based local load", () => {
+    const { delegate, query, sync } = setup()
+    delegate.onEvent({ type: "local-load-complete", found: false })
+    expect(query.peek().state).toBe("loading")
+    expect(sync).toHaveBeenCalledOnce()
+  })
+
   it("uses authenticated ephemeral sender, not claimed origin", () => {
     const { delegate, handle } = setup(A.from({ count: 0 }), undefined, true)
     const listener = vi.fn()

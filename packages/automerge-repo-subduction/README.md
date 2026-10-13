@@ -253,8 +253,8 @@ Default limits:
 | Option                    |                                                  Default |
 | ------------------------- | -------------------------------------------------------: |
 | `syncTimeoutMilliseconds` |                         5,000 ms per native peer request |
-| `batchRecords`            |                           128 records per delivery event |
-| `batchBytes`              | 1 MiB initial delivery target; one larger record allowed |
+| `batchRecords`            |          reserved (initial blobs use one batch) |
+| `batchBytes`              |          reserved (initial blobs use one batch) |
 | `replayEvents`            |                                            128 per watch |
 | `replayBytes`             |                                          4 MiB per watch |
 
@@ -266,13 +266,16 @@ then written in one native call. It is not split: a document must already fit
 in Automerge's WASM memory, which is exhausted long before a submission would
 strain Subduction's. Neither a single record nor a tree's total history is
 capped: whatever was accepted can always be reopened, enumerated, synced and
-deleted. Opening a tree still reads its whole history into memory, so very
-large trees cost time and heap proportional to their size rather than being
-refused. Once every session on a tree has called `markComplete()`, live and
-sync-round markers are reported from the heads delivered so far instead of
-rereading storage. These limits bound delivery and replay, not stored record
-size, total heap use, session count, or queued operations. This is not a streaming or production
-large-history write path.
+deleted. Opening uses Subduction's `getBlobs()` to deliver all initial blobs
+in one event, so very large trees cost time and heap proportional to their
+size rather than being refused. Unlike record-based initial delivery, this
+does not supply a source-head marker: Repo accepts nonempty document heads
+after the entire blob batch has been applied. Live notifications are buffered
+behind that batch and bounded by the replay limits; sync-round markers still
+require a storage read until the remaining marker path is redesigned. These
+limits bound live replay, not initial blob size, total heap use, session count,
+or queued operations. This is not a streaming or production large-history
+write path.
 
 ## Dependency and tests
 

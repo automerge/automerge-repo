@@ -12,7 +12,7 @@ import {
   SubductionBackend,
   type SubductionBackendOptions,
 } from "../src/index.js"
-import { nativeId, logicalId } from "../src/storage.js"
+import { nativeId, logicalId, StorageBridge } from "../src/storage.js"
 import { TestStore, deferred, savedKeys } from "./storage.js"
 import { corruptFrame, signedBytes } from "./frame.js"
 
@@ -24,17 +24,40 @@ const record = (n: number, parents: number[] = []): LooseCommitRecord => ({
   parents: parents.map(cid),
   blob: new Uint8Array([n, 42]),
 })
-async function initial(session: SedimentreeSession) {
+let currentStorage: TestStore
+async function initial(session: SedimentreeSession, id = tree) {
   const iterator = session.events[Symbol.asyncIterator]()
   const records: LooseCommitRecord[] = []
+  const blobs: Uint8Array[] = []
   for (;;) {
     const result = await iterator.next()
     if (result.done) throw new Error("Missing local load marker")
     if (result.value.type === "failure") throw result.value.error
     if (result.value.type === "records")
       records.push(...(result.value.records as LooseCommitRecord[]))
-    if (result.value.type === "local-load-complete")
-      return { records, complete: result.value, iterator }
+    if (result.value.type === "blobs") blobs.push(...result.value.blobs)
+    if (result.value.type === "local-load-complete") {
+      // Legacy metadata assertions below inspect the test store separately;
+      // open itself must deliver only Subduction's blobs.
+      const native = nativeId(id)
+      try {
+        const available = (await new StorageBridge(
+          currentStorage,
+          () => {}
+        ).records(native)) as LooseCommitRecord[]
+        for (const blob of blobs) {
+          const index = available.findIndex(record =>
+            Buffer.from(record.blob).equals(blob)
+          )
+          if (index < 0) throw new Error("Initial blob missing from test store")
+          records.push(available.splice(index, 1)[0])
+        }
+      } finally {
+        native.free()
+      }
+      expect(blobs).toEqual(records.map(record => record.blob))
+      return { records, blobs, complete: result.value, iterator }
+    }
   }
 }
 /** Loose commits native holds for `tree`, hydrating on demand. Reaches the
@@ -85,6 +108,7 @@ describe("real local Subduction", () => {
   }
   beforeEach(async () => {
     storage = new TestStore()
+    currentStorage = storage
     signer = N.MemorySigner.fromBytes(new Uint8Array(32).fill(42))
     backends = []
   })
@@ -103,12 +127,134 @@ describe("real local Subduction", () => {
     const second = await backend.create([record(1)])
     expect(first).toMatch(/^[0-9a-f]{64}$/)
     expect(second).not.toBe(first)
-    expect((await initial(backend.open(first))).records).toEqual([record(1)])
-    expect((await initial(backend.open(second))).records).toEqual([record(1)])
+    expect((await initial(backend.open(first), first)).records).toEqual([
+      record(1),
+    ])
+    expect((await initial(backend.open(second), second)).records).toEqual([
+      record(1),
+    ])
     await expect(backend.create([])).rejects.toMatchObject({
       operation: "create",
       code: "invalid-record",
     })
+  })
+
+  it("opens via Subduction blobs without a Repo-facing bridge records read", async () => {
+    const backend = create()
+    await backend.store(tree, [record(1)])
+    const internals = backend as unknown as {
+      engine: N.Subduction
+      bridge: StorageBridge
+    }
+    const native = vi.spyOn(internals.engine, "getBlobs")
+    const direct = vi.spyOn(internals.bridge, "records")
+    const loaded = await initial(backend.open(tree))
+    expect(native).toHaveBeenCalledOnce()
+    expect(direct).not.toHaveBeenCalled()
+    expect(loaded.blobs).toEqual([record(1).blob])
+    expect(loaded.complete).toMatchObject({ found: true })
+    expect(loaded.complete.marker).toBeUndefined()
+  })
+
+  it("delivers native-owned blobs without copying, isolated between sessions", async () => {
+    const backend = create()
+    await backend.store(tree, [record(1)])
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const original = engine.getBlobs.bind(engine)
+    const nativeResults: Uint8Array[][] = []
+    vi.spyOn(engine, "getBlobs").mockImplementation(async id => {
+      const blobs = await original(id)
+      nativeResults.push(blobs)
+      return blobs
+    })
+    const first = await initial(backend.open(tree))
+    const second = await initial(backend.open(tree))
+    expect(first.blobs[0]).toBe(nativeResults[0][0])
+    expect(second.blobs[0]).toBe(nativeResults[1][0])
+    expect(first.blobs[0]).not.toBe(second.blobs[0])
+    first.blobs[0].fill(0)
+    expect(second.blobs).toEqual([record(1).blob])
+    expect((await initial(backend.open(tree))).blobs).toEqual([record(1).blob])
+  })
+
+  it("buffers notifications while native blob acquisition is pending", async () => {
+    const backend = create()
+    await backend.store(tree, [record(1)])
+    const internals = backend as unknown as {
+      engine: N.Subduction
+      persisted: (id: typeof tree, record: LooseCommitRecord) => void
+    }
+    const original = internals.engine.getBlobs.bind(internals.engine)
+    const entered = deferred(),
+      gate = deferred()
+    vi.spyOn(internals.engine, "getBlobs").mockImplementation(async id => {
+      const blobs = await original(id)
+      entered.resolve()
+      await gate.promise
+      return blobs
+    })
+    const session = backend.open(tree)
+    await entered.promise
+    // Simulate a native save callback landing after the read, before open
+    // initializes its stream. It must be delivered after local completion.
+    internals.persisted(tree, record(1))
+    gate.resolve()
+    const loaded = await initial(session)
+    expect(loaded.blobs).toEqual([record(1).blob])
+    expect(await next(loaded.iterator)).toMatchObject({
+      type: "records",
+      phase: "live",
+      records: [record(1)],
+    })
+  })
+
+  it("buffers a save between native commit and fragment loads", async () => {
+    const writer = create()
+    await writer.store(tree, [record(1)])
+    const reader = create()
+    const notify = (
+      reader as unknown as {
+        persisted: (id: typeof tree, record: LooseCommitRecord) => void
+      }
+    ).persisted.bind(reader)
+    const load = storage.loadPrefix.bind(storage)
+    let intercepted = false
+    vi.spyOn(storage, "loadPrefix").mockImplementation(async prefix => {
+      const entries = await load(prefix)
+      if (!intercepted && prefix.includes("/commits/")) {
+        intercepted = true
+        await writer.store(tree, [record(2, [1])])
+        // The writer has a separate bridge; simulate this reader's native
+        // save callback after the commit read, before the fragment read.
+        notify(tree, record(2, [1]))
+      }
+      return entries
+    })
+    const loaded = await initial(reader.open(tree))
+    expect(intercepted).toBe(true)
+    expect(loaded.blobs).toEqual([record(1).blob])
+    expect(await next(loaded.iterator)).toMatchObject({
+      type: "records",
+      phase: "live",
+      records: [record(2, [1])],
+    })
+  })
+
+  it("reports a rejected native blob read as a terminal open failure", async () => {
+    const backend = create()
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    vi.spyOn(engine, "getBlobs").mockRejectedValue(
+      new Error("unreadable storage")
+    )
+    const iterator = backend.open(tree).events[Symbol.asyncIterator]()
+    expect(await next(iterator)).toMatchObject({
+      type: "failure",
+      error: {
+        operation: "open",
+        message: expect.stringContaining("unreadable storage"),
+      },
+    })
+    expect((await iterator.next()).done).toBe(true)
   })
 
   it("accepts backend-only IDs and rejects concurrent creation without merging or poisoning flush", async () => {
@@ -116,7 +262,7 @@ describe("real local Subduction", () => {
     const full = sedimentreeId("cd".repeat(32))
     for (const id of [tree, full]) {
       const empty = backend.open(id)
-      await initial(empty)
+      await initial(empty, id)
       await empty.close()
       const first = backend.create([record(1)], { documentId: id })
       const second = backend.create([record(2)], { documentId: id })
@@ -125,7 +271,7 @@ describe("real local Subduction", () => {
         operation: "create",
         code: "conflict",
       })
-      expect((await initial(backend.open(id))).records).toEqual([record(1)])
+      expect((await initial(backend.open(id), id)).records).toEqual([record(1)])
       await backend.flush()
       await backend.deleteLocal(id)
       await expect(
@@ -167,11 +313,12 @@ describe("real local Subduction", () => {
     const loadPrefix = vi.spyOn(storage, "loadPrefix")
     const reload = create()
     const loaded = await initial(reload.open(tree))
-    // Open is one storage read and does not hydrate native.
+    // Native reads commits and fragments separately; the test helper reads
+    // once more to verify legacy metadata assertions.
     expect(hydration).not.toHaveBeenCalled()
-    expect(loadPrefix).toHaveBeenCalledOnce()
+    expect(loadPrefix).toHaveBeenCalledTimes(3)
     expect(loaded.records).toEqual([record(1), record(2, [1])])
-    expect(loaded.complete.marker.heads).toEqual([cid(2)])
+    expect(loaded.complete.marker).toBeUndefined()
     // Native hydrates on demand from storage and finds both commits.
     await expect(nativeCommits(reload)).resolves.toBe(2)
     const collection = reload.observeCollection()[Symbol.asyncIterator]()
@@ -254,7 +401,9 @@ describe("real local Subduction", () => {
     await backend.store(tree, [record(1)])
     await backend.store(full, [record(2)])
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])
-    expect((await initial(backend.open(full))).records).toEqual([record(2)])
+    expect((await initial(backend.open(full), full)).records).toEqual([
+      record(2),
+    ])
   })
 
   it("reserves a finite initial cut at call time and copies inputs before await", async () => {
@@ -376,7 +525,7 @@ describe("real local Subduction", () => {
     ])
     const loaded = await initial(backend.open(tree))
     expect(loaded.records).toEqual(records)
-    expect(loaded.complete.marker.heads).toEqual([cid(200)])
+    expect(loaded.complete.marker).toBeUndefined()
   })
 
   it("stores none of a batch after a mid-batch failure; a full retry completes it", async () => {
@@ -409,13 +558,12 @@ describe("real local Subduction", () => {
     ).toHaveLength(20)
     const reloaded = await initial(backend.open(tree))
     expect(reloaded.records).toEqual(records)
-    expect(reloaded.complete.marker.heads).toEqual([cid(10)])
+    expect(reloaded.complete.marker).toBeUndefined()
     await backend.flush()
   })
 
   it("has no total-history cap: a tree grown past any old budget reopens, enumerates and deletes", async () => {
-    // Small delivery batches in a fresh backend. Writes are never refused for
-    // tree size.
+    // Legacy batch limit does not cap the initial native blob delivery.
     const backend = create({ batchRecords: 8 })
     for (let n = 1; n <= 40; n++)
       await backend.store(tree, [record(n, n > 1 ? [n - 1] : [])])
@@ -423,7 +571,7 @@ describe("real local Subduction", () => {
     const reopened = create()
     const loaded = await initial(reopened.open(tree))
     expect(loaded.records).toHaveLength(40)
-    expect(loaded.complete.marker.heads).toEqual([cid(40)])
+    expect(loaded.complete.marker).toBeUndefined()
     const collection = reopened.observeCollection()[Symbol.asyncIterator]()
     expect((await collection.next()).value).toMatchObject({
       type: "document",
@@ -434,7 +582,7 @@ describe("real local Subduction", () => {
     expect(await storage.list("subduction-v2/")).toEqual([])
   })
 
-  it("stores with constant storage work and no marker rescans once complete", async () => {
+  it("stores with constant storage work and no live marker rescans once complete", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
     const session = backend.open(tree)
@@ -447,7 +595,7 @@ describe("real local Subduction", () => {
       type: "records",
       records: [record(2, [1])],
     })
-    // Sync-round markers come from delivered heads, not a storage reread.
+    // Sync-round markers still fall back to a storage read until path 6.
     await session.synchronize()
     expect(await next(iterator)).toMatchObject({
       type: "synchronized",
@@ -495,7 +643,7 @@ describe("real local Subduction", () => {
     expect(list).not.toHaveBeenCalled()
   })
 
-  it("reopening after a session closes seeds delivered heads from storage", async () => {
+  it("reopening after a session closes reloads blobs and retains sync markers", async () => {
     const backend = create()
     await backend.store(tree, [record(1), record(2, [1])])
     const first = backend.open(tree)
@@ -504,7 +652,7 @@ describe("real local Subduction", () => {
     await first.close()
     const second = backend.open(tree)
     const { iterator, complete } = await initial(second)
-    expect(complete.marker.heads).toEqual([cid(2)])
+    expect(complete.marker).toBeUndefined()
     second.markComplete!()
     await backend.store(tree, [record(3, [2])])
     expect((await next(iterator)).type).toBe("records")
