@@ -430,6 +430,24 @@ describe("public Repo with native Subduction", () => {
     )
   })
 
+  it("deletes unopened stored history without opening a native stream", async () => {
+    const writer = peer()
+    const handle = await writer.repo.create<State>({ count: 0 })
+    await writer.repo.flush()
+    await writer.repo.shutdown()
+    const p = peer(writer.storage)
+    const engine = (p.backend as unknown as { engine: N.Subduction }).engine
+    const watch = vi.spyOn(engine, "loadAndWatch")
+    const open = vi.spyOn(p.backend, "open")
+    await p.repo.delete(handle.url)
+    expect(open).not.toHaveBeenCalled()
+    expect(watch).not.toHaveBeenCalled()
+    await p.repo.shutdown()
+    await expect(peer(p.storage).repo.find(handle.url)).rejects.toThrow(
+      "unavailable"
+    )
+  })
+
   it("reports storage failure from change and flush, but shutdown is best effort", async () => {
     const p = peer()
     const handle = await p.repo.create<State>({ count: 0 })

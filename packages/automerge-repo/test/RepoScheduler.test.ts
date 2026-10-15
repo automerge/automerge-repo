@@ -609,7 +609,7 @@ describe("RepoScheduler", () => {
     const write = handle.change(d => {
       d.count = 1
     })
-    const deletion = scheduler.delete(delegate)
+    const deletion = scheduler.delete(delegate.id, delegate)
     await expect(scheduler.submit(id(1), records())).rejects.toThrow("deletion")
     expect(() =>
       handle.change(d => {
@@ -621,6 +621,31 @@ describe("RepoScheduler", () => {
     await write
     await deletion
     expect(deleted).toHaveBeenCalledOnce()
+    await scheduler.close()
+  })
+
+  it("deletes an ID without a delegate, fencing its writes", async () => {
+    const backend = new MemoryBackend()
+    const blocked = gate()
+    const store = backend.store.bind(backend)
+    vi.spyOn(backend, "store").mockImplementation(async (documentId, batch) => {
+      await blocked.promise
+      await store(documentId, batch)
+    })
+    const remove = vi.spyOn(backend, "deleteLocal")
+    const scheduler = new RepoScheduler(backend)
+    const write = scheduler.submit(id(1), records())
+    const deletion = scheduler.delete(id(1))
+    await expect(scheduler.submit(id(1), records())).rejects.toThrow("deletion")
+    await expect(
+      scheduler.create(records(), { documentId: id(1) })
+    ).rejects.toThrow("deletion")
+    await Promise.resolve()
+    expect(remove).not.toHaveBeenCalled()
+    blocked.resolve()
+    await write
+    await deletion
+    expect(remove).toHaveBeenCalledExactlyOnceWith(id(1))
     await scheduler.close()
   })
 
@@ -637,7 +662,7 @@ describe("RepoScheduler", () => {
     const { delegate } = attach(scheduler)
     const first = scheduler.submit(id(1), records())
     const other = scheduler.submit(id(2), records())
-    const deletion = scheduler.delete(delegate)
+    const deletion = scheduler.delete(delegate.id, delegate)
     own.resolve()
     await first
     await deletion
@@ -664,7 +689,7 @@ describe("RepoScheduler", () => {
     const scheduler = new RepoScheduler(backend)
     const { delegate } = attach(scheduler)
     const detach = scheduler.detach(delegate)
-    const deletion = scheduler.delete(delegate)
+    const deletion = scheduler.delete(delegate.id, delegate)
     await Promise.resolve()
     expect(remove).not.toHaveBeenCalled()
     blocked.resolve()
@@ -681,7 +706,7 @@ describe("RepoScheduler", () => {
     handle.on("delete", () => {
       reentrant = scheduler.submit(id(1), records())
     })
-    const deletion = scheduler.delete(delegate)
+    const deletion = scheduler.delete(delegate.id, delegate)
     await expect(reentrant).rejects.toThrow("deletion")
     await deletion
     await scheduler.close()

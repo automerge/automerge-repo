@@ -370,6 +370,39 @@ describe("backend-driven Repo", () => {
     ).toBeDefined()
   })
 
+  it("deletes unopened stored history without opening a session", async () => {
+    const backend = new MemoryBackend()
+    const tree = await backend.create(extractRecords(A.from({ old: 1 })))
+    const documentId = binaryToDocumentId(idBytes(tree) as BinaryDocumentId)
+    const r = repo(backend)
+    const open = vi.spyOn(backend, "open")
+    const remove = vi.spyOn(backend, "deleteLocal")
+    const deleted = vi.fn()
+    r.on("delete-document", deleted)
+    const deleting = r.delete(documentId)
+    expect(() => r.findWithProgress(documentId)).toThrow("deletion")
+    expect(r.handles[documentId]).toBeUndefined()
+    await deleting
+    expect(open).not.toHaveBeenCalled()
+    expect(remove).toHaveBeenCalledOnce()
+    expect(deleted).toHaveBeenCalledWith({ documentId })
+    expect(r.handles[documentId]).toBeUndefined()
+    const imported = await r.import(A.save(A.from({ count: 10 })), {
+      docId: documentId,
+    })
+    expect(imported.doc()).toEqual({ count: 10 })
+  })
+
+  it("deleting an unknown local-only ID is a no-op", async () => {
+    const r = repo()
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const deleted = vi.fn()
+    r.on("delete-document", deleted)
+    await expect(r.delete(documentId)).resolves.toBeUndefined()
+    expect(deleted).not.toHaveBeenCalled()
+    expect(r.handles[documentId]).toBeUndefined()
+  })
+
   it("shutdown cannot overtake an already accepted deletion", async () => {
     const backend = new MemoryBackend()
     const r = repo(backend)

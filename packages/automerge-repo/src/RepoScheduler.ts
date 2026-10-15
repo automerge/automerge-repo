@@ -275,18 +275,17 @@ export class RepoScheduler {
     return job
   }
 
-  delete<T>(delegate: DocumentDelegate<T>): Promise<void> {
-    const existing = this.#deleting.get(delegate.id)
+  /** Delete an ID's local history, invalidating its delegates and any passed one. */
+  delete<T>(id: SedimentreeId, delegate?: DocumentDelegate<T>): Promise<void> {
+    const existing = this.#deleting.get(id)
     if (existing) return existing
     if (this.#stopping) return Promise.reject(new Error("Scheduler is closed"))
-    const affected = [...this.#delegates].filter(
-      item => item.id === delegate.id
-    )
-    if (!affected.includes(delegate)) affected.push(delegate)
+    const affected = [...this.#delegates].filter(item => item.id === id)
+    if (delegate && !affected.includes(delegate)) affected.push(delegate)
     const sessions: SedimentreeSession[] = []
-    const tail = this.#tails.get(delegate.id)
+    const tail = this.#tails.get(id)
     const detachments = [...this.#detaching]
-      .filter(([item]) => item.id === delegate.id)
+      .filter(([item]) => item.id === id)
       .map(([, job]) => job)
     // Install the barrier before delete listeners can synchronously submit work.
     const job = Promise.resolve().then(async () => {
@@ -294,22 +293,19 @@ export class RepoScheduler {
         sessions.map(session => Promise.resolve().then(() => session.close()))
       )
       await Promise.allSettled([...(tail ? [tail] : []), ...detachments])
-      this.#generations.set(
-        delegate.id,
-        (this.#generations.get(delegate.id) ?? 0) + 1
-      )
+      this.#generations.set(id, (this.#generations.get(id) ?? 0) + 1)
       const errors = results
         .filter(result => result.status === "rejected")
         .map(result => result.reason)
       try {
-        await this.backend.deleteLocal(delegate.id)
+        await this.backend.deleteLocal(id)
       } catch (error) {
         errors.push(error)
       }
       if (errors.length)
         throw new AggregateError(errors, "Document deletion failed")
     })
-    this.#deleting.set(delegate.id, job)
+    this.#deleting.set(id, job)
     for (const item of affected) {
       try {
         item.markDeleted()
@@ -322,8 +318,8 @@ export class RepoScheduler {
       if (session) sessions.push(session)
     }
     void job.then(
-      () => this.#deleting.delete(delegate.id),
-      () => this.#deleting.delete(delegate.id)
+      () => this.#deleting.delete(id),
+      () => this.#deleting.delete(id)
     )
     return job
   }

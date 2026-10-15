@@ -295,7 +295,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     const documentId = interpretAsDocumentId(id)
     const pending = this.#deleting.get(documentId)
     if (pending) return pending
-    const entry = this.#entries.get(documentId) ?? this.#register(documentId)
+    const entry = this.#entries.get(documentId)
+    // Without a backend an unopened ID has no history to delete.
+    if (!entry && !this.#scheduler) return Promise.resolve()
     // Install the Repo barrier before handle delete listeners can reenter.
     let resolve!: () => void
     let reject!: (error: unknown) => void
@@ -304,7 +306,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       reject = no
     })
     const deleting = barrier.then(() => {
-      if (this.#entries.get(documentId) === entry)
+      if (entry && this.#entries.get(documentId) === entry)
         this.#entries.delete(documentId)
       this.emit("delete-document", { documentId })
     })
@@ -316,12 +318,16 @@ export class Repo extends EventEmitter<RepoEvents> {
     void this.#track(deleting)
     try {
       // Submit before returning so shutdown cannot overtake an accepted deletion.
-      if (entry.delegate)
-        void this.#scheduler!.delete(entry.delegate).then(resolve, reject)
+      if (this.#scheduler)
+        void this.#scheduler
+          .delete(this.#backendId(documentId), entry?.delegate)
+          .then(resolve, reject)
       else {
-        entry.document.closed = true
-        entry.handle.delete()
-        entry.query.fail(new Error("Document deleted"))
+        if (entry) {
+          entry.document.closed = true
+          entry.handle.delete()
+          entry.query.fail(new Error("Document deleted"))
+        }
         resolve()
       }
     } catch (error) {
