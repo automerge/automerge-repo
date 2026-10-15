@@ -3,6 +3,7 @@ import * as A from "@automerge/automerge"
 import * as N from "@automerge/subduction"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  recordHead,
   recordKey,
   sedimentreeId,
   type SedimentreeEvent,
@@ -523,6 +524,10 @@ describe("authenticated network failure and lifecycle barriers", () => {
   it("publishes remote ingested heads to an incomplete session's live marker", async () => {
     const a = peer(),
       b = peer()
+    const expectedHeads = [
+      recordHead(baseline[0]),
+      recordHead(records[0]),
+    ].sort()
     const { right } = await settledConnection(a, b)
     const before = right.events.length
     await a.backend.store(tree, records)
@@ -530,12 +535,10 @@ describe("authenticated network failure and lifecycle barriers", () => {
       const live = right.events.slice(before)
       expect(live.some(e => e.type === "records")).toBe(true)
       const markers = live.filter(e => e.type === "history-marker")
-      expect(markers.at(-1)?.marker.heads).toEqual(
-        [baseline[0].id, records[0].id].sort()
-      )
+      expect(markers.at(-1)?.marker.heads).toEqual(expectedHeads)
     }, wait)
     expect((await right.session.synchronize()).marker.heads).toEqual(
-      [baseline[0].id, records[0].id].sort()
+      expectedHeads
     )
   }, 20000)
 

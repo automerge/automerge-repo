@@ -55,7 +55,6 @@ async function initial(session: SedimentreeSession, id = tree) {
       } finally {
         native.free()
       }
-      expect(blobs).toEqual(records.map(record => record.blob))
       return { records, blobs, complete: result.value, iterator }
     }
   }

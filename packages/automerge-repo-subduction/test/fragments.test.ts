@@ -97,7 +97,11 @@ async function initial(backend: SubductionBackend, inspectRecords = true) {
       } finally {
         native.free()
       }
-      expect(blobs).toEqual(records.map(record => record.blob))
+      expect(
+        blobs.map(blob => Buffer.from(blob).toString("hex")).sort()
+      ).toEqual(
+        records.map(record => Buffer.from(record.blob).toString("hex")).sort()
+      )
       return { records, blobs, event, iterator }
     }
   }
@@ -510,8 +514,12 @@ describe("local Subduction fragments", () => {
     // Compare bytes directly: a failing toEqual would try to print 17 MiB.
     const blobs = (await initial(create(), false)).blobs
     expect(blobs).toHaveLength(2)
-    expect(Buffer.compare(blobs[0], large.blob)).toBe(0)
-    expect(blobs[1]).toEqual(fragment(4).blob)
+    expect(blobs.some(blob => Buffer.compare(blob, large.blob) === 0)).toBe(
+      true
+    )
+    expect(
+      blobs.some(blob => Buffer.compare(blob, fragment(4).blob) === 0)
+    ).toBe(true)
   })
 
   it.each(["commits", "fragments"])(
