@@ -300,8 +300,8 @@ describe("StorageBridge native transaction ordering", () => {
     const b = new StorageBridge(storage, secondSaved)
     await save(a, first)
     await save(b, first)
-    expect(firstSaved.mock.calls).toEqual([[tree, first]])
-    expect(secondSaved.mock.calls).toEqual([[tree, first]])
+    expect(firstSaved.mock.calls).toEqual([[tree]])
+    expect(secondSaved.mock.calls).toEqual([[tree]])
     expect(storage.written).toHaveLength(2)
   })
 
@@ -325,12 +325,7 @@ describe("StorageBridge native transaction ordering", () => {
       "fulfilled",
     ])
     expect(outcomes[2]).toMatchObject({ reason: { code: "conflict" } })
-    expect(saved.mock.calls).toEqual([
-      [tree, first],
-      [tree, first],
-      [tree, fragment],
-      [tree, fragment],
-    ])
+    expect(saved.mock.calls).toEqual([[tree], [tree], [tree], [tree]])
     expect(failed).toHaveBeenCalledOnce()
     expect(await withId(id => bridge.records(id))).toEqual([first, fragment])
     expect(storage.written).toHaveLength(4)
@@ -519,12 +514,8 @@ describe("StorageBridge native transaction ordering", () => {
     await expect(snapshot).resolves.toEqual([first, second, fragment])
     await Promise.all([later, cleanup])
     await expect(empty).resolves.toEqual([])
-    expect(saved.mock.calls).toEqual([
-      [tree, first],
-      [tree, second],
-      [tree, fragment],
-      [tree, third],
-    ])
+    // One notification per saved batch.
+    expect(saved.mock.calls).toEqual([[tree], [tree]])
     expect(storage.maxActive).toBe(1)
     expect(storage.values.size).toBe(0)
   })
@@ -695,11 +686,7 @@ describe("StorageBridge native transaction ordering", () => {
     const written = storage.written.length
     await batch(bridge, [first, second, third])
     // An exact retry doesn't rewrite records, but recovers missed notifications.
-    expect(saved.mock.calls).toEqual([
-      [tree, first],
-      [tree, second],
-      [tree, third],
-    ])
+    expect(saved.mock.calls).toEqual([[tree]])
     expect(
       storage.written.slice(written).filter(key => key.includes("/commits/"))
     ).toEqual([])

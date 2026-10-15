@@ -250,40 +250,14 @@ describe("authenticated network failure and lifecycle barriers", () => {
     vi.restoreAllMocks()
   }, 30000)
 
-  it("keeps observing native successful empty replies, and later pushes still persist", async () => {
+  it("keeps observing an empty peer without a redundant JS sync round, then persists pushes", async () => {
     const a = peer(),
       b = peer()
-    const nativeSync = N.Subduction.prototype.syncWithPeer
-    const replies: { success: boolean; heads: number }[] = []
-    vi.spyOn(N.Subduction.prototype, "syncWithPeer").mockImplementation(
-      async function (
-        this: N.Subduction,
-        ...args: Parameters<typeof nativeSync>
-      ) {
-        const response = await nativeSync.apply(this, args)
-        const stats = response.stats
-        const heads = stats.remoteHeads
-        try {
-          replies.push({ success: response.success, heads: heads.length })
-        } finally {
-          heads.forEach(head => head.free())
-          stats.free()
-        }
-        return response
-      }
-    )
+    const rounds = vi.spyOn(N.Subduction.prototype, "syncWithPeer")
     const observed = await observe(b)
     await connect(a, b)
-    await vi.waitFor(() => {
-      expect(observed.events.some(e => e.type === "synchronized")).toBe(true)
-    }, wait)
-    expect(replies).toContainEqual({ success: true, heads: 0 })
+    expect(rounds).not.toHaveBeenCalled()
     expect(observed.events.some(e => e.type === "failure")).toBe(false)
-    expect(
-      observed.events
-        .filter(e => e.type === "synchronized")
-        .flatMap(e => e.result.peers)
-    ).not.toContainEqual(expect.objectContaining({ outcome: "unavailable" }))
     await a.backend.store(tree, records)
     await vi.waitFor(async () => {
       expect(
@@ -293,6 +267,31 @@ describe("authenticated network failure and lifecycle barriers", () => {
       ).toBe(true)
     }, wait)
     expect(initialRecords((await observe(b)).events)).toEqual(records)
+  })
+
+  it("delivers peer data as live records after an empty connected storage scan", async () => {
+    const a = peer(),
+      b = peer()
+    await connect(a, b)
+    const observed = await observe(b)
+    expect(observed.events).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "blobs" })])
+    )
+    await a.backend.store(tree, records)
+    await vi.waitFor(
+      () =>
+        expect(observed.events).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "records",
+              phase: "live",
+              records,
+            }),
+          ])
+        ),
+      wait
+    )
+    expect(observed.events.some(e => e.type === "blobs")).toBe(false)
   })
 
   it("does not install a connection when inventory preparation fails, and permits retry", async () => {
@@ -658,7 +657,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     expect(initialRecords((await observe(b)).events)).toEqual(persistedRecords)
   }, 20000)
 
-  it("rescans ambiguous incoming saves, exposes failure to flush, and reconnects without losing or duplicating the record", async () => {
+  it("recovers ambiguous incoming saves, exposes failure to flush, and reconnects without losing or duplicating the record", async () => {
     const a = peer(),
       b = peer()
     const {
@@ -677,11 +676,17 @@ describe("authenticated network failure and lifecycle barriers", () => {
     }
     await a.backend.store(tree, records)
     await bounded(persisted.promise, "persist then reject incoming save")
-    await bounded(
-      Promise.all([right.done, inventory.done]),
-      "rescan observations end"
+    // Native's recovery scan delivers the committed record and the session
+    // survives. Only the collection must reread its inventory.
+    // The recovery scan replays the whole tree, so the baseline repeats.
+    await vi.waitFor(
+      () =>
+        expect(initialRecords(right.events)).toEqual(
+          expect.arrayContaining(persistedRecords)
+        ),
+      wait
     )
-    expect(right.events.at(-1)).toMatchObject({ type: "rescan-required" })
+    await bounded(inventory.done, "collection rescan")
     expect(inventory.events.at(-1)).toMatchObject({ type: "rescan-required" })
     await expect(b.backend.flush()).rejects.toSatisfy(
       (error: unknown) =>
@@ -689,7 +694,8 @@ describe("authenticated network failure and lifecycle barriers", () => {
         errorText(error).includes("ambiguous incoming record save")
     )
     await b.backend.flush()
-    await vi.waitFor(() => expect(oldWire.disconnected).toBe(true), wait)
+    // Native may already have dropped the peer whose message failed.
+    await oldWire.disconnect()
 
     const fresh = await observe(b)
     expect(initialRecords(fresh.events)).toEqual(persistedRecords)

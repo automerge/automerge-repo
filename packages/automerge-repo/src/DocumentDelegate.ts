@@ -194,7 +194,9 @@ export class DocumentDelegate<T> {
         else if (event.found && this.document.heads().length) {
           this.#complete()
         }
-        if (this.query.snapshotPending)
+        if (event.noPeers && this.query.snapshotPending)
+          this.query.sourceUnavailable("backend")
+        if (this.query.snapshotPending && !event.backendSyncs)
           void this.synchronize().catch(error => this.sourceUnavailable(error))
         break
       case "history-marker":

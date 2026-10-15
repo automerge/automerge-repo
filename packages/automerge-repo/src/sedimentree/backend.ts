@@ -282,6 +282,10 @@ export type SedimentreeEvent =
       /** Absent for blob-based initial loads; no independent heads were read. */
       readonly marker?: HistoryMarker
       readonly found: boolean
+      /** The backend owns peer synchronization; do not start a second round. */
+      readonly backendSyncs?: boolean
+      /** No peer was connected when an empty local scan completed. */
+      readonly noPeers?: boolean
     }
   | { readonly type: "history-marker"; readonly marker: HistoryMarker }
   | { readonly type: "synchronized"; readonly result: SyncRoundResult }

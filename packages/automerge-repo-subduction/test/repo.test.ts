@@ -455,6 +455,9 @@ describe("public Repo with native Subduction", () => {
     const url = generateAutomergeUrl()
     const progress = b.repo.findWithProgress(url)
     expect(progress.peek().state).toBe("loading")
+    // The backend's explicit sync deadline is 1s; native loadAndWatch has none.
+    await new Promise(resolve => setTimeout(resolve, 1100))
+    expect(progress.peek().state).toBe("loading")
     const { documentId } = parseAutomergeUrl(url)
     await a.repo.import<State>(A.save(A.from<State>({ count: 9 })), {
       docId: documentId,
@@ -467,6 +470,99 @@ describe("public Repo with native Subduction", () => {
       ).toBe(true)
     }, wait)
     expect((await b.repo.find<State>(url)).doc()).toEqual({ count: 9 })
+  }, 10000)
+
+  it("loads a missing document from a peer without a separate sync round", async () => {
+    const a = peer(),
+      b = peer()
+    const source = await a.repo.create<State>({ count: 3 })
+    await a.repo.flush()
+    await connect(a, b)
+    const engine = (b.backend as unknown as { engine: N.Subduction }).engine
+    const rounds = vi.spyOn(engine, "syncWithPeer")
+    const receiver = await b.repo.find<State>(source.url)
+    expect(receiver.doc()).toEqual({ count: 3 })
+    // loadAndWatch fetched and subscribed; later edits still arrive.
+    await source.change(doc => {
+      doc.count = 4
+    })
+    await ready(receiver, { count: 4 })
+    expect(rounds).not.toHaveBeenCalled()
+  }, 10000)
+
+  it("returns stale local history immediately, then catches up from a peer", async () => {
+    const a = peer(),
+      b = peer()
+    const source = await a.repo.create<State>({ count: 1 })
+    const old = A.clone(source.fullDoc())
+    await source.change(doc => {
+      doc.count = 2
+    })
+    await a.repo.flush()
+    const { documentId } = parseAutomergeUrl(source.url)
+    await b.repo.import<State>(A.save(old), { docId: documentId })
+    await b.repo.flush()
+    await b.repo.shutdown()
+    const reader = peer(b.storage)
+    await connect(a, reader)
+    const engine = (reader.backend as unknown as { engine: N.Subduction })
+      .engine
+    const rounds = vi.spyOn(engine, "syncWithPeer")
+    const loaded = await reader.repo.find<State>(source.url)
+    expect(loaded.doc()?.count).toBeGreaterThanOrEqual(1)
+    await ready(loaded, { count: 2 })
+    expect(A.getHeads(loaded.fullDoc())).toEqual(A.getHeads(source.fullDoc()))
+    expect(rounds).not.toHaveBeenCalled()
+  }, 10000)
+
+  it("finds a document whose only peer connects after the lookup started", async () => {
+    const a = peer(),
+      b = peer()
+    const source = await a.repo.create<State>({ count: 5 })
+    await a.repo.flush()
+    const progress = b.repo.findWithProgress<State>(source.url)
+    await vi.waitFor(
+      () => expect(progress.peek().state).not.toBe("loading"),
+      wait
+    )
+    await connect(a, b)
+    await vi.waitFor(() => expect(progress.peek().state).toBe("ready"), wait)
+    expect((await b.repo.find<State>(source.url)).doc()).toEqual({ count: 5 })
+  }, 10000)
+
+  it("does not mark a late peer's partial history ready", async () => {
+    const a = peer(),
+      b = peer()
+    const source = await a.repo.create<State>({ count: 0 })
+    await source.change(doc => {
+      doc.count = 1
+    })
+    await a.repo.flush()
+    const progress = b.repo.findWithProgress<State>(source.url)
+    await vi.waitFor(
+      () => expect(progress.peek().state).toBe("unavailable"),
+      wait
+    )
+    const entered = deferred(),
+      gate = deferred()
+    gates.push(gate)
+    let writes = 0
+    b.storage.beforeSave = async key => {
+      if (key.includes("/commits/") && ++writes === 2) {
+        entered.resolve()
+        await gate.promise
+      }
+    }
+    try {
+      await connect(a, b)
+      await entered.promise
+      expect(progress.peek().state).not.toBe("ready")
+      gate.resolve()
+      await vi.waitFor(() => expect(progress.peek().state).toBe("ready"), wait)
+      expect((await b.repo.find<State>(source.url)).doc()).toEqual({ count: 1 })
+    } finally {
+      gate.resolve()
+    }
   }, 10000)
 
   it("waits for delayed incoming history without reporting unavailable", async () => {

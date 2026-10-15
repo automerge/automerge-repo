@@ -1,7 +1,9 @@
 # Automerge Repo Subduction backend (experimental)
 
 **Experimental, not production-ready.** Requires exclusively owned storage and
-explicitly trusted peers. Uses `@automerge/subduction` 0.23.0.
+explicitly trusted peers. Requires `@automerge/subduction` with stored-data
+streams (`loadAndWatch`; currently the unreleased
+`api-review-integration` branch).
 
 ## Quick start
 
@@ -205,11 +207,15 @@ remote durability, document readiness, or global convergence.
 
 ### Empty connected lookups
 
-Native 0.23.0 cannot prove that a remote document is absent. An empty connected
-lookup stays loading, even after successful synchronization. A no-peer round may
-mark it unavailable for now; neither result proves global absence. Deletion and
-storage-error recovery disconnect **all** peers, including those used by unrelated
-documents. Helper-managed connections retry; low-level callers must reconnect.
+Opening a document with no local history asks connected peers for it (native
+`loadAndWatch`). It keeps observing and syncs peers on future connections and
+reconnections, without a peer-loading timeout. An empty local scan with no
+connected peers is provisionally unavailable; if peers are connected but none
+supplies history, the lookup stays loading. Neither proves global absence.
+Local history is returned immediately, then refreshed and subscribed through
+the same stream. Deletion
+disconnects **all** peers, including those used by unrelated documents.
+Helper-managed connections retry; low-level callers must reconnect.
 
 ### Ephemeral messages
 
@@ -228,7 +234,8 @@ under `subduction-v2/ids/<tree>`; records live under
 `subduction-v2/trees/<tree>/`. A registered tree can have no records. A failed
 batch stores none of its records, so a change is never stored without the
 changes it depends on. A save that commits and then rejects is ambiguous:
-observers are told to rescan, and an exact retry dedupes. Repo serializes each
+native rescans storage and redelivers it to open sessions, and an exact retry
+dedupes. Repo serializes each
 document's writes and retries any unsaved changes together with later edits. A
 write that keeps failing therefore blocks later persistence of that document,
 and `flush()` keeps reporting it. Malformed records fail rather than appearing
@@ -241,8 +248,8 @@ Subduction storage, fragments are keyed by head plus payload digest: valid
 same-head variants coexist, and a head lookup returns the one native keeps
 (lowest payload digest). Compaction is not supported.
 
-Observers must handle duplicate durable deliveries. A watch that exceeds its
-replay budget ends with `rescan-required`. `flush()` drains accepted local work
+Observers must handle duplicate durable deliveries. A session that falls
+behind its replay budget ends with `rescan-required`. `flush()` drains accepted local work
 and reports persistence failures, but does not wait for peer delivery. A
 successful retry does not erase previously unreported failures.
 
@@ -250,13 +257,11 @@ successful retry does not erase previously unreported failures.
 
 Default limits:
 
-| Option                    |                                                  Default |
-| ------------------------- | -------------------------------------------------------: |
-| `syncTimeoutMilliseconds` |                         5,000 ms per native peer request |
-| `batchRecords`            |          reserved (initial blobs use one batch) |
-| `batchBytes`              |          reserved (initial blobs use one batch) |
-| `replayEvents`            |                                            128 per watch |
-| `replayBytes`             |                                          4 MiB per watch |
+| Option                    |                                              Default |
+| ------------------------- | ---------------------------------------------------: |
+| `syncTimeoutMilliseconds` | 5,000 ms per explicit/unopened-document sync request |
+| `replayEvents`            |                                        128 per watch |
+| `replayBytes`             |                                      4 MiB per watch |
 
 A write reads only the keys it writes (to detect a conflicting representation
 and duplicate notifications); it does not rescan the tree. A
@@ -266,15 +271,14 @@ then written in one native call. It is not split: a document must already fit
 in Automerge's WASM memory, which is exhausted long before a submission would
 strain Subduction's. Neither a single record nor a tree's total history is
 capped: whatever was accepted can always be reopened, enumerated, synced and
-deleted. Opening uses Subduction's `getBlobs()` to deliver all initial blobs
-in one event, so very large trees cost time and heap proportional to their
-size rather than being refused. Unlike record-based initial delivery, this
-does not supply a source-head marker: Repo accepts nonempty document heads
-after the entire blob batch has been applied. Live notifications are buffered
-behind that batch and bounded by the replay limits; sync-round markers still
-require a storage read until the remaining marker path is redesigned. These
-limits bound live replay, not initial blob size, total heap use, session count,
-or queued operations. This is not a streaming or production large-history
+deleted. Each open session consumes one native stored-data stream: its initial scan is
+delivered as a single blob event, so very large trees cost time and heap
+proportional to their size rather than being refused. This does not supply a
+source-head marker: Repo accepts nonempty document heads after the entire blob
+batch has been applied. Later stored items, local or from peers, follow as live
+records; recovery scans arrive as further blob events. The replay limits bound
+live delivery, not initial blob size, total heap use, session count, or queued
+operations. This is not a streaming or production large-history
 write path.
 
 ## Dependency and tests

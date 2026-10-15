@@ -143,20 +143,44 @@ function plain(
   tree?: N.SedimentreeId
 ): LooseCommitRecord {
   const payload = signed.payload
+  try {
+    return copyRecord(commitRecord(payload, blob, tree)) as LooseCommitRecord
+  } finally {
+    payload.free()
+  }
+}
+
+function commitRecord(
+  payload: N.LooseCommit,
+  blob: Uint8Array,
+  tree?: N.SedimentreeId
+): LooseCommitRecord {
   const head = payload.commitId
   const parents = payload.parents
   try {
     if (tree) assertCommitTree(tree, head, parents, payload)
-    return copyRecord({
+    return {
       kind: "commit",
       id: commitId(head.toHexString()),
       parents: parents.map(p => commitId(p.toHexString())),
       blob,
-    }) as LooseCommitRecord
+    }
   } finally {
     head.free()
     parents.forEach(p => p.free())
-    payload.free()
+  }
+}
+
+/** Record for an item on a native stored stream; consumes its metadata. */
+export function storedRecord(
+  item: Extract<N.StoredUpdate, { type: "commit" | "fragment" }>
+): SedimentreeRecord {
+  try {
+    return item.type === "commit"
+      ? commitRecord(item.metadata, item.blob)
+      : fragmentRecord(item.metadata, item.blob)
+  } finally {
+    item.metadata.free()
   }
 }
 
@@ -197,6 +221,18 @@ function plainFragment(
   tree?: string
 ): FragmentRecord {
   const payload = signed.payload
+  try {
+    return copyRecord(fragmentRecord(payload, blob, tree)) as FragmentRecord
+  } finally {
+    payload.free()
+  }
+}
+
+function fragmentRecord(
+  payload: N.Fragment,
+  blob: Uint8Array,
+  tree?: string
+): FragmentRecord {
   const id = payload.sedimentreeId
   const head = payload.head
   const boundary = payload.boundary
@@ -204,19 +240,18 @@ function plainFragment(
   try {
     if (tree !== undefined && treeHex(id) !== tree)
       throw new Error("Signed fragment is for a different tree")
-    return copyRecord({
+    return {
       kind: "fragment",
       head: commitId(head.toHexString()),
       boundary: boundary.map(b => commitId(b.toHexString())),
       checkpoints: checkpoints.map(c => checkpointId(hex(c.toBytes()))),
       blob,
-    }) as FragmentRecord
+    }
   } finally {
     checkpoints.forEach(c => c.free())
     boundary.forEach(b => b.free())
     head.free()
     id.free()
-    payload.free()
   }
 }
 
@@ -253,10 +288,7 @@ export class StorageBridge implements N.SedimentreeStorage {
 
   constructor(
     private readonly storage: ByteStore,
-    private readonly saved: (
-      id: SedimentreeId,
-      record: SedimentreeRecord
-    ) => void,
+    private readonly saved: (id: SedimentreeId) => void,
     private readonly failed?: (id: SedimentreeId, cause: unknown) => void
   ) {}
 
@@ -621,10 +653,7 @@ export class StorageBridge implements N.SedimentreeStorage {
       writes.set(recordPath(tree, ref, "blob"), record.blob)
     }
     if (writes.size) await this.storage.saveBatch([...writes])
-    // Only resolved saves notify. Ambiguous failures are handled by the owner's
-    // rescan/retry path. Already stored records notify too: another writer or
-    // an ambiguous save may have missed the notification.
-    for (const { sid, record } of values) this.saved(sid, record)
+    for (const sid of new Set(values.map(value => value.sid))) this.saved(sid)
   }
 
   async saveCommit(

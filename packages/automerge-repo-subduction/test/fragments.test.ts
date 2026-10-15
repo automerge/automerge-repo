@@ -397,8 +397,10 @@ describe("local Subduction fragments", () => {
     }
     const records = [loose(1), fragment(4)]
     await expect(backend.store(tree, records)).rejects.toThrow()
+    // Native's recovery scan finds nothing to expose.
     expect(await next(watching.iterator)).toMatchObject({
-      type: "rescan-required",
+      type: "history-marker",
+      marker: { heads: [] },
     })
     expect((await initial(backend)).records).toEqual([])
     // Native may register the tree first; no record is stored.
@@ -478,7 +480,7 @@ describe("local Subduction fragments", () => {
     ).toEqual(A.getAllChanges(after).map(blob => A.decodeChange(blob).hash))
   })
 
-  it("rescans ambiguous fragment saves for document and collection observers", async () => {
+  it("recovers ambiguous fragment saves for document and collection observers", async () => {
     const backend = create()
     const watching = await initial(backend)
     const collection = backend.observeCollection()[Symbol.asyncIterator]()
@@ -491,8 +493,10 @@ describe("local Subduction fragments", () => {
       }
     }
     await expect(backend.store(tree, [fragment(4)])).rejects.toThrow()
+    // The committed fragment returns through native's recovery scan.
     expect(await next(watching.iterator)).toMatchObject({
-      type: "rescan-required",
+      type: "blobs",
+      blobs: [fragment(4).blob],
     })
     expect((await collection.next()).value).toMatchObject({
       type: "rescan-required",

@@ -138,14 +138,32 @@ describe("real local Subduction", () => {
     })
   })
 
-  it("opens via Subduction blobs without a Repo-facing bridge records read", async () => {
+  /** Hold this store's first scan of `id` until released. */
+  function blockScan(id = tree) {
+    const entered = deferred(),
+      release = deferred()
+    const load = storage.loadPrefix.bind(storage)
+    const scan = `subduction-v2/trees/${id.padEnd(64, "0")}/`
+    let blocked = false
+    vi.spyOn(storage, "loadPrefix").mockImplementation(async prefix => {
+      if (!blocked && prefix.startsWith(scan)) {
+        blocked = true
+        entered.resolve()
+        await release.promise
+      }
+      return load(prefix)
+    })
+    return { entered: entered.promise, release: release.resolve }
+  }
+
+  it("opens via a native stored stream without a Repo-facing bridge records read", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
     const internals = backend as unknown as {
       engine: N.Subduction
       bridge: StorageBridge
     }
-    const native = vi.spyOn(internals.engine, "getBlobs")
+    const native = vi.spyOn(internals.engine, "loadAndWatch")
     const direct = vi.spyOn(internals.bridge, "records")
     const loaded = await initial(backend.open(tree))
     expect(native).toHaveBeenCalledOnce()
@@ -155,121 +173,64 @@ describe("real local Subduction", () => {
     expect(loaded.complete.marker).toBeUndefined()
   })
 
-  it("delivers native-owned blobs without copying, isolated between sessions", async () => {
+  it("delivers blobs isolated between sessions", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
-    const original = engine.getBlobs.bind(engine)
-    const nativeResults: Uint8Array[][] = []
-    vi.spyOn(engine, "getBlobs").mockImplementation(async id => {
-      const blobs = await original(id)
-      nativeResults.push(blobs)
-      return blobs
-    })
     const first = await initial(backend.open(tree))
     const second = await initial(backend.open(tree))
-    expect(first.blobs[0]).toBe(nativeResults[0][0])
-    expect(second.blobs[0]).toBe(nativeResults[1][0])
     expect(first.blobs[0]).not.toBe(second.blobs[0])
     first.blobs[0].fill(0)
     expect(second.blobs).toEqual([record(1).blob])
     expect((await initial(backend.open(tree))).blobs).toEqual([record(1).blob])
   })
 
-  it("buffers notifications while native blob acquisition is pending", async () => {
-    const backend = create()
-    await backend.store(tree, [record(1)])
-    const internals = backend as unknown as {
-      engine: N.Subduction
-      persisted: (id: typeof tree, record: LooseCommitRecord) => void
-    }
-    const original = internals.engine.getBlobs.bind(internals.engine)
-    const entered = deferred(),
-      gate = deferred()
-    vi.spyOn(internals.engine, "getBlobs").mockImplementation(async id => {
-      const blobs = await original(id)
-      entered.resolve()
-      await gate.promise
-      return blobs
-    })
-    const session = backend.open(tree)
-    await entered.promise
-    // Simulate a native save callback landing after the read, before open
-    // initializes its stream. It must be delivered after local completion.
-    internals.persisted(tree, record(1))
-    gate.resolve()
-    const loaded = await initial(session)
-    expect(loaded.blobs).toEqual([record(1).blob])
-    expect(await next(loaded.iterator)).toMatchObject({
-      type: "records",
-      phase: "live",
-      records: [record(1)],
-    })
-  })
-
-  it("starts unrelated opens while another blob read is pending", async () => {
+  it("starts unrelated opens while another initial scan is pending", async () => {
     const backend = create()
     const otherTree = sedimentreeId("cd".repeat(16))
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
-    const original = engine.getBlobs.bind(engine)
-    const entered = deferred(),
-      release = deferred()
-    vi.spyOn(engine, "getBlobs").mockImplementation(async id => {
-      if (logicalId(id) === tree) {
-        entered.resolve()
-        await release.promise
-      }
-      return original(id)
-    })
+    const scan = blockScan()
     const first = backend.open(tree)
-    await entered.promise
+    await scan.entered
     const other = await initial(backend.open(otherTree), otherTree)
     expect(other.complete.found).toBe(false)
-    release.resolve()
+    scan.release()
     expect((await initial(first)).complete.found).toBe(false)
     await backend.close()
   })
 
-  it("waits for a pending blob read before closing its engine", async () => {
+  it("closes while an initial scan is pending", async () => {
     const backend = create()
     const engine = (backend as unknown as { engine: N.Subduction }).engine
-    const entered = deferred(),
-      release = deferred()
-    const original = engine.getBlobs.bind(engine)
-    vi.spyOn(engine, "getBlobs").mockImplementation(async id => {
-      entered.resolve()
-      await release.promise
-      return original(id)
-    })
+    const scan = blockScan()
     const freed = vi.spyOn(engine, "free")
-    backend.open(tree)
-    await entered.promise
+    const iterator = backend.open(tree).events[Symbol.asyncIterator]()
+    await scan.entered
     const closing = backend.close()
-    expect(freed).not.toHaveBeenCalled()
-    release.resolve()
+    scan.release()
     await closing
     expect(freed).toHaveBeenCalledOnce()
+    expect((await iterator.next()).done).toBe(true)
   })
 
-  it("waits for a pending blob read before deleting and resetting its engine", async () => {
+  it("deletes while an initial scan is pending and keeps other sessions observing", async () => {
     const backend = create()
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
-    const entered = deferred(),
-      release = deferred()
-    const original = engine.getBlobs.bind(engine)
-    vi.spyOn(engine, "getBlobs").mockImplementation(async id => {
-      entered.resolve()
-      await release.promise
-      return original(id)
-    })
-    const freed = vi.spyOn(engine, "free")
-    backend.open(tree)
-    await entered.promise
+    const otherTree = sedimentreeId("cd".repeat(16))
+    const other = await initial(backend.open(otherTree), otherTree)
+    const scan = blockScan()
+    const iterator = backend.open(tree).events[Symbol.asyncIterator]()
+    await scan.entered
     const deletion = backend.deleteLocal(tree)
-    expect(freed).not.toHaveBeenCalled()
-    release.resolve()
+    scan.release()
     await deletion
-    expect(freed).toHaveBeenCalledOnce()
+    expect(await next(iterator)).toMatchObject({ type: "deleted" })
+    // The old engine's stream ended; the session restarted on its successor.
+    await backend.store(otherTree, [record(1)])
+    // Live, or within the restarted stream's replay.
+    let event = await next(other.iterator)
+    while (event.type !== "records" && event.type !== "blobs")
+      event = await next(other.iterator)
+    expect(
+      event.type === "records" ? event.records[0].blob : event.blobs[0]
+    ).toEqual(record(1).blob)
     await backend.close()
   })
 
@@ -279,7 +240,7 @@ describe("real local Subduction", () => {
       engine: N.Subduction
       bridge: StorageBridge
     }
-    const oldRead = vi.spyOn(internals.engine, "getBlobs")
+    const oldRead = vi.spyOn(internals.engine, "loadAndWatch")
     const originalDrain = internals.bridge.drain.bind(internals.bridge)
     const entered = deferred(),
       release = deferred()
@@ -300,98 +261,62 @@ describe("real local Subduction", () => {
     await backend.close()
   })
 
-  it("rescan-required wins over an initial read when live buffering overflows", async () => {
+  it("requires a rescan when live delivery overflows the session buffer", async () => {
     const backend = create({ replayEvents: 1 })
-    const internals = backend as unknown as {
-      engine: N.Subduction
-      persisted: (id: typeof tree, record: LooseCommitRecord) => void
-    }
-    const entered = deferred(),
-      release = deferred()
-    const original = internals.engine.getBlobs.bind(internals.engine)
-    vi.spyOn(internals.engine, "getBlobs").mockImplementation(async id => {
-      entered.resolve()
-      await release.promise
-      return original(id)
-    })
-    const iterator = backend.open(tree).events[Symbol.asyncIterator]()
-    await entered.promise
-    internals.persisted(tree, record(1))
-    internals.persisted(tree, record(2))
-    expect(await next(iterator)).toMatchObject({ type: "rescan-required" })
-    release.resolve()
+    const { iterator } = await initial(backend.open(tree))
+    await backend.store(tree, [record(1), record(2, [1]), record(3, [2])])
+    // Native delivers one item per pull; let it outrun this consumer.
+    await new Promise(resolve => setTimeout(resolve, 50))
+    let event = await next(iterator)
+    while (event.type !== "rescan-required") event = await next(iterator)
     expect((await iterator.next()).done).toBe(true)
     await backend.close()
   })
 
-  it("buffers a save between native commit and fragment loads", async () => {
+  it("delivers a save between native commit and fragment loads", async () => {
     const writer = create()
     await writer.store(tree, [record(1)])
     const reader = create()
-    const notify = (
-      reader as unknown as {
-        persisted: (id: typeof tree, record: LooseCommitRecord) => void
-      }
-    ).persisted.bind(reader)
     const load = storage.loadPrefix.bind(storage)
     let intercepted = false
     vi.spyOn(storage, "loadPrefix").mockImplementation(async prefix => {
       const entries = await load(prefix)
       if (!intercepted && prefix.includes("/commits/")) {
         intercepted = true
-        await writer.store(tree, [record(2, [1])])
-        // The writer has a separate bridge; simulate this reader's native
-        // save callback after the commit read, before the fragment read.
-        notify(tree, record(2, [1]))
+        // Queued behind this scan in the reader's bridge.
+        void reader.store(tree, [record(2, [1])])
       }
       return entries
     })
     const loaded = await initial(reader.open(tree))
     expect(intercepted).toBe(true)
-    expect(loaded.blobs).toEqual([record(1).blob])
-    expect(await next(loaded.iterator)).toMatchObject({
-      type: "records",
-      phase: "live",
-      records: [record(2, [1])],
-    })
+    // Native retries a scan overlapped by its own write; no gap either way.
+    if (loaded.records.length < 2)
+      expect(await next(loaded.iterator)).toMatchObject({
+        type: "records",
+        phase: "live",
+        records: [record(2, [1])],
+      })
+    else expect(loaded.records).toEqual([record(1), record(2, [1])])
   })
 
-  it("orders a same-document save behind a pending load and replays it live", async () => {
+  it("retries an initial scan overlapped by a same-document save", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
-    const load = storage.loadPrefix.bind(storage)
-    const entered = deferred(),
-      release = deferred()
-    let blocked = false
-    vi.spyOn(storage, "loadPrefix").mockImplementation(async prefix => {
-      if (!blocked && prefix.includes("/commits/")) {
-        blocked = true
-        const entries = await load(prefix)
-        entered.resolve()
-        await release.promise
-        return entries
-      }
-      return load(prefix)
-    })
+    const scan = blockScan()
     const session = backend.open(tree)
-    await entered.promise
+    await scan.entered
     const write = backend.store(tree, [record(2, [1])])
-    release.resolve()
+    scan.release()
     const loaded = await initial(session)
     await write
-    expect(loaded.records).toEqual([record(1)])
-    expect(await next(loaded.iterator)).toMatchObject({
-      type: "records",
-      phase: "live",
-      records: [record(2, [1])],
-    })
+    expect(loaded.records).toEqual([record(1), record(2, [1])])
     await backend.close()
   })
 
-  it("reports a rejected native blob read as a terminal open failure", async () => {
+  it("reports a rejected storage read as a terminal open failure", async () => {
     const backend = create()
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
-    vi.spyOn(engine, "getBlobs").mockRejectedValue(
+    vi.spyOn(storage, "loadPrefix").mockRejectedValue(
       new Error("unreadable storage")
     )
     const iterator = backend.open(tree).events[Symbol.asyncIterator]()
@@ -554,7 +479,7 @@ describe("real local Subduction", () => {
     ])
   })
 
-  it("reserves a finite initial cut at call time and copies inputs before await", async () => {
+  it("delivers writes accepted after open without a gap and copies inputs before await", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
     const session = backend.open(tree)
@@ -567,14 +492,17 @@ describe("real local Subduction", () => {
     blob.fill(0)
     await write
     const loaded = await initial(session)
-    expect(loaded.records).toEqual([record(1)])
-    const live = await next(loaded.iterator)
-    expect(live).toMatchObject({
-      type: "records",
-      phase: "live",
-      records: [record(2, [1])],
-    })
-    if (live.type === "records") live.records[0].blob.fill(0)
+    // The native scan may include a write accepted just after open.
+    if (loaded.records.length < 2) {
+      const live = await next(loaded.iterator)
+      expect(live).toMatchObject({
+        type: "records",
+        phase: "live",
+        records: [record(2, [1])],
+      })
+      if (live.type === "records") live.records[0].blob.fill(0)
+    } else expect(loaded.records).toEqual([record(1), record(2, [1])])
+    loaded.blobs.forEach(blob => blob.fill(0))
     expect((await initial(backend.open(tree))).records).toEqual([
       record(1),
       record(2, [1]),
@@ -662,7 +590,7 @@ describe("real local Subduction", () => {
   })
 
   it("writes a submission of any size in one native call, in order", async () => {
-    const backend = create({ batchRecords: 8 })
+    const backend = create()
     const records = Array.from({ length: 200 }, (_, i) =>
       record(i + 1, i ? [i] : [])
     )
@@ -689,7 +617,11 @@ describe("real local Subduction", () => {
         throw new Error("disk failed")
     }
     await expect(backend.store(tree, records)).rejects.toThrow()
-    expect(await next(iterator)).toMatchObject({ type: "rescan-required" })
+    // Native recovers by rescanning: nothing of the failed batch surfaces.
+    expect(await next(iterator)).toMatchObject({
+      type: "history-marker",
+      marker: { heads: [] },
+    })
     expect((await initial(backend.open(tree))).records).toEqual([])
     await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     storage.beforeSave = undefined
@@ -712,7 +644,7 @@ describe("real local Subduction", () => {
 
   it("has no total-history cap: a tree grown past any old budget reopens, enumerates and deletes", async () => {
     // Legacy batch limit does not cap the initial native blob delivery.
-    const backend = create({ batchRecords: 8 })
+    const backend = create()
     for (let n = 1; n <= 40; n++)
       await backend.store(tree, [record(n, n > 1 ? [n - 1] : [])])
     await backend.close()
@@ -764,46 +696,25 @@ describe("real local Subduction", () => {
     ])
   })
 
-  it("keeps emitting storage markers while any session on the tree is incomplete", async () => {
+  it("emits storage markers only to incomplete sessions", async () => {
     const backend = create()
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
-    const getHeads = vi.spyOn(engine, "getHeads")
     const done = backend.open(tree)
     const loading = backend.open(tree)
     const a = await initial(done)
     const b = await initial(loading)
     done.markComplete!()
     await backend.store(tree, [record(1)])
-    for (const { iterator } of [a, b]) {
-      expect((await next(iterator)).type).toBe("records")
-      expect(await next(iterator)).toMatchObject({
-        type: "history-marker",
-        marker: { heads: [cid(1)] },
-      })
-    }
-    // Native saves first, then updates its in-memory tree; live markers must
-    // reflect the storage cut even if getHeads would still return old heads.
-    expect(getHeads).not.toHaveBeenCalled()
-    const listDuringSync = vi.spyOn(storage, "list")
-    await loading.synchronize()
+    expect(await next(a.iterator)).toMatchObject({ type: "records" })
+    expect(await next(b.iterator)).toMatchObject({ type: "records" })
     expect(await next(b.iterator)).toMatchObject({
-      type: "synchronized",
-      result: { marker: { heads: [cid(1)] } },
+      type: "history-marker",
+      marker: { heads: [cid(1)] },
     })
-    expect(listDuringSync).not.toHaveBeenCalled()
-    // The incomplete session can still become ready from live data; once it is
-    // also complete, markers stop for the whole tree.
-    loading.markComplete!()
-    listDuringSync.mockClear()
-    await backend.store(tree, [record(2, [1])])
-    expect((await next(a.iterator)).type).toBe("records")
     await done.synchronize()
     expect(await next(a.iterator)).toMatchObject({
       type: "synchronized",
-      result: { marker: { heads: [cid(2)] } },
+      result: { marker: { heads: [cid(1)] } },
     })
-    expect(listDuringSync).not.toHaveBeenCalled()
-    expect(getHeads).toHaveBeenCalledTimes(2)
   })
 
   it("waits past a delayed save before publishing native heads to an incomplete session", async () => {
@@ -855,11 +766,15 @@ describe("real local Subduction", () => {
     const live = [await next(iterator), await next(iterator)]
     expect(live).toEqual([
       expect.objectContaining({ type: "records", records: [record(2, [1])] }),
-      expect.objectContaining({ type: "records", records: [record(3, [1])] }),
+      // Native publishes the batch after updating its heads.
+      expect.objectContaining({
+        type: "history-marker",
+        marker: expect.objectContaining({ heads: [cid(2), cid(3)] }),
+      }),
     ])
     expect(await next(iterator)).toMatchObject({
-      type: "history-marker",
-      marker: { heads: [cid(2), cid(3)] },
+      type: "records",
+      records: [record(3, [1])],
     })
   })
 
@@ -954,12 +869,18 @@ describe("real local Subduction", () => {
         throw new Error("disk failed")
     }
     await expect(backend.store(tree, [record(1), record(2)])).rejects.toThrow()
-    expect(await next(iterator)).toMatchObject({ type: "rescan-required" })
-    expect((await iterator.next()).done).toBe(true)
+    expect(await next(iterator)).toMatchObject({
+      type: "history-marker",
+      marker: { heads: [] },
+    })
     expect((await initial(backend.open(tree))).records).toEqual([])
     await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     storage.beforeSave = undefined
     await backend.store(tree, [record(1), record(2)])
+    // The original session keeps observing after recovery.
+    let event = await next(iterator)
+    while (event.type !== "records") event = await next(iterator)
+    expect(event).toMatchObject({ phase: "live" })
     expect((await initial(backend.open(tree))).records).toEqual([
       record(1),
       record(2),
@@ -981,7 +902,11 @@ describe("real local Subduction", () => {
     }
     const save = vi.spyOn(storage, "saveBatch")
     await expect(backend.store(tree, [record(1)])).rejects.toThrow()
-    expect(await next(iterator)).toMatchObject({ type: "rescan-required" })
+    // The committed bytes return through native's recovery scan.
+    expect(await next(iterator)).toMatchObject({
+      type: "blobs",
+      blobs: [record(1).blob],
+    })
     expect((await collection.next()).value).toMatchObject({
       type: "rescan-required",
     })
@@ -1173,7 +1098,7 @@ describe("real local Subduction", () => {
   })
 
   it("pins bounded initial batches independently of replay and allows immediate return during blocked acquisition", async () => {
-    const backend = create({ batchRecords: 1, replayEvents: 1 })
+    const backend = create({ replayEvents: 1 })
     await backend.store(tree, [record(1)])
     await backend.store(tree, [record(2)])
     const session = backend.open(tree)
