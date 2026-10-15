@@ -126,11 +126,9 @@ export class DocHandle<T> {
   }
 
   /**
-   * @returns true if the document has not been deleted.
-   * Repo only hands out handles that already have data, so this is `true`
-   * from construction unless `delete()` is called.
+   * @returns true once the first snapshot is ready, unless deleted.
    */
-  isReady = () => !this.#document.deleted
+  isReady = () => this.#document.ready && !this.#document.deleted
 
   /**
    * @returns true if the document has been unloaded.
@@ -169,7 +167,7 @@ export class DocHandle<T> {
    */
   heads(): UrlHeads {
     if (this.#fixedHeads) return this.#fixedHeads
-    return encodeHeads(A.getHeads(this.#document.doc))
+    return encodeHeads(this.#document.heads())
   }
 
   /** @hidden */

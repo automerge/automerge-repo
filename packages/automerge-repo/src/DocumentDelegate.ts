@@ -47,9 +47,9 @@ export class DocumentDelegate<T> {
   ) {
     document.commit = (before, after) => this.commit(before, after)
     if (created) {
-      this.query.markInitialSnapshotComplete()
-      this.query.sourceReady("backend")
+      this.#complete()
     } else {
+      document.ready = false
       this.query.markInitialSnapshotPending()
       this.query.sourcePending("backend")
     }
@@ -57,9 +57,7 @@ export class DocumentDelegate<T> {
 
   /** Creation may finish while a lookup is already observing this document. */
   created(): void {
-    this.#targets.clear()
-    this.query.markInitialSnapshotComplete()
-    this.query.sourceReady("backend")
+    this.#complete()
   }
 
   commit(before: A.Doc<T>, doc: A.Doc<T>): Promise<void> {
@@ -155,11 +153,18 @@ export class DocumentDelegate<T> {
             }
           }
           if (input.byteLength) {
-            const next = A.loadIncremental(this.document.doc, input)
-            void this.document.applyMutation(() => next, {
-              incoming: true,
-              initial: this.query.snapshotPending,
-            })
+            const current = this.document.peekDoc()
+            if (!current) {
+              // The initial storage batch can become the document directly.
+              const next = A.load<T>(input, { allowMissingChanges: true })
+              void this.document.applyLoaded(next, this.query.snapshotPending)
+            } else {
+              const next = A.loadIncremental(current, input)
+              void this.document.applyMutation(() => next, {
+                incoming: true,
+                initial: this.query.snapshotPending,
+              })
+            }
           }
         }
         break
@@ -168,9 +173,12 @@ export class DocumentDelegate<T> {
         // An applied head includes all its dependencies, even when delivered
         // through a fragment. Pending heads are not reported by hasHeads.
         // This is a materialization shortcut, not a persistence receipt.
-        const unknown = event.records.filter(
-          record => !A.hasHeads(this.document.doc, [recordHead(record)])
-        )
+        const current = this.document.peekDoc()
+        const unknown = current
+          ? event.records.filter(
+              record => !A.hasHeads(current, [recordHead(record)])
+            )
+          : event.records
         if (unknown.length) {
           const next = applyRecords(this.document.doc, unknown)
           void this.document.applyMutation(() => next, {
@@ -183,11 +191,8 @@ export class DocumentDelegate<T> {
       }
       case "local-load-complete":
         if (event.marker) this.#marker("local", event.marker)
-        else if (event.found && A.getHeads(this.document.doc).length) {
-          this.#targets.clear()
-          this.query.markInitialSnapshotComplete()
-          this.query.sourceReady("backend")
-          this.onComplete?.()
+        else if (event.found && this.document.heads().length) {
+          this.#complete()
         }
         if (this.query.snapshotPending)
           void this.synchronize().catch(error => this.sourceUnavailable(error))
@@ -202,7 +207,7 @@ export class DocumentDelegate<T> {
           this.query.snapshotPending &&
           this.#targets.size === 0 &&
           marker.heads.length === 0 &&
-          A.getHeads(this.document.doc).length === 0 &&
+          this.document.heads().length === 0 &&
           (outcome === "no-peers" ||
             (outcome === "complete" &&
               peers.length > 0 &&
@@ -289,14 +294,21 @@ export class DocumentDelegate<T> {
 
   #checkTargets(): void {
     if (!this.query.snapshotPending) return
+    const doc = this.document.peekDoc()
+    if (!doc) return
     for (const target of this.#targets.values()) {
-      if (satisfiesMarker(this.document.doc, target.heads)) {
-        this.#targets.clear()
-        this.query.markInitialSnapshotComplete()
-        this.query.sourceReady("backend")
-        this.onComplete?.()
+      if (satisfiesMarker(doc, target.heads)) {
+        this.#complete()
         return
       }
     }
+  }
+
+  #complete(): void {
+    this.#targets.clear()
+    this.document.ready = true
+    this.query.markInitialSnapshotComplete()
+    this.query.sourceReady("backend")
+    this.onComplete?.()
   }
 }

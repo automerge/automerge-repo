@@ -1,5 +1,6 @@
 import { next as A } from "@automerge/automerge"
-import { describe, expect, it, vi } from "vitest"
+import { next as SlimA } from "@automerge/automerge/slim"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { Document } from "../src/Document.js"
 import { DocHandle } from "../src/DocHandle.js"
 import { DocumentQuery } from "../src/DocumentQuery.js"
@@ -20,11 +21,21 @@ import {
 } from "../src/sedimentree/index.js"
 import {
   applyRecords,
+  extractNewRecords,
   extractRecords,
 } from "../src/sedimentree/automerge/index.js"
 
+// Native ESM exports are sealed; forward through a configurable namespace for spies.
+vi.mock("@automerge/automerge/slim", async importOriginal => {
+  const actual =
+    await importOriginal<typeof import("@automerge/automerge/slim")>()
+  return { ...actual, next: { ...actual.next } }
+})
+
+afterEach(() => vi.restoreAllMocks())
+
 function setup(
-  doc = A.init<{ count: number; nested?: { value: number } }>(),
+  doc?: A.Doc<{ count: number; nested?: { value: number } }>,
   submit = vi.fn(async (_id: unknown, _records: RecordBatch) => {}),
   created = false
 ) {
@@ -51,6 +62,152 @@ function setup(
 }
 
 describe("DocumentDelegate", () => {
+  it("loads first storage blobs without creating an empty document", () => {
+    const { delegate, document, handle } = setup()
+    expect(document.peekDoc()).toBeUndefined()
+    const load = vi.spyOn(SlimA, "load")
+    const incremental = vi.spyOn(SlimA, "loadIncremental")
+    delegate.onEvent({
+      type: "blobs",
+      sequence: 1,
+      blobs: A.getAllChanges(A.from({ count: 1 })),
+    })
+    expect(load).toHaveBeenCalledOnce()
+    expect(incremental).not.toHaveBeenCalled()
+    expect(load.mock.calls[0][1]).toEqual({ allowMissingChanges: true })
+    expect(handle.doc()).toEqual({ count: 1 })
+
+    delegate.onEvent({
+      type: "blobs",
+      sequence: 2,
+      blobs: A.getAllChanges(A.from({ nested: { value: 2 } })),
+    })
+    expect(load).toHaveBeenCalledOnce()
+    expect(incremental).toHaveBeenCalledOnce()
+    expect(handle.doc()).toEqual({ count: 1, nested: { value: 2 } })
+  })
+
+  it("does not retry a failed first load with incremental loading", () => {
+    const { delegate, document } = setup()
+    const load = vi.spyOn(SlimA, "load").mockImplementationOnce(() => {
+      throw new Error("invalid bytes")
+    })
+    const incremental = vi.spyOn(SlimA, "loadIncremental")
+    expect(() =>
+      delegate.onEvent({
+        type: "blobs",
+        sequence: 1,
+        blobs: A.getAllChanges(A.from({ count: 1 })),
+      })
+    ).toThrow("invalid bytes")
+    expect(load).toHaveBeenCalledOnce()
+    expect(incremental).not.toHaveBeenCalled()
+    expect(document.peekDoc()).toBeUndefined()
+  })
+
+  it("retains missing dependencies from an incomplete first storage batch", () => {
+    const first = A.from({ count: 1 })
+    const second = A.change(first, doc => {
+      doc.count = 2
+    })
+    const { delegate, handle } = setup()
+    const load = vi.spyOn(SlimA, "load")
+    const incremental = vi.spyOn(SlimA, "loadIncremental")
+    delegate.onEvent({
+      type: "blobs",
+      sequence: 1,
+      blobs: A.getChanges(first, second),
+    })
+    expect(load).toHaveBeenCalledOnce()
+    expect(incremental).not.toHaveBeenCalled()
+    expect(handle.doc()?.count).toBeUndefined()
+    delegate.onEvent({
+      type: "records",
+      phase: "live",
+      sequence: 2,
+      records: extractRecords(first),
+    })
+    expect(handle.doc()).toEqual({ count: 2 })
+  })
+
+  it("throws on edits before readiness without materializing an empty doc", () => {
+    const { delegate, document, handle } = setup()
+    expect(() =>
+      handle.change(doc => {
+        doc.count = 1
+      })
+    ).toThrow("Document is not ready")
+    expect(document.peekDoc()).toBeUndefined()
+    const load = vi.spyOn(SlimA, "load")
+    const incremental = vi.spyOn(SlimA, "loadIncremental")
+    delegate.onEvent({
+      type: "blobs",
+      sequence: 1,
+      blobs: A.getAllChanges(A.from({ nested: { value: 2 } })),
+    })
+    expect(load).toHaveBeenCalledOnce()
+    expect(incremental).not.toHaveBeenCalled()
+    expect(handle.doc()).toEqual({ nested: { value: 2 } })
+  })
+
+  it("does not replace pending peer history with the first storage batch", () => {
+    const remote = A.from({ count: 1 })
+    const newer = A.change(remote, doc => {
+      doc.count = 2
+    })
+    const laterHead = A.getHeads(newer)[0]
+    const { delegate, document, handle } = setup()
+    delegate.onEvent({
+      type: "records",
+      phase: "live",
+      sequence: 1,
+      records: extractRecords(newer).filter(
+        r => r.kind === "commit" && r.id === laterHead
+      ),
+    })
+    expect(A.getHeads(document.doc)).toEqual([])
+    const load = vi.spyOn(SlimA, "load")
+    delegate.onEvent({
+      type: "blobs",
+      sequence: 2,
+      blobs: A.getAllChanges(remote),
+    })
+    expect(load).not.toHaveBeenCalled()
+    expect(handle.doc()).toEqual({ count: 2 })
+  })
+
+  it("keeps a pre-load snapshot observed by a caller", () => {
+    const { delegate, handle } = setup()
+    const before = handle.fullDoc()
+    const actor = A.getActorId(before)
+    const load = vi.spyOn(SlimA, "load")
+    const incremental = vi.spyOn(SlimA, "loadIncremental")
+    delegate.onEvent({
+      type: "blobs",
+      sequence: 1,
+      blobs: A.getAllChanges(A.from({ count: 1 })),
+    })
+    expect(load).not.toHaveBeenCalled()
+    expect(incremental).toHaveBeenCalledOnce()
+    expect(A.getActorId(handle.fullDoc())).toBe(actor)
+    expect(handle.doc()).toEqual({ count: 1 })
+  })
+
+  it("loads storage after a rescan when no document was materialized", () => {
+    const { delegate, handle } = setup()
+    delegate.onEvent({ type: "rescan-required", sequence: 1 })
+    const load = vi.spyOn(SlimA, "load")
+    const incremental = vi.spyOn(SlimA, "loadIncremental")
+    delegate.onEvent({
+      type: "blobs",
+      sequence: 2,
+      blobs: A.getAllChanges(A.from({ count: 1 })),
+    })
+    expect(load).toHaveBeenCalledOnce()
+    expect(incremental).not.toHaveBeenCalled()
+    expect(handle.doc()).toEqual({ count: 1 })
+  })
+
   it("applies one initial blob without retaining its input bytes", () => {
     const blob = A.getAllChanges(A.from({ count: 1 }))[0]
     const { delegate, handle } = setup()
@@ -163,7 +320,7 @@ describe("DocumentDelegate", () => {
   })
 
   it("still delivers the first local edit as a change", async () => {
-    const { handle } = setup()
+    const { handle } = setup(A.from({ count: 0 }), undefined, true)
     const changed = vi.fn()
     handle.on("change", changed)
     await handle.change(doc => {
@@ -344,13 +501,16 @@ describe("DocumentDelegate", () => {
     expect(query.peek().state).toBe("ready")
   })
 
-  it("marks inbound history before reentrant edits; does not echo records", async () => {
-    const remote = A.from({ count: 1 })
-    const { delegate, handle, submit } = setup()
+  it("marks inbound history before reentrant edits to a ready document", async () => {
+    const initial = A.from({ count: 1 })
+    const remote = A.change(A.clone(initial), d => {
+      d.count = 2
+    })
+    const { delegate, handle, submit } = setup(initial, undefined, true)
     let write: Promise<void> | undefined
     handle.once("heads-changed", () => {
       write = handle.change(d => {
-        d.count = 2
+        d.count = 3
       })
     })
     const changes: number[] = []
@@ -359,17 +519,17 @@ describe("DocumentDelegate", () => {
     })
     delegate.onEvent({
       type: "records",
-      records: extractRecords(remote),
+      records: extractNewRecords(initial, remote),
       phase: "initial",
       sequence: 1,
     })
     await write
-    expect(handle.doc()?.count).toBe(2)
-    expect(changes).toEqual([1, 2])
+    expect(handle.doc()?.count).toBe(3)
+    expect(changes).toEqual([2, 3])
     expect(submit).toHaveBeenCalledOnce()
     const records = submit.mock.calls[0][1]
     expect(records).toHaveLength(1)
-    expect(applyRecords(A.clone(remote), records).count).toBe(2)
+    expect(applyRecords(A.clone(remote), records).count).toBe(3)
     delegate.onEvent({
       type: "records",
       records: extractRecords(remote),
@@ -377,7 +537,7 @@ describe("DocumentDelegate", () => {
       sequence: 2,
     })
     expect(submit).toHaveBeenCalledOnce()
-    expect(handle.doc()?.count).toBe(2)
+    expect(handle.doc()?.count).toBe(3)
   })
 
   it("skips known-head echoes without applying or acknowledging them", async () => {
@@ -758,7 +918,13 @@ describe("DocumentDelegate", () => {
   it("rescan replaces stale initial targets without discarding unsaved writes", async () => {
     const submit = vi.fn(async (_id: unknown, _records: RecordBatch) => {})
     submit.mockRejectedValueOnce(new Error("disk full"))
-    const { delegate, query, handle } = setup(undefined, submit)
+    const { delegate, query, handle } = setup(
+      A.from({ count: 0 }),
+      submit,
+      true
+    )
+    query.markInitialSnapshotPending()
+    query.sourcePending("backend")
     delegate.onEvent({
       type: "local-load-complete",
       found: true,

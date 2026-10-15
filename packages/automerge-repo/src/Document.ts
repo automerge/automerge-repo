@@ -19,8 +19,11 @@ export class Document<T = unknown> {
   readonly registry: HandleRegistry
   readonly log: Logger
 
-  /** Current snapshot. Replaced (not mutated) by {@link applyMutation}. */
-  doc: A.Doc<T>
+  /** No WASM document until storage, peer history, or a caller needs one. */
+  #doc?: A.Doc<T>
+
+  /** Lowered by DocumentDelegate until a first snapshot is verified. */
+  ready = true
 
   /** Set by {@link DocHandle.delete} on any handle into this document. */
   deleted = false
@@ -44,11 +47,24 @@ export class Document<T = unknown> {
    */
   #viewCache = new WeakValueMap<string, A.Doc<T>>()
 
-  constructor(documentId: DocumentId, initialDoc: A.Doc<T>) {
+  constructor(documentId: DocumentId, initialDoc?: A.Doc<T>) {
     this.documentId = documentId
-    this.doc = initialDoc
+    this.#doc = initialDoc
     this.registry = new HandleRegistry(this)
     this.log = makeLogger(`automerge-repo:doc:${documentId.slice(0, 5)}`)
+  }
+
+  get doc(): A.Doc<T> {
+    return (this.#doc ??= A.init<T>())
+  }
+
+  /** Inspect without materializing an empty Automerge document. */
+  peekDoc(): A.Doc<T> | undefined {
+    return this.#doc
+  }
+
+  heads(): string[] {
+    return this.#doc ? A.getHeads(this.#doc) : []
   }
 
   getSyncInfo(storageId: StorageId): SyncInfo | undefined {
@@ -90,17 +106,35 @@ export class Document<T = unknown> {
   ): Promise<void> {
     if (this.deleted) throw new Error("Document is deleted")
     if (this.closed) throw new Error("Document is closed")
+    if (!options.incoming && !this.ready)
+      throw new Error("Document is not ready")
     const before = this.doc
     const after = mutator(before)
+    return this.#adopt(before, after, options)
+  }
+
+  /** Adopt the first storage snapshot without allocating an empty WASM document. */
+  applyLoaded(after: A.Doc<T>, initial: boolean): Promise<void> {
+    if (this.deleted) throw new Error("Document is deleted")
+    if (this.closed) throw new Error("Document is closed")
+    return this.#adopt(this.#doc, after, { incoming: true, initial })
+  }
+
+  #adopt(
+    before: A.Doc<T> | undefined,
+    after: A.Doc<T>,
+    options: { incoming?: boolean; initial?: boolean }
+  ): Promise<void> {
     // Always adopt the new snapshot even when heads are unchanged -
     // `A.change` can hand back a fresh snapshot whose `before` is now
     // "outdated" for subsequent mutations.
-    this.doc = after
-    const beforeHeads = A.getHeads(before)
+    this.#doc = after
+    const beforeHeads = before ? A.getHeads(before) : []
     const afterHeads = A.getHeads(after)
-    const stored = options.incoming
-      ? Promise.resolve()
-      : (this.commit?.(before, after) ?? Promise.resolve())
+    const stored =
+      options.incoming || !before
+        ? Promise.resolve()
+        : (this.commit?.(before, after) ?? Promise.resolve())
     void stored.catch(() => {})
     if (arrayEqual(beforeHeads, afterHeads)) return stored
     const initial =
@@ -113,7 +147,7 @@ export class Document<T = unknown> {
       const changes = patches ?? A.diff(after, beforeHeads, afterHeads)
       if (changes.length > 0) {
         this.registry.dispatchChange(after, changes, {
-          before,
+          before: before ?? (A.view(after, []) as A.Doc<T>),
           after,
           source: "change",
         })

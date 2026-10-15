@@ -217,7 +217,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   #register<T>(id: DocumentId, initial?: A.Doc<T>): Entry<T> {
-    const document = new Document<T>(id, initial ?? A.init<T>())
+    const document = new Document<T>(id, initial)
     const handle = new DocHandle(document)
     const query = new DocumentQuery(handle, new Map(), {
       initialSnapshotPending: !!this.#scheduler && !initial,
@@ -253,15 +253,15 @@ export class Repo extends EventEmitter<RepoEvents> {
       })
     }
     this.#entries.set(id, entry)
-    if (entry.delegate) {
-      try {
-        this.#scheduler!.open(entry.delegate)
-      } catch (error) {
-        entry.delegate.sourceUnavailable(error)
+    let announced = false
+    const announce = (state: ReturnType<typeof query.peek>) => {
+      if (!announced && state.state === "ready") {
+        announced = true
+        this.emit("document", { handle })
       }
     }
-    this.emit("document", { handle })
     query.subscribe(state => {
+      announce(state)
       if (
         state.state === "failed" &&
         document.deleted &&
@@ -274,6 +274,14 @@ export class Repo extends EventEmitter<RepoEvents> {
       if (state.state === "unavailable")
         this.emit("unavailable-document", { documentId: id })
     })
+    if (entry.delegate) {
+      try {
+        this.#scheduler!.open(entry.delegate)
+      } catch (error) {
+        entry.delegate.sourceUnavailable(error)
+      }
+    }
+    announce(query.peek())
     return entry
   }
 

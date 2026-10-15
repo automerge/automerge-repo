@@ -51,6 +51,52 @@ describe("backend-driven Repo", () => {
     await expect(r.find(generateAutomergeUrl())).rejects.toThrow("unavailable")
   })
 
+  it("imports into a local-only lookup and announces it once", async () => {
+    const r = repo()
+    const id = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const announced = vi.fn()
+    r.on("document", announced)
+    const query = r.findWithProgress<{ count: number }>(id)
+    const handle = r.handles[id] as DocHandle<{ count: number }>
+    expect(query.peek().state).toBe("unavailable")
+    expect(await r.import(A.save(A.from({ count: 1 })), { docId: id })).toBe(
+      handle
+    )
+    expect(handle.doc()).toEqual({ count: 1 })
+    expect(query.peek().state).toBe("ready")
+    expect(await query.whenReady()).toBe(handle)
+    expect(announced).toHaveBeenCalledOnce()
+    await handle.change(d => (d.count = 2))
+    expect(handle.doc()).toEqual({ count: 2 })
+  })
+
+  it("does not allow edits or announce a document before its first snapshot", async () => {
+    const backend = new MemoryBackend()
+    const r = repo(backend)
+    const id = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const announced = vi.fn()
+    r.on("document", announced)
+    const query = r.findWithProgress<{ count: number }>(id)
+    const handle = r.handles[id] as DocHandle<{ count: number }>
+    expect(handle.isReady()).toBe(false)
+    expect(query.peek().state).toBe("loading")
+    expect(announced).not.toHaveBeenCalled()
+    expect(() => handle.change(d => (d.count = 2))).toThrow("not ready")
+
+    const source = A.from({ count: 1 })
+    await backend.store(
+      sedimentreeId(documentIdToBinary(id)!),
+      extractRecords(source)
+    )
+    expect(await query.whenReady()).toBe(handle)
+    expect(handle.isReady()).toBe(true)
+    expect(handle.doc()).toEqual({ count: 1 })
+    expect(announced).toHaveBeenCalledOnce()
+    expect(announced).toHaveBeenCalledWith({ handle })
+    await handle.change(d => (d.count = 2))
+    expect(announced).toHaveBeenCalledOnce()
+  })
+
   it("preserves change options, event payloads, scoped handles and fixed views", async () => {
     const r = repo(new MemoryBackend())
     const handle = await r.create({ count: 0, nested: { value: 1 } })
