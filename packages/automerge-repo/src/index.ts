@@ -88,7 +88,6 @@ export type {
   RepoConfig,
   RepoEvents,
   RepoFindOptions,
-  DocMetrics,
 } from "./Repo.js"
 
 export type {

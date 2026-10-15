@@ -17,9 +17,6 @@
     "test": "vitest",
     "test:watch": "vitest --watch"
   },
-  "browser": {
-    "crypto": false
-  },
   "devDependencies": {
     "@types/node": "catalog:",
     "http-server": "^14.1.1",
@@ -40,7 +37,6 @@
   "exports": {
     ".": "./dist/entrypoints/fullfat.js",
     "./slim": "./dist/entrypoints/slim.js",
-    "./helpers/*.js": "./dist/helpers/*.js",
     "./sedimentree": {
       "types": "./dist/sedimentree/index.d.ts",
       "default": "./dist/sedimentree/index.js"

@@ -411,14 +411,8 @@ export interface RepoConfig {
 export type RepoFindOptions = AbortOptions
 export type DeleteDocumentPayload = { documentId: DocumentId }
 export type DocumentPayload = { handle: DocHandle<any> }
-export type DocMetrics = {
-  type: string
-  documentId: DocumentId
-  [key: string]: unknown
-}
 export interface RepoEvents {
   document: (payload: DocumentPayload) => void
   "delete-document": (payload: DeleteDocumentPayload) => void
   "unavailable-document": (payload: DeleteDocumentPayload) => void
-  "doc-metrics": (payload: DocMetrics) => void
 }

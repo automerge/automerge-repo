@@ -7,7 +7,7 @@ import {
   generateAutomergeUrl,
   parseAutomergeUrl,
 } from "../src/AutomergeUrl.js"
-import { eventPromise } from "../src/helpers/eventPromise.js"
+import { eventPromise } from "./helpers/eventPromise.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import { Document } from "../src/Document.js"
 import type { StorageId } from "../src/DocHandle.js"
