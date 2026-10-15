@@ -167,6 +167,8 @@ export class SubductionBackend implements SedimentreeBackend {
   private round = 0
   private readonly deleting = new Map<SedimentreeId, Promise<void>>()
   private readonly watches = new Map<Watch<SedimentreeEvent>, SedimentreeId>()
+  /** One automatic reopen per document until a live update succeeds. */
+  private readonly recovering = new Set<SedimentreeId>()
   /** Sessions whose consumer verified a complete snapshot (markComplete). */
   private readonly completed = new Set<Watch<SedimentreeEvent>>()
   private readonly collections = new Set<Watch<CollectionObservation>>()
@@ -645,6 +647,7 @@ export class SubductionBackend implements SedimentreeBackend {
     let released = false
     let stream: N.StoredUpdates | undefined
     let initialized = false
+    let resuming = false
     const watch = new Watch<SedimentreeEvent>(
       this.limits.replayEvents,
       this.limits.replayBytes,
@@ -654,6 +657,8 @@ export class SubductionBackend implements SedimentreeBackend {
         released = true
         stream?.close()
         this.watches.delete(watch)
+        if (!resuming && ![...this.watches.values()].includes(id))
+          this.recovering.delete(id)
         this.completed.delete(watch)
         this.reconcileInterest(id)
       }
@@ -723,6 +728,7 @@ export class SubductionBackend implements SedimentreeBackend {
               recordBytes(record)
             )
             await this.liveMarker(watch, engine, native)
+            this.recovering.delete(id)
           } else if (update.type === "storageChecked") {
             if (!snapshot) continue
             if (!initialized && !snapshot.length) {
@@ -740,6 +746,12 @@ export class SubductionBackend implements SedimentreeBackend {
       } catch (cause) {
         if (released || this.closed) return
         if (!generation.active) return observe()
+        if (initialized && !this.recovering.has(id)) {
+          this.recovering.add(id)
+          resuming = true
+          watch.finish({ type: "rescan-required", sequence: ++this.sequence })
+          return
+        }
         throw cause
       } finally {
         updates.close()
@@ -1055,6 +1067,7 @@ export class SubductionBackend implements SedimentreeBackend {
       this.check("delete")
       if (this.deleting.has(id)) return this.deleting.get(id)!
       this.pendingSyncs.delete(id)
+      this.recovering.delete(id)
       const sequence = ++this.sequence
       for (const [watch, tree] of this.watches)
         if (tree === id) watch.finish({ type: "deleted", sequence })
@@ -1096,6 +1109,7 @@ export class SubductionBackend implements SedimentreeBackend {
     if (this.closing) return this.closing
     this.closed = true
     this.pendingSyncs.clear()
+    this.recovering.clear()
     this.seenEphemerals.clear()
     const captured = [...this.attempts]
     const deletions = [...this.deleting.values()]

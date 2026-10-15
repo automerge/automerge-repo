@@ -96,6 +96,32 @@ describe("public Repo with native Subduction", () => {
     }
   }
 
+  function failAfterLocalScan(p: Peer, failures: number): () => number {
+    const engine = (p.backend as unknown as { engine: N.Subduction }).engine
+    const nativeLoad = engine.loadAndWatch.bind(engine)
+    let openings = 0
+    vi.spyOn(engine, "loadAndWatch").mockImplementation((...args) => {
+      const updates = nativeLoad(...args)
+      if (++openings > failures) return updates
+      let checked = false
+      return {
+        async next() {
+          if (checked) throw new Error("injected native stream storage error")
+          const next = await updates.next()
+          if (next.value?.type === "storageChecked") checked = true
+          return next
+        },
+        [Symbol.asyncIterator]() {
+          return this
+        },
+        close() {
+          updates.close()
+        },
+      }
+    })
+    return () => openings
+  }
+
   afterEach(async () => {
     gates.splice(0).forEach(gate => gate.resolve())
     await Promise.allSettled(wires.splice(0).map(wire => wire.disconnect()))
@@ -514,6 +540,47 @@ describe("public Repo with native Subduction", () => {
     expect(A.getHeads(loaded.fullDoc())).toEqual(A.getHeads(source.fullDoc()))
     expect(rounds).not.toHaveBeenCalled()
   }, 10000)
+
+  it("reopens an established session after one native stream error", async () => {
+    const a = peer(),
+      b = peer()
+    const source = await a.repo.create<State>({ count: 0 })
+    const { documentId } = parseAutomergeUrl(source.url)
+    await b.repo.import<State>(A.save(source.fullDoc()), { docId: documentId })
+    await b.repo.flush()
+    await b.repo.shutdown()
+    const reader = peer(b.storage)
+    const openings = failAfterLocalScan(reader, 1)
+    const handle = await reader.repo.find<State>(source.url)
+    expect(handle.doc()).toEqual({ count: 0 })
+    await vi.waitFor(() => expect(openings()).toBe(2), {
+      timeout: 500,
+      interval: 5,
+    })
+    await source.change(doc => {
+      doc.count = 1
+    })
+    await connect(a, reader)
+    await ready(handle, { count: 1 })
+    expect(openings()).toBe(2)
+  }, 15000)
+
+  it("stops reopening when the replacement native stream also fails", async () => {
+    const original = peer()
+    const source = await original.repo.create<State>({ count: 0 })
+    await original.repo.flush()
+    await original.repo.shutdown()
+    const reader = peer(original.storage)
+    const openings = failAfterLocalScan(reader, 2)
+    const handle = await reader.repo.find<State>(source.url)
+    await vi.waitFor(() => expect(openings()).toBe(2), {
+      timeout: 500,
+      interval: 5,
+    })
+    await new Promise(resolve => setTimeout(resolve, 40))
+    expect(openings()).toBe(2)
+    expect(handle.doc()).toEqual({ count: 0 })
+  }, 15000)
 
   it("finds a document whose only peer connects after the lookup started", async () => {
     const a = peer(),
