@@ -77,7 +77,8 @@ const DEFAULT_SOURCE_PRIORITY = 0
  *
  * The query derives its overall state from the handle and source states:
  *
- * - Handle has data (non-empty heads) → `ready`
+ * - Initial snapshot pending → `loading` or `unavailable`, not `ready`
+ * - Complete snapshot with data (non-empty heads) → `ready`
  * - No data, any source is `pending` → `loading`
  * - No data, all sources are `unavailable` → `unavailable`
  *
@@ -267,8 +268,7 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
   // -- Internal --
 
   #handleHasData(): boolean {
-    const heads = this.#handle.heads()
-    return heads.length > 0
+    return this.#handle.hasHeads()
   }
 
   #sourcePriority(source: string): SourcePriority {
@@ -289,15 +289,17 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
   #computeState(): QueryState<T> {
     const sources = this.#sourcesView()
 
+    // A materialized prefix is not ready until the initial cut is complete.
+    // While it is pending, checking document heads cannot change the state.
+    if (this.#initialSnapshotPending)
+      return {
+        state: this.#hasAnySource("pending") ? "loading" : "unavailable",
+        sources,
+      }
+
     // Handle has data → ready, regardless of source states
-    if (this.#handleHasData()) {
-      if (this.#initialSnapshotPending)
-        return {
-          state: this.#hasAnySource("pending") ? "loading" : "unavailable",
-          sources,
-        }
+    if (this.#handleHasData())
       return { state: "ready", handle: this.#handle, sources }
-    }
 
     // No data yet — consult sources
 

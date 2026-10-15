@@ -170,6 +170,13 @@ export class DocHandle<T> {
     return encodeHeads(this.#document.heads())
   }
 
+  /** @internal Check for materialized history without encoding URL heads. */
+  hasHeads(): boolean {
+    return this.#fixedHeads
+      ? this.#fixedHeads.length > 0
+      : this.#document.heads().length > 0
+  }
+
   /** @hidden */
   begin() {
     // noop - state machine removed
