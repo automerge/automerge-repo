@@ -5,6 +5,7 @@ import type { DocumentId, UrlHeads } from "./types.js"
 import type { StorageId, SyncInfo } from "./DocHandle.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
+import type { RootQuery } from "./DocumentQuery.js"
 
 /**
  * Per-document shared state - one per `documentId`, referenced by every
@@ -22,10 +23,10 @@ export class Document<T = unknown> {
   /** No WASM document until storage, peer history, or a caller needs one. */
   #doc?: A.Doc<T>
 
-  /** Lowered by DocumentSync until a first snapshot is verified. */
-  ready = true
+  /** Owns readiness; documents built without a Repo are always ready. */
+  query?: RootQuery<any>
 
-  /** Set by {@link DocHandle.delete} on any handle into this document. */
+  /** Set by {@link Document.delete}. */
   deleted = false
   closed = false
 
@@ -58,6 +59,19 @@ export class Document<T = unknown> {
 
   get doc(): A.Doc<T> {
     return (this.#doc ??= A.init<T>())
+  }
+
+  get ready(): boolean {
+    return !this.query || this.query.state().state === "ready"
+  }
+
+  /** Mark deleted, settle the query, then notify every handle. Idempotent. */
+  delete(): void {
+    if (this.deleted) return
+    this.deleted = true
+    // Settle acquisition before delete listeners can synchronously find the ID.
+    this.query?.deleted()
+    this.registry.dispatchDelete()
   }
 
   /** Inspect without materializing an empty Automerge document. */

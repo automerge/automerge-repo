@@ -1,9 +1,11 @@
 import { next as A } from "@automerge/automerge"
 import { describe, expect, it, vi } from "vitest"
 import {
-  DocumentQuery,
-  progressAtHeads,
-  progressAtPath,
+  queryAtHeads,
+  queryAtPath,
+  toProgress,
+  waitUntilReady,
+  type QueryState,
 } from "../src/DocumentQuery.js"
 import { encodeHeads } from "../src/AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "../src/types.js"
@@ -11,560 +13,285 @@ import { createTestQuery } from "./helpers/testHandle.js"
 
 const docId = "test-doc-id" as DocumentId
 
-function makeBlob(value: Record<string, unknown>): Uint8Array {
-  const doc = A.from(value)
-  return A.save(doc)
+function readyQuery<T>(value: T) {
+  const query = createTestQuery<T>(docId)
+  query.handle.update(() => A.from(value as any) as A.Doc<T>)
+  query.ready()
+  return query
 }
 
-/** Load data into a query's handle. */
-function loadInto(query: DocumentQuery<any>, blobs: Uint8Array[]) {
-  query.handle.update(doc => {
-    let result = doc
-    for (const blob of blobs) {
-      result = A.loadIncremental(result, blob)
-    }
-    return result
+describe("RootQuery", () => {
+  it("starts loading and exposes only the observable surface", () => {
+    const query = createTestQuery(docId)
+    expect(query.state()).toEqual({ state: "loading" })
+    expect(query.documentId).toBe(docId)
+    expect("whenReady" in query).toBe(false)
   })
-}
 
-describe("DocumentQuery", () => {
-  describe("initial state", () => {
-    it("has a handle from construction", () => {
-      const query = createTestQuery(docId)
-      expect(query.handle).toBeTruthy()
-      expect(query.handle.documentId).toBe(docId)
+  it("moves between loading, unavailable and ready", () => {
+    const query = createTestQuery(docId)
+    const states: string[] = []
+    query.subscribe(state => states.push(state.state))
+    query.unavailable()
+    query.loading()
+    query.unavailable()
+    query.ready()
+    expect(states).toEqual([
+      "loading",
+      "unavailable",
+      "loading",
+      "unavailable",
+      "ready",
+    ])
+    expect(query.state()).toEqual({ state: "ready", handle: query.handle })
+  })
+
+  it("does not leave ready for loading or unavailable", () => {
+    const query = readyQuery({ count: 1 })
+    query.loading()
+    query.unavailable()
+    expect(query.state().state).toBe("ready")
+  })
+
+  it.each([
+    ["deleted", (q: ReturnType<typeof createTestQuery>) => q.deleted()],
+    ["failed", (q: ReturnType<typeof createTestQuery>) => q.fail(new Error())],
+  ] as const)("%s is terminal", (expected, settle) => {
+    const query = createTestQuery(docId)
+    settle(query)
+    query.ready()
+    query.loading()
+    query.deleted()
+    query.fail(new Error("later"))
+    expect(query.state().state).toBe(expected)
+    expect(query.terminal).toBe(true)
+  })
+
+  it("does not notify for repeated states", () => {
+    const query = createTestQuery(docId)
+    const callback = vi.fn()
+    query.subscribe(callback)
+    query.loading()
+    query.unavailable()
+    query.unavailable()
+    expect(callback).toHaveBeenCalledTimes(2)
+  })
+
+  it("isolates throwing and rejecting subscribers", async () => {
+    const query = createTestQuery(docId)
+    const later = vi.fn()
+    query.subscribe(() => {
+      throw new Error("sync")
     })
+    query.subscribe(async () => {
+      throw new Error("async")
+    })
+    query.subscribe(later)
+    const waiting = waitUntilReady(query)
+    query.ready()
+    expect(later).toHaveBeenCalledTimes(2)
+    await expect(waiting).resolves.toBe(query.handle)
+  })
 
-    it("exposes only modern progress methods on queries and wrappers", async () => {
-      const query = createTestQuery(docId)
-      loadInto(query, [makeBlob({ count: 1 })])
-      const atHeads = progressAtHeads(query, query.handle.heads())
-      const atPath = progressAtPath(atHeads, [])
-      for (const progress of [query, atHeads, atPath]) {
-        for (const name of ["state", "progress", "error"])
-          expect(name in progress).toBe(false)
-        expect(progress.peek().state).toBe("ready")
-        expect(await progress.whenReady()).toBeDefined()
-        const unsubscribe = progress.subscribe(() => {})
-        expect(unsubscribe).toBeTypeOf("function")
+  it("delivers the current state synchronously on subscribe", () => {
+    const query = readyQuery({ count: 1 })
+    const callback = vi.fn()
+    query.subscribe(callback)
+    expect(callback).toHaveBeenCalledExactlyOnceWith({
+      state: "ready",
+      handle: query.handle,
+    })
+  })
+
+  it("derived queries deliver their current state on subscribe", () => {
+    const query = readyQuery({ items: ["a"] })
+    const future = A.change(A.clone(query.handle.fullDoc()), d => {
+      d.items.push("b")
+    })
+    const atHeads = vi.fn()
+    queryAtHeads(query, encodeHeads(A.getHeads(future))).subscribe(atHeads)
+    expect(atHeads).toHaveBeenCalledExactlyOnceWith({ state: "loading" })
+    const atPath = vi.fn()
+    queryAtPath(query, ["items"] as any).subscribe(atPath)
+    expect(atPath).toHaveBeenCalledOnce()
+    expect(atPath.mock.calls[0][0].handle.doc()).toEqual(["a"])
+  })
+
+  it("unsubscribes", () => {
+    const query = createTestQuery(docId)
+    const callback = vi.fn()
+    query.subscribe(callback)()
+    query.ready()
+    expect(callback).toHaveBeenCalledExactlyOnceWith({ state: "loading" })
+  })
+})
+
+describe("waitUntilReady", () => {
+  it("resolves immediately when ready", async () => {
+    const query = readyQuery({ count: 1 })
+    await expect(waitUntilReady(query)).resolves.toBe(query.handle)
+  })
+
+  it("waits through unavailable-free loading", async () => {
+    const query = createTestQuery(docId)
+    const waiting = waitUntilReady(query)
+    query.ready()
+    await expect(waiting).resolves.toBe(query.handle)
+  })
+
+  it.each([
+    ["unavailable", "unavailable"],
+    ["deleted", "deleted"],
+  ] as const)("rejects on %s", async (state, message) => {
+    const query = createTestQuery(docId)
+    const waiting = waitUntilReady(query)
+    query[state]()
+    await expect(waiting).rejects.toThrow(message)
+  })
+
+  it("rejects with the failure error", async () => {
+    const query = createTestQuery(docId)
+    const error = new Error("boom")
+    const waiting = waitUntilReady(query)
+    query.fail(error)
+    await expect(waiting).rejects.toBe(error)
+  })
+
+  it("rejects when the signal is already aborted", async () => {
+    const controller = new AbortController()
+    controller.abort("stop")
+    await expect(
+      waitUntilReady(createTestQuery(docId), controller.signal)
+    ).rejects.toBe("stop")
+  })
+
+  it("rejects on abort and releases its subscription and listener", async () => {
+    const query = createTestQuery(docId)
+    const controller = new AbortController()
+    const remove = vi.spyOn(controller.signal, "removeEventListener")
+    const subscribe = query.subscribe.bind(query)
+    const unsubscribed = vi.fn()
+    vi.spyOn(query, "subscribe").mockImplementation(callback => {
+      const unsubscribe = subscribe(callback)
+      return () => {
+        unsubscribed()
         unsubscribe()
       }
     })
+    const waiting = waitUntilReady(query, controller.signal)
+    controller.abort("stop")
+    await expect(waiting).rejects.toBe("stop")
+    expect(unsubscribed).toHaveBeenCalledOnce()
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function))
+  })
+})
+
+describe("queryAtHeads", () => {
+  function future(query: ReturnType<typeof readyQuery<{ value: string }>>) {
+    const v2 = A.change(A.clone(query.handle.fullDoc()), d => {
+      d.value = "v2"
+    })
+    return { v2, heads: encodeHeads(A.getHeads(v2)) as UrlHeads }
+  }
+
+  it("passes through non-ready states", () => {
+    const query = createTestQuery<{ value: string }>(docId)
+    const atHeads = queryAtHeads(query, [] as unknown as UrlHeads)
+    expect(atHeads.state().state).toBe("loading")
+    query.unavailable()
+    expect(atHeads.state().state).toBe("unavailable")
   })
 
-  describe("loading data", () => {
-    it("transitions to ready when data is provided", () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("test-source")
-      loadInto(query, [makeBlob({ count: 0 })])
-
-      const state = query.peek()
-      expect(state.state).toBe("ready")
-      expect(state.state === "ready" && state.handle).toBeDefined()
-    })
-
-    it("creates a handle with the provided data", () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("test-source")
-      loadInto(query, [makeBlob({ count: 42 })])
-
-      const state = query.peek()
-      if (state.state !== "ready") throw new Error("expected ready")
-      expect(state.handle.doc()).toHaveProperty("count", 42)
-    })
-
-    it("updates existing handle when called again", () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("test-source")
-      loadInto(query, [makeBlob({ count: 1 })])
-
-      const state1 = query.peek()
-      if (state1.state !== "ready") throw new Error("expected ready")
-      const handle = state1.handle
-
-      // Make a change blob based on the existing doc
-      const changed = A.change(A.clone(handle.doc()!), doc => {
-        ;(doc as any).count = 2
-      })
-      const changes = A.getChanges(handle.doc()!, changed)
-
-      loadInto(query, changes)
-
-      const state2 = query.peek()
-      if (state2.state !== "ready") throw new Error("expected ready")
-      // Same handle instance
-      expect(state2.handle).toBe(handle)
-      expect(state2.handle.doc()).toHaveProperty("count", 2)
-    })
+  it("stays loading until the requested heads arrive, then yields a view", async () => {
+    const query = readyQuery({ value: "v1" })
+    const { v2, heads } = future(query)
+    const atHeads = queryAtHeads(query, heads)
+    expect(atHeads.state().state).toBe("loading")
+    const states: string[] = []
+    atHeads.subscribe(state => states.push(state.state))
+    const waiting = waitUntilReady(atHeads)
+    query.handle.update(() => v2)
+    const view = await waiting
+    expect(view.doc()?.value).toBe("v2")
+    expect(view.isReadOnly()).toBe(true)
+    expect(states).toEqual(["loading", "ready"])
   })
 
-  describe("source states", () => {
-    it("stays loading while any source is pending", () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("source-a")
-      query.sourcePending("source-b")
-      query.sourceUnavailable("source-a")
-
-      expect(query.peek().state).toBe("loading")
-    })
-
-    it("transitions to unavailable when all sources are unavailable", () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("source-a")
-      query.sourcePending("source-b")
-      query.sourceUnavailable("source-a")
-      query.sourceUnavailable("source-b")
-
-      expect(query.peek().state).toBe("unavailable")
-    })
-
-    it("transitions from unavailable back to loading on sourcePending", () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("source-a")
-      query.sourceUnavailable("source-a")
-      expect(query.peek().state).toBe("unavailable")
-
-      query.sourcePending("source-a")
-      expect(query.peek().state).toBe("loading")
-    })
-
-    it("transitions from unavailable to ready when data arrives", () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("source-a")
-      query.sourceUnavailable("source-a")
-      expect(query.peek().state).toBe("unavailable")
-
-      loadInto(query, [makeBlob({ count: 0 })])
-      expect(query.peek().state).toBe("ready")
-    })
-
-    it("stays ready even if some sources become unavailable", () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("source-a")
-      query.sourcePending("source-b")
-      loadInto(query, [makeBlob({ count: 0 })])
-      expect(query.peek().state).toBe("ready")
-
-      query.sourceUnavailable("source-b")
-      expect(query.peek().state).toBe("ready")
-    })
-  })
-
-  describe("subscribe", () => {
-    it("isolates throwing subscribers from later subscribers and readiness waits", async () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("test")
-      const error = new Error("subscriber failed")
-      const logged = vi.spyOn(console, "error").mockImplementation(() => {})
-      try {
-        query.subscribe(() => {
-          throw error
-        })
-        const later = vi.fn()
-        query.subscribe(later)
-        const ready = query.whenReady()
-        loadInto(query, [makeBlob({ count: 1 })])
-        expect(later).toHaveBeenCalledOnce()
-        expect(await ready).toBe(query.handle)
-        expect(logged).toHaveBeenCalledWith(
-          expect.any(String),
-          expect.any(String),
-          error
-        )
-      } finally {
-        logged.mockRestore()
-      }
-    })
-
-    it("logs rejected async subscribers without an unhandled rejection", async () => {
-      const query = createTestQuery(docId)
-      const error = new Error("async subscriber failed")
-      const logged = vi.spyOn(console, "error").mockImplementation(() => {})
-      try {
-        query.subscribe(async () => {
-          throw error
-        })
-        const later = vi.fn()
-        query.subscribe(later)
-        query.sourcePending("test")
-        expect(later).toHaveBeenCalledOnce()
-        await Promise.resolve()
-        expect(logged).toHaveBeenCalledWith(
-          expect.any(String),
-          expect.any(String),
-          error
-        )
-      } finally {
-        logged.mockRestore()
-      }
-    })
-
-    it("notifies failure waiters despite a throwing subscriber", async () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("test")
-      const logged = vi.spyOn(console, "error").mockImplementation(() => {})
-      try {
-        query.subscribe(() => {
-          throw new Error("subscriber failed")
-        })
-        const later = vi.fn()
-        query.subscribe(later)
-        const waiting = query.whenReady()
-        const error = new Error("shutdown")
-        expect(() => query.fail(error)).not.toThrow()
-        await expect(waiting).rejects.toBe(error)
-        expect(later).toHaveBeenCalledOnce()
-      } finally {
-        logged.mockRestore()
-      }
-    })
-
-    it("notifies subscribers when public state changes", () => {
-      const query = createTestQuery(docId)
-      const states: string[] = []
-      query.subscribe(state => states.push(state.state))
-
-      query.sourcePending("test") // public stays loading, source mix changed
-      loadInto(query, [makeBlob({ count: 0 })]) // loading → ready
-
-      expect(states).toEqual(["loading", "ready"])
-    })
-
-    it("notifies on source-state changes even when public state stays the same", () => {
-      const query = createTestQuery(docId)
-      const callback = vi.fn()
-      query.subscribe(callback)
-
-      // Already in loading; a new source going pending doesn't change the
-      // public discriminator but does change the source mix.
-      query.sourcePending("test")
-      expect(callback).toHaveBeenCalledTimes(1)
-    })
-
-    it("does not notify when neither public state nor source state changes", () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("test")
-      const callback = vi.fn()
-      query.subscribe(callback)
-
-      // Calling sourcePending again with the same state is a no-op.
-      query.sourcePending("test")
-      expect(callback).not.toHaveBeenCalled()
-    })
-
-    it("unsubscribes correctly", () => {
-      const query = createTestQuery(docId)
-      const callback = vi.fn()
-      const unsubscribe = query.subscribe(callback)
-
-      unsubscribe()
-      query.sourcePending("test")
-      loadInto(query, [makeBlob({ count: 0 })])
-
-      expect(callback).not.toHaveBeenCalled()
-    })
-
-    it("notifies on transitions through multiple states", () => {
-      const query = createTestQuery(docId)
-      const states: string[] = []
-      query.subscribe(state => states.push(state.state))
-
-      query.sourcePending("test") // source mix change, still loading
-      query.sourceUnavailable("test") // loading → unavailable
-      query.sourcePending("test") // unavailable → loading
-      loadInto(query, [makeBlob({ count: 0 })]) // loading → ready
-
-      expect(states).toEqual(["loading", "unavailable", "loading", "ready"])
-    })
-  })
-
-  describe("whenReady", () => {
-    it("resolves immediately when already ready", async () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("test")
-      loadInto(query, [makeBlob({ count: 0 })])
-
-      const handle = await query.whenReady()
-      expect(handle.doc()).toHaveProperty("count", 0)
-    })
-
-    it("resolves when data arrives later", async () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("test")
-
-      const promise = query.whenReady()
-
-      // Data arrives asynchronously
-      loadInto(query, [makeBlob({ count: 42 })])
-
-      const handle = await promise
-      expect(handle.doc()).toHaveProperty("count", 42)
-    })
-
-    it("rejects on failure", async () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("test")
-
-      const promise = query.whenReady()
-      query.fail(new Error("boom"))
-
-      await expect(promise).rejects.toThrow("boom")
-    })
-
-    it("rejects immediately when already failed", async () => {
-      const query = createTestQuery(docId)
-      query.fail(new Error("already failed"))
-
-      await expect(query.whenReady()).rejects.toThrow("already failed")
-    })
-
-    it("rejects when abort signal is already aborted", async () => {
-      const query = createTestQuery(docId)
-      const controller = new AbortController()
-      controller.abort()
-
-      await expect(
-        query.whenReady({ signal: controller.signal })
-      ).rejects.toThrow()
-    })
-
-    it("rejects when abort signal fires", async () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("test")
-      const controller = new AbortController()
-
-      const promise = query.whenReady({ signal: controller.signal })
-      controller.abort()
-
-      await expect(promise).rejects.toThrow()
-    })
-
-    it("cleans up signal listener on resolve", async () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("test")
-      const controller = new AbortController()
-      const removeSpy = vi.spyOn(controller.signal, "removeEventListener")
-
-      const promise = query.whenReady({ signal: controller.signal })
-      loadInto(query, [makeBlob({ count: 0 })])
-      await promise
-
-      expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function))
-    })
-  })
-
-  describe("fail", () => {
-    it("transitions to failed state", () => {
-      const query = createTestQuery(docId)
-      query.fail(new Error("something broke"))
-
-      const state = query.peek()
-      expect(state.state).toBe("failed")
-      if (state.state === "failed") {
-        expect(state.error.message).toBe("something broke")
-      }
-    })
-
-    it("ignores further state changes after failure", () => {
-      const query = createTestQuery(docId)
-      query.fail(new Error("done"))
-
-      query.sourcePending("test")
-      loadInto(query, [makeBlob({ count: 0 })])
-
-      expect(query.peek().state).toBe("failed")
-    })
-  })
-
-  describe("auto-detection via handle", () => {
-    it("transitions to ready when data is loaded into the handle", () => {
-      const query = createTestQuery(docId)
-      const doc = A.from({ count: 99 })
-      query.handle.update(() => doc)
-
-      const state = query.peek()
-      expect(state.state).toBe("ready")
-      if (state.state === "ready") {
-        expect(state.handle).toBe(query.handle)
-        expect(state.handle.doc()).toHaveProperty("count", 99)
-      }
-    })
-
-    it("stays ready even if all sources become unavailable after data loaded", () => {
-      const query = createTestQuery(docId)
-      query.sourcePending("a")
-      query.handle.update(() => A.from({ count: 1 }))
-      expect(query.peek().state).toBe("ready")
-
-      query.sourceUnavailable("a")
-      expect(query.peek().state).toBe("ready")
-    })
-  })
-
-  describe("progressAtHeads", () => {
-    it.each(["shutdown", "deleted", "evicted"])(
-      "rejects a missing-heads wait when the ready query fails: %s",
-      async reason => {
-        const query = createTestQuery<{ value: string }>(docId)
-        loadInto(query, [makeBlob({ value: "v1" })])
-        const future = A.change(A.clone(query.handle.fullDoc()), d => {
-          d.value = "v2"
-        })
-        const progress = progressAtPath(
-          progressAtHeads(query, encodeHeads(A.getHeads(future))),
-          []
-        )
-        const before = query.handle.listenerCount("heads-changed")
-        const controller = new AbortController()
-        const remove = vi.spyOn(controller.signal, "removeEventListener")
-        const subscribe = query.subscribe.bind(query)
-        const unsubscribed = vi.fn()
-        vi.spyOn(query, "subscribe").mockImplementation(callback => {
-          const unsubscribe = subscribe(callback)
-          return () => {
-            unsubscribed()
-            unsubscribe()
-          }
-        })
-        const waiting = progress.whenReady({ signal: controller.signal })
-        await Promise.resolve()
-        expect(query.handle.listenerCount("heads-changed")).toBe(before + 1)
-        const error = new Error(reason)
-        query.fail(error)
-        await expect(waiting).rejects.toBe(error)
-        expect(query.handle.listenerCount("heads-changed")).toBe(before)
-        expect(unsubscribed).toHaveBeenCalledOnce()
-        expect(remove).toHaveBeenCalledWith("abort", expect.any(Function))
-      },
-      1000
-    )
-
-    it.each([false, true])(
-      "rechecks failure during the root-readiness await, even when target heads already exist: %s",
-      async present => {
-        const query = createTestQuery<{ value: string }>(docId)
-        loadInto(query, [makeBlob({ value: "v1" })])
-        const future = A.change(A.clone(query.handle.fullDoc()), d => {
-          d.value = "v2"
-        })
-        const heads = present
-          ? query.handle.heads()
-          : encodeHeads(A.getHeads(future))
-        const before = query.handle.listenerCount("heads-changed")
-        const waiting = progressAtHeads(query, heads).whenReady()
-        const error = new Error("query failed during await")
-        query.fail(error)
-        await expect(waiting).rejects.toBe(error)
-        expect(query.handle.listenerCount("heads-changed")).toBe(before)
-      },
-      1000
-    )
-
-    it("stays loading until the requested heads are present", async () => {
-      const query = createTestQuery<{ value: string }>(docId)
-
-      // Apply v1 — query becomes ready, but v2 heads aren't present yet.
-      query.handle.update(() =>
-        A.change(A.init<{ value: string }>(), d => (d.value = "v1"))
-      )
-      expect(query.peek().state).toBe("ready")
-
-      // Compute v2 on a CLONE so the live handle doesn't gain v2 in its
-      // history before we ask the wrapper to wait for those heads.
-      const v2 = A.change(A.clone(query.handle.doc()), d => (d.value = "v2"))
-      const v2RawHeads = A.getHeads(v2)
-      const v2Heads = encodeHeads(v2RawHeads)
-
-      const progress = progressAtHeads(query, v2Heads as UrlHeads)
-      expect(progress.peek().state).toBe("loading")
-
-      // whenReady must not resolve before v2 arrives.
-      let resolved = false
-      const p = progress.whenReady().then(h => {
-        resolved = true
-        return h
-      })
-      await new Promise(r => setTimeout(r, 30))
-      expect(resolved).toBe(false)
-
-      // Apply v2 — whenReady should now resolve with the view at v2.
-      query.handle.update(() => v2)
-      const view = await p
-      expect(view.doc()?.value).toBe("v2")
-      expect(progress.peek().state).toBe("ready")
-    })
-
-    it("subscribers see the loading→ready transition when heads arrive", async () => {
-      const query = createTestQuery<{ value: string }>(docId)
-      query.handle.update(() =>
-        A.change(A.init<{ value: string }>(), d => (d.value = "v1"))
-      )
-      const v2 = A.change(A.clone(query.handle.doc()), d => (d.value = "v2"))
-      const v2Heads = encodeHeads(A.getHeads(v2))
-
-      const progress = progressAtHeads(query, v2Heads as UrlHeads)
-      const states: string[] = []
-      progress.subscribe(s => states.push(s.state))
-
-      query.handle.update(() => v2)
-      // Allow microtasks to flush.
-      await Promise.resolve()
-      expect(states).toContain("ready")
-    })
-
-    it("rejects when the signal aborts between readiness and the heads wait", async () => {
-      const query = createTestQuery<{ value: string }>(docId)
-      query.handle.update(() =>
-        A.change(A.init<{ value: string }>(), d => (d.value = "v1"))
-      )
-      const v2 = A.change(A.clone(query.handle.doc()), d => (d.value = "v2"))
-      const v2Heads = encodeHeads(A.getHeads(v2))
-
-      const progress = progressAtHeads(query, v2Heads as UrlHeads)
+  it.each(["fail", "deleted"] as const)(
+    "rejects a waiting caller and detaches on %s",
+    async settle => {
+      const query = readyQuery({ value: "v1" })
+      const { heads } = future(query)
       const before = query.handle.listenerCount("heads-changed")
-
-      // The query is already ready, so whenReady's first phase resolves on
-      // the microtask queue; abort in the gap before the heads wait attaches.
-      const controller = new AbortController()
-      const p = progress.whenReady({ signal: controller.signal })
-      controller.abort()
-
-      await expect(p).rejects.toBe(controller.signal.reason)
-      expect(query.handle.listenerCount("heads-changed")).toBe(before)
-    })
-
-    it("aborting during the heads wait removes the listener", async () => {
-      const query = createTestQuery<{ value: string }>(docId)
-      query.handle.update(() =>
-        A.change(A.init<{ value: string }>(), d => (d.value = "v1"))
-      )
-      const v2 = A.change(A.clone(query.handle.doc()), d => (d.value = "v2"))
-      const v2Heads = encodeHeads(A.getHeads(v2))
-
-      const progress = progressAtHeads(query, v2Heads as UrlHeads)
-      const before = query.handle.listenerCount("heads-changed")
-
-      const controller = new AbortController()
-      const remove = vi.spyOn(controller.signal, "removeEventListener")
-      const subscribe = query.subscribe.bind(query)
-      const unsubscribed = vi.fn()
-      vi.spyOn(query, "subscribe").mockImplementation(callback => {
-        const unsubscribe = subscribe(callback)
-        return () => {
-          unsubscribed()
-          unsubscribe()
-        }
-      })
-      const p = progress.whenReady({ signal: controller.signal })
-      // Let the first phase resolve and the heads wait attach its listener.
-      await Promise.resolve()
+      const waiting = waitUntilReady(queryAtHeads(query, heads))
       expect(query.handle.listenerCount("heads-changed")).toBe(before + 1)
-
-      controller.abort()
-      await expect(p).rejects.toBe(controller.signal.reason)
+      if (settle === "fail") query.fail(new Error("gone"))
+      else query.deleted()
+      await expect(waiting).rejects.toThrow()
       expect(query.handle.listenerCount("heads-changed")).toBe(before)
-      expect(unsubscribed).toHaveBeenCalledOnce()
-      expect(remove).toHaveBeenCalledWith("abort", expect.any(Function))
+    }
+  )
+
+  it("detaches its heads listener on abort", async () => {
+    const query = readyQuery({ value: "v1" })
+    const { heads } = future(query)
+    const before = query.handle.listenerCount("heads-changed")
+    const controller = new AbortController()
+    const waiting = waitUntilReady(
+      queryAtHeads(query, heads),
+      controller.signal
+    )
+    controller.abort("stop")
+    await expect(waiting).rejects.toBe("stop")
+    expect(query.handle.listenerCount("heads-changed")).toBe(before)
+  })
+})
+
+describe("queryAtPath", () => {
+  it("yields a sub-handle once ready", () => {
+    const query = readyQuery({ items: ["a"] })
+    const state = queryAtPath(query, ["items"] as any).state()
+    expect(state.state === "ready" && state.handle.doc()).toEqual(["a"])
+  })
+
+  it("maps subscribed states", () => {
+    const query = createTestQuery<{ items: string[] }>(docId)
+    query.handle.update(() => A.from({ items: ["a"] }))
+    const states: QueryState<unknown>[] = []
+    queryAtPath(query, ["items"] as any).subscribe(s => states.push(s))
+    query.ready()
+    expect(states).toHaveLength(2)
+    expect(states[0]).toEqual({ state: "loading" })
+    expect(states[1].state === "ready" && states[1].handle.doc()).toEqual(["a"])
+  })
+})
+
+describe("toProgress", () => {
+  it("synthesises the single backend source", () => {
+    const query = createTestQuery(docId)
+    const progress = toProgress(query)
+    expect(progress.peek()).toEqual({
+      state: "loading",
+      sources: { backend: "pending" },
     })
+    query.unavailable()
+    expect(progress.peek().sources).toEqual({ backend: "unavailable" })
+    query.ready()
+    expect(progress.peek()).toMatchObject({
+      state: "ready",
+      sources: { backend: "ready" },
+    })
+  })
+
+  it("reports deletion as failure and keeps whenReady", async () => {
+    const query = createTestQuery(docId)
+    const progress = toProgress(query)
+    const waiting = progress.whenReady()
+    query.deleted()
+    expect(progress.peek()).toMatchObject({
+      state: "failed",
+      error: { message: expect.stringContaining("deleted") },
+    })
+    await expect(waiting).rejects.toThrow("deleted")
   })
 })

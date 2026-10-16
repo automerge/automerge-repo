@@ -376,8 +376,10 @@ describe("public Repo with native Subduction", () => {
       corruptFrame((await p.storage.load(key))!, "blob")
     )
     const restarted = peer(p.storage)
-    // applyRecords rejects the record, so the only local source is unusable.
-    await expect(restarted.repo.find(handle.url)).rejects.toThrow(/unavailable/)
+    // The corruption surfaces as the lookup's failure, not as absence.
+    await expect(restarted.repo.find(handle.url)).rejects.toThrow(
+      /blob mismatch/
+    )
   })
 
   it("retains sub, view, merge, and changeAt on public handles", async () => {
@@ -425,9 +427,7 @@ describe("public Repo with native Subduction", () => {
     expect(deleted).toHaveBeenCalledTimes(1)
     expect(subDeleted).toHaveBeenCalledTimes(1)
     await p.repo.shutdown()
-    expect(peer(p.storage).repo.findWithProgress(handle.url).peek().state).toBe(
-      "loading"
-    )
+    expect(peer(p.storage).repo.query(handle.url).state().state).toBe("loading")
   })
 
   it("deletes unopened stored history without opening a native stream", async () => {
@@ -497,11 +497,11 @@ describe("public Repo with native Subduction", () => {
       b = peer()
     await connect(a, b)
     const url = generateAutomergeUrl()
-    const progress = b.repo.findWithProgress(url)
-    expect(progress.peek().state).toBe("loading")
+    const progress = b.repo.query(url)
+    expect(progress.state().state).toBe("loading")
     // The backend's explicit sync deadline is 1s; native loadAndWatch has none.
     await new Promise(resolve => setTimeout(resolve, 1100))
-    expect(progress.peek().state).toBe("loading")
+    expect(progress.state().state).toBe("loading")
     const { documentId } = parseAutomergeUrl(url)
     await a.repo.import<State>(A.save(A.from<State>({ count: 9 })), {
       docId: documentId,
@@ -605,13 +605,13 @@ describe("public Repo with native Subduction", () => {
       b = peer()
     const source = await a.repo.create<State>({ count: 5 })
     await a.repo.flush()
-    const progress = b.repo.findWithProgress<State>(source.url)
+    const progress = b.repo.query<State>(source.url)
     await vi.waitFor(
-      () => expect(progress.peek().state).not.toBe("loading"),
+      () => expect(progress.state().state).not.toBe("loading"),
       wait
     )
     await connect(a, b)
-    await vi.waitFor(() => expect(progress.peek().state).toBe("ready"), wait)
+    await vi.waitFor(() => expect(progress.state().state).toBe("ready"), wait)
     expect((await b.repo.find<State>(source.url)).doc()).toEqual({ count: 5 })
   }, 10000)
 
@@ -623,9 +623,9 @@ describe("public Repo with native Subduction", () => {
       doc.count = 1
     })
     await a.repo.flush()
-    const progress = b.repo.findWithProgress<State>(source.url)
+    const progress = b.repo.query<State>(source.url)
     await vi.waitFor(
-      () => expect(progress.peek().state).toBe("unavailable"),
+      () => expect(progress.state().state).toBe("unavailable"),
       wait
     )
     const entered = deferred(),
@@ -641,9 +641,9 @@ describe("public Repo with native Subduction", () => {
     try {
       await connect(a, b)
       await entered.promise
-      expect(progress.peek().state).not.toBe("ready")
+      expect(progress.state().state).not.toBe("ready")
       gate.resolve()
-      await vi.waitFor(() => expect(progress.peek().state).toBe("ready"), wait)
+      await vi.waitFor(() => expect(progress.state().state).toBe("ready"), wait)
       expect((await b.repo.find<State>(source.url)).doc()).toEqual({ count: 1 })
     } finally {
       gate.resolve()
@@ -664,14 +664,14 @@ describe("public Repo with native Subduction", () => {
       }
     }
     await connect(a, b)
-    const progress = b.repo.findWithProgress<State>(source.url)
-    const states: string[] = [progress.peek().state]
+    const progress = b.repo.query<State>(source.url)
+    const states: string[] = [progress.state().state]
     const unsubscribe = progress.subscribe(state => states.push(state.state))
-    const finding = progress.whenReady()
+    const finding = b.repo.find<State>(source.url)
     void finding.catch(() => {})
     try {
       await entered.promise
-      expect(progress.peek().state).toBe("loading")
+      expect(progress.state().state).toBe("loading")
       gate.resolve()
       const receiver = await finding
       expect(receiver.doc()).toEqual({ count: 7 })

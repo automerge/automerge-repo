@@ -22,14 +22,13 @@ export function useDocHandles<T>(
 
     // Initialize the map with any handles that are ready
     for (const id of idSet.values()) {
-      let progress
+      let state
       try {
-        progress = repo.findWithProgress<T>(id)
+        state = repo.query<T>(id).state()
       } catch (e) {
         continue
       }
 
-      const state = progress.peek()
       if (state.state === "ready") {
         map.set(id, state.handle)
       }

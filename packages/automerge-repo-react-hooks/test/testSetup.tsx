@@ -1,5 +1,9 @@
 import React, { type PropsWithChildren } from "react"
-import { Repo, type DocumentProgress } from "@automerge/automerge-repo"
+import {
+  Repo,
+  type DocumentQuery,
+  type QueryState,
+} from "@automerge/automerge-repo"
 import "@testing-library/jest-dom"
 import { cleanup } from "@testing-library/react"
 import { afterEach, vi } from "vitest"
@@ -31,25 +35,26 @@ export function setupDelayedRepo(latency = 10) {
   const repoFinder = new Repo()
   repos.add(repoCreator)
   repos.add(repoFinder)
-  const localProgress = repoFinder.findWithProgress.bind(repoFinder)
+  const localQuery = repoFinder.query.bind(repoFinder)
   const localFind = repoFinder.find.bind(repoFinder)
   const loaded = new Set<string>()
 
-  vi.spyOn(repoFinder, "findWithProgress").mockImplementation(id => {
-    const local = localProgress(id)
-    if (local.peek().state === "ready") return local
-    const progress = repoCreator.findWithProgress(id)
+  vi.spyOn(repoFinder, "query").mockImplementation(id => {
+    const local = localQuery(id)
+    if (local.state().state === "ready") return local
+    const query = repoCreator.query(id)
+    // Hide the creator's state until the delayed find has "loaded" it.
+    const hide = (state: QueryState<unknown>): QueryState<unknown> =>
+      loaded.has(String(id)) ? state : { state: "loading" }
     return {
-      ...progress,
-      peek: () =>
-        loaded.has(String(id))
-          ? progress.peek()
-          : { state: "loading", sources: { mock: "pending" } },
-    } as DocumentProgress<unknown>
+      documentId: query.documentId,
+      state: () => hide(query.state()),
+      subscribe: callback => query.subscribe(state => callback(hide(state))),
+    } as DocumentQuery<unknown>
   })
   vi.spyOn(repoFinder, "find").mockImplementation(async (id, options) => {
-    const local = localProgress(id)
-    if (local.peek().state === "ready") return localFind(id, options)
+    const local = localQuery(id)
+    if (local.state().state === "ready") return localFind(id, options)
     await pause(latency)
     options?.signal?.throwIfAborted()
     const handle = await repoCreator.find(id, options)

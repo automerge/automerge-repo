@@ -34,7 +34,7 @@ export default function useDocHandle<T>(
     const unwrappedURL = typeof url == "function" ? url() : url
     if (!unwrappedURL) return undefined
     // Preserve synchronous initial values; find() resolves asynchronously.
-    const state = repo.findWithProgress<T>(unwrappedURL).peek()
+    const state = repo.query<T>(unwrappedURL).state()
     return state.state === "ready" ? state.handle : undefined
   }
 

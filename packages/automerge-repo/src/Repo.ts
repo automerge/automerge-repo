@@ -11,10 +11,13 @@ import { DocHandle } from "./DocHandle.js"
 import { Document } from "./Document.js"
 import { DocumentSync } from "./DocumentSync.js"
 import {
-  DocumentQuery,
-  progressAtHeads,
-  progressAtPath,
+  RootQuery,
+  queryAtHeads,
+  queryAtPath,
+  toProgress,
+  waitUntilReady,
   type DocumentProgress,
+  type DocumentQuery,
 } from "./DocumentQuery.js"
 import { makeLogger } from "./Logger.js"
 import { extractRecords } from "./sedimentree/automerge/index.js"
@@ -30,13 +33,13 @@ import type { AnyDocumentId, BinaryDocumentId, DocumentId } from "./types.js"
 import type { AbortOptions } from "./helpers/abortable.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
 
-export type { DocumentProgress } from "./DocumentQuery.js"
+export type { DocumentProgress, DocumentQuery } from "./DocumentQuery.js"
 export type { SyncInfo } from "./DocHandle.js"
 
 type Entry<T = any> = {
   document: Document<T>
   handle: DocHandle<T>
-  query: DocumentQuery<T>
+  query: RootQuery<T>
   sync?: DocumentSync<T>
 }
 
@@ -81,13 +84,12 @@ export class Repo extends EventEmitter<RepoEvents> {
     return this.#track(this.#createDocument(A.clone(handle.fullDoc())))
   }
 
-  /** @deprecated Use find(). A replacement query API is deferred. */
+  /** @deprecated Use query() or find(). */
   findWithProgress<T>(
     id: AnyDocumentId,
     _options?: AbortOptions
   ): DocumentProgress<T> {
-    this.#checkOpen()
-    return this.#progress<T>(id)
+    return toProgress(this.query<T>(id))
   }
 
   /** Cancellation stops this wait, not the shared document's loading. */
@@ -95,12 +97,17 @@ export class Repo extends EventEmitter<RepoEvents> {
     id: AnyDocumentId,
     options: RepoFindOptions = {}
   ): Promise<DocHandle<T>> {
-    this.#checkOpen()
     options.signal?.throwIfAborted()
-    return this.#progress<T>(id).whenReady(options)
+    return waitUntilReady(this.query<T>(id), options.signal)
   }
 
-  #progress<T>(id: AnyDocumentId): DocumentProgress<T> {
+  /**
+   * Observe the readiness of a document, starting to load it if needed.
+   * Accepts everything {@link Repo.find} does; heads and paths in a URL
+   * yield the matching view or sub-handle once ready.
+   */
+  query<T>(id: AnyDocumentId): DocumentQuery<T> {
+    this.#checkOpen()
     const parsed = isValidAutomergeUrl(id)
       ? parseAutomergeUrl(id)
       : {
@@ -110,11 +117,12 @@ export class Repo extends EventEmitter<RepoEvents> {
         }
     const { documentId, heads, segments } = parsed
     this.#checkDeleting(documentId)
-    const entry = this.#entries.get(documentId) ?? this.#register(documentId)
-    let progress: DocumentProgress<T> = entry.query
-    if (heads) progress = progressAtHeads(entry.query, heads)
-    if (segments?.length) progress = progressAtPath(progress, segments)
-    return progress
+    const entry: Entry<T> =
+      this.#entries.get(documentId) ?? this.#register<T>(documentId)
+    let query: DocumentQuery<T> = entry.query
+    if (heads) query = queryAtHeads(query, heads)
+    if (segments?.length) query = queryAtPath(query, segments)
+    return query
   }
 
   /** Import preserves history, including when the supplied ID is only stored on disk. */
@@ -135,7 +143,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (!id) return this.#createDocument(doc)
     this.#checkDeleting(id)
     const existing = this.#entries.get(id)
-    if (existing?.query.peek().state === "ready") {
+    if (existing?.query.state().state === "ready") {
       await existing.handle.update(current => A.merge(current, A.clone(doc)))
       this.#checkOpen()
       return existing.handle
@@ -177,11 +185,13 @@ export class Repo extends EventEmitter<RepoEvents> {
       if (existing.document.deleted || existing.document.closed)
         throw new Error("Document is no longer open")
       if (existing.sync) existing.sync.adopt(doc)
-      else
+      else {
         await existing.document.applyMutation(
           current => A.merge(current, A.clone(doc)),
           { incoming: true }
         )
+        existing.query.ready()
+      }
       return existing.handle
     }
     return this.#register<T>(id, doc).handle
@@ -209,9 +219,12 @@ export class Repo extends EventEmitter<RepoEvents> {
   #register<T>(id: DocumentId, initial?: A.Doc<T>): Entry<T> {
     const document = new Document<T>(id, initial)
     const handle = new DocHandle(document)
-    const query = new DocumentQuery(handle, new Map(), {
-      initialSnapshotPending: !!this.#backend && !initial,
-    })
+    const query = new RootQuery(handle)
+    document.query = query
+    if (!this.#backend) {
+      if (initial) query.ready()
+      else query.unavailable()
+    }
     const entry: Entry<T> = { document, handle, query }
     if (this.#backend)
       entry.sync = new DocumentSync(
@@ -224,28 +237,30 @@ export class Repo extends EventEmitter<RepoEvents> {
       )
     this.#entries.set(id, entry)
     let announced = false
-    const announce = (state: ReturnType<typeof query.peek>) => {
+    entry.sync?.start()
+    query.subscribe(state => {
       if (!announced && state.state === "ready") {
         announced = true
         this.emit("document", { handle })
       }
-    }
-    query.subscribe(state => {
-      announce(state)
-      if (
-        state.state === "failed" &&
-        document.deleted &&
-        !this.#deleting.has(id) &&
-        this.#entries.get(id) === entry
-      ) {
-        this.#entries.delete(id)
-        this.emit("delete-document", { documentId: id })
-      }
       if (state.state === "unavailable")
         this.emit("unavailable-document", { documentId: id })
+      if (
+        (state.state !== "deleted" && state.state !== "failed") ||
+        this.#entries.get(id) !== entry
+      )
+        return
+      // A settled query is final; a later lookup starts a fresh entry.
+      this.#entries.delete(id)
+      // Repo.delete and shutdown release sessions themselves.
+      if (this.#closed || this.#deleting.has(id)) return
+      if (entry.sync)
+        void this.#track(entry.sync.release()).catch(error =>
+          this.#log.error("failed to release a settled document", error)
+        )
+      if (state.state === "deleted")
+        this.emit("delete-document", { documentId: id })
     })
-    entry.sync?.start()
-    announce(query.peek())
     return entry
   }
 
@@ -283,8 +298,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       } else {
         if (entry) {
           entry.document.closed = true
-          entry.handle.delete()
-          entry.query.fail(new Error("Document deleted"))
+          entry.document.delete()
         }
         resolve()
       }

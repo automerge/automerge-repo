@@ -13,7 +13,7 @@ import {
 import { MemoryBackend } from "../src/sedimentree/testing/MemoryBackend.js"
 import { idBytes, sedimentreeId } from "../src/sedimentree/index.js"
 import { extractRecords } from "../src/sedimentree/automerge/index.js"
-import type { BinaryDocumentId } from "../src/types.js"
+import type { AnyDocumentId, BinaryDocumentId } from "../src/types.js"
 
 function gate() {
   let resolve!: () => void
@@ -76,10 +76,10 @@ describe("backend-driven Repo", () => {
     const id = parseAutomergeUrl(generateAutomergeUrl()).documentId
     const announced = vi.fn()
     r.on("document", announced)
-    const query = r.findWithProgress<{ count: number }>(id)
+    const query = r.query<{ count: number }>(id)
     const handle = r.handles[id] as DocHandle<{ count: number }>
     expect(handle.isReady()).toBe(false)
-    expect(query.peek().state).toBe("loading")
+    expect(query.state().state).toBe("loading")
     expect(announced).not.toHaveBeenCalled()
     expect(() => handle.change(d => (d.count = 2))).toThrow("not ready")
 
@@ -88,7 +88,8 @@ describe("backend-driven Repo", () => {
       sedimentreeId(documentIdToBinary(id)!),
       extractRecords(source)
     )
-    expect(await query.whenReady()).toBe(handle)
+    expect(await r.find(id)).toBe(handle)
+    expect(query.state()).toEqual({ state: "ready", handle })
     expect(handle.isReady()).toBe(true)
     expect(handle.doc()).toEqual({ count: 1 })
     expect(announced).toHaveBeenCalledOnce()
@@ -359,7 +360,7 @@ describe("backend-driven Repo", () => {
     await r.delete(handle.url)
     expect(handle.isDeleted()).toBe(true)
     expect(deleted).toHaveBeenCalledTimes(1)
-    expect(r.findWithProgress(handle.url).peek().state).toBe("loading")
+    expect(r.query(handle.url).state().state).toBe("loading")
     const imported = await r.import(A.save(A.from({ count: 10 })), {
       docId: handle.documentId,
     })
@@ -380,7 +381,7 @@ describe("backend-driven Repo", () => {
     const deleted = vi.fn()
     r.on("delete-document", deleted)
     const deleting = r.delete(documentId)
-    expect(() => r.findWithProgress(documentId)).toThrow("deletion")
+    expect(() => r.query(documentId)).toThrow("deletion")
     expect(r.handles[documentId]).toBeUndefined()
     await deleting
     expect(open).not.toHaveBeenCalled()
@@ -496,11 +497,11 @@ describe("backend-driven Repo", () => {
     const backend = new MemoryBackend()
     const r = repo(backend)
     const close = vi.spyOn(backend, "close")
-    const progress = r.findWithProgress(generateAutomergeUrl())
-    progress.subscribe(() => {
+    const url = generateAutomergeUrl()
+    r.query(url).subscribe(() => {
       throw new Error("subscriber failed")
     })
-    const finding = progress.whenReady()
+    const finding = r.find(url)
     const rejected = expect(finding).rejects.toThrow("shut down")
     await expect(r.shutdown()).resolves.toBeUndefined()
     await rejected
@@ -531,10 +532,10 @@ describe("backend-driven Repo", () => {
     void two.then(stillWaiting, stillWaiting)
     controller.abort("cancelled")
     await rejected
-    expect(r.findWithProgress(url).peek().state).toBe("loading")
+    expect(r.query(url).state().state).toBe("loading")
     synchronize.resolve()
     expect(stillWaiting).not.toHaveBeenCalled()
-    expect(r.findWithProgress(url).peek().state).toBe("loading")
+    expect(r.query(url).state().state).toBe("loading")
   })
 
   it("makes an empty lookup unavailable without preventing later history", async () => {
@@ -542,29 +543,80 @@ describe("backend-driven Repo", () => {
     const r = repo(backend)
     const url = generateAutomergeUrl()
     const { documentId } = parseAutomergeUrl(url)
-    const progress = r.findWithProgress<{ count: number }>(url)
+    const progress = r.query<{ count: number }>(url)
     const states: string[] = []
     progress.subscribe(state => states.push(state.state))
-    await vi.waitFor(() => expect(progress.peek().state).toBe("unavailable"))
+    await vi.waitFor(() => expect(progress.state().state).toBe("unavailable"))
     await backend.store(
       sedimentreeId(documentIdToBinary(documentId)!),
       extractRecords(A.from({ count: 3 }))
     )
-    await vi.waitFor(() => expect(progress.peek().state).toBe("ready"))
+    await vi.waitFor(() => expect(progress.state().state).toBe("ready"))
     expect((await r.find<{ count: number }>(url)).doc()).toEqual({ count: 3 })
     expect(states).toContain("unavailable")
     expect(states).not.toContain("failed")
   })
 
-  it("reports open errors as source unavailability, not document failure", async () => {
+  it("reports open errors as query failures", async () => {
     const backend = new MemoryBackend()
     vi.spyOn(backend, "open").mockImplementation(() => {
       throw new Error("open failed")
     })
     const r = repo(backend)
-    const progress = r.findWithProgress(generateAutomergeUrl())
-    expect(progress.peek().state).toBe("unavailable")
-    expect(progress.peek().sources.backend).toBe("unavailable")
-    expect(progress.peek().state).not.toBe("failed")
+    expect(r.query(generateAutomergeUrl()).state()).toMatchObject({
+      state: "failed",
+      error: { message: "open failed" },
+    })
+  })
+
+  it("query validates ids like find", () => {
+    const r = repo(new MemoryBackend())
+    expect(() => r.query("not-an-id" as AnyDocumentId)).toThrow()
+  })
+
+  it("query settles deleted on Repo.delete and DocHandle.delete", async () => {
+    const r = repo(new MemoryBackend())
+    const a = await r.create({ count: 0 })
+    const b = await r.create({ count: 0 })
+    const qa = r.query(a.url)
+    const qb = r.query(b.url)
+    const deleted = vi.fn()
+    r.on("delete-document", deleted)
+    await r.delete(a.url)
+    b.delete()
+    expect(qa.state()).toEqual({ state: "deleted" })
+    expect(qb.state()).toEqual({ state: "deleted" })
+    expect(deleted).toHaveBeenCalledWith({ documentId: a.documentId })
+    expect(deleted).toHaveBeenCalledWith({ documentId: b.documentId })
+    await expect(r.find(b.url)).resolves.not.toBe(b)
+  })
+
+  it("query resolves heads and path URLs to view and sub handles", async () => {
+    const r = repo(new MemoryBackend())
+    const handle = await r.create({ items: ["a"] })
+    const at = handle.heads()
+    await handle.change(d => void d.items.push("b"))
+    const view = r
+      .query<any>(
+        stringifyAutomergeUrl({ documentId: handle.documentId, heads: at })
+      )
+      .state()
+    expect(view.state === "ready" && view.handle.doc()).toEqual({
+      items: ["a"],
+    })
+    const sub = r.query<any>(handle.sub("items").url).state()
+    expect(sub.state === "ready" && sub.handle.doc()).toEqual(["a", "b"])
+  })
+
+  it("findWithProgress maps deletion to the deprecated failed state", async () => {
+    const r = repo(new MemoryBackend())
+    const handle = await r.create({ count: 0 })
+    const progress = r.findWithProgress(handle.url)
+    expect(progress.peek().sources).toEqual({ backend: "ready" })
+    await r.delete(handle.url)
+    expect(progress.peek()).toMatchObject({
+      state: "failed",
+      error: { message: expect.stringContaining("deleted") },
+    })
   })
 })

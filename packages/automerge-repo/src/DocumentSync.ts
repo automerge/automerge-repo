@@ -1,7 +1,7 @@
 import { next as A } from "@automerge/automerge/slim"
 import type { Document } from "./Document.js"
 import type { StorageId } from "./DocHandle.js"
-import type { DocumentQuery } from "./DocumentQuery.js"
+import type { RootQuery } from "./DocumentQuery.js"
 import { decode } from "./helpers/cbor.js"
 import type { PeerId } from "./types.js"
 import {
@@ -46,7 +46,7 @@ export class DocumentSync<T> {
   constructor(
     readonly id: SedimentreeId,
     readonly document: Document<T>,
-    readonly query: DocumentQuery<T>,
+    readonly query: RootQuery<T>,
     private backend: SedimentreeBackend,
     private origin: BackendIdentity,
     created = false
@@ -56,13 +56,7 @@ export class DocumentSync<T> {
       this.publishEphemeral(payload).catch(error =>
         this.#log("ephemeral publication failed: %o", error)
       )
-    if (created) {
-      this.#complete()
-    } else {
-      document.ready = false
-      this.query.markInitialSnapshotPending()
-      this.query.sourcePending("backend")
-    }
+    if (created) this.#complete()
   }
 
   /** Open the backend session and start consuming its events. */
@@ -72,15 +66,15 @@ export class DocumentSync<T> {
     try {
       session = this.backend.open(this.id)
     } catch (error) {
-      this.sourceUnavailable(error)
+      this.fail(error)
       return
     }
     this.#session = session
-    if (!this.query.snapshotPending) session.markComplete?.()
+    if (!this.query.pending) session.markComplete?.()
     this.#consumer = this.#consume(session).catch(error => {
       if (this.#session !== session) return
       this.#session = undefined
-      this.sourceUnavailable(error)
+      this.fail(error)
     })
   }
 
@@ -115,7 +109,7 @@ export class DocumentSync<T> {
       this.onEvent(event)
     }
     if (this.#session === session && !this.document.closed)
-      this.sourceUnavailable(new Error("Backend observation ended"))
+      this.fail(new Error("Backend observation ended"))
   }
 
   // -- Writes --
@@ -191,7 +185,7 @@ export class DocumentSync<T> {
   adopt(doc: A.Doc<T>): void {
     void this.document.applyMutation(
       current => A.merge(current, A.clone(doc)),
-      { incoming: true, initial: this.query.snapshotPending }
+      { incoming: true, initial: this.query.pending }
     )
     this.#complete()
   }
@@ -211,17 +205,13 @@ export class DocumentSync<T> {
     this.document.closed = true
   }
 
-  /** Stop edits and stores, fail the lookup, and notify handles. */
+  /** Stop edits and stores, settle the query as deleted, and notify handles. */
   markDeleted(): void {
     this.close()
     this.#deleted = true
     // Nothing more reaches the backend, so there is nothing left to report.
     this.#unsaved = []
-    const notify = !this.document.deleted
-    this.document.deleted = true
-    // Invalidate acquisition before delete listeners can synchronously find the ID.
-    this.query.fail(new Error("Document deleted"))
-    if (notify) this.document.registry.dispatchDelete()
+    this.document.delete()
   }
 
   /** Settles once the store in flight (if any) has. */
@@ -245,7 +235,7 @@ export class DocumentSync<T> {
   // -- Events --
 
   onEvent(event: SedimentreeEvent): void {
-    if (this.document.closed || this.query.peek().state === "failed") return
+    if (this.document.closed || this.query.terminal) return
     switch (event.type) {
       case "blobs": {
         const input = concatBytes(event.blobs)
@@ -254,12 +244,12 @@ export class DocumentSync<T> {
         if (!current) {
           // The initial storage batch can become the document directly.
           const next = A.load<T>(input, { allowMissingChanges: true })
-          void this.document.applyLoaded(next, this.query.snapshotPending)
+          void this.document.applyLoaded(next, this.query.pending)
         } else {
           const next = A.loadIncremental(current, input)
           void this.document.applyMutation(() => next, {
             incoming: true,
-            initial: this.query.snapshotPending,
+            initial: this.query.pending,
           })
         }
         break
@@ -278,7 +268,7 @@ export class DocumentSync<T> {
           const next = applyRecords(this.document.doc, unknown)
           void this.document.applyMutation(() => next, {
             incoming: true,
-            initial: this.query.snapshotPending,
+            initial: this.query.pending,
           })
         }
         this.#checkTargets()
@@ -287,12 +277,9 @@ export class DocumentSync<T> {
       case "local-load-complete":
         if (event.marker) this.#marker("local", event.marker)
         else if (event.found && this.document.heads().length) this.#complete()
-        if (event.noPeers && this.query.snapshotPending)
-          this.query.sourceUnavailable("backend")
-        if (this.query.snapshotPending && !event.backendSyncs)
-          void this.#session
-            ?.synchronize()
-            .catch(error => this.sourceUnavailable(error))
+        if (event.noPeers) this.query.unavailable()
+        if (this.query.pending && !event.backendSyncs)
+          void this.#session?.synchronize().catch(error => this.fail(error))
         break
       case "history-marker":
         this.#marker("live", event.marker)
@@ -301,7 +288,7 @@ export class DocumentSync<T> {
         this.#marker("sync", event.result.marker)
         const { outcome, peers, marker } = event.result
         if (
-          this.query.snapshotPending &&
+          this.query.pending &&
           this.#targets.size === 0 &&
           marker.heads.length === 0 &&
           this.document.heads().length === 0 &&
@@ -310,7 +297,7 @@ export class DocumentSync<T> {
               peers.length > 0 &&
               peers.every(peer => peer.outcome === "unavailable")))
         ) {
-          this.query.sourceUnavailable("backend")
+          this.query.unavailable()
         }
         break
       }
@@ -319,7 +306,7 @@ export class DocumentSync<T> {
           this.#log("ephemeral operation failed: %o", event.error)
         } else if (event.error.retryable)
           this.#log("backend failure: %o", event.error)
-        else this.sourceUnavailable(event.error)
+        else this.fail(event.error)
         break
       case "remote-heads":
         this.document.recordRemoteHeads(
@@ -340,15 +327,19 @@ export class DocumentSync<T> {
         break
       case "rescan-required":
         this.#targets.clear()
-        if (this.query.snapshotPending) this.query.sourcePending("backend")
+        this.query.loading()
         break
     }
   }
 
-  sourceUnavailable(reason: unknown): void {
+  /** Terminal: stop edits and surface the error through the query. */
+  fail(reason: unknown): void {
     if (this.document.closed) return
-    this.#log("backend observation unavailable: %o", reason)
-    this.query.sourceUnavailable("backend")
+    this.#log("backend observation failed: %o", reason)
+    this.close()
+    this.query.fail(
+      reason instanceof Error ? reason : new Error(String(reason))
+    )
   }
 
   /** Application logging must not interrupt durable observation. */
@@ -359,18 +350,13 @@ export class DocumentSync<T> {
   }
 
   #marker(source: "local" | "live" | "sync", marker: HistoryMarker): void {
-    if (
-      this.query.peek().state === "failed" ||
-      !this.query.snapshotPending ||
-      marker.heads.length === 0
-    )
-      return
+    if (!this.query.pending || marker.heads.length === 0) return
     if (!this.#targets.has(source)) this.#targets.set(source, marker)
     this.#checkTargets()
   }
 
   #checkTargets(): void {
-    if (!this.query.snapshotPending) return
+    if (!this.query.pending) return
     const doc = this.document.peekDoc()
     if (!doc) return
     for (const target of this.#targets.values()) {
@@ -383,9 +369,7 @@ export class DocumentSync<T> {
 
   #complete(): void {
     this.#targets.clear()
-    this.document.ready = true
-    this.query.markInitialSnapshotComplete()
-    this.query.sourceReady("backend")
+    this.query.ready()
     // Let the backend skip history-marker work once Repo has a verified snapshot.
     this.#session?.markComplete?.()
   }

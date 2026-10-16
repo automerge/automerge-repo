@@ -58,8 +58,7 @@ export function useDocHandle<T>(
 
   if (id && !currentHandle) {
     // Preserve synchronous initial values; find() resolves asynchronously.
-    const progress = repo.findWithProgress<T>(id)
-    const state = progress.peek()
+    const state = repo.query<T>(id).state()
     if (state.state === "ready") {
       currentHandle = state.handle
     }

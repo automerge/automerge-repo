@@ -91,10 +91,21 @@ try {
 
 ## Loading Observation
 
-`findWithProgress()` is deprecated. Prefer `find()` for promise-based loading.
-A replacement query API is deferred. Existing loading observers can still use
-`peek()`, `subscribe()`, and `whenReady()`; synchronous initial-value peeks remain
-in the React and Solid bindings to avoid loading flicker.
+`query(id)` returns a `DocumentQuery` with `state()` and `subscribe()`. It accepts
+the same IDs and URLs as `find()` and starts loading if needed. `subscribe()`
+calls back synchronously with the current state before returning, then on every
+change. States:
+
+- `loading`: no verified snapshot yet.
+- `ready`: `handle` is usable (a view or sub-handle for URLs with heads or a path).
+- `unavailable`: the backend verified it has no history; may still become `ready`.
+- `deleted`: deleted locally. Terminal.
+- `failed`: a nonretryable backend error, or shutdown. Terminal; the handle is
+  closed and a later `query()`/`find()` starts afresh.
+
+`find(id)` resolves when the query is `ready` and rejects on any other settled
+state. Write failures reject the `change()` promise and `flush()`; they do not
+change the query. `findWithProgress()` is deprecated in favour of `query()`.
 
 ## Ephemeral State
 

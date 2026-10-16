@@ -92,6 +92,8 @@ export type {
 
 export type {
   DocumentProgress,
+  DocumentQuery,
+  ProgressState,
   QueryState,
   SourceState,
 } from "./DocumentQuery.js"

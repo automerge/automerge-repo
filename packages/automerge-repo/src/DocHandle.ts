@@ -511,8 +511,7 @@ export class DocHandle<T> {
    * Prefer {@link Repo.delete} from user code.
    */
   delete() {
-    this.#document.deleted = true
-    this.#document.registry.dispatchDelete()
+    this.#document.delete()
   }
 
   /**

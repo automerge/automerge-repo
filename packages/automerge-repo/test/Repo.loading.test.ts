@@ -45,7 +45,7 @@ describe("Repo loading", () => {
     const r = new Repo({ backend: scripted.backend })
     repos.push(r)
     const id = parseAutomergeUrl(generateAutomergeUrl()).documentId
-    const progress = r.findWithProgress<Doc>(id)
+    const progress = r.query<Doc>(id)
     const handle = r.handles[id] as DocHandle<Doc>
     const session = await scripted.session()
     return { r, id, handle, progress, session, scripted }
@@ -85,7 +85,7 @@ describe("Repo loading", () => {
       expect(handle.doc()).toEqual({ count: 1, nested: { value: 2 } })
     })
 
-    it("marks the lookup unavailable when the first load fails", async () => {
+    it("fails the lookup when the first load fails", async () => {
       const { handle, session, progress } = await lookup()
       vi.spyOn(SlimA, "load").mockImplementationOnce(() => {
         throw new Error("invalid bytes")
@@ -98,7 +98,12 @@ describe("Repo loading", () => {
       })
       expect(incremental).not.toHaveBeenCalled()
       expect(handle.heads()).toEqual([])
-      await vi.waitFor(() => expect(progress.peek().state).toBe("unavailable"))
+      await vi.waitFor(() =>
+        expect(progress.state()).toMatchObject({
+          state: "failed",
+          error: { message: "invalid bytes" },
+        })
+      )
     })
 
     it("retains missing dependencies from an incomplete first storage batch", async () => {
@@ -203,11 +208,11 @@ describe("Repo loading", () => {
         sequence: 1,
         blobs: A.getAllChanges(source),
       })
-      expect(progress.peek().state).toBe("loading")
+      expect(progress.state().state).toBe("loading")
       expect(handle.doc()).toEqual({ count: 2 })
       expect(changed).toHaveBeenCalledOnce()
       await session.push({ type: "local-load-complete", found: true })
-      expect(progress.peek().state).toBe("ready")
+      expect(progress.state().state).toBe("ready")
       expect(session.synchronize).not.toHaveBeenCalled()
       expect(session.markComplete).toHaveBeenCalledOnce()
     })
@@ -303,7 +308,7 @@ describe("Repo loading", () => {
     it("asks for synchronization after an empty local load unless the backend syncs", async () => {
       const { session, progress } = await lookup()
       await session.push({ type: "local-load-complete", found: false })
-      expect(progress.peek().state).toBe("loading")
+      expect(progress.state().state).toBe("loading")
       expect(session.synchronize).toHaveBeenCalledOnce()
       const other = await lookup()
       await other.session.push({
@@ -335,7 +340,7 @@ describe("Repo loading", () => {
         type: "history-marker",
         marker: { sequence: 1, heads: heads(remote) },
       })
-      expect(empty.progress.peek().state).toBe("ready")
+      expect(empty.progress.state().state).toBe("ready")
       expect(empty.session.markComplete).toHaveBeenCalledOnce()
     })
 
@@ -352,20 +357,20 @@ describe("Repo loading", () => {
         phase: "initial",
         sequence: 1,
       })
-      expect(progress.peek().state).toBe("loading")
+      expect(progress.state().state).toBe("loading")
       await session.push({
         type: "local-load-complete",
         found: true,
         marker: { sequence: 1, heads: heads(remote) },
       })
-      expect(progress.peek().state).toBe("loading")
+      expect(progress.state().state).toBe("loading")
       await session.push({
         type: "records",
         records: extractRecords(remote),
         phase: "initial",
         sequence: 1,
       })
-      expect(progress.peek().state).toBe("ready")
+      expect(progress.state().state).toBe("ready")
     })
 
     it("settles an empty local cut with no peers, without permanently failing", async () => {
@@ -379,7 +384,7 @@ describe("Repo loading", () => {
         backendSyncs: true,
       })
       await session.push({ type: "synchronized", result: noPeers() })
-      expect(progress.peek().state).toBe("unavailable")
+      expect(progress.state().state).toBe("unavailable")
       expect(unavailable).toHaveBeenCalledExactlyOnceWith({ documentId: id })
       await expect(r.find(id)).rejects.toThrow("unavailable")
       const remote = A.from({ count: 3 })
@@ -393,7 +398,7 @@ describe("Repo loading", () => {
         type: "history-marker",
         marker: { sequence: 1, heads: heads(remote) },
       })
-      expect(progress.peek().state).toBe("ready")
+      expect(progress.state().state).toBe("ready")
       expect((await r.find<Doc>(id)).doc()).toEqual({ count: 3 })
     })
 
@@ -409,10 +414,9 @@ describe("Repo loading", () => {
         type: "synchronized",
         result: { ...noPeers(), roundId: "1", outcome: "failed" },
       })
-      expect(progress.peek().state).toBe("loading")
+      expect(progress.state().state).toBe("loading")
       await session.push({ type: "synchronized", result: noPeers() })
-      expect(progress.peek().state).toBe("unavailable")
-      expect(progress.peek().sources.backend).toBe("unavailable")
+      expect(progress.state().state).toBe("unavailable")
     })
 
     it("treats an empty load with no connected peers as unavailable", async () => {
@@ -423,43 +427,36 @@ describe("Repo loading", () => {
         backendSyncs: true,
         noPeers: true,
       })
-      expect(progress.peek().state).toBe("unavailable")
+      expect(progress.state().state).toBe("unavailable")
     })
 
-    it("logs retryable failures and marks terminal ones unavailable, without poisoning later data", async () => {
-      const { session, progress, handle } = await lookup()
+    it("logs retryable failures and fails on nonretryable ones, releasing the session", async () => {
+      const { r, id, session, progress, handle } = await lookup()
       await session.push({
         type: "failure",
         sequence: 0,
         error: new BackendError("synchronize", "io", "retry", true),
       })
-      expect(progress.peek().state).toBe("loading")
+      expect(progress.state().state).toBe("loading")
       await session.push({
         type: "failure",
         sequence: 1,
         error: new BackendError("open", "io", "read failed"),
       })
-      expect(progress.peek().state).toBe("unavailable")
-      const remote = A.from({ count: 4 })
-      await session.push({
-        type: "records",
-        records: extractRecords(remote),
-        sequence: 2,
-        phase: "live",
+      expect(progress.state()).toMatchObject({
+        state: "failed",
+        error: { message: "read failed" },
       })
-      await session.push({
-        type: "history-marker",
-        marker: { sequence: 2, heads: heads(remote) },
-      })
-      expect(progress.peek().state).toBe("ready")
-      await handle.change(d => {
-        d.count = 5
-      })
-      expect(handle.doc()?.count).toBe(5)
+      // The failed session is released rather than left delivering data.
+      await vi.waitFor(() => expect(session.closed).toBe(true))
+      expect(() => handle.change(d => void (d.count = 5))).toThrow("closed")
+      // A settled query is final; a later lookup starts afresh.
+      expect(r.query(id)).not.toBe(progress)
+      expect(r.query(id).state().state).toBe("loading")
     })
 
-    it("settles failed partial loading and can later verify the complete history", async () => {
-      const { session, progress } = await lookup()
+    it("fails partial loading on a nonretryable failure", async () => {
+      const { r, id, session, progress } = await lookup()
       const prefix = A.from({ count: 1 })
       const complete = A.change(A.clone(prefix), doc => {
         doc.count = 2
@@ -475,40 +472,47 @@ describe("Repo loading", () => {
         found: true,
         marker: { sequence: 0, heads: heads(complete) },
       })
-      expect(progress.peek().state).toBe("loading")
-      const waiting = progress.whenReady()
-      const unavailable = expect(waiting).rejects.toThrow("unavailable")
+      expect(progress.state().state).toBe("loading")
+      const waiting = r.find(id)
+      const failed = expect(waiting).rejects.toThrow("read interrupted")
       await session.push({
         type: "failure",
         sequence: 1,
         error: new BackendError("observe", "io", "read interrupted"),
       })
-      expect(progress.peek().state).toBe("unavailable")
-      await unavailable
-      await session.push({
-        type: "records",
-        records: extractRecords(complete),
-        sequence: 2,
-        phase: "live",
-      })
-      expect(progress.peek().state).toBe("ready")
+      expect(progress.state().state).toBe("failed")
+      await failed
     })
 
-    it("marks an unexpectedly ended observation unavailable without closing the handle", async () => {
+    it("fails and closes the handle when observation ends unexpectedly", async () => {
       const { session, handle, r } = await created()
-      const progress = r.findWithProgress<Doc>(handle.documentId)
+      const progress = r.query<Doc>(handle.documentId)
       await session.end()
       await vi.waitFor(() =>
-        expect(progress.peek().sources.backend).toBe("unavailable")
+        expect(progress.state()).toMatchObject({
+          state: "failed",
+          error: { message: "Backend observation ended" },
+        })
       )
-      expect(progress.peek().state).toBe("ready")
-      await handle.change(d => {
-        d.count = 2
-      })
-      expect(handle.doc()?.count).toBe(2)
+      expect(() => handle.change(d => void (d.count = 2))).toThrow("closed")
     })
 
-    it("marks the lookup unavailable when the backend cannot open a session", async () => {
+    it("rescan reopens without leaving ready, and returns unavailable to loading", async () => {
+      const ready = await created()
+      const query = ready.r.query<Doc>(ready.handle.documentId)
+      await ready.session.push({ type: "rescan-required", sequence: 1 })
+      await vi.waitFor(() => expect(ready.scripted.sessions).toHaveLength(2))
+      expect(query.state().state).toBe("ready")
+
+      const { session, progress, scripted } = await lookup()
+      await session.push({ type: "synchronized", result: noPeers() })
+      expect(progress.state().state).toBe("unavailable")
+      await session.push({ type: "rescan-required", sequence: 1 })
+      expect(progress.state().state).toBe("loading")
+      await vi.waitFor(() => expect(scripted.sessions).toHaveLength(2))
+    })
+
+    it("fails the lookup when the backend cannot open a session", async () => {
       const backend = new MemoryBackend()
       vi.spyOn(backend, "open").mockImplementation(() => {
         throw new Error("cannot open")
@@ -516,7 +520,7 @@ describe("Repo loading", () => {
       const r = new Repo({ backend })
       repos.push(r)
       await expect(r.find(generateAutomergeUrl())).rejects.toThrow(
-        "unavailable"
+        "cannot open"
       )
     })
   })
@@ -742,7 +746,7 @@ describe("Repo loading", () => {
           heads: encodeHeads([...advertised]),
         })
       )
-      expect(progress.peek().state).toBe("loading")
+      expect(progress.state().state).toBe("loading")
       expect(handle.getSyncInfo("peer" as StorageId)?.lastHeads).toEqual(
         encodeHeads([...advertised])
       )
@@ -809,7 +813,7 @@ describe("Repo loading", () => {
         found: true,
         marker: { sequence: 1, heads: heads(base) },
       })
-      expect(progress.peek().state).toBe("ready")
+      expect(progress.state().state).toBe("ready")
       await expect(
         handle.change(d => {
           d.count = 1
@@ -825,7 +829,7 @@ describe("Repo loading", () => {
         found: true,
         marker: { sequence: 1, heads: heads(handle.fullDoc()) },
       })
-      expect(progress.peek().state).toBe("ready")
+      expect(progress.state().state).toBe("ready")
       await r.flush()
       expect(store.mock.calls[1][1].map(record => record.blob)).toEqual(
         failedBytes
@@ -857,13 +861,13 @@ describe("Repo loading", () => {
       await vi.waitFor(() => expect(release).toBeDefined())
       // The lookup's empty local load settles as unavailable with no peers;
       // creation then adopts the same entry and makes it ready.
-      const progress = r.findWithProgress<Doc>(id)
+      const progress = r.query<Doc>(id)
       const announced = vi.fn()
       r.on("document", announced)
-      await vi.waitFor(() => expect(progress.peek().state).toBe("unavailable"))
+      await vi.waitFor(() => expect(progress.state().state).toBe("unavailable"))
       release()
       const imported = await importing
-      expect(progress.peek().state).toBe("ready")
+      expect(progress.state().state).toBe("ready")
       expect(await r.find<Doc>(id)).toBe(imported)
       expect(imported.doc()).toEqual({ count: 5 })
       expect(announced).toHaveBeenCalledOnce()

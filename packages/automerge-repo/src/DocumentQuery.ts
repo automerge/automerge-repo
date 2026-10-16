@@ -1,5 +1,5 @@
 import { next as Automerge } from "@automerge/automerge/slim"
-import { DocHandle } from "./DocHandle.js"
+import type { DocHandle } from "./DocHandle.js"
 import { decodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { Segment } from "./subdoc-handles/types.js"
@@ -8,23 +8,215 @@ import { makeLogger } from "./Logger.js"
 const log = makeLogger("automerge-repo:query")
 
 /**
- * The state a source reports for a particular document.
+ * The readiness and availability of a document, as reported by
+ * {@link Repo.query}.
  *
- * - `pending`: the source is actively trying to obtain data (sync in
- *   progress, storage lookup outstanding, etc.).
- * - `ready`: the source has delivered everything it currently knows about.
- *   For storage, this means the on-disk doc has been loaded; for the
- *   automerge sync source, this means we've caught up to at least one
- *   connected peer's advertised initial heads.
- * - `unavailable`: the source has determined it cannot provide data.
- *
- * Sources may transition between these states freely (e.g. sync can go
- * `ready` → `pending` again when a new peer arrives advertising heads
- * we don't have).
+ * - `loading`: the Repo is still trying to obtain a usable snapshot.
+ * - `ready`: a verified snapshot is available through `handle`.
+ * - `unavailable`: the backend has verified that it currently has no history
+ *   for this document. A later peer or store can still make it `ready`.
+ * - `deleted`: the document was deleted locally. Terminal.
+ * - `failed`: observation stopped with an error. Terminal.
  */
+export type QueryState<T> =
+  | { state: "loading" }
+  | { state: "ready"; handle: DocHandle<T> }
+  | { state: "unavailable" }
+  | { state: "deleted" }
+  | { state: "failed"; error: Error }
+
+/** An observable view of a document's readiness, returned by {@link Repo.query}. */
+export interface DocumentQuery<T> {
+  readonly documentId: DocumentId
+  /** The current state. */
+  state(): QueryState<T>
+  /**
+   * Called synchronously with the current state, before `subscribe` returns,
+   * then on every change. Returns an unsubscribe function.
+   */
+  subscribe(callback: (state: QueryState<T>) => void): () => void
+}
+
+/**
+ * The single per-document query, driven by the Repo and its DocumentSync.
+ * Terminal states (`deleted`, `failed`) ignore later reports.
+ *
+ * @internal
+ */
+export class RootQuery<T> implements DocumentQuery<T> {
+  readonly documentId: DocumentId
+  readonly handle: DocHandle<T>
+  #state: QueryState<T> = { state: "loading" }
+  #subscribers = new Set<(state: QueryState<T>) => void>()
+
+  constructor(handle: DocHandle<T>) {
+    this.documentId = handle.documentId
+    this.handle = handle
+  }
+
+  state(): QueryState<T> {
+    return this.#state
+  }
+
+  subscribe(callback: (state: QueryState<T>) => void): () => void {
+    this.#subscribers.add(callback)
+    deliver(callback, this.#state)
+    return () => this.#subscribers.delete(callback)
+  }
+
+  /** Still waiting for a first verified snapshot. */
+  get pending(): boolean {
+    const { state } = this.#state
+    return state === "loading" || state === "unavailable"
+  }
+
+  get terminal(): boolean {
+    const { state } = this.#state
+    return state === "deleted" || state === "failed"
+  }
+
+  loading(): void {
+    if (this.pending) this.#transition({ state: "loading" })
+  }
+
+  ready(): void {
+    if (this.pending) this.#transition({ state: "ready", handle: this.handle })
+  }
+
+  unavailable(): void {
+    if (this.pending) this.#transition({ state: "unavailable" })
+  }
+
+  deleted(): void {
+    if (!this.terminal) this.#transition({ state: "deleted" })
+  }
+
+  fail(error: Error): void {
+    if (!this.terminal) this.#transition({ state: "failed", error })
+  }
+
+  #transition(next: QueryState<T>): void {
+    if (statesEqual(this.#state, next)) return
+    this.#state = next
+    notify(this.#subscribers, next)
+  }
+}
+
+/**
+ * Mirrors `query`, but stays `loading` until `heads` are in the document's
+ * history, then yields a `view(heads)` handle.
+ */
+export function queryAtHeads<T>(
+  query: DocumentQuery<T>,
+  heads: UrlHeads
+): DocumentQuery<T> {
+  const decoded = decodeHeads(heads)
+  const state = (): QueryState<T> => {
+    const upstream = query.state()
+    if (upstream.state !== "ready") return upstream
+    if (!Automerge.hasHeads(upstream.handle.fullDoc(), decoded))
+      return { state: "loading" }
+    return { state: "ready", handle: upstream.handle.view(heads) }
+  }
+  return {
+    documentId: query.documentId,
+    state,
+    subscribe: callback => {
+      let last: QueryState<T> | undefined
+      let detach: (() => void) | undefined
+      const emit = () => {
+        const next = state()
+        if (last && statesEqual(last, next)) return
+        last = next
+        callback(next)
+      }
+      const attach = (state: QueryState<T>) => {
+        if (detach || state.state !== "ready") return
+        const handle = state.handle
+        handle.on("heads-changed", emit)
+        detach = () => handle.off("heads-changed", emit)
+      }
+      // The upstream's initial call attaches and delivers our first state.
+      const unsubscribe = query.subscribe(upstream => {
+        attach(upstream)
+        emit()
+      })
+      return () => {
+        unsubscribe()
+        detach?.()
+      }
+    },
+  }
+}
+
+/** Mirrors `query`, yielding a sub-handle scoped to `segments` once ready. */
+export function queryAtPath<T>(
+  query: DocumentQuery<T>,
+  segments: Segment[]
+): DocumentQuery<T> {
+  const map = (state: QueryState<T>): QueryState<T> =>
+    state.state === "ready"
+      ? {
+          state: "ready",
+          handle: state.handle.sub(...(segments as any[])) as DocHandle<T>,
+        }
+      : state
+  return {
+    documentId: query.documentId,
+    state: () => map(query.state()),
+    subscribe: callback => query.subscribe(state => callback(map(state))),
+  }
+}
+
+/** Resolve with the handle once `query` is ready; reject on any other settled state. */
+export function waitUntilReady<T>(
+  query: DocumentQuery<T>,
+  signal?: AbortSignal
+): Promise<DocHandle<T>> {
+  return new Promise<DocHandle<T>>((resolve, reject) => {
+    signal?.throwIfAborted()
+    let unsubscribe: (() => void) | undefined
+    let settled = false
+    const cleanup = () => {
+      settled = true
+      unsubscribe?.()
+      signal?.removeEventListener("abort", onAbort)
+    }
+    const onAbort = () => {
+      cleanup()
+      reject(signal!.reason)
+    }
+    const check = (state: QueryState<T>) => {
+      if (settled || state.state === "loading") return
+      cleanup()
+      if (state.state === "ready") resolve(state.handle)
+      else reject(stateError(query.documentId, state))
+    }
+    signal?.addEventListener("abort", onAbort, { once: true })
+    unsubscribe = query.subscribe(check)
+    // The initial call may settle before `unsubscribe` is assigned.
+    if (settled) unsubscribe()
+  })
+}
+
+function stateError(documentId: DocumentId, state: QueryState<unknown>): Error {
+  switch (state.state) {
+    case "failed":
+      return state.error
+    case "deleted":
+      return new Error(`Document ${documentId} was deleted`)
+    default:
+      return new Error(`Document ${documentId} is unavailable`)
+  }
+}
+
+// -- Deprecated findWithProgress surface --
+
+/** @deprecated Use {@link Repo.query}. */
 export type SourceState = "pending" | "ready" | "unavailable"
 
-export type QueryState<T> =
+/** @deprecated Use {@link QueryState}. */
+export type ProgressState<T> =
   | { state: "loading"; sources: Record<string, SourceState> }
   | {
       state: "ready"
@@ -38,451 +230,62 @@ export type QueryState<T> =
       sources: Record<string, SourceState>
     }
 
-/**
- * Read-only view of a document query. Returned by {@link Repo.findWithProgress}
- */
+/** @deprecated Use {@link Repo.query}. Returned by {@link Repo.findWithProgress}. */
 export interface DocumentProgress<T> {
   readonly documentId: DocumentId
-
-  /** Returns the current state of the query. */
-  peek(): QueryState<T>
-
-  /**
-   * Subscribe to state changes. The callback fires whenever the query
-   * transitions to a new state. Returns an unsubscribe function.
-   */
-  subscribe(callback: (state: QueryState<T>) => void): () => void
-
-  /**
-   * Returns a promise that resolves with the DocHandle when the query reaches
-   * the `ready` state. Rejects if the query fails or the signal is aborted.
-   *
-   * @remarks
-   * `options.signal` cancels only the await, not the underlying sources
-   * (storage load, sync), which may be serving other concurrent callers. An
-   * aborted wait rejects with `signal.reason`.
-   */
+  peek(): ProgressState<T>
+  subscribe(callback: (state: ProgressState<T>) => void): () => void
   whenReady(options?: { signal?: AbortSignal }): Promise<DocHandle<T>>
 }
 
-/** Higher numbers represent earlier availability tiers. */
-export type SourcePriority = number
-type SourceInfo = { state: SourceState; priority: SourcePriority }
-
-const DEFAULT_SOURCE_PRIORITY = 0
-
-/**
- * A live query for a document. Tracks the ongoing attempt to obtain a document
- * from one or more sources (storage, automerge sync, etc.).
- *
- * The query derives its overall state from the handle and source states:
- *
- * - Initial snapshot pending → `loading` or `unavailable`, not `ready`
- * - Complete snapshot with data (non-empty heads) → `ready`
- * - No data, any source is `pending` → `loading`
- * - No data, all sources are `unavailable` → `unavailable`
- *
- * Sources report whether they are still trying (`sourcePending`) or have
- * given up (`sourceUnavailable`). The query detects data arrival
- * automatically by listening to the handle's `heads-changed` event.
- *
- * Each {@link QueryState} also carries a `sources` map exposing the latest
- * reported state of every registered source, so consumers can distinguish
- * e.g. "ready, but sync is still in flight" from "ready and quiescent".
- *
- * The public-facing API is `DocumentProgress<T>`, which exposes only the
- * read-only observation methods.
- *
- */
-export class DocumentQuery<T> implements DocumentProgress<T> {
-  readonly documentId: DocumentId
-
-  #handle: DocHandle<T>
-  #sources = new Map<string, SourceInfo>()
-  #subscribers = new Set<(state: QueryState<T>) => void>()
-  #state: QueryState<T>
-  #failed = false
-  #initialSnapshotPending: boolean
-
-  constructor(
-    handle: DocHandle<T>,
-    sources: Map<string, { priority: SourcePriority }> = new Map(),
-    options: { initialSnapshotPending?: boolean } = {}
-  ) {
-    this.#initialSnapshotPending = options.initialSnapshotPending ?? false
-    this.documentId = handle.documentId
-    this.#handle = handle
-    // New sources are treated as `pending` from registration: we expect them
-    // to do work and want them to gate availability decisions until they
-    // actually report in.
-    this.#sources = new Map(
-      Array.from(sources, ([source, { priority }]) => [
-        source,
-        { state: "pending" as SourceState, priority },
-      ])
-    )
-    this.#state = this.#computeState()
-    this.#handle.on("heads-changed", () => this.#recompute())
-  }
-
-  peek(): QueryState<T> {
-    return this.#state
-  }
-
-  get snapshotPending(): boolean {
-    return this.#initialSnapshotPending
-  }
-
-  subscribe(callback: (state: QueryState<T>) => void): () => void {
-    this.#subscribers.add(callback)
-    return () => this.#subscribers.delete(callback)
-  }
-
-  async whenReady(options?: { signal?: AbortSignal }): Promise<DocHandle<T>> {
-    const signal = options?.signal
-    signal?.throwIfAborted()
-
-    // Already ready — return immediately
-    if (this.#state.state === "ready") return this.#state.handle
-
-    // Already terminally failed — reject immediately
-    if (this.#state.state === "failed") throw this.#state.error
-
-    // Already unavailable — reject immediately
-    if (this.#state.state === "unavailable") {
-      throw new Error(`Document ${this.documentId} is unavailable`)
-    }
-
-    return new Promise<DocHandle<T>>((resolve, reject) => {
-      const onAbort = () => {
-        cleanup()
-        reject(signal!.reason)
-      }
-
-      const unsubscribe = this.subscribe(state => {
-        if (state.state === "ready") {
-          cleanup()
-          resolve(state.handle)
-        } else if (state.state === "failed") {
-          cleanup()
-          reject(state.error)
-        } else if (state.state === "unavailable") {
-          cleanup()
-          reject(new Error(`Document ${this.documentId} is unavailable`))
+/** Adapt a query to the deprecated {@link DocumentProgress} shape. */
+export function toProgress<T>(query: DocumentQuery<T>): DocumentProgress<T> {
+  const map = (state: QueryState<T>): ProgressState<T> => {
+    switch (state.state) {
+      case "loading":
+        return { state: "loading", sources: { backend: "pending" } }
+      case "ready":
+        return {
+          state: "ready",
+          handle: state.handle,
+          sources: { backend: "ready" },
         }
-      })
+      case "unavailable":
+        return { state: "unavailable", sources: { backend: "unavailable" } }
+      default:
+        return {
+          state: "failed",
+          error: stateError(query.documentId, state),
+          sources: { backend: "unavailable" },
+        }
+    }
+  }
+  return {
+    documentId: query.documentId,
+    peek: () => map(query.state()),
+    subscribe: callback => query.subscribe(state => callback(map(state))),
+    whenReady: options => waitUntilReady(query, options?.signal),
+  }
+}
 
-      const cleanup = () => {
-        unsubscribe()
-        signal?.removeEventListener("abort", onAbort)
-      }
+function notify<S>(subscribers: Set<(state: S) => void>, state: S): void {
+  for (const callback of [...subscribers]) deliver(callback, state)
+}
 
-      signal?.addEventListener("abort", onAbort, { once: true })
+/** Subscriber errors, sync or async, are logged rather than propagated. */
+function deliver<S>(callback: (state: S) => void, state: S): void {
+  try {
+    void Promise.resolve(callback(state)).catch(error => {
+      log.error("error in query subscriber: %o", error)
     })
-  }
-
-  // -- Source methods (internal only) --
-
-  markInitialSnapshotPending(): void {
-    this.#initialSnapshotPending = true
-    this.#recompute()
-  }
-
-  /** One complete source marker has been verified against document history. */
-  markInitialSnapshotComplete(): void {
-    this.#initialSnapshotPending = false
-    this.#recompute()
-  }
-
-  /**
-   * A source is actively working on obtaining the document (e.g. sync in
-   * progress, waiting for a peer to respond). If the query was `unavailable`,
-   * it transitions back to `loading`.
-   *
-   * This is the initial state for a newly registered source, so this method
-   * is only needed when re-entering pending (e.g. a new peer connects and
-   * we want to retry).
-   */
-  sourcePending(source: string): void {
-    if (this.#failed) return
-    this.#setSource(source, "pending")
-    this.#recompute()
-  }
-
-  /**
-   * A source has delivered everything it currently knows about (e.g.
-   * storage finished loading and applied the doc, or sync caught up to a
-   * peer's advertised initial heads). Distinct from `sourceUnavailable`,
-   * which means "I have nothing for you."
-   */
-  sourceReady(source: string): void {
-    if (this.#failed) return
-    this.#setSource(source, "ready")
-    this.#recompute()
-  }
-
-  /**
-   * A source has determined it cannot provide data right now (e.g. sync
-   * completed with no peers, or no data in local storage). The query
-   * transitions to `unavailable` if no source is still pending and the
-   * handle has no data.
-   */
-  sourceUnavailable(source: string): void {
-    if (this.#failed) return
-    this.#setSource(source, "unavailable")
-    this.#recompute()
-  }
-
-  /**
-   * Should the named source defer making availability decisions because a
-   * higher-priority source is still working? Returns `true` when at least
-   * one strictly-higher-priority source is in the `pending` state, meaning
-   * the caller should hold off on actions (e.g. fanning out requests to
-   * peers) that would commit it to an availability conclusion.
-   */
-  shouldDeferAvailability(source: string): boolean {
-    const myPriority = this.#sourcePriority(source)
-    for (const other of this.#sources.values()) {
-      if (other.state === "pending" && other.priority > myPriority) return true
-    }
-    return false
-  }
-
-  /**
-   * Terminal failure. The query transitions to `failed` and stays there.
-   */
-  fail(error: Error): void {
-    this.#failed = true
-    this.#transition({ state: "failed", error, sources: this.#sourcesView() })
-  }
-
-  /**
-   * Returns the DocHandle if one has been created, or null. This is used
-   * internally by the Repo for operations on existing handles (e.g. delete,
-   * export).
-   */
-  get handle(): DocHandle<T> {
-    return this.#handle
-  }
-
-  // -- Internal --
-
-  #handleHasData(): boolean {
-    return this.#handle.hasHeads()
-  }
-
-  #sourcePriority(source: string): SourcePriority {
-    return this.#sources.get(source)?.priority ?? DEFAULT_SOURCE_PRIORITY
-  }
-
-  #setSource(source: string, state: SourceState): void {
-    const priority = this.#sourcePriority(source)
-    this.#sources.set(source, { state, priority })
-  }
-
-  #recompute(): void {
-    if (this.#failed) return
-    this.#transition(this.#computeState())
-  }
-
-  /** Build the next public state from the current handle and source map. */
-  #computeState(): QueryState<T> {
-    const sources = this.#sourcesView()
-
-    // A materialized prefix is not ready until the initial cut is complete.
-    // While it is pending, checking document heads cannot change the state.
-    if (this.#initialSnapshotPending)
-      return {
-        state: this.#hasAnySource("pending") ? "loading" : "unavailable",
-        sources,
-      }
-
-    // Handle has data → ready, regardless of source states
-    if (this.#handleHasData())
-      return { state: "ready", handle: this.#handle, sources }
-
-    // No data yet — consult sources
-
-    // If any source is still working, we're loading
-    if (this.#hasAnySource("pending")) {
-      return { state: "loading", sources }
-    }
-
-    // All sources have settled (ready or unavailable) and we still have no
-    // data — nothing more is coming.
-    return { state: "unavailable", sources }
-  }
-
-  #sourcesView(): Record<string, SourceState> {
-    const out: Record<string, SourceState> = {}
-    for (const [name, info] of this.#sources) out[name] = info.state
-    return out
-  }
-
-  #transition(next: QueryState<T>): void {
-    if (statesEqual(this.#state, next)) return
-    this.#state = next
-    for (const callback of [...this.#subscribers]) {
-      try {
-        void Promise.resolve(callback(next)).catch(error => {
-          log.error("error in query subscriber: %o", error)
-        })
-      } catch (error) {
-        log.error("error in query subscriber: %o", error)
-      }
-    }
-  }
-
-  #hasAnySource(state: SourceState): boolean {
-    for (const s of this.#sources.values()) {
-      if (s.state === state) return true
-    }
-    return false
+  } catch (error) {
+    log.error("error in query subscriber: %o", error)
   }
 }
 
 function statesEqual<T>(a: QueryState<T>, b: QueryState<T>): boolean {
   if (a.state !== b.state) return false
-  if (a.state === "ready" && b.state === "ready" && a.handle !== b.handle) {
-    return false
-  }
-  if (a.state === "failed" && b.state === "failed" && a.error !== b.error)
-    return false
-  return sourceMapsEqual(a.sources, b.sources)
-}
-
-function sourceMapsEqual(
-  a: Record<string, SourceState>,
-  b: Record<string, SourceState>
-): boolean {
-  const aKeys = Object.keys(a)
-  if (aKeys.length !== Object.keys(b).length) return false
-  for (const key of aKeys) {
-    if (a[key] !== b[key]) return false
-  }
+  if (a.state === "ready" && b.state === "ready") return a.handle === b.handle
+  if (a.state === "failed" && b.state === "failed") return a.error === b.error
   return true
-}
-
-/**
- * Returns a {@link DocumentProgress} that mirrors `query` but only resolves
- * to `ready` once the requested `heads` are present in the underlying
- * document's history (and then yields a `view(heads)` snapshot). Used by
- * `findWithProgress(urlWithHeads)` so callers that pass heads in the URL
- * don't see a doc that pre-dates those heads.
- */
-export function progressAtHeads<T>(
-  query: DocumentQuery<T>,
-  heads: UrlHeads
-): DocumentProgress<T> {
-  const decoded = decodeHeads(heads)
-
-  const stateAtHeads = (): QueryState<T> => {
-    const upstream = query.peek()
-    if (upstream.state !== "ready") return upstream
-    if (!Automerge.hasHeads(upstream.handle.fullDoc(), decoded)) {
-      return { state: "loading", sources: upstream.sources }
-    }
-    return {
-      state: "ready",
-      handle: upstream.handle.view(heads),
-      sources: upstream.sources,
-    }
-  }
-
-  return {
-    documentId: query.documentId,
-    peek: stateAtHeads,
-    subscribe: cb => {
-      let last = stateAtHeads()
-      let detachHandle: (() => void) | undefined
-
-      const emit = () => {
-        const next = stateAtHeads()
-        // Dedupe on the same structural-equality basis as DocumentQuery.
-        if (statesEqual(last, next)) return
-        last = next
-        cb(next)
-      }
-
-      const attachHandle = (handle: DocHandle<T>) => {
-        if (detachHandle) return
-        handle.on("heads-changed", emit)
-        detachHandle = () => handle.off("heads-changed", emit)
-      }
-
-      const unsubQuery = query.subscribe(state => {
-        if (state.state === "ready") attachHandle(state.handle)
-        emit()
-      })
-
-      const initial = query.peek()
-      if (initial.state === "ready") attachHandle(initial.handle)
-
-      return () => {
-        unsubQuery()
-        detachHandle?.()
-      }
-    },
-    whenReady: async opts => {
-      const upstream = await query.whenReady(opts)
-      opts?.signal?.throwIfAborted()
-      return new Promise<DocHandle<T>>((resolve, reject) => {
-        const onAbort = () => {
-          cleanup()
-          reject(opts!.signal!.reason)
-        }
-        const onChange = () => {
-          const state = stateAtHeads()
-          if (state.state === "ready") {
-            cleanup()
-            resolve(state.handle)
-          } else if (state.state === "failed") {
-            cleanup()
-            reject(state.error)
-          } else if (state.state === "unavailable") {
-            cleanup()
-            reject(new Error(`Document ${query.documentId} is unavailable`))
-          }
-        }
-        const cleanup = () => {
-          unsubscribe()
-          upstream.off("heads-changed", onChange)
-          opts?.signal?.removeEventListener("abort", onAbort)
-        }
-        const unsubscribe = query.subscribe(onChange)
-        upstream.on("heads-changed", onChange)
-        opts?.signal?.addEventListener("abort", onAbort, { once: true })
-        // The query or signal may have changed while root readiness was awaited.
-        if (opts?.signal?.aborted) onAbort()
-        else onChange()
-      })
-    },
-  }
-}
-
-/**
- * Returns a {@link DocumentProgress} that mirrors `inner` but yields a
- * sub-handle scoped to `segments` once ready (e.g. for an
- * `automerge:<id>/items/@0` URL). Used by `findWithProgress` so that
- * path-suffixed URLs resolve directly to a scoped handle, without each
- * consumer having to re-apply the path. Readiness is unchanged - it stays
- * a document-level concern; the scoped value may be `undefined` if the path
- * doesn't (yet) resolve.
- */
-export function progressAtPath<T>(
-  inner: DocumentProgress<T>,
-  segments: Segment[]
-): DocumentProgress<T> {
-  const scope = (handle: DocHandle<T>): DocHandle<T> =>
-    handle.sub(...(segments as any[])) as DocHandle<T>
-
-  const mapState = (s: QueryState<T>): QueryState<T> =>
-    s.state === "ready" ? { ...s, handle: scope(s.handle) } : s
-
-  return {
-    documentId: inner.documentId,
-    peek: () => mapState(inner.peek()),
-    subscribe: cb => inner.subscribe(s => cb(mapState(s))),
-    whenReady: async opts => scope(await inner.whenReady(opts)),
-  }
 }
