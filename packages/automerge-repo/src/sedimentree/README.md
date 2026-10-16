@@ -47,7 +47,6 @@ session, ending iteration, or closing the backend wakes a pending pull. Multiple
 sessions have independent lifetimes. A stream that exceeds the bounded replay
 window emits `rescan-required`, ends, and releases interest. Reopen for a fresh
 cut, merging history without clearing the application's state or pending edits.
-Collection observation follows the same pattern, without materializing documents.
 
 Deletion invalidates existing sessions and supersedes queued old-generation
 records with a final `deleted` event. A later explicit open/store can reacquire

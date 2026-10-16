@@ -103,29 +103,21 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     }
   })
 
-  it("deduplicates canonical records within/across batches, without extra record or collection events", async () => {
+  it("deduplicates canonical records within/across batches, without extra record events", async () => {
     const backend = create()
     const session = backend.open(treeId())
     const iterator = session.events[Symbol.asyncIterator]()
-    const collection = backend.observeCollection()[Symbol.asyncIterator]()
     await initial(iterator)
-    await next(collection)
     const input = commit(4, [cid(3), cid(2), cid(3)])
     await backend.store(treeId(), [input, commit(4, [cid(2), cid(3)])])
     expect((await event(iterator, "records")).records).toEqual([
       commit(4, [cid(2), cid(3)]),
     ])
     await event(iterator, "history-marker")
-    await next(collection)
     await backend.store(treeId(), [input])
     // A round is a deterministic sentinel: duplicates must not precede it.
     const round = await session.synchronize()
     expect((await event(iterator, "synchronized")).result).toEqual(round)
-    await backend.store(treeId(2), [commit(5)])
-    expect(await next(collection)).toMatchObject({
-      type: "document",
-      id: treeId(2),
-    })
   })
 
   it("does not prune readiness targets using unverified fragment boundaries", async () => {
@@ -212,8 +204,6 @@ describe("MemoryBackend exact-representation / no-network model", () => {
   it("empty batches neither materialize IDs nor emit events on existing trees", async () => {
     const backend = create()
     await backend.store(treeId(), [])
-    const collection = backend.observeCollection()[Symbol.asyncIterator]()
-    expect((await next(collection)).type).toBe("local-load-complete")
     const session = backend.open(treeId())
     const iterator = session.events[Symbol.asyncIterator]()
     expect((await initial(iterator)).complete.found).toBe(false)
@@ -221,10 +211,6 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     await session.synchronize()
     await event(iterator, "synchronized")
     await backend.store(treeId(2), [commit(1)])
-    expect(await next(collection)).toMatchObject({
-      type: "document",
-      id: treeId(2),
-    })
     const stored = backend.open(treeId(2))
     const si = stored.events[Symbol.asyncIterator]()
     await initial(si)
@@ -370,29 +356,6 @@ describe("MemoryBackend exact-representation / no-network model", () => {
       ).records.map(recordHead)
     ).toEqual([cid(1), cid(2), cid(3)])
   })
-
-  it.each([
-    { replayEvents: 1, replayBytes: 10000 },
-    { replayEvents: 100, replayBytes: 64 },
-  ])(
-    "collection replay overflow ends with rescan and fresh enumeration recovers: %j",
-    async options => {
-      const backend = create(options)
-      const iterator = backend.observeCollection()[Symbol.asyncIterator]()
-      expect((await next(iterator)).type).toBe("local-load-complete")
-      await backend.store(treeId(1), [commit(1)])
-      await backend.store(treeId(2), [commit(2)])
-      expect((await next(iterator)).type).toBe("rescan-required")
-      expect((await settled(iterator.next())).done).toBe(true)
-      const fresh = backend.observeCollection()[Symbol.asyncIterator]()
-      const ids = [await next(fresh), await next(fresh)].map(value => {
-        expect(value).toMatchObject({ type: "document", phase: "initial" })
-        return value.type === "document" ? value.id : undefined
-      })
-      expect(ids.sort()).toEqual([treeId(1), treeId(2)])
-      expect((await next(fresh)).type).toBe("local-load-complete")
-    }
-  )
 
   it("a live event larger than the replay byte budget wakes a pending next with rescan", async () => {
     const backend = create({ replayBytes: 32 })

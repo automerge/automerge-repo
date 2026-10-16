@@ -140,15 +140,6 @@ describe("authenticated network failure and lifecycle barriers", () => {
     }, wait)
     return { session, ...observed }
   }
-  async function collection(p: Peer) {
-    const observed = collect(p.backend.observeCollection())
-    await vi.waitFor(() => {
-      expect(observed.events.some(e => e.type === "local-load-complete")).toBe(
-        true
-      )
-    }, wait)
-    return observed
-  }
   function initialRecords(events: SedimentreeEvent[]) {
     const blobs = events.flatMap(e => (e.type === "blobs" ? e.blobs : []))
     return blobs.map(blob => {
@@ -548,7 +539,6 @@ describe("authenticated network failure and lifecycle barriers", () => {
       right,
       wire: [wireA],
     } = await settledConnection(a, b)
-    const inventory = await collection(b)
     const gate = delayIncoming(b)
     await a.backend.store(tree, records)
     await bounded(gate.entered, "incoming record save")
@@ -556,11 +546,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     await stillPending(flushing)
     const closing = track(b.backend.close())
     expect(b.backend.close()).toBe(closing)
-    await bounded(
-      Promise.all([right.done, inventory.done]),
-      "watches end before disk release",
-      800
-    )
+    await bounded(right.done, "watches end before disk release", 800)
     await stillPending(closing)
     await vi.waitFor(() => expect(wireA.disconnected).toBe(true), wait)
     gate.release()
@@ -664,7 +650,6 @@ describe("authenticated network failure and lifecycle barriers", () => {
       right,
       wire: [oldWire],
     } = await settledConnection(a, b)
-    const inventory = await collection(b)
     const persisted = deferred()
     let fail = true
     b.storage.afterSave = keys => {
@@ -677,8 +662,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     await a.backend.store(tree, records)
     await bounded(persisted.promise, "persist then reject incoming save")
     // Native's recovery scan delivers the committed record and the session
-    // survives. Only the collection must reread its inventory.
-    // The recovery scan replays the whole tree, so the baseline repeats.
+    // survives. The recovery scan replays the whole tree, so the baseline repeats.
     await vi.waitFor(
       () =>
         expect(initialRecords(right.events)).toEqual(
@@ -686,8 +670,6 @@ describe("authenticated network failure and lifecycle barriers", () => {
         ),
       wait
     )
-    await bounded(inventory.done, "collection rescan")
-    expect(inventory.events.at(-1)).toMatchObject({ type: "rescan-required" })
     await expect(b.backend.flush()).rejects.toSatisfy(
       (error: unknown) =>
         error instanceof AggregateError &&
@@ -703,10 +685,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
       outcome: "no-peers",
       peers: [],
     })
-    const freshInventory = await collection(b)
-    expect(freshInventory.events.filter(e => e.type === "document")).toEqual([
-      expect.objectContaining({ type: "document", id: tree, phase: "initial" }),
-    ])
+    expect(await b.storage.list("subduction-v2/ids/")).toHaveLength(1)
     // A retry can repair the optional inventory marker omitted by the failed
     // transaction. The signed record itself must remain byte-for-byte stable.
     const recordKeys = async () =>

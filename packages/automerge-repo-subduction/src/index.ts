@@ -8,7 +8,6 @@ import {
   sedimentreeId,
   type BackendIdentity,
   type BackendOperation,
-  type CollectionObservation,
   type HistoryMarker,
   type LooseCommitRecord,
   type SedimentreeRecord,
@@ -171,7 +170,6 @@ export class SubductionBackend implements SedimentreeBackend {
   private readonly recovering = new Set<SedimentreeId>()
   /** Sessions whose consumer verified a complete snapshot (markComplete). */
   private readonly completed = new Set<Watch<SedimentreeEvent>>()
-  private readonly collections = new Set<Watch<CollectionObservation>>()
   private readonly attempts = new Set<{
     id: SedimentreeId
     work: Promise<void>
@@ -198,11 +196,7 @@ export class SubductionBackend implements SedimentreeBackend {
         throw new TypeError("Limits must be positive safe integers")
     if (this.limits.syncTimeoutMilliseconds > 0xffffffff)
       throw new TypeError("Sync timeout exceeds native u32 range")
-    this.bridge = new StorageBridge(
-      options.storage,
-      id => this.persisted(id),
-      () => this.requireRescan()
-    )
+    this.bridge = new StorageBridge(options.storage)
     this.engine = this.createEngine()
   }
   private createEngine(): N.Subduction {
@@ -628,19 +622,6 @@ export class SubductionBackend implements SedimentreeBackend {
       heads.forEach(head => head.free())
     }
   }
-  private persisted(id: SedimentreeId): void {
-    if (this.closed || this.deleting.has(id)) return
-    const sequence = ++this.sequence
-    for (const watch of this.collections)
-      watch.push({ type: "document", sequence, phase: "live", id })
-  }
-  /** Document sessions recover through native rescans; collections reread. */
-  private requireRescan(): void {
-    if (this.closed) return
-    const sequence = ++this.sequence
-    for (const watch of this.collections)
-      if (watch.active) watch.finish({ type: "rescan-required", sequence })
-  }
   open(input: SedimentreeId): SedimentreeSession {
     const id = sedimentreeId(input)
     this.check("open", id)
@@ -842,40 +823,6 @@ export class SubductionBackend implements SedimentreeBackend {
         await watch.return()
       },
     }
-  }
-  observeCollection(): AsyncIterable<CollectionObservation> {
-    this.check("observe")
-    const watch = new Watch<CollectionObservation>(
-      this.limits.replayEvents,
-      this.limits.replayBytes,
-      value => ({ ...value }),
-      () => ({ type: "rescan-required", sequence: ++this.sequence }),
-      () => {
-        this.collections.delete(watch)
-      }
-    )
-    this.collections.add(watch)
-    void this.enqueue("observe", async () => {
-      await this.bridge.inventory(ids => {
-        const sequence = ++this.sequence
-        watch.initialize([
-          ...ids.map(id => ({
-            type: "document" as const,
-            sequence,
-            phase: "initial" as const,
-            id,
-          })),
-          { type: "local-load-complete", sequence },
-        ])
-      })
-    }).catch(cause =>
-      watch.finish({
-        type: "failure",
-        sequence: ++this.sequence,
-        error: error("observe", cause, true),
-      })
-    )
-    return watch
   }
   async create(
     initialRecords: RecordBatch,
@@ -1084,14 +1031,6 @@ export class SubductionBackend implements SedimentreeBackend {
           await this.bridge.records(native)
           await this.engine.removeSedimentree(native)
           await this.bridge.cleanup(native)
-          if (!this.closed)
-            for (const watch of this.collections)
-              watch.push({ type: "deleted", sequence: ++this.sequence, id })
-        } catch (cause) {
-          // Removal can partly succeed (or commit then reject). Existing
-          // collection inventories must reconcile even without a success event.
-          this.requireRescan()
-          throw cause
         } finally {
           native.free()
           await this.resetEngine()
@@ -1134,7 +1073,6 @@ export class SubductionBackend implements SedimentreeBackend {
     // Install the close guard before observers or transports can re-enter.
     notifyBackendClosed(this)
     for (const watch of this.watches.keys()) watch.finish()
-    for (const watch of this.collections) watch.finish()
     // Cancel stalled peer waits immediately, but leave storage enabled until
     // already accepted local operations have finished. Then seal and drain.
     void this.stopNetwork().catch(() => {})

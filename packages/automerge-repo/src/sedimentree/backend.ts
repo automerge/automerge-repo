@@ -99,18 +99,6 @@ export interface SedimentreeBackend {
   ): Promise<SedimentreeId>
 
   /**
-   * Observe IDs without opening sessions or materializing public handles. Pins a
-   * finite initial collection cut at the call, then follows live activity.
-   * `document` events identify initial entries or subsequent activity, so IDs
-   * may repeat. Merely opening an empty ID does not add it to the collection.
-   * `local-load-complete` ends initial enumeration, not the stream; `deleted`
-   * removes an ID locally but also does not end the collection stream. `failure`
-   * and terminal `rescan-required` follow the same rules as document observation.
-   * On rescan call this method again, reconciling the fresh inventory.
-   */
-  observeCollection(): AsyncIterable<CollectionObservation>
-
-  /**
    * Establish initial loading and live observation of one ID without a race,
    * and register interest for automatic synchronization under backend policy.
    * An empty local load leaves the session open for future data. No explicit
@@ -201,7 +189,6 @@ export interface SedimentreeSession {
 export type BackendOperation =
   | "create"
   | "open"
-  | "observe"
   | "store"
   | "flush"
   | "delete"
@@ -309,23 +296,3 @@ export type SedimentreeEvent =
     }
   | { readonly type: "rescan-required"; readonly sequence: number }
   | { readonly type: "deleted"; readonly sequence: number }
-
-export type CollectionObservation =
-  | {
-      readonly type: "document"
-      readonly sequence: number
-      readonly phase: "initial" | "live"
-      readonly id: SedimentreeId
-    }
-  | {
-      readonly type: "deleted"
-      readonly sequence: number
-      readonly id: SedimentreeId
-    }
-  | { readonly type: "local-load-complete"; readonly sequence: number }
-  | { readonly type: "rescan-required"; readonly sequence: number }
-  | {
-      readonly type: "failure"
-      readonly sequence: number
-      readonly error: BackendError
-    }

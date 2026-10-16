@@ -92,7 +92,7 @@ async function initial(backend: SubductionBackend, inspectRecords = true) {
       const native = nativeId(tree)
       try {
         records.push(
-          ...(await new StorageBridge(currentStorage, () => {}).records(native))
+          ...(await new StorageBridge(currentStorage).records(native))
         )
       } finally {
         native.free()
@@ -200,12 +200,6 @@ describe("local Subduction fragments", () => {
     } finally {
       native.free()
     }
-    const collection = reloaded.observeCollection()[Symbol.asyncIterator]()
-    expect((await collection.next()).value).toMatchObject({
-      type: "document",
-      id: tree,
-    })
-    await collection.return!()
     const key = (await storage.list("subduction-v2/")).find(k =>
       k.includes("/fragments/meta/")
     )!
@@ -380,12 +374,7 @@ describe("local Subduction fragments", () => {
       const stream = reloaded.open(tree).events[Symbol.asyncIterator]()
       expect(await next(stream)).toMatchObject({ type: "failure" })
       expect((await stream.next()).done).toBe(true)
-      const collection = reloaded.observeCollection()[Symbol.asyncIterator]()
-      expect((await collection.next()).value).toMatchObject({
-        type: "document",
-        id: tree,
-      })
-      await collection.return!()
+      expect(await storage.list("subduction-v2/ids/")).toHaveLength(1)
     }
   )
 
@@ -480,11 +469,9 @@ describe("local Subduction fragments", () => {
     ).toEqual(A.getAllChanges(after).map(blob => A.decodeChange(blob).hash))
   })
 
-  it("recovers ambiguous fragment saves for document and collection observers", async () => {
+  it("recovers ambiguous fragment saves for document observers", async () => {
     const backend = create()
     const watching = await initial(backend)
-    const collection = backend.observeCollection()[Symbol.asyncIterator]()
-    await collection.next()
     let fail = true
     storage.afterSave = keys => {
       if (keys.some(key => key.includes("/fragments/")) && fail) {
@@ -497,9 +484,6 @@ describe("local Subduction fragments", () => {
     expect(await next(watching.iterator)).toMatchObject({
       type: "blobs",
       blobs: [fragment(4).blob],
-    })
-    expect((await collection.next()).value).toMatchObject({
-      type: "rescan-required",
     })
     await backend.store(tree, [fragment(4)])
     expect((await initial(backend)).records).toEqual([fragment(4)])
@@ -613,12 +597,9 @@ describe("local Subduction fragments", () => {
     await backend.flush()
   })
 
-  it("rescans collection observers after deletion commits but then rejects", async () => {
+  it("retries deletion after removal commits but then rejects", async () => {
     const backend = create()
     await backend.store(tree, [loose(1), fragment(4)])
-    const collection = backend.observeCollection()[Symbol.asyncIterator]()
-    await collection.next()
-    await collection.next()
     const remove = storage.remove.bind(storage)
     let fail = true
     vi.spyOn(storage, "remove").mockImplementation(async key => {
@@ -629,17 +610,8 @@ describe("local Subduction fragments", () => {
       }
     })
     await expect(backend.deleteLocal(tree)).rejects.toThrow()
-    expect((await collection.next()).value).toMatchObject({
-      type: "rescan-required",
-    })
-    expect((await collection.next()).done).toBe(true)
     await backend.deleteLocal(tree)
     expect(await storage.list("subduction-v2/")).toEqual([])
-    const fresh = backend.observeCollection()[Symbol.asyncIterator]()
-    expect((await fresh.next()).value).toMatchObject({
-      type: "local-load-complete",
-    })
-    await fresh.return!()
   })
 
   it.each(["delete", "close"])(

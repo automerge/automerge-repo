@@ -266,7 +266,6 @@ type Stored =
 
 interface Prepared {
   tree: string
-  sid: SedimentreeId
   ref: RecordKey
   record: SedimentreeRecord
   encoded: Uint8Array
@@ -286,11 +285,7 @@ export class StorageBridge implements N.SedimentreeStorage {
     settled: boolean
   }>()
 
-  constructor(
-    private readonly storage: ByteStore,
-    private readonly saved: (id: SedimentreeId) => void,
-    private readonly failed?: (id: SedimentreeId, cause: unknown) => void
-  ) {}
+  constructor(private readonly storage: ByteStore) {}
 
   private enqueue<T>(run: () => Promise<T>, tree?: string): Promise<T> {
     const work = (
@@ -326,20 +321,7 @@ export class StorageBridge implements N.SedimentreeStorage {
     } catch (cause) {
       run = () => Promise.reject(cause)
     }
-    const work = this.enqueue(
-      async () => {
-        try {
-          return await run()
-        } catch (cause) {
-          // A notification must not mask the storage failure or poison the queue.
-          try {
-            this.failed?.(sid, cause)
-          } catch {}
-          throw cause
-        }
-      },
-      index ? undefined : tree
-    )
+    const work = this.enqueue(run, index ? undefined : tree)
     const attempt = { id: sid, work, settled: false }
     this.attempts.add(attempt)
     void work.then(
@@ -619,7 +601,6 @@ export class StorageBridge implements N.SedimentreeStorage {
           }
     return {
       tree: treeHex(id),
-      sid: logicalId(id),
       ref,
       record,
       encoded,
@@ -653,7 +634,6 @@ export class StorageBridge implements N.SedimentreeStorage {
       writes.set(recordPath(tree, ref, "blob"), record.blob)
     }
     if (writes.size) await this.storage.saveBatch([...writes])
-    for (const sid of new Set(values.map(value => value.sid))) this.saved(sid)
   }
 
   async saveCommit(

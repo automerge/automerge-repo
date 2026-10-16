@@ -41,10 +41,9 @@ async function initial(session: SedimentreeSession, id = tree) {
       // open itself must deliver only Subduction's blobs.
       const native = nativeId(id)
       try {
-        const available = (await new StorageBridge(
-          currentStorage,
-          () => {}
-        ).records(native)) as LooseCommitRecord[]
+        const available = (await new StorageBridge(currentStorage).records(
+          native
+        )) as LooseCommitRecord[]
         for (const blob of blobs) {
           const index = available.findIndex(record =>
             Buffer.from(record.blob).equals(blob)
@@ -394,16 +393,6 @@ describe("real local Subduction", () => {
     expect(loaded.complete.marker).toBeUndefined()
     // Native hydrates on demand from storage and finds both commits.
     await expect(nativeCommits(reload)).resolves.toBe(2)
-    const collection = reload.observeCollection()[Symbol.asyncIterator]()
-    expect((await collection.next()).value).toMatchObject({
-      type: "document",
-      id: tree,
-      phase: "initial",
-    })
-    expect((await collection.next()).value).toMatchObject({
-      type: "local-load-complete",
-    })
-    await collection.return!()
   })
 
   it.each(["before", "after"])(
@@ -414,11 +403,6 @@ describe("real local Subduction", () => {
       const b = create()
       const loaded = await initial(b.open(tree))
       expect(loaded.records).toEqual(timing === "before" ? [record(1)] : [])
-      const collection = b.observeCollection()[Symbol.asyncIterator]()
-      if (timing === "before") await collection.next()
-      expect((await collection.next()).value).toMatchObject({
-        type: "local-load-complete",
-      })
       if (timing === "after") await a.store(tree, [record(1)])
       // Sequential external writes test notification recovery, not shared ownership.
       const save = vi.spyOn(storage, "saveBatch")
@@ -432,11 +416,6 @@ describe("real local Subduction", () => {
         type: "history-marker",
         marker: { heads: [cid(1)] },
       })
-      expect((await collection.next()).value).toMatchObject({
-        type: "document",
-        phase: "live",
-        id: tree,
-      })
       expect(savedKeys(save).filter(key => key.includes("/commits/"))).toEqual(
         []
       )
@@ -444,7 +423,6 @@ describe("real local Subduction", () => {
       // The local write hydrated native, which holds the one record.
       await expect(nativeCommits(b)).resolves.toBe(1)
       await loaded.iterator.return!()
-      await collection.return!()
     }
   )
 
@@ -652,12 +630,6 @@ describe("real local Subduction", () => {
     const loaded = await initial(reopened.open(tree))
     expect(loaded.records).toHaveLength(40)
     expect(loaded.complete.marker).toBeUndefined()
-    const collection = reopened.observeCollection()[Symbol.asyncIterator]()
-    expect((await collection.next()).value).toMatchObject({
-      type: "document",
-      id: tree,
-    })
-    await collection.return!()
     await reopened.deleteLocal(tree)
     expect(await storage.list("subduction-v2/")).toEqual([])
   })
@@ -821,10 +793,6 @@ describe("real local Subduction", () => {
       error: { code: "io" },
     })
     expect((await iterator.next()).done).toBe(true)
-    const collection = backend.observeCollection()[Symbol.asyncIterator]()
-    expect((await collection.next()).value).toMatchObject({
-      type: "local-load-complete",
-    })
     await expect(backend.deleteLocal(tree)).rejects.toThrow()
     expect(await storage.list("subduction-v2/")).toHaveLength(1)
   })
@@ -888,11 +856,9 @@ describe("real local Subduction", () => {
     await backend.flush()
   })
 
-  it("recovers record and collection observations when save commits bytes but then rejects", async () => {
+  it("recovers record observations when save commits bytes but then rejects", async () => {
     const backend = create()
     const { iterator } = await initial(backend.open(tree))
-    const collection = backend.observeCollection()[Symbol.asyncIterator]()
-    await collection.next()
     let fail = true
     storage.afterSave = keys => {
       if (keys.some(key => key.includes("/commits/")) && fail) {
@@ -906,9 +872,6 @@ describe("real local Subduction", () => {
     expect(await next(iterator)).toMatchObject({
       type: "blobs",
       blobs: [record(1).blob],
-    })
-    expect((await collection.next()).value).toMatchObject({
-      type: "rescan-required",
     })
     const retry = await initial(backend.open(tree))
     expect(retry.records).toEqual([record(1)])
@@ -926,12 +889,6 @@ describe("real local Subduction", () => {
     ).toHaveLength(writes)
     await retry.iterator.return!()
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])
-    const fresh = backend.observeCollection()[Symbol.asyncIterator]()
-    expect((await fresh.next()).value).toMatchObject({
-      type: "document",
-      id: tree,
-    })
-    await fresh.return!()
     await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
   })
 
@@ -941,12 +898,9 @@ describe("real local Subduction", () => {
       if (key.includes("/commits/")) throw new Error("disk failed")
     }
     await expect(backend.store(tree, [record(1)])).rejects.toThrow()
-    const iterator = backend.observeCollection()[Symbol.asyncIterator]()
-    expect((await iterator.next()).value).toMatchObject({
-      type: "document",
-      id: tree,
-    })
-    await iterator.return!()
+    expect(await storage.list("subduction-v2/ids/")).toEqual([
+      `subduction-v2/ids/${tree.padEnd(64, "0")}`,
+    ])
   })
 
   it("flush captures work, drains failures, and is not held open by later writes", async () => {
@@ -1040,23 +994,6 @@ describe("real local Subduction", () => {
     await writing
     await closing
     expect((await initial(create().open(tree))).records).toEqual([record(1)])
-  })
-
-  it("collection cut excludes later writes without losing live activity", async () => {
-    const backend = create()
-    const collection = backend.observeCollection()[Symbol.asyncIterator]()
-    await backend.store(tree, [record(1)])
-    expect((await collection.next()).value).toMatchObject({
-      type: "local-load-complete",
-    })
-    expect((await collection.next()).value).toMatchObject({
-      type: "document",
-      phase: "live",
-      id: tree,
-    })
-    const pending = collection.next()
-    await collection.return!()
-    expect((await pending).done).toBe(true)
   })
 
   it("flush drains every captured attempt before reporting an earlier failure", async () => {

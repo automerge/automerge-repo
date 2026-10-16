@@ -119,7 +119,7 @@ beforeAll(async () => {
   try {
     for (const record of [first, second, third, conflict, fragment]) {
       const storage = new MemoryStore()
-      const bridge = new StorageBridge(storage, () => {})
+      const bridge = new StorageBridge(storage)
       const engine = new N.Subduction({ signer, storage: bridge })
       const id = nativeId(tree)
       try {
@@ -246,7 +246,7 @@ describe("StorageBridge native transaction ordering", () => {
     const storage = new MemoryStore()
     const key = `subduction-v1/${tree.padEnd(64, "0")}/id`
     storage.values.set(key, new Uint8Array([1]))
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     expect(await withId(id => bridge.records(id))).toEqual([])
     await save(bridge, first)
     expect(await withId(id => bridge.records(id))).toEqual([first])
@@ -255,7 +255,7 @@ describe("StorageBridge native transaction ordering", () => {
 
   it("rejects a signed record under a different storage key", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     const wrong = N.CommitId.fromHexString(second.id)
     const value = N.SignedLooseCommit.tryDecode(signed.get(first)!)
     try {
@@ -278,8 +278,7 @@ describe("StorageBridge native transaction ordering", () => {
     "rejects a %s signed for another tree (%s) without writing it",
     async (kind, path) => {
       const storage = new MemoryStore()
-      const saved = vi.fn()
-      const bridge = new StorageBridge(storage, saved)
+      const bridge = new StorageBridge(storage)
       const record = kind === "commit" ? first : fragment
       // Signed for `tree`, offered under `other`, as a remote peer could.
       const write =
@@ -288,28 +287,21 @@ describe("StorageBridge native transaction ordering", () => {
           : save(bridge, record, other)
       await expect(write).rejects.toThrow(/different tree/)
       expect(storage.values.size).toBe(0)
-      expect(saved).not.toHaveBeenCalled()
     }
   )
 
-  it("notifies when another bridge already saved an identical record without rewriting bytes", async () => {
+  it("accepts an identical record another bridge already saved without rewriting bytes", async () => {
     const storage = new MemoryStore()
-    const firstSaved = vi.fn(),
-      secondSaved = vi.fn()
-    const a = new StorageBridge(storage, firstSaved)
-    const b = new StorageBridge(storage, secondSaved)
+    const a = new StorageBridge(storage)
+    const b = new StorageBridge(storage)
     await save(a, first)
     await save(b, first)
-    expect(firstSaved.mock.calls).toEqual([[tree]])
-    expect(secondSaved.mock.calls).toEqual([[tree]])
     expect(storage.written).toHaveLength(2)
   })
 
   it("serializes same-head conflicts and exact retries, but allows both kinds", async () => {
-    const storage = new MemoryStore(),
-      saved = vi.fn(),
-      failed = vi.fn()
-    const bridge = new StorageBridge(storage, saved, failed)
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage)
     const outcomes = await Promise.allSettled([
       save(bridge, first),
       save(bridge, first),
@@ -325,8 +317,6 @@ describe("StorageBridge native transaction ordering", () => {
       "fulfilled",
     ])
     expect(outcomes[2]).toMatchObject({ reason: { code: "conflict" } })
-    expect(saved.mock.calls).toEqual([[tree], [tree], [tree], [tree]])
-    expect(failed).toHaveBeenCalledOnce()
     expect(await withId(id => bridge.records(id))).toEqual([first, fragment])
     expect(storage.written).toHaveLength(4)
     expect(storage.maxActive).toBe(1)
@@ -334,7 +324,7 @@ describe("StorageBridge native transaction ordering", () => {
 
   it("owns decoded blobs after the stored bytes change", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     await save(bridge, first)
     const [record] = await withId(id => bridge.records(id))
     const blob = [...storage.values.entries()].find(([key]) =>
@@ -346,7 +336,7 @@ describe("StorageBridge native transaction ordering", () => {
 
   it("passes bulk records to Subduction without materializing Repo records", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     await save(bridge, first)
     await save(bridge, fragment)
     const commitPayload = vi
@@ -376,7 +366,7 @@ describe("StorageBridge native transaction ordering", () => {
 
   it("passes an empty stored blob through without bridge validation", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     await save(bridge, first)
     const blobKey = [...storage.values.keys()].find(k =>
       k.includes(`/commits/blob/${first.id}`)
@@ -393,7 +383,7 @@ describe("StorageBridge native transaction ordering", () => {
 
   it("frees already built native wrappers when a later bulk frame is malformed", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     await save(bridge, first)
     await save(bridge, second)
     const key = [...storage.values.keys()].find(k =>
@@ -411,7 +401,7 @@ describe("StorageBridge native transaction ordering", () => {
 
   it("frees already built fragments when a later bulk frame is malformed", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     await save(bridge, fragment)
     const metaKey = [...storage.values.keys()].find(k =>
       k.includes("/fragments/meta/")
@@ -432,7 +422,7 @@ describe("StorageBridge native transaction ordering", () => {
     "rejects incomplete %s records in both point and bulk reads",
     async part => {
       const storage = new MemoryStore()
-      const bridge = new StorageBridge(storage, () => {})
+      const bridge = new StorageBridge(storage)
       await save(bridge, first)
       const key = [...storage.values.keys()].find(k =>
         k.includes(part === "meta" ? "/meta/" : "/blob/")
@@ -457,7 +447,7 @@ describe("StorageBridge native transaction ordering", () => {
 
   it("saves without reading the rest of the tree's history", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     await save(bridge, first)
     await save(bridge, fragment)
     storage.calls.length = 0
@@ -474,7 +464,7 @@ describe("StorageBridge native transaction ordering", () => {
 
   it("lists commit IDs and fragment heads from metadata keys only", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     await save(bridge, first)
     await save(bridge, second)
     await save(bridge, fragment)
@@ -495,9 +485,8 @@ describe("StorageBridge native transaction ordering", () => {
   })
 
   it("keeps batches, reads, and cleanup in acceptance order with freed inputs", async () => {
-    const storage = new MemoryStore(),
-      saved = vi.fn()
-    const bridge = new StorageBridge(storage, saved)
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage)
     const gate = pause(
       storage,
       (op, key) => op === "saveBatch" && key.includes(cid(1))
@@ -508,21 +497,18 @@ describe("StorageBridge native transaction ordering", () => {
     const cleanup = withId(id => bridge.cleanup(id))
     const empty = withId(id => bridge.records(id))
     await gate.entered
-    expect(saved).not.toHaveBeenCalled()
     gate.release()
     await expect(writing).resolves.toBe(3)
     await expect(snapshot).resolves.toEqual([first, second, fragment])
     await Promise.all([later, cleanup])
     await expect(empty).resolves.toEqual([])
-    // One notification per saved batch.
-    expect(saved.mock.calls).toEqual([[tree], [tree]])
     expect(storage.maxActive).toBe(1)
     expect(storage.values.size).toBe(0)
   })
 
   it("queues document reads and deletes behind same-document writes", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     await Promise.all([save(bridge, first), save(bridge, fragment)])
     const gate = pause(
       storage,
@@ -564,7 +550,7 @@ describe("StorageBridge native transaction ordering", () => {
 
   it("keeps ID inventory and index changes in acceptance order", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     const gate = pause(
       storage,
       (op, key) => op === "save" && key.startsWith("subduction-v2/ids/")
@@ -587,7 +573,7 @@ describe("StorageBridge native transaction ordering", () => {
 
   it("overlaps reads of different documents and drains both", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     const gate = pause(
       storage,
       (op, key) =>
@@ -612,18 +598,14 @@ describe("StorageBridge native transaction ordering", () => {
   })
 
   it("writes records atomically without registering the tree itself", async () => {
-    const storage = new MemoryStore(),
-      saved = vi.fn(),
-      failed = vi.fn()
-    const bridge = new StorageBridge(storage, saved, failed)
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage)
     const error = new Error("disk failed")
     storage.before = async op => {
       if (op === "saveBatch") throw error
     }
     await expect(batch(bridge, [first, second, fragment])).rejects.toBe(error)
     expect(storage.values.size).toBe(0)
-    expect(saved).not.toHaveBeenCalled()
-    expect(failed.mock.calls).toEqual([[tree, error]])
     expect(await withId(id => bridge.containsSedimentreeId(id))).toBe(false)
     storage.before = undefined
     await batch(bridge, [first, second, fragment])
@@ -638,7 +620,7 @@ describe("StorageBridge native transaction ordering", () => {
 
   it("lists registered IDs without reading records, including empty trees", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     await withId(id => bridge.saveSedimentreeId(id))
     const key = `subduction-v2/ids/${tree.padEnd(64, "0")}`
     expect(storage.values.get(key)).toEqual(withId(id => id.toBytes()))
@@ -652,29 +634,19 @@ describe("StorageBridge native transaction ordering", () => {
     } finally {
       ids.forEach(id => id.free())
     }
-    const seen: SedimentreeId[][] = []
-    await bridge.inventory(ids => seen.push(ids))
-    expect(seen).toEqual([[tree]])
-    expect(storage.calls).toEqual([
-      "loadPrefix:subduction-v2/ids/",
-      "loadPrefix:subduction-v2/ids/",
-    ])
+    expect(storage.calls).toEqual(["loadPrefix:subduction-v2/ids/"])
     await withId(id => bridge.deleteSedimentreeId(id))
     expect(await withId(id => bridge.containsSedimentreeId(id))).toBe(false)
   })
 
-  it("reports an ambiguous batch save without notifying success; a retry recovers notifications", async () => {
-    const storage = new MemoryStore(),
-      saved = vi.fn(),
-      failed = vi.fn()
-    const bridge = new StorageBridge(storage, saved, failed)
+  it("reports an ambiguous batch save through flush; an exact retry does not rewrite", async () => {
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage)
     const error = new Error("saved, then rejected")
     storage.afterSave = () => {
       throw error
     }
     await expect(batch(bridge, [first, second, third])).rejects.toBe(error)
-    expect(saved).not.toHaveBeenCalled()
-    expect(failed.mock.calls).toEqual([[tree, error]])
     expect(await withId(id => bridge.records(id))).toEqual([
       first,
       second,
@@ -685,17 +657,14 @@ describe("StorageBridge native transaction ordering", () => {
     storage.afterSave = undefined
     const written = storage.written.length
     await batch(bridge, [first, second, third])
-    // An exact retry doesn't rewrite records, but recovers missed notifications.
-    expect(saved.mock.calls).toEqual([[tree]])
     expect(
       storage.written.slice(written).filter(key => key.includes("/commits/"))
     ).toEqual([])
   })
 
-  it("reports synchronous preparation errors through failed and flush", async () => {
-    const storage = new MemoryStore(),
-      failed = vi.fn()
-    const bridge = new StorageBridge(storage, () => {}, failed)
+  it("reports synchronous preparation errors through flush", async () => {
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage)
     const wrong = N.CommitId.fromHexString(second.id)
     const value = N.SignedLooseCommit.tryDecode(signed.get(first)!)
     let operation: Promise<void>
@@ -707,17 +676,17 @@ describe("StorageBridge native transaction ordering", () => {
     }
     const flushed = bridge.flush()
     await expect(operation).rejects.toThrow(/key/)
-    await expect(flushed).rejects.toMatchObject({ errors: [expect.any(Error)] })
-    expect(failed.mock.calls[0][0]).toBe(tree)
+    await expect(flushed).rejects.toMatchObject({
+      errors: [expect.any(Error)],
+    })
     expect(storage.calls).toEqual([])
     await bridge.flush()
     await bridge.drain()
   })
 
   it("flush captures relevant pending/failed mutations, waits ALL and clears reported failures", async () => {
-    const storage = new MemoryStore(),
-      failed = vi.fn()
-    const bridge = new StorageBridge(storage, () => {}, failed)
+    const storage = new MemoryStore()
+    const bridge = new StorageBridge(storage)
     const errorA = new Error("A"),
       errorB = new Error("B")
     const gate = pause(
@@ -755,12 +724,11 @@ describe("StorageBridge native transaction ordering", () => {
       errors: [errorA],
     })
     await bridge.flush()
-    expect(failed).toHaveBeenCalledTimes(3)
   })
 
   it("drain captures reads, settles after failures, and does not wait for later calls", async () => {
     const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage, () => {})
+    const bridge = new StorageBridge(storage)
     const readGate = pause(storage, op => op === "loadPrefix")
     const error = new Error("read failed")
     const originalLoadPrefix = storage.loadPrefix.bind(storage)
@@ -783,27 +751,6 @@ describe("StorageBridge native transaction ordering", () => {
     lateGate.release()
     await later
     // Read failures are not mutation failures.
-    await bridge.flush()
-  })
-
-  it("a throwing failed callback does not replace the error or poison subsequent work", async () => {
-    const storage = new MemoryStore()
-    const bridge = new StorageBridge(
-      storage,
-      () => {},
-      () => {
-        throw new Error("callback")
-      }
-    )
-    const error = new Error("remove")
-    storage.before = async () => {
-      throw error
-    }
-    await expect(withId(id => bridge.cleanup(id))).rejects.toBe(error)
-    await bridge.drain()
-    storage.before = undefined
-    await withId(id => bridge.saveSedimentreeId(id))
-    await expect(bridge.flush()).rejects.toMatchObject({ errors: [error] })
     await bridge.flush()
   })
 })

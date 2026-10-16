@@ -228,15 +228,9 @@ export function backendContract(
       const b = backend.open(treeId(2))
       const ai = a.events[Symbol.asyncIterator]()
       const bi = b.events[Symbol.asyncIterator]()
-      const collection = backend.observeCollection()[Symbol.asyncIterator]()
       await initial(ai)
       await initial(bi)
-      expect((await next(collection)).type).toBe("local-load-complete")
-      const pending: Promise<IteratorResult<unknown>>[] = [
-        ai.next(),
-        bi.next(),
-        collection.next(),
-      ]
+      const pending: Promise<IteratorResult<unknown>>[] = [ai.next(), bi.next()]
       await Promise.all(pending.map(expectPending))
       await backend.close()
       await backend.close()
@@ -244,9 +238,6 @@ export function backendContract(
         expect((await settled(result)).done).toBe(true)
       expect(() => backend.open(treeId())).toThrow(
         expect.objectContaining({ operation: "open", code: "closed" })
-      )
-      expect(() => backend.observeCollection()).toThrow(
-        expect.objectContaining({ operation: "observe", code: "closed" })
       )
       await expect(backend.store(treeId(), [commit(1)])).rejects.toMatchObject({
         operation: "store",
@@ -300,54 +291,5 @@ export function backendContract(
         ).toEqual([commit(3)])
       }
     )
-
-    it("discovers an initial collection cut, subsequent activity and deletion, but not IDs merely opened", async () => {
-      await backend.store(treeId(1), [commit(1)])
-      const merelyOpened = backend.open(treeId(2))
-      const collection = backend.observeCollection()[Symbol.asyncIterator]()
-      await backend.store(treeId(3), [commit(3)]) // Before first pull, after cut.
-      const first = await next(collection)
-      expect(first).toMatchObject({
-        type: "document",
-        phase: "initial",
-        id: treeId(1),
-      })
-      const cut = await next(collection)
-      expect(cut).toMatchObject({
-        type: "local-load-complete",
-        sequence: first.sequence,
-      })
-      const live = await next(collection)
-      expect(live).toMatchObject({
-        type: "document",
-        phase: "live",
-        id: treeId(3),
-      })
-      expect(live.sequence).toBeGreaterThan(cut.sequence)
-      await backend.store(treeId(1), [commit(4)])
-      expect(await next(collection)).toMatchObject({
-        type: "document",
-        phase: "live",
-        id: treeId(1),
-      })
-      await backend.deleteLocal(treeId(1))
-      expect(await next(collection)).toMatchObject({
-        type: "deleted",
-        id: treeId(1),
-      })
-      await merelyOpened.close()
-      const fresh = backend.observeCollection()[Symbol.asyncIterator]()
-      expect(await next(fresh)).toMatchObject({
-        type: "document",
-        phase: "initial",
-        id: treeId(3),
-      })
-      expect((await next(fresh)).type).toBe("local-load-complete")
-      const pending = fresh.next()
-      await expectPending(pending)
-      await fresh.return!()
-      expect((await settled(pending)).done).toBe(true)
-      await collection.return!()
-    })
   })
 }

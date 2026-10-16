@@ -1,7 +1,6 @@
 import {
   BackendError,
   type BackendOperation,
-  type CollectionObservation,
   type EphemeralEnvelope,
   type SedimentreeBackend,
   type SedimentreeEvent,
@@ -27,7 +26,7 @@ export interface MemoryBackendOptions {
   batchBytes?: number
   /** Hard limit on an individual record including metadata. */
   maxRecordBytes?: number
-  /** Maximum retained live events per tree/collection. */
+  /** Maximum retained live events per tree. */
   replayEvents?: number
   /** Maximum retained encoded record/metadata bytes in each replay window. */
   replayBytes?: number
@@ -50,8 +49,6 @@ interface Tree {
 export class MemoryBackend implements SedimentreeBackend {
   readonly #options: Required<MemoryBackendOptions>
   readonly #trees = new Map<SedimentreeId, Tree>()
-  readonly #collection: ReplayLog<CollectionObservation>
-  readonly #collectionWatches = new Set<Observation<CollectionObservation>>()
   #closed = false
   #round = 0
 
@@ -68,32 +65,6 @@ export class MemoryBackend implements SedimentreeBackend {
         throw new RangeError(`${name} must be a positive safe integer`)
       }
     }
-    this.#collection = this.#log()
-  }
-
-  observeCollection(): AsyncIterable<CollectionObservation> {
-    this.#assertOpen("observe")
-    const ids = [...this.#trees]
-      .filter(([, tree]) => tree.records.size > 0)
-      .map(([id]) => id)
-    const sequence = this.#collection.sequence
-    function* initial(): Generator<CollectionObservation> {
-      for (const id of ids)
-        yield { type: "document", id, phase: "initial", sequence }
-      yield { type: "local-load-complete", sequence }
-    }
-    const watch: Observation<CollectionObservation> =
-      new Observation<CollectionObservation>(
-        initial(),
-        this.#collection,
-        event => ({ ...event }),
-        sequence => ({ type: "rescan-required", sequence }),
-        () => {
-          this.#collectionWatches.delete(watch)
-        }
-      )
-    this.#collectionWatches.add(watch)
-    return watch
   }
 
   async create(
@@ -220,10 +191,6 @@ export class MemoryBackend implements SedimentreeBackend {
       sequence => ({ type: "history-marker", marker: { sequence, heads } }),
       heads.length * 32 + 32
     )
-    this.#collection.append(
-      sequence => ({ type: "document", phase: "live", id, sequence }),
-      64
-    )
   }
 
   async flush(ids?: readonly SedimentreeId[]): Promise<void> {
@@ -243,20 +210,17 @@ export class MemoryBackend implements SedimentreeBackend {
     }
     tree.records.clear()
     tree.log.clear()
-    this.#collection.append(sequence => ({ type: "deleted", id, sequence }), 64)
   }
 
   async close(): Promise<void> {
     if (this.#closed) return
     this.#closed = true
-    for (const watch of [...this.#collectionWatches]) watch.end()
     for (const tree of this.#trees.values()) {
       for (const session of [...tree.sessions]) session.end()
       tree.records.clear()
       tree.log.clear()
     }
     this.#trees.clear()
-    this.#collection.clear()
   }
 
   #assertOpen(operation: BackendOperation): void {
@@ -264,7 +228,7 @@ export class MemoryBackend implements SedimentreeBackend {
       throw new BackendError(operation, "closed", "Backend is closed")
   }
 
-  #log<T>(): ReplayLog<T> {
+  #log(): ReplayLog<SedimentreeEvent> {
     return new ReplayLog(this.#options.replayEvents, this.#options.replayBytes)
   }
 
@@ -382,7 +346,10 @@ function copyEvent(event: SedimentreeEvent): SedimentreeEvent {
     case "records":
       return { ...event, records: event.records.map(copyRecord) }
     case "blobs":
-      return { ...event, blobs: event.blobs.map(blob => new Uint8Array(blob)) }
+      return {
+        ...event,
+        blobs: event.blobs.map(blob => new Uint8Array(blob)),
+      }
     case "local-load-complete":
     case "history-marker":
       return event.marker
