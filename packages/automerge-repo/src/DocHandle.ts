@@ -523,9 +523,9 @@ export class DocHandle<T> {
    * must have a unique PeerId.
    */
   broadcast(message: unknown) {
-    this.#document.registry.dispatchEphemeralOutbound(
-      new Uint8Array(encode(message))
-    )
+    const bytes = new Uint8Array(encode(message))
+    this.#document.registry.dispatchEphemeralOutbound(bytes)
+    void this.#document.publishEphemeral?.(bytes)
   }
 
   metrics(): { numOps: number; numChanges: number } {

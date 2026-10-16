@@ -213,8 +213,8 @@ export class Repo extends EventEmitter<RepoEvents> {
       initialSnapshotPending: !!this.#backend && !initial,
     })
     const entry: Entry<T> = { document, handle, query }
-    if (this.#backend) {
-      const sync = new DocumentSync(
+    if (this.#backend)
+      entry.sync = new DocumentSync(
         this.#backendId(id),
         document,
         query,
@@ -222,17 +222,6 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.#origin,
         !!initial
       )
-      entry.sync = sync
-      handle.on("ephemeral-message-outbound", ({ data }) => {
-        void sync.publishEphemeral(data).catch(error => {
-          try {
-            this.#log.error("ephemeral publication failed", error)
-          } catch {
-            // Application logging must not reject this detached send.
-          }
-        })
-      })
-    }
     this.#entries.set(id, entry)
     let announced = false
     const announce = (state: ReturnType<typeof query.peek>) => {
@@ -274,12 +263,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     // Without a backend an unopened ID has no history to delete.
     if (!entry && !this.#backend) return Promise.resolve()
     // Install the Repo barrier before handle delete listeners can reenter.
-    let resolve!: () => void
-    let reject!: (error: unknown) => void
-    const barrier = new Promise<void>((yes, no) => {
-      resolve = yes
-      reject = no
-    })
+    const { promise: barrier, resolve, reject } = Promise.withResolvers<void>()
     const deleting = barrier.then(() => {
       if (entry && this.#entries.get(documentId) === entry)
         this.#entries.delete(documentId)
@@ -313,7 +297,8 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** Release the session after the store in flight, then remove local history.
    * Cleanup always proceeds to deleteLocal; every failure is reported. */
   async #deleteLocal(id: DocumentId, sync?: DocumentSync<any>): Promise<void> {
-    const results = await Promise.allSettled([sync?.quiesce()])
+    await sync?.idle()
+    const results = await Promise.allSettled([sync?.release()])
     results.push(
       ...(await Promise.allSettled([
         this.#backend!.deleteLocal(this.#backendId(id)),

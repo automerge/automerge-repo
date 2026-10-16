@@ -41,7 +41,6 @@ export class DocumentSync<T> {
   #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
   #session?: SedimentreeSession
   #consumer: Promise<void> = Promise.resolve()
-  #closed = false
   #deleted = false
 
   constructor(
@@ -53,6 +52,10 @@ export class DocumentSync<T> {
     created = false
   ) {
     document.commit = (before, after) => this.commit(before, after)
+    document.publishEphemeral = payload =>
+      this.publishEphemeral(payload).catch(error =>
+        this.#log("ephemeral publication failed: %o", error)
+      )
     if (created) {
       this.#complete()
     } else {
@@ -64,7 +67,7 @@ export class DocumentSync<T> {
 
   /** Open the backend session and start consuming its events. */
   start(): void {
-    if (this.#closed || this.#session) return
+    if (this.document.closed || this.#session) return
     let session: SedimentreeSession
     try {
       session = this.backend.open(this.id)
@@ -111,14 +114,13 @@ export class DocumentSync<T> {
       }
       this.onEvent(event)
     }
-    if (this.#session === session && !this.#closed)
+    if (this.#session === session && !this.document.closed)
       this.sourceUnavailable(new Error("Backend observation ended"))
   }
 
   // -- Writes --
 
   commit(before: A.Doc<T>, after: A.Doc<T>): Promise<void> {
-    if (this.#closed) return Promise.reject(new Error("Document is closed"))
     const records = extractNewRecords(before, after)
     if (records.length) this.#unsaved.push({ records })
     if (!this.#unsaved.length) return Promise.resolve()
@@ -187,23 +189,17 @@ export class DocumentSync<T> {
 
   /** Creation finished while a lookup was already observing this document. */
   adopt(doc: A.Doc<T>): void {
-    const current = this.document.peekDoc()
-    if (current) {
-      void this.document.applyMutation(value => A.merge(value, A.clone(doc)), {
-        incoming: true,
-        initial: this.query.snapshotPending,
-      })
-    } else {
-      void this.document.applyLoaded(A.clone(doc), this.query.snapshotPending)
-    }
+    void this.document.applyMutation(
+      current => A.merge(current, A.clone(doc)),
+      { incoming: true, initial: this.query.snapshotPending }
+    )
     this.#complete()
   }
 
-  publishEphemeral(payload: Uint8Array): Promise<void> {
+  async publishEphemeral(payload: Uint8Array): Promise<void> {
     const session = this.#session
-    if (!session || this.#closed)
-      return Promise.reject(new Error("No active session"))
-    return session.publishEphemeral({
+    if (!session || this.document.closed) throw new Error("No active session")
+    await session.publishEphemeral({
       messageId: crypto.randomUUID(),
       origin: this.origin,
       payload,
@@ -212,7 +208,6 @@ export class DocumentSync<T> {
 
   /** Stop edits; unsaved history can still be drained with flush(). */
   close(): void {
-    this.#closed = true
     this.document.closed = true
   }
 
@@ -229,10 +224,9 @@ export class DocumentSync<T> {
     if (notify) this.document.registry.dispatchDelete()
   }
 
-  /** After markDeleted: let the store in flight finish, then release the session. */
-  async quiesce(): Promise<void> {
-    await this.#tail
-    await this.release()
+  /** Settles once the store in flight (if any) has. */
+  idle(): Promise<void> {
+    return this.#tail
   }
 
   /** Close the session, keeping it for a retry if closing fails. */
@@ -324,11 +318,8 @@ export class DocumentSync<T> {
         if (event.error.operation === "ephemeral") {
           this.#log("ephemeral operation failed: %o", event.error)
         } else if (event.error.retryable)
-          this.document.log.error("backend failure: %o", event.error)
+          this.#log("backend failure: %o", event.error)
         else this.sourceUnavailable(event.error)
-        break
-      case "deleted":
-        this.markDeleted()
         break
       case "remote-heads":
         this.document.recordRemoteHeads(
@@ -355,7 +346,7 @@ export class DocumentSync<T> {
   }
 
   sourceUnavailable(reason: unknown): void {
-    if (this.#closed) return
+    if (this.document.closed) return
     this.#log("backend observation unavailable: %o", reason)
     this.query.sourceUnavailable("backend")
   }

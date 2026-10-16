@@ -33,6 +33,8 @@ export class Document<T = unknown> {
 
   /** Capture local history synchronously, before reentrant listeners run. */
   commit?: (before: A.Doc<any>, after: A.Doc<any>) => Promise<void>
+  /** Best-effort outbound ephemeral publication; unset without a backend. */
+  publishEphemeral?: (payload: Uint8Array) => Promise<void>
   #events: (() => void)[] = []
   #dispatching = false
 
