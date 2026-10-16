@@ -1,10 +1,8 @@
 import * as A from "@automerge/automerge/slim"
-import { hash as sha256 } from "fast-sha256"
 import {
   checkpointForCommit,
   checkpointId,
   commitId,
-  copyRecord,
   type CommitId,
   type FragmentRecord,
   type LooseCommitRecord,
@@ -122,155 +120,14 @@ export function extractNewRecords(
 }
 
 /**
- * Copy and check a record using public Automerge APIs. Fragment validation is
- * structural, not proof of complete sedimentree coverage (see README).
+ * Apply to the latest document in one incremental load, retaining pending
+ * dependencies and local edits. Records are trusted: the backend verifies
+ * signatures and digests. Feed the return value into subsequent edits/loads.
+ * Not a transaction: no rollback if Automerge rejects the input.
  */
-export function validateRecord(record: SedimentreeRecord): SedimentreeRecord {
-  const owned = copyRecord(record)
-  assertSingleChunk(owned.blob, owned.kind === "commit" ? [1, 2] : [3])
-  if (owned.kind === "commit") {
-    const change = A.decodeChange(owned.blob)
-    // Compressed changes retain the checksum of their uncompressed encoding.
-    // decodeChange computes that logical change hash, but doesn't check the
-    // supplied checksum. Uncompressed changes can also be checked directly.
-    const digest =
-      owned.blob[8] === 2
-        ? Uint8Array.from(change.hash.match(/../g)!, byte =>
-            Number.parseInt(byte, 16)
-          )
-        : sha256(owned.blob.subarray(8))
-    assertChecksum(owned.blob, digest)
-    if (
-      commitId(change.hash) !== owned.id ||
-      !sameIds(canonicalIds(change.deps), owned.parents)
-    ) {
-      throw new TypeError("Commit metadata does not match its encoded change")
-    }
-  } else {
-    assertChecksum(owned.blob, sha256(owned.blob.subarray(8)))
-    const bundle = A.readBundle(owned.blob)
-    const members = new Set(bundle.changes.map(change => commitId(change.hash)))
-    const dependedOn = new Set(
-      bundle.changes.flatMap(change => canonicalIds(change.deps))
-    )
-    const tips = [...members].filter(hash => !dependedOn.has(hash))
-    if (
-      members.size !== bundle.changes.length ||
-      tips.length !== 1 ||
-      tips[0] !== owned.head
-    ) {
-      throw new TypeError("Fragment head does not match its encoded history")
-    }
-    // Boundary is sedimentree partition metadata, not the bundle's immediate
-    // dependency set (nor necessarily its superset in merge-heavy DAGs). It
-    // cannot be authenticated from this standalone blob. Never use this check
-    // to authorize coverage deduplication or reclamation.
-    const prefixes = new Set([...members].map(checkpointForCommit))
-    if (owned.checkpoints.some(prefix => !prefixes.has(prefix))) {
-      throw new TypeError(
-        "Fragment checkpoint is not represented in its encoded history"
-      )
-    }
-  }
-  return owned
-}
-
-// Public chunk framing: https://automerge.org/automerge-binary-format-spec/
-// Fragment bundles use type 3. readBundle accepts trailing chunks, and even in
-// 3.5.0 loadIncremental can silently stop at corruption in a mixed batch.
-// Check each entire record envelope before submitting ANY of a batch to it.
-function assertSingleChunk(blob: Uint8Array, kinds: readonly number[]): void {
-  if (
-    blob[0] !== 0x85 ||
-    blob[1] !== 0x6f ||
-    blob[2] !== 0x4a ||
-    blob[3] !== 0x83 ||
-    !kinds.includes(blob[8])
-  ) {
-    throw new TypeError("Unexpected Automerge chunk type or magic bytes")
-  }
-  let size = 0
-  let factor = 1
-  for (
-    let offset = 9;
-    offset < blob.length && factor <= Number.MAX_SAFE_INTEGER;
-    offset++
-  ) {
-    const byte = blob[offset]
-    size += (byte & 0x7f) * factor
-    if (!Number.isSafeInteger(size)) break
-    if ((byte & 0x80) === 0) {
-      if (offset > 9 && byte === 0) break // Noncanonical ULEB encoding.
-      if (offset + 1 + size === blob.length) return
-      break
-    }
-    factor *= 128
-  }
-  throw new TypeError("Expected exactly one complete Automerge chunk")
-}
-
-function assertChecksum(blob: Uint8Array, digest: Uint8Array): void {
-  for (let i = 0; i < 4; i++) {
-    if (blob[i + 4] !== digest[i])
-      throw new TypeError("Invalid Automerge chunk checksum")
-  }
-}
-
-function sameIds(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((id, index) => id === b[index])
-}
-
-export interface ApplyRecordsOptions {
-  /** Maximum concatenation size, default 4 MiB. Oversized records load alone. */
-  readonly maxBatchBytes?: number
-  /** Maximum records per incremental load, default 256. */
-  readonly maxBatchRecords?: number
-}
-
-/**
- * Apply to the latest document, retaining pending dependencies and local edits.
- * No deduplication by head: every supplied representation is validated.
- * Feed the return value into subsequent edits/loads. This is synchronous and
- * does not promise rollback if Automerge rejects a later incremental chunk.
- */
-export function applyRecords<T>(
-  doc: A.Doc<T>,
-  records: RecordBatch,
-  options: ApplyRecordsOptions = {}
-): A.Doc<T> {
-  const maxBytes = positiveInteger(options.maxBatchBytes ?? 4 * 1024 * 1024)
-  const maxRecords = positiveInteger(options.maxBatchRecords ?? 256)
-  // Validate/copy before changing the document. No asynchronous buffer borrowing.
-  const owned = records.map(validateRecord)
-  let current = doc
-  let blobs: Uint8Array[] = []
-  let bytes = 0
-  const flush = () => {
-    if (blobs.length === 0) return
-    current = A.loadIncremental(current, concatBytes(blobs))
-    blobs = []
-    bytes = 0
-  }
-  for (const { blob } of owned) {
-    if (
-      blobs.length &&
-      (bytes + blob.byteLength > maxBytes || blobs.length >= maxRecords)
-    ) {
-      flush()
-    }
-    blobs.push(blob)
-    bytes += blob.byteLength
-    if (bytes >= maxBytes) flush()
-  }
-  flush()
-  return current
-}
-
-function positiveInteger(value: number): number {
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new RangeError("Batch limits must be positive safe integers")
-  }
-  return value
+export function applyRecords<T>(doc: A.Doc<T>, records: RecordBatch): A.Doc<T> {
+  if (records.length === 0) return doc
+  return A.loadIncremental(doc, concatBytes(records.map(record => record.blob)))
 }
 
 /**

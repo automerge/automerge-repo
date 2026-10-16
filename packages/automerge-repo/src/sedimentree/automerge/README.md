@@ -15,14 +15,12 @@ getRecordMetadata(doc: Doc<unknown>): RecordMetadata[]
 recordMetadataKey(metadata: RecordMetadata): string
 extractRecords(doc: Doc<unknown>, select?: RecordPredicate): SedimentreeRecord[]
 extractNewRecords(before: Doc<unknown>, after: Doc<unknown>): SedimentreeRecord[]
-validateRecord(record: SedimentreeRecord): SedimentreeRecord
-applyRecords<T>(doc: Doc<T>, records: RecordBatch, options?: ApplyRecordsOptions): Doc<T>
+applyRecords<T>(doc: Doc<T>, records: RecordBatch): Doc<T>
 satisfiesMarker(doc: Doc<unknown>, heads: readonly CommitId[]): boolean
 ```
 
 `RecordMetadata` is the contract's commit/fragment union without `blob`;
-`RecordPredicate` receives that metadata. `ApplyRecordsOptions` accepts
-`maxBatchBytes` (default 4 MiB) and `maxBatchRecords` (default 256).
+`RecordPredicate` receives that metadata.
 
 Extraction calls `getFragmentMetadata`, projects canonical IDs and sorted,
 deduplicated metadata sets, applies the optional predicate, and calls
@@ -50,26 +48,20 @@ retryable. These helpers maintain no such state.
 
 ## Loading and readiness
 
-`applyRecords` validates/copies the incoming records, concatenates bounded groups
-of mixed raw changes and bundles, and feeds them to `loadIncremental`. Each load
-uses the preceding result, retaining pending dependencies and local edits. Pass
-in the **latest** document and retain the return value; between calls, edit that
-returned document normally. Replays and arbitrary delivery order are supported.
-No history is deduplicated by head, and no document is reconstructed via
-`saveSince`, which would lose pending changes.
-The Repo delegate may skip an incoming record whose claimed head is already
-applied: valid commits and single-tip fragments add no history in that case.
-This deliberately skips validation of ignored records. Storage and callers
-requiring validation of every representation must not use this shortcut;
-`applyRecords` continues to validate every supplied record.
+`applyRecords` concatenates the supplied blobs (mixed raw changes and bundles)
+and feeds them to `loadIncremental` in one call. Each load uses the preceding
+result, retaining pending dependencies and local edits. Pass in the **latest**
+document and retain the return value; between calls, edit that returned document
+normally. Replays and arbitrary delivery order are supported. No history is
+deduplicated by head, and no document is reconstructed via `saveSince`, which
+would lose pending changes. The Repo may skip an incoming record whose claimed
+head is already applied: valid commits and single-tip fragments add no history
+in that case.
 
-The byte limit bounds concatenation, not total memory: a larger single record is
-loaded alone without a concatenation allocation. The caller must bound input
-batch sizes and individual records; validation copies the supplied batch and
-`readBundle` decodes one fragment at a time. All metadata checks occur before the
-first load, but this is **not a transaction**: a later Automerge load failure has
-no rollback guarantee. There is no asynchronous borrowing of caller buffers,
-including `Buffer` and `Uint8Array.subarray` inputs.
+The caller bounds batch sizes. Loading is **not a transaction**: an Automerge
+load failure has no rollback guarantee. The concatenation copies the input, so
+there is no asynchronous borrowing of caller buffers, including `Buffer` and
+`Uint8Array.subarray` inputs.
 
 `satisfiesMarker` checks **history inclusion** with `hasHeads`. An older
 marker remains satisfied after newer local edits, and unrelated pending
@@ -77,30 +69,13 @@ changes do not prevent one complete source from satisfying its marker.
 An empty target always returns false: it is not evidence of document readiness.
 Targets are full commit IDs, not fragment checkpoint prefixes.
 
-## Validation scope and limitations
+## Integrity
 
-- Contract ID lengths, hex encoding, nonempty blobs and canonical metadata sets
-  are checked. Loose commits are decoded and their hashes and dependency sets
-  must match the claimed ID and parents.
-- Each record must contain exactly one complete chunk: a loose change (possibly
-  compressed), or a fragment bundle. We validate the public [binary chunk
-  framing and checksum](https://automerge.org/automerge-binary-format-spec/)
-  explicitly. In 3.5.0, `readBundle` still ignores trailing chunks, and
-  `loadIncremental` can silently stop at a corrupt checksum in mixed batches or
-  when updating a nonempty document. We retain prevalidation of the whole input
-  batch before any record is applied. Uncompressed change and bundle checksums
-  use SHA-256; compressed changes retain the uncompressed change hash's checksum.
-- Public `readBundle` verifies parseability and exposes the encoded changes. We
-  check unique member hashes, the single tip against the claimed head, and
-  membership of every claimed checkpoint prefix in the encoded history.
-- A sedimentree boundary is not the bundle's immediate external dependency set,
-  nor necessarily its superset in repeatedly merged histories. We preserve but
-  cannot authenticate it using the standalone blob. The blob also cannot prove
-  completeness of checkpoint metadata, prefix uniqueness, or the exact canonical
-  sedimentree partition/level. We do **not**
-  authenticate those claims or infer reclamation/coverage from them. This module
-  is not an adversarial-data certification boundary. `addFragments` is not used
-  and must not be mistaken for validation of fragment metadata claims.
+Records are trusted here. The backend is responsible for integrity: Subduction
+verifies signatures and blob digests on store, on ingest from peers and on
+hydration from storage. This module performs no framing, checksum or
+metadata-versus-payload checks; Automerge load errors propagate to the caller.
+
 - Extraction describes **materialized history**, not queued changes with missing
   dependencies. It is not by itself a durable representation of pending state.
   A future backend must retain pending records or persist a format proven to
@@ -111,8 +86,8 @@ Targets are full commit IDs, not fragment checkpoint prefixes.
 
 Tests use a fixed-actor, all-times-zero 2,000-change fixture, plus deterministic
 forks. They cover metadata-only selection, fragments and loose commits, duplicates,
-bounded mixed loads, pending dependencies, edits during loading, history
-inclusion, malformed metadata/payloads, and buffer ownership.
+pending dependencies, edits during loading, history inclusion, and buffer
+ownership.
 
 From the workspace root:
 

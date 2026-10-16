@@ -1,12 +1,10 @@
 // @vitest-environment node
 // Like Repo's test setup, load fullfat once; library code imports only slim.
 import "@automerge/automerge"
-import { deflateRawSync } from "node:zlib"
 import * as A from "@automerge/automerge/slim"
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import {
   checkpointForCommit,
-  checkpointId,
   commitId,
   equalRecords,
   recordKey,
@@ -22,7 +20,6 @@ import {
   getRecordMetadata,
   recordMetadataKey,
   satisfiesMarker,
-  validateRecord,
 } from "../../src/sedimentree/automerge/index.js"
 
 // Externalized native ESM namespaces are sealed. A forwarding mock gives spies
@@ -96,7 +93,10 @@ describe("metadata-first extraction", () => {
         covering.some(r => r.kind === "fragment" && r.head === ids[1])
       ).toBe(true)
       // Earlier fragments may wait for later records supplying their boundary.
-      const restored = applyRecords(empty(), covering, { maxBatchRecords: 1 })
+      const restored = covering.reduce(
+        (loaded, record) => applyRecords(loaded, [record]),
+        empty()
+      )
       expect(A.getHeads(restored)).toEqual(A.getHeads(doc))
       expect(A.getMissingDeps(restored)).toEqual([])
       expect(
@@ -286,10 +286,7 @@ describe("metadata-first extraction", () => {
 
 describe("incremental application", () => {
   it("roundtrips mixed records, in reverse order and with duplicate batches", () => {
-    let loaded = applyRecords(empty(), [...records].reverse(), {
-      maxBatchBytes: 8192,
-      maxBatchRecords: 7,
-    })
+    let loaded = applyRecords(empty(), [...records].reverse())
     expect(loaded.n).toBe(1999)
     expect(A.getHeads(loaded)).toEqual(A.getHeads(fixture))
     const before = A.getHeads(loaded)
@@ -345,34 +342,9 @@ describe("incremental application", () => {
   })
 
   it("roundtrips all 2000 loose commits without fragments", () => {
-    const loaded = applyRecords(empty(), [...commits].reverse(), {
-      maxBatchBytes: 16384,
-    })
+    const loaded = applyRecords(empty(), [...commits].reverse())
     expect(loaded.n).toBe(1999)
     expect(A.getHeads(loaded)).toEqual(A.getHeads(fixture))
-  })
-
-  it("bounds concatenation, loads an oversized single record alone, and batches mixed kinds", () => {
-    const load = vi.spyOn(A, "loadIncremental")
-    const maxBatchBytes = 2048
-    applyRecords(empty(), records, { maxBatchBytes, maxBatchRecords: 4 })
-    expect(load.mock.calls.length).toBeLessThan(records.length)
-    for (const [, input] of load.mock.calls) {
-      expect(
-        input.length <= maxBatchBytes ||
-          records.some(
-            record =>
-              record.blob.length > maxBatchBytes &&
-              record.blob.length === input.length
-          )
-      ).toBe(true)
-    }
-    load.mockClear()
-    applyRecords(empty(), records, {
-      maxBatchBytes: 10_000_000,
-      maxBatchRecords: 10_000,
-    })
-    expect(load).toHaveBeenCalledTimes(1)
   })
 
   it("retains out-of-order loose changes across empty batches and intervening local edits", () => {
@@ -417,18 +389,14 @@ describe("incremental application", () => {
     parent.set(commits[2].blob, 10)
     const bytes = parent.subarray(10, parent.length - 10)
     const input = { ...commits[2], blob: bytes }
-    const validated = validateRecord(input)
     let loaded = applyRecords(empty(), [input])
     parent.fill(0)
-    expect(validated.blob).toEqual(commits[2].blob)
     loaded = applyRecords(loaded, commits.slice(0, 2))
     expect(loaded.n).toBe(2)
     const buffer = Buffer.from(commits[2].blob)
     const bufferRecord = { ...commits[2], blob: buffer }
-    const owned = validateRecord(bufferRecord)
     let buffered = applyRecords(empty("445566"), [bufferRecord])
     buffer.fill(0)
-    expect(owned.blob).toEqual(commits[2].blob)
     buffered = applyRecords(buffered, commits.slice(0, 2))
     expect(buffered.n).toBe(2)
   })
@@ -472,181 +440,5 @@ describe("source marker satisfaction", () => {
     loaded = applyRecords(loaded, [loose(A.getAllChanges(unrelated)[0])])
     expect(loaded.local).toBe(true)
     expect(satisfiesMarker(loaded, [last.id])).toBe(true)
-  })
-})
-
-describe("payload and metadata validation", () => {
-  it("checks loose hashes and parents against encoded changes, even for known heads", () => {
-    expect(() =>
-      validateRecord({ ...commits[1], id: commitId("ff".repeat(32)) })
-    ).toThrow(/metadata/)
-    expect(() => validateRecord({ ...commits[1], parents: [] })).toThrow(
-      /metadata/
-    )
-    expect(() =>
-      validateRecord({ ...commits[1], parents: [commits[1].id] })
-    ).toThrow()
-    const loaded = applyRecords(empty(), commits.slice(0, 2))
-    expect(() =>
-      applyRecords(loaded, [{ ...commits[1], blob: commits[0].blob }])
-    ).toThrow(/metadata/)
-    expect(
-      validateRecord({
-        ...commits[1],
-        parents: [...commits[1].parents, ...commits[1].parents],
-      })
-    ).toEqual(commits[1])
-  })
-
-  it("checks fragment tips and checkpoint membership without inferring boundary coverage", () => {
-    const fragment = records.find(
-      record => record.kind === "fragment" && record.boundary.length
-    ) as FragmentRecord
-    expect(validateRecord(fragment)).toEqual(fragment)
-    expect(() =>
-      validateRecord({ ...fragment, head: commitId("ff".repeat(32)) })
-    ).toThrow(/head/)
-    expect(() =>
-      validateRecord({
-        ...fragment,
-        checkpoints: [checkpointId("ff".repeat(12))],
-      })
-    ).toThrow(/checkpoint/)
-    // Extra old boundary ancestors are legitimate; exact bundle deps equality
-    // is NOT a sound check of sedimentree boundary metadata.
-    const extraBoundary = records.find(
-      record =>
-        record.kind === "fragment" &&
-        record.boundary.length > A.readBundle(record.blob).deps.length
-    )!
-    expect(extraBoundary).toBeDefined()
-    expect(validateRecord(extraBoundary)).toEqual(extraBoundary)
-  })
-
-  it("rejects trailing chunks that readBundle alone silently ignores", () => {
-    const fragment = records.find(
-      record => record.kind === "fragment"
-    ) as FragmentRecord
-    const blob = new Uint8Array(
-      fragment.blob.length + commits.at(-1)!.blob.length
-    )
-    blob.set(fragment.blob)
-    blob.set(commits.at(-1)!.blob, fragment.blob.length)
-    expect(A.readBundle(blob).changes.length).toBeGreaterThan(0)
-    expect(() => validateRecord({ ...fragment, blob })).toThrow(/exactly one/)
-    expect(() =>
-      validateRecord({ ...fragment, blob: fragment.blob.subarray(0, -1) })
-    ).toThrow()
-    const corrupt = fragment.blob.slice()
-    corrupt[4] ^= 0xff
-    expect(() =>
-      applyRecords(empty(), [{ ...fragment, blob: corrupt }])
-    ).toThrow()
-  })
-
-  it.each(["commit", "fragment"] as const)(
-    "rejects corrupt %s checksums anywhere in a batch before changing the document",
-    kind => {
-      const good =
-        kind === "commit"
-          ? commits[1]
-          : records.find(record => record.kind === "fragment")!
-      const blob = good.blob.slice()
-      blob[4] ^= 0xff
-      const corrupt = { ...good, blob }
-      expect(() => validateRecord(corrupt)).toThrow(/checksum/)
-      for (const original of [empty(), applyRecords(empty(), [commits[0]])]) {
-        const before = A.getHeads(original)
-        for (const batch of [
-          [corrupt, commits[2]],
-          [commits[0], corrupt, commits[2]],
-          [commits[0], commits[2], corrupt],
-        ]) {
-          expect(() => applyRecords(original, batch)).toThrow(/checksum/)
-          expect(A.getHeads(original)).toEqual(before)
-        }
-      }
-    }
-  )
-
-  it("validates compressed changes using their uncompressed checksum", () => {
-    const raw = commits[0].blob
-    expect(raw[8]).toBe(1)
-    let start = 9
-    while (raw[start++] & 0x80) {
-      /* skip ULEB payload length */
-    }
-    const compressed = deflateRawSync(raw.subarray(start))
-    let size = compressed.length
-    const length = []
-    do {
-      const byte = size % 128
-      size = Math.floor(size / 128)
-      length.push(byte | (size ? 0x80 : 0))
-    } while (size)
-    const blob = Uint8Array.from([
-      ...raw.subarray(0, 8),
-      2,
-      ...length,
-      ...compressed,
-    ])
-    const record = { ...commits[0], blob }
-    expect(validateRecord(record)).toEqual(record)
-    expect(satisfiesMarker(applyRecords(empty(), [record]), [record.id])).toBe(
-      true
-    )
-    blob[4] ^= 0xff
-    expect(() => validateRecord(record)).toThrow(/checksum/)
-  })
-
-  it("rejects trailing chunks on a loose commit as well as fragments", () => {
-    const blob = Uint8Array.from([...commits[0].blob, ...commits[1].blob])
-    expect(() => validateRecord({ ...commits[0], blob })).toThrow(/exactly one/)
-  })
-
-  it("does not skip an invalid fragment representation just because its head is known", () => {
-    const fragment = records.find(
-      record => record.kind === "fragment"
-    ) as FragmentRecord
-    const loaded = applyRecords(empty(), records)
-    expect(() =>
-      applyRecords(loaded, [
-        { ...fragment, checkpoints: [checkpointId("ff".repeat(12))] },
-      ])
-    ).toThrow(/checkpoint/)
-  })
-
-  it("rejects malformed IDs, checkpoint lengths, payloads and limits before loading", () => {
-    const load = vi.spyOn(A, "loadIncremental")
-    const fragment = records.find(
-      record => record.kind === "fragment"
-    ) as FragmentRecord
-    const malformed: SedimentreeRecord[] = [
-      { ...commits[0], id: "zz" as CommitId },
-      { ...commits[0], parents: ["ab" as CommitId] },
-      { ...commits[0], blob: new Uint8Array() },
-      { ...commits[0], blob: new Uint8Array([1, 2, 3]) },
-      { ...fragment, head: "abc" as CommitId },
-      { ...fragment, boundary: ["gg".repeat(32) as CommitId] },
-      {
-        ...fragment,
-        checkpoints: [
-          fragment.head as unknown as ReturnType<typeof checkpointId>,
-        ],
-      },
-      { ...fragment, blob: commits[0].blob },
-    ]
-    for (const record of malformed) {
-      expect(() => applyRecords(empty(), [commits[0], record])).toThrow()
-    }
-    for (const limit of [0, -1, 1.5, NaN, Infinity]) {
-      expect(() =>
-        applyRecords(empty(), records, { maxBatchBytes: limit })
-      ).toThrow(RangeError)
-      expect(() =>
-        applyRecords(empty(), records, { maxBatchRecords: limit })
-      ).toThrow(RangeError)
-    }
-    expect(load).not.toHaveBeenCalled()
   })
 })

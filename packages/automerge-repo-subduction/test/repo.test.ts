@@ -359,7 +359,7 @@ describe("public Repo with native Subduction", () => {
     expect(saving).not.toHaveBeenCalled()
   }, 20000)
 
-  it("rejects a persisted commit blob corrupted on disk, via Repo's record validation", async () => {
+  it("rejects a persisted commit blob corrupted on disk via native hydration", async () => {
     const p = peer()
     const handle = await p.repo.create<State>({ count: 0 })
     handle.change(doc => {
@@ -367,7 +367,7 @@ describe("public Repo with native Subduction", () => {
     })
     await p.repo.flush()
     await p.repo.shutdown()
-    // The backend no longer re-checks blobs on read: Repo's validation must.
+    // Native hydration verifies every blob digest on open (see fragments.test.ts).
     const key = (await p.storage.list("subduction-v2/")).find(k =>
       k.includes("/commits/blob/")
     )!
