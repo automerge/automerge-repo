@@ -11,6 +11,7 @@ import {
   type RecordBatch,
   type SedimentreeRecord,
 } from "../index.js"
+import { concatBytes } from "../concatBytes.js"
 
 /** Canonical metadata, without encoding any payloads. Not a coverage proof. */
 export type RecordMetadata =
@@ -246,17 +247,7 @@ export function applyRecords<T>(
   let bytes = 0
   const flush = () => {
     if (blobs.length === 0) return
-    // One oversized record needs no additional concatenation allocation.
-    let input = blobs[0]
-    if (blobs.length > 1) {
-      input = new Uint8Array(bytes)
-      let offset = 0
-      for (const blob of blobs) {
-        input.set(blob, offset)
-        offset += blob.byteLength
-      }
-    }
-    current = A.loadIncremental(current, input)
+    current = A.loadIncremental(current, concatBytes(blobs))
     blobs = []
     bytes = 0
   }

@@ -9,7 +9,7 @@ import {
 } from "./AutomergeUrl.js"
 import { DocHandle } from "./DocHandle.js"
 import { Document } from "./Document.js"
-import { DocumentDelegate } from "./DocumentDelegate.js"
+import { DocumentSync } from "./DocumentSync.js"
 import {
   DocumentQuery,
   progressAtHeads,
@@ -17,12 +17,12 @@ import {
   type DocumentProgress,
 } from "./DocumentQuery.js"
 import { makeLogger } from "./Logger.js"
-import { RepoScheduler } from "./RepoScheduler.js"
 import { extractRecords } from "./sedimentree/automerge/index.js"
 import {
   BackendError,
   idBytes,
   sedimentreeId,
+  type BackendIdentity,
   type SedimentreeBackend,
   type SedimentreeId,
 } from "./sedimentree/index.js"
@@ -37,23 +37,27 @@ type Entry<T = any> = {
   document: Document<T>
   handle: DocHandle<T>
   query: DocumentQuery<T>
-  delegate?: DocumentDelegate<T>
+  sync?: DocumentSync<T>
 }
 
 /** Owns Automerge documents; an optional backend owns their storage and sync. */
 export class Repo extends EventEmitter<RepoEvents> {
   #log = makeLogger("automerge-repo:repo")
   #entries = new Map<DocumentId, Entry>()
-  #scheduler?: RepoScheduler
+  #backend?: SedimentreeBackend
   #operations = new Set<Promise<unknown>>()
   #deleting = new Map<DocumentId, Promise<void>>()
   #closed = false
   #shutdown?: Promise<void>
-  #origin = { kind: "repo", id: crypto.randomUUID(), path: [] as string[] }
+  #origin: BackendIdentity = {
+    kind: "repo",
+    id: crypto.randomUUID(),
+    path: [],
+  }
 
   constructor({ backend }: RepoConfig = {}) {
     super()
-    if (backend) this.#scheduler = new RepoScheduler(backend)
+    this.#backend = backend
   }
 
   get handles(): Record<DocumentId, DocHandle<any>> {
@@ -105,8 +109,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           segments: undefined,
         }
     const { documentId, heads, segments } = parsed
-    if (this.#deleting.has(documentId))
-      throw new Error("Document deletion in progress")
+    this.#checkDeleting(documentId)
     const entry = this.#entries.get(documentId) ?? this.#register(documentId)
     let progress: DocumentProgress<T> = entry.query
     if (heads) progress = progressAtHeads(entry.query, heads)
@@ -130,7 +133,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     id?: DocumentId
   ): Promise<DocHandle<T>> {
     if (!id) return this.#createDocument(doc)
-    if (this.#deleting.has(id)) throw new Error("Document deletion in progress")
+    this.#checkDeleting(id)
     const existing = this.#entries.get(id)
     if (existing?.query.peek().state === "ready") {
       await existing.handle.update(current => A.merge(current, A.clone(doc)))
@@ -156,8 +159,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   ): Promise<DocHandle<T>> {
     if (!A.getHeads(doc).length) doc = A.emptyChange(doc)
     let id: DocumentId
-    if (this.#scheduler) {
-      const allocated = await this.#scheduler.create(
+    if (this.#backend) {
+      if (requested) this.#checkDeleting(requested)
+      const allocated = await this.#backend.create(
         extractRecords(doc),
         requested ? { documentId: this.#backendId(requested) } : undefined
       )
@@ -166,32 +170,18 @@ export class Repo extends EventEmitter<RepoEvents> {
       id = requested ?? this.#localId()
     }
     this.#checkOpen()
-    if (this.#deleting.has(id)) throw new Error("Document deletion in progress")
+    this.#checkDeleting(id)
     const existing = this.#entries.get(id)
     if (existing) {
       // Loading can begin while backend creation is pending. Adopt that shared entry.
       if (existing.document.deleted || existing.document.closed)
         throw new Error("Document is no longer open")
-      if (existing.query.peek().state === "failed") {
-        if (existing.delegate) await this.#scheduler!.detach(existing.delegate)
-        this.#checkOpen()
-        this.#entries.delete(id)
-        return this.#register<T>(id, doc).handle
-      }
-      if (existing.delegate) {
-        existing.delegate.onEvent({
-          type: "records",
-          sequence: 0,
-          phase: "initial",
-          records: extractRecords(doc),
-        })
-        existing.delegate.created()
-      } else {
+      if (existing.sync) existing.sync.adopt(doc)
+      else
         await existing.document.applyMutation(
           current => A.merge(current, A.clone(doc)),
           { incoming: true }
         )
-      }
       return existing.handle
     }
     return this.#register<T>(id, doc).handle
@@ -220,36 +210,27 @@ export class Repo extends EventEmitter<RepoEvents> {
     const document = new Document<T>(id, initial)
     const handle = new DocHandle(document)
     const query = new DocumentQuery(handle, new Map(), {
-      initialSnapshotPending: !!this.#scheduler && !initial,
+      initialSnapshotPending: !!this.#backend && !initial,
     })
     const entry: Entry<T> = { document, handle, query }
-    if (this.#scheduler) {
-      const scheduler = this.#scheduler
-      let delegate!: DocumentDelegate<T>
-      delegate = new DocumentDelegate(
+    if (this.#backend) {
+      const sync = new DocumentSync(
         this.#backendId(id),
         document,
         query,
-        (tree, records) => scheduler.submit(tree, records),
-        () => scheduler.synchronize(delegate),
-        !!initial,
-        this.#origin.id
+        this.#backend,
+        this.#origin,
+        !!initial
       )
-      entry.delegate = delegate
+      entry.sync = sync
       handle.on("ephemeral-message-outbound", ({ data }) => {
-        void scheduler
-          .publishEphemeral(delegate, {
-            messageId: crypto.randomUUID(),
-            origin: this.#origin,
-            payload: data,
-          })
-          .catch(error => {
-            try {
-              this.#log.error("ephemeral publication failed", error)
-            } catch {
-              // Application logging must not reject this detached send.
-            }
-          })
+        void sync.publishEphemeral(data).catch(error => {
+          try {
+            this.#log.error("ephemeral publication failed", error)
+          } catch {
+            // Application logging must not reject this detached send.
+          }
+        })
       })
     }
     this.#entries.set(id, entry)
@@ -274,13 +255,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       if (state.state === "unavailable")
         this.emit("unavailable-document", { documentId: id })
     })
-    if (entry.delegate) {
-      try {
-        this.#scheduler!.open(entry.delegate)
-      } catch (error) {
-        entry.delegate.sourceUnavailable(error)
-      }
-    }
+    entry.sync?.start()
     announce(query.peek())
     return entry
   }
@@ -297,7 +272,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (pending) return pending
     const entry = this.#entries.get(documentId)
     // Without a backend an unopened ID has no history to delete.
-    if (!entry && !this.#scheduler) return Promise.resolve()
+    if (!entry && !this.#backend) return Promise.resolve()
     // Install the Repo barrier before handle delete listeners can reenter.
     let resolve!: () => void
     let reject!: (error: unknown) => void
@@ -317,12 +292,11 @@ export class Repo extends EventEmitter<RepoEvents> {
     )
     void this.#track(deleting)
     try {
-      // Submit before returning so shutdown cannot overtake an accepted deletion.
-      if (this.#scheduler)
-        void this.#scheduler
-          .delete(this.#backendId(documentId), entry?.delegate)
-          .then(resolve, reject)
-      else {
+      if (this.#backend) {
+        // Stop our own producers first; the backend fences everything else.
+        entry?.sync?.markDeleted()
+        void this.#deleteLocal(documentId, entry?.sync).then(resolve, reject)
+      } else {
         if (entry) {
           entry.document.closed = true
           entry.handle.delete()
@@ -336,13 +310,55 @@ export class Repo extends EventEmitter<RepoEvents> {
     return deleting
   }
 
-  /** Retry and drain accepted local history; reject after all targeted work settles. */
-  flush(documents?: DocumentId[]): Promise<void> {
-    this.#checkOpen()
-    return (
-      this.#scheduler?.flush(documents?.map(id => this.#backendId(id))) ??
-      Promise.resolve()
+  /** Release the session after the store in flight, then remove local history.
+   * Cleanup always proceeds to deleteLocal; every failure is reported. */
+  async #deleteLocal(id: DocumentId, sync?: DocumentSync<any>): Promise<void> {
+    const results = await Promise.allSettled([sync?.quiesce()])
+    results.push(
+      ...(await Promise.allSettled([
+        this.#backend!.deleteLocal(this.#backendId(id)),
+      ]))
     )
+    const errors = collectErrors(results)
+    if (errors.length)
+      throw new AggregateError(errors, "Document deletion failed")
+  }
+
+  /**
+   * Retry and drain accepted local history; reject after all targeted work
+   * settles. This is a persistence barrier only: it does not wait for
+   * in-progress deletions or for network delivery.
+   */
+  flush(documents?: DocumentId[]): Promise<void> {
+    try {
+      this.#checkOpen()
+      const backend = this.#backend
+      if (!backend) return Promise.resolve()
+      const ids = documents?.map(id => this.#backendId(id))
+      const targets = ids && new Set(ids)
+      const drains = [...this.#entries.values()]
+        .map(entry => entry.sync)
+        .filter(
+          (sync): sync is DocumentSync<unknown> =>
+            !!sync &&
+            sync.hasUnsavedHistory &&
+            (!targets || targets.has(sync.id))
+        )
+        .map(sync => sync.flush())
+      // With nothing to drain, capture the backend barrier before later edits.
+      if (!drains.length) return this.#track(backend.flush(ids))
+      return this.#track(
+        (async () => {
+          const results = await Promise.allSettled(drains)
+          results.push(...(await Promise.allSettled([backend.flush(ids)])))
+          const errors = collectErrors(results)
+          if (errors.length)
+            throw new AggregateError(errors, "Repo flush failed")
+        })()
+      )
+    } catch (error) {
+      return Promise.reject(error)
+    }
   }
 
   /** Persist first, then release a cached document without deleting its history. */
@@ -350,11 +366,15 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#checkOpen()
     const entry = this.#entries.get(id)
     if (!entry) return
-    if (!entry.delegate)
+    const sync = entry.sync
+    if (!sync)
       throw new Error(
         "Cannot evict a local-only document: its handle holds the only copy"
       )
-    await this.#track(this.#scheduler!.detach(entry.delegate))
+    // Stop edits before draining; otherwise retained handles can outlive eviction.
+    sync.close()
+    await this.flush([id])
+    await this.#track(sync.release())
     if (this.#entries.get(id) === entry) this.#entries.delete(id)
     entry.query.fail(new Error("Document removed from cache"))
   }
@@ -363,19 +383,28 @@ export class Repo extends EventEmitter<RepoEvents> {
   shutdown(): Promise<void> {
     if (this.#shutdown) return this.#shutdown
     this.#closed = true
-    for (const entry of this.#entries.values()) entry.document.closed = true
+    const entries = [...this.#entries.values()]
+    for (const entry of entries) {
+      if (entry.sync) entry.sync.close()
+      else entry.document.closed = true
+    }
     const operations = [...this.#operations]
+    const backend = this.#backend
     // Install the promise before notifying subscribers that may reenter shutdown.
     this.#shutdown = Promise.resolve().then(async () => {
-      for (const entry of this.#entries.values())
+      for (const entry of entries)
         entry.query.fail(new Error("Repo is shut down"))
       const results = await Promise.allSettled([
         ...operations,
-        this.#scheduler?.shutdown() ?? Promise.resolve(),
+        ...entries.map(entry => entry.sync?.flush()),
       ])
-      for (const result of results)
-        if (result.status === "rejected")
-          this.#log.error("error during Repo shutdown", result.reason)
+      if (backend) {
+        results.push(...(await Promise.allSettled([backend.flush()])))
+        results.push(...(await Promise.allSettled([backend.close()])))
+        await Promise.allSettled(entries.map(entry => entry.sync?.settled()))
+      }
+      for (const error of collectErrors(results))
+        this.#log.error("error during Repo shutdown", error)
     })
     return this.#shutdown
   }
@@ -402,6 +431,16 @@ export class Repo extends EventEmitter<RepoEvents> {
   #checkOpen(): void {
     if (this.#closed) throw new Error("Repo is shut down")
   }
+
+  #checkDeleting(id: DocumentId): void {
+    if (this.#deleting.has(id)) throw new Error("Document deletion in progress")
+  }
+}
+
+function collectErrors(results: PromiseSettledResult<unknown>[]): unknown[] {
+  return results.flatMap(result =>
+    result.status === "rejected" ? [result.reason] : []
+  )
 }
 
 export interface RepoConfig {

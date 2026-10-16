@@ -12,9 +12,9 @@ templates, and demos have been removed; a legacy backend is deferred.
 
 ## Configuration
 
-Pass an initialized backend to `Repo`. The Repo scheduler owns its sessions,
-orders local persistence, and closes the backend during shutdown. Do not share a
-single-owner backend instance between independently managed Repos.
+Pass an initialized backend to `Repo`. Repo owns its backend sessions, orders
+each document's local persistence, and closes the backend during shutdown. Do
+not share a single-owner backend instance between independently managed Repos.
 
 ```ts
 import { Repo } from "@automerge/automerge-repo"

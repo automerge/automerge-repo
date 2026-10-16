@@ -22,7 +22,7 @@ export class Document<T = unknown> {
   /** No WASM document until storage, peer history, or a caller needs one. */
   #doc?: A.Doc<T>
 
-  /** Lowered by DocumentDelegate until a first snapshot is verified. */
+  /** Lowered by DocumentSync until a first snapshot is verified. */
   ready = true
 
   /** Set by {@link DocHandle.delete} on any handle into this document. */

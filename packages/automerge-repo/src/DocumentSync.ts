@@ -1,0 +1,401 @@
+import { next as A } from "@automerge/automerge/slim"
+import type { Document } from "./Document.js"
+import type { StorageId } from "./DocHandle.js"
+import type { DocumentQuery } from "./DocumentQuery.js"
+import { decode } from "./helpers/cbor.js"
+import type { PeerId } from "./types.js"
+import {
+  recordHead,
+  type BackendIdentity,
+  type HistoryMarker,
+  type RecordBatch,
+  type SedimentreeBackend,
+  type SedimentreeEvent,
+  type SedimentreeId,
+  type SedimentreeSession,
+} from "./sedimentree/index.js"
+import {
+  applyRecords,
+  extractNewRecords,
+  satisfiesMarker,
+} from "./sedimentree/automerge/index.js"
+import { concatBytes } from "./sedimentree/concatBytes.js"
+
+type WriteJob = {
+  records: RecordBatch
+  error?: unknown
+}
+
+/**
+ * Per-document backend consumer: owns the session, applies its events to the
+ * CRDT, verifies readiness markers, and keeps exact unsaved write batches so
+ * failed stores can be retried. Writes are ordered per document; the backend
+ * owns durability, deletion fences and the flush barrier.
+ */
+export class DocumentSync<T> {
+  #unsaved: WriteJob[] = []
+  #tail: Promise<void> = Promise.resolve()
+  #running = false
+  /** A store that has not started yet; edits made meanwhile join it. */
+  #queued?: Promise<void>
+  #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
+  #session?: SedimentreeSession
+  #consumer: Promise<void> = Promise.resolve()
+  #closed = false
+  #deleted = false
+
+  constructor(
+    readonly id: SedimentreeId,
+    readonly document: Document<T>,
+    readonly query: DocumentQuery<T>,
+    private backend: SedimentreeBackend,
+    private origin: BackendIdentity,
+    created = false
+  ) {
+    document.commit = (before, after) => this.commit(before, after)
+    if (created) {
+      this.#complete()
+    } else {
+      document.ready = false
+      this.query.markInitialSnapshotPending()
+      this.query.sourcePending("backend")
+    }
+  }
+
+  /** Open the backend session and start consuming its events. */
+  start(): void {
+    if (this.#closed || this.#session) return
+    let session: SedimentreeSession
+    try {
+      session = this.backend.open(this.id)
+    } catch (error) {
+      this.sourceUnavailable(error)
+      return
+    }
+    this.#session = session
+    if (!this.query.snapshotPending) session.markComplete?.()
+    this.#consumer = this.#consume(session).catch(error => {
+      if (this.#session !== session) return
+      this.#session = undefined
+      this.sourceUnavailable(error)
+    })
+  }
+
+  /** Resolves once the current event loop has ended. */
+  settled(): Promise<void> {
+    return this.#consumer
+  }
+
+  async #consume(session: SedimentreeSession): Promise<void> {
+    for await (const event of session.events) {
+      if (this.#session !== session) return
+      if (event.type === "rescan-required") {
+        this.onEvent(event)
+        this.#session = undefined
+        try {
+          await session.close()
+        } catch (error) {
+          this.#log("failed to close a rescanned session: %o", error)
+        }
+        this.start()
+        return
+      }
+      if (event.type === "deleted") {
+        this.#session = undefined
+        try {
+          this.markDeleted()
+        } finally {
+          await session.close()
+        }
+        return
+      }
+      this.onEvent(event)
+    }
+    if (this.#session === session && !this.#closed)
+      this.sourceUnavailable(new Error("Backend observation ended"))
+  }
+
+  // -- Writes --
+
+  commit(before: A.Doc<T>, after: A.Doc<T>): Promise<void> {
+    if (this.#closed) return Promise.reject(new Error("Document is closed"))
+    const records = extractNewRecords(before, after)
+    if (records.length) this.#unsaved.push({ records })
+    if (!this.#unsaved.length) return Promise.resolve()
+    return this.#store()
+  }
+
+  /** One store in flight per document, started at once when idle; edits made
+   * meanwhile join the next one. */
+  #store(): Promise<void> {
+    if (this.#queued) return this.#queued
+    const idle = !this.#running
+    const job = idle ? this.#persist() : this.#tail.then(() => this.#persist())
+    if (!idle) this.#queued = job
+    this.#tail = job.catch(() => {})
+    return job
+  }
+
+  async #persist(): Promise<void> {
+    this.#queued = undefined
+    this.#running = true
+    try {
+      if (this.#deleted) throw new Error("Document deleted")
+      const jobs = [...this.#unsaved]
+      if (!jobs.length) return
+      try {
+        await this.backend.store(
+          this.id,
+          jobs.flatMap(job => job.records)
+        )
+      } catch (error) {
+        for (const job of jobs) job.error = error
+        throw error
+      }
+      this.#unsaved = this.#unsaved.filter(job => !jobs.includes(job))
+    } finally {
+      this.#running = false
+    }
+  }
+
+  get hasUnsavedHistory(): boolean {
+    return this.#unsaved.length > 0
+  }
+
+  /** Wait for captured writes, retry captured failures once, then report. */
+  async flush(): Promise<void> {
+    const captured = [...this.#unsaved]
+    if (!captured.length) return
+    await this.#tail
+    if (!this.#deleted && captured.some(job => this.#unsaved.includes(job)))
+      await this.#store().catch(() => {})
+    const failures = captured.filter(job => this.#unsaved.includes(job))
+    if (failures.length)
+      throw new AggregateError(
+        [
+          ...new Set(
+            failures.map(
+              job => job.error ?? new Error("Unstored document history")
+            )
+          ),
+        ],
+        "Document still has unsaved history"
+      )
+  }
+
+  // -- Lifecycle --
+
+  /** Creation finished while a lookup was already observing this document. */
+  adopt(doc: A.Doc<T>): void {
+    const current = this.document.peekDoc()
+    if (current) {
+      void this.document.applyMutation(value => A.merge(value, A.clone(doc)), {
+        incoming: true,
+        initial: this.query.snapshotPending,
+      })
+    } else {
+      void this.document.applyLoaded(A.clone(doc), this.query.snapshotPending)
+    }
+    this.#complete()
+  }
+
+  publishEphemeral(payload: Uint8Array): Promise<void> {
+    const session = this.#session
+    if (!session || this.#closed)
+      return Promise.reject(new Error("No active session"))
+    return session.publishEphemeral({
+      messageId: crypto.randomUUID(),
+      origin: this.origin,
+      payload,
+    })
+  }
+
+  /** Stop edits; unsaved history can still be drained with flush(). */
+  close(): void {
+    this.#closed = true
+    this.document.closed = true
+  }
+
+  /** Stop edits and stores, fail the lookup, and notify handles. */
+  markDeleted(): void {
+    this.close()
+    this.#deleted = true
+    // Nothing more reaches the backend, so there is nothing left to report.
+    this.#unsaved = []
+    const notify = !this.document.deleted
+    this.document.deleted = true
+    // Invalidate acquisition before delete listeners can synchronously find the ID.
+    this.query.fail(new Error("Document deleted"))
+    if (notify) this.document.registry.dispatchDelete()
+  }
+
+  /** After markDeleted: let the store in flight finish, then release the session. */
+  async quiesce(): Promise<void> {
+    await this.#tail
+    await this.release()
+  }
+
+  /** Close the session, keeping it for a retry if closing fails. */
+  async release(): Promise<void> {
+    const session = this.#session
+    if (!session) return
+    this.#session = undefined
+    try {
+      await session.close()
+    } catch (error) {
+      this.#session ??= session
+      throw error
+    }
+  }
+
+  // -- Events --
+
+  onEvent(event: SedimentreeEvent): void {
+    if (this.document.closed || this.query.peek().state === "failed") return
+    switch (event.type) {
+      case "blobs": {
+        const input = concatBytes(event.blobs)
+        if (!input.byteLength) break
+        const current = this.document.peekDoc()
+        if (!current) {
+          // The initial storage batch can become the document directly.
+          const next = A.load<T>(input, { allowMissingChanges: true })
+          void this.document.applyLoaded(next, this.query.snapshotPending)
+        } else {
+          const next = A.loadIncremental(current, input)
+          void this.document.applyMutation(() => next, {
+            incoming: true,
+            initial: this.query.snapshotPending,
+          })
+        }
+        break
+      }
+      case "records": {
+        // An applied head includes all its dependencies, even when delivered
+        // through a fragment. Pending heads are not reported by hasHeads.
+        // This is a materialization shortcut, not a persistence receipt.
+        const current = this.document.peekDoc()
+        const unknown = current
+          ? event.records.filter(
+              record => !A.hasHeads(current, [recordHead(record)])
+            )
+          : event.records
+        if (unknown.length) {
+          const next = applyRecords(this.document.doc, unknown)
+          void this.document.applyMutation(() => next, {
+            incoming: true,
+            initial: this.query.snapshotPending,
+          })
+        }
+        this.#checkTargets()
+        break
+      }
+      case "local-load-complete":
+        if (event.marker) this.#marker("local", event.marker)
+        else if (event.found && this.document.heads().length) this.#complete()
+        if (event.noPeers && this.query.snapshotPending)
+          this.query.sourceUnavailable("backend")
+        if (this.query.snapshotPending && !event.backendSyncs)
+          void this.#session
+            ?.synchronize()
+            .catch(error => this.sourceUnavailable(error))
+        break
+      case "history-marker":
+        this.#marker("live", event.marker)
+        break
+      case "synchronized": {
+        this.#marker("sync", event.result.marker)
+        const { outcome, peers, marker } = event.result
+        if (
+          this.query.snapshotPending &&
+          this.#targets.size === 0 &&
+          marker.heads.length === 0 &&
+          this.document.heads().length === 0 &&
+          (outcome === "no-peers" ||
+            (outcome === "complete" &&
+              peers.length > 0 &&
+              peers.every(peer => peer.outcome === "unavailable")))
+        ) {
+          this.query.sourceUnavailable("backend")
+        }
+        break
+      }
+      case "failure":
+        if (event.error.operation === "ephemeral") {
+          this.#log("ephemeral operation failed: %o", event.error)
+        } else if (event.error.retryable)
+          this.document.log.error("backend failure: %o", event.error)
+        else this.sourceUnavailable(event.error)
+        break
+      case "deleted":
+        this.markDeleted()
+        break
+      case "remote-heads":
+        this.document.recordRemoteHeads(
+          event.remote.id as StorageId,
+          event.heads
+        )
+        break
+      case "ephemeral":
+        if (event.message.origin.id === this.origin.id) break
+        try {
+          this.document.registry.dispatchEphemeral(
+            event.sender.id as PeerId,
+            decode(new Uint8Array(event.message.payload))
+          )
+        } catch (error) {
+          this.#log("invalid ephemeral message: %o", error)
+        }
+        break
+      case "rescan-required":
+        this.#targets.clear()
+        if (this.query.snapshotPending) this.query.sourcePending("backend")
+        break
+    }
+  }
+
+  sourceUnavailable(reason: unknown): void {
+    if (this.#closed) return
+    this.#log("backend observation unavailable: %o", reason)
+    this.query.sourceUnavailable("backend")
+  }
+
+  /** Application logging must not interrupt durable observation. */
+  #log(message: string, detail: unknown): void {
+    try {
+      this.document.log.error(message, detail)
+    } catch {}
+  }
+
+  #marker(source: "local" | "live" | "sync", marker: HistoryMarker): void {
+    if (
+      this.query.peek().state === "failed" ||
+      !this.query.snapshotPending ||
+      marker.heads.length === 0
+    )
+      return
+    if (!this.#targets.has(source)) this.#targets.set(source, marker)
+    this.#checkTargets()
+  }
+
+  #checkTargets(): void {
+    if (!this.query.snapshotPending) return
+    const doc = this.document.peekDoc()
+    if (!doc) return
+    for (const target of this.#targets.values()) {
+      if (satisfiesMarker(doc, target.heads)) {
+        this.#complete()
+        return
+      }
+    }
+  }
+
+  #complete(): void {
+    this.#targets.clear()
+    this.document.ready = true
+    this.query.markInitialSnapshotComplete()
+    this.query.sourceReady("backend")
+    // Let the backend skip history-marker work once Repo has a verified snapshot.
+    this.#session?.markComplete?.()
+  }
+}
