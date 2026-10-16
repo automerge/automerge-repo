@@ -509,17 +509,6 @@ export class StorageBridge implements N.SedimentreeStorage {
     }, tree)
   }
 
-  inventory(consume: (ids: SedimentreeId[]) => void): Promise<void> {
-    return this.enqueue(async () => {
-      const ids = await this.loadIds()
-      try {
-        consume(ids.map(logicalId))
-      } finally {
-        ids.forEach(id => id.free())
-      }
-    })
-  }
-
   private async recordsFor(tree: string): Promise<SedimentreeRecord[]> {
     const values = await this.snapshot(tree)
     return values.map(v => {

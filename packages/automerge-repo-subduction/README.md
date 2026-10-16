@@ -205,6 +205,11 @@ authenticated identity is not an application sharing policy. Connect only
 explicitly trusted peers. A successful synchronization round does **not** prove
 remote durability, document readiness, or global convergence.
 
+Only open documents sync a new connection (through their native stream). Stored
+but unopened documents are not replayed on connect; native still serves them to
+peers that ask. Each local `store()` schedules one coalesced propagation round
+to the currently connected peers.
+
 ### Empty connected lookups
 
 Opening a document with no local history asks connected peers for it (native
@@ -257,11 +262,11 @@ successful retry does not erase previously unreported failures.
 
 Default limits:
 
-| Option                    |                                              Default |
-| ------------------------- | ---------------------------------------------------: |
-| `syncTimeoutMilliseconds` | 5,000 ms per explicit/unopened-document sync request |
-| `replayEvents`            |                                        128 per watch |
-| `replayBytes`             |                                      4 MiB per watch |
+| Option                    |                                               Default |
+| ------------------------- | ----------------------------------------------------: |
+| `syncTimeoutMilliseconds` | 5,000 ms per explicit or store-triggered sync request |
+| `replayEvents`            |                                         128 per watch |
+| `replayBytes`             |                                       4 MiB per watch |
 
 A write reads only the keys it writes (to detect a conflicting representation
 and duplicate notifications); it does not rescan the tree. A

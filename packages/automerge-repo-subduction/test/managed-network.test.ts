@@ -109,15 +109,17 @@ it("retries onboarding superseded by deletion without treating the backend as cl
   const entered = new Promise<void>(resolve => {
     enter = resolve
   })
-  vi.spyOn(storage, "loadPrefix").mockImplementationOnce(async () => {
-    enter()
-    await paused
-    return []
-  })
   const peer = createSubductionPeer({
     storage,
     servers: ["ws://localhost:8080"],
     retry: { initialMs: 10, maxMs: 50 },
+  })
+  const engine = (peer.backend as unknown as { engine: N.Subduction }).engine
+  const add = engine.addConnection.bind(engine)
+  vi.spyOn(engine, "addConnection").mockImplementationOnce(async transport => {
+    enter()
+    await paused
+    return add(transport)
   })
   try {
     const ready = peer.connections[0].connected()

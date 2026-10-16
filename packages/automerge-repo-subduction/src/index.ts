@@ -153,8 +153,6 @@ export class SubductionBackend implements SedimentreeBackend {
   private engine: N.Subduction
   private generation!: EngineGeneration
   private networkTail: Promise<unknown> = Promise.resolve()
-  private networkEnabled = false
-  private readonly pendingSyncs = new Set<SedimentreeId>()
   private readonly scheduled = new Map<
     SedimentreeId,
     { generation: EngineGeneration; again: boolean }
@@ -340,47 +338,31 @@ export class SubductionBackend implements SedimentreeBackend {
    * the engine owns a connection clone and disconnects it on close/reset/delete.
    * Keep the underlying JS transport alive until disconnection. Authentication
    * is the caller's responsibility; no document handle is materialized here.
+   *
+   * Open streams sync the new connection themselves, and native serves peer
+   * requests for any stored tree, so stored-but-unopened documents are not
+   * replayed here (matching Repo's historical connect behaviour).
    */
   addConnection(transport: AuthenticatedTransport): Promise<boolean> {
     try {
-      this.check("synchronize")
-      return this.enqueue("synchronize", async () => {
-        this.check("synchronize")
-        // Do fallible inventory I/O before installation: a rejected onboarding
-        // must not leave a live connection whose ownership was never accepted.
-        const ids = new Set<SedimentreeId>()
-        await this.bridge.inventory(stored => stored.forEach(id => ids.add(id)))
-        this.check("synchronize")
-        return { ids, engine: this.engine, generation: this.generation }
+      const generation = this.generation
+      const engine = this.engine
+      this.checkNetwork(generation)
+      return this.nativeWork(generation, async () => {
+        const added = await engine.addConnection(transport)
+        if (this.closed || !generation.active || generation.stopping) {
+          await engine.disconnectAll()
+          throw new BackendError(
+            "synchronize",
+            this.closed ? "closed" : "io",
+            "Connection was superseded",
+            !this.closed
+          )
+        }
+        return added
+      }).catch(cause => {
+        throw error("synchronize", cause)
       })
-        .then(({ ids, engine, generation }) => {
-          this.checkNetwork(generation)
-          return this.nativeWork(generation, async () => {
-            const added = await engine.addConnection(transport)
-            if (this.closed || !generation.active || generation.stopping) {
-              await engine.disconnectAll()
-              throw new BackendError(
-                "synchronize",
-                this.closed ? "closed" : "io",
-                "Connection was superseded",
-                !this.closed
-              )
-            }
-            this.networkEnabled = true
-            // Inventory predates native onboarding; retain interests accepted
-            // while its replay was waiting outside the persistence queue.
-            for (const id of this.pendingSyncs) ids.add(id)
-            this.pendingSyncs.clear()
-            // Open streams sync this connection themselves. Replay only stored,
-            // unopened documents (and pending stores without an open stream).
-            const open = new Set(this.watches.values())
-            for (const id of ids) if (!open.has(id)) this.scheduleSync(id)
-            return added
-          })
-        })
-        .catch(cause => {
-          throw error("synchronize", cause)
-        })
     } catch (cause) {
       return Promise.reject(cause)
     }
@@ -458,10 +440,6 @@ export class SubductionBackend implements SedimentreeBackend {
   }
   private scheduleSync(id: SedimentreeId): void {
     if (this.closed || this.deleting.has(id) || this.generation.stopping) return
-    if (!this.networkEnabled) {
-      this.pendingSyncs.add(id)
-      return
-    }
     const old = this.scheduled.get(id)
     if (old?.generation === this.generation) {
       old.again = true
@@ -501,6 +479,15 @@ export class SubductionBackend implements SedimentreeBackend {
     let peers: N.PeerId[] = []
     try {
       peers = await engine.getConnectedPeerIds()
+      // Store-triggered rounds only propagate; with no peers there is nothing
+      // to do or report. Explicit rounds always answer their session.
+      if (!peers.length && !recipient)
+        return {
+          roundId,
+          marker: { sequence: ++this.sequence, heads: [] },
+          outcome: "no-peers",
+          peers: [],
+        }
       const outcomes: SyncRoundResult["peers"][number][] = []
       for (const peer of peers) {
         const identity = this.peerIdentity(peer)
@@ -1013,7 +1000,6 @@ export class SubductionBackend implements SedimentreeBackend {
       const id = sedimentreeId(input)
       this.check("delete")
       if (this.deleting.has(id)) return this.deleting.get(id)!
-      this.pendingSyncs.delete(id)
       this.recovering.delete(id)
       const sequence = ++this.sequence
       for (const [watch, tree] of this.watches)
@@ -1047,7 +1033,6 @@ export class SubductionBackend implements SedimentreeBackend {
   close(): Promise<void> {
     if (this.closing) return this.closing
     this.closed = true
-    this.pendingSyncs.clear()
     this.recovering.clear()
     this.seenEphemerals.clear()
     const captured = [...this.attempts]
