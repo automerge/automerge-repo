@@ -476,9 +476,8 @@ describe("public Repo with native Subduction", () => {
     p.storage.beforeSave = async key => {
       if (key.includes("/fragments/")) throw new Error("Disk unavailable")
     }
-    await expect(
-      handle.update(doc => A.merge(doc, A.clone(fork)))
-    ).rejects.toThrow()
+    const forked = await new Repo().import<State>(A.save(fork))
+    await expect(handle.merge(forked)).rejects.toThrow()
     await p.repo.shutdown()
     p.storage.beforeSave = undefined
     // A partially stored batch would leave commits whose parents never

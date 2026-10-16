@@ -1,8 +1,7 @@
 import { next as A } from "@automerge/automerge/slim"
 import { makeLogger, Logger } from "./Logger.js"
 import { decodeHeads, encodeHeads } from "./AutomergeUrl.js"
-import type { DocumentId, UrlHeads } from "./types.js"
-import type { StorageId, SyncInfo } from "./DocHandle.js"
+import type { DocumentId, StorageId, SyncInfo, UrlHeads } from "./types.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
 import type { RootQuery } from "./DocumentQuery.js"
@@ -28,7 +27,7 @@ export class Document<T = unknown> {
 
   /** Set by {@link Document.delete}. */
   deleted = false
-  closed = false
+  #closed = false
 
   #syncInfo = new Map<StorageId, SyncInfo>()
 
@@ -59,6 +58,15 @@ export class Document<T = unknown> {
 
   get doc(): A.Doc<T> {
     return (this.#doc ??= A.init<T>())
+  }
+
+  /** Set by {@link Document.close}; edits and inbound data are then rejected. */
+  get closed(): boolean {
+    return this.#closed
+  }
+
+  close(): void {
+    this.#closed = true
   }
 
   get ready(): boolean {

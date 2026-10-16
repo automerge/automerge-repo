@@ -76,13 +76,10 @@ export type {
   DocHandleEphemeralMessagePayload,
   DocHandleRemoteHeadsPayload,
   DocHandleEvents,
-  DocHandleOptions,
-  DocHandleOutboundEphemeralMessagePayload,
-  SyncInfo,
-  StorageId,
-} from "./DocHandle.js"
+} from "./DocHandleEvents.js"
 
 export type {
+  AbortOptions,
   DeleteDocumentPayload,
   DocumentPayload,
   RepoConfig,
@@ -90,14 +87,12 @@ export type {
   RepoFindOptions,
 } from "./Repo.js"
 
+export type { DocumentQuery, QueryState } from "./DocumentQuery.js"
 export type {
   DocumentProgress,
-  DocumentQuery,
   ProgressState,
-  QueryState,
   SourceState,
-} from "./DocumentQuery.js"
-export type { AbortOptions } from "./helpers/abortable.js"
+} from "./DocumentProgress.js"
 
 export * from "./types.js"
 

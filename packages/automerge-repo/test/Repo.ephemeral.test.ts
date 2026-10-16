@@ -92,20 +92,17 @@ afterEach(async () => {
 })
 
 describe("DocHandle backend ephemerals", () => {
-  it("owns historical CBOR bytes, allocates fresh IDs, preserves subhandle outbound events", async () => {
+  it("owns historical CBOR bytes and allocates fresh IDs", async () => {
     const { backend, repo } = setup()
     const handle = await repo.create({ count: 0 })
     const sub = handle.sub("count")
-    const outbound = vi.fn(),
-      echo = vi.fn()
-    sub.on("ephemeral-message-outbound", outbound)
+    const echo = vi.fn()
     handle.on("ephemeral-message", echo)
     const message = { bytes: new Uint8Array([3, 4]) }
     expect(sub.broadcast(message)).toBeUndefined()
     message.bytes.fill(9)
     const sent = backend.sessions[0].publish.mock.calls[0][0]
     expect(decode(sent.payload)).toEqual({ bytes: new Uint8Array([3, 4]) })
-    expect(outbound).toHaveBeenCalledWith({ handle: sub, data: sent.payload })
     handle.broadcast("next")
     const next = backend.sessions[0].publish.mock.calls[1][0]
     expect(next.messageId).not.toBe(sent.messageId)

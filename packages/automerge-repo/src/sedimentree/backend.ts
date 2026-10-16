@@ -84,8 +84,7 @@ import type { RecordBatch } from "./records.js"
  *
  * This is a provisional scaffold, not the final network/composition contract.
  * Inbound-demand resolution, generic coverage operations and composite child
- * observations still need the real-backend validation in
- * `SUBDUCTION_INTEGRATION.md`, phase 1b.
+ * observations still need validation against real backends.
  */
 export interface SedimentreeBackend {
   /**

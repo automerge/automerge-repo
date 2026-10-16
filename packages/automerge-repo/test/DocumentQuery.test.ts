@@ -3,19 +3,19 @@ import { describe, expect, it, vi } from "vitest"
 import {
   queryAtHeads,
   queryAtPath,
-  toProgress,
   waitUntilReady,
   type QueryState,
 } from "../src/DocumentQuery.js"
+import { toProgress } from "../src/DocumentProgress.js"
 import { encodeHeads } from "../src/AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "../src/types.js"
-import { createTestQuery } from "./helpers/testHandle.js"
+import { applyInbound, createTestQuery } from "./helpers/testHandle.js"
 
 const docId = "test-doc-id" as DocumentId
 
 function readyQuery<T>(value: T) {
   const query = createTestQuery<T>(docId)
-  query.handle.update(() => A.from(value as any) as A.Doc<T>)
+  applyInbound(query.handle, () => A.from(value as any) as A.Doc<T>)
   query.ready()
   return query
 }
@@ -210,7 +210,7 @@ describe("queryAtHeads", () => {
     const states: string[] = []
     atHeads.subscribe(state => states.push(state.state))
     const waiting = waitUntilReady(atHeads)
-    query.handle.update(() => v2)
+    applyInbound(query.handle, () => v2)
     const view = await waiting
     expect(view.doc()?.value).toBe("v2")
     expect(view.isReadOnly()).toBe(true)
@@ -256,7 +256,7 @@ describe("queryAtPath", () => {
 
   it("maps subscribed states", () => {
     const query = createTestQuery<{ items: string[] }>(docId)
-    query.handle.update(() => A.from({ items: ["a"] }))
+    applyInbound(query.handle, () => A.from({ items: ["a"] }))
     const states: QueryState<unknown>[] = []
     queryAtPath(query, ["items"] as any).subscribe(s => states.push(s))
     query.ready()

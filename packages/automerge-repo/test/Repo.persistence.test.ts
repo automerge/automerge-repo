@@ -136,17 +136,15 @@ describe("Repo persistence", () => {
       expect(store).toHaveBeenCalledTimes(1)
     })
 
-    it("captures update, changeAt, merge, and scoped removal", async () => {
+    it("captures change, changeAt, merge, and scoped removal", async () => {
       const backend = new MemoryBackend()
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0, nested: { value: 1 } })
       const store = vi.spyOn(backend, "store")
       const heads = handle.heads()
-      await handle.update(doc =>
-        A.change(doc, d => {
-          d.count = 1
-        })
-      )
+      await handle.change(d => {
+        d.count = 1
+      })
       expect(handle.changeAt(heads, d => (d.count = 2))).toBeDefined()
       await r.flush()
       const other = new DocHandle(
@@ -260,9 +258,8 @@ describe("Repo persistence", () => {
         if (attempts.length === 1) throw new Error("disk full")
         return store(id, records)
       })
-      await expect(
-        handle.update(doc => A.merge(doc, A.clone(fork)))
-      ).rejects.toThrow("disk full")
+      const forked = new DocHandle(new Document("fork" as DocumentId, fork))
+      await expect(handle.merge(forked)).rejects.toThrow("disk full")
       expect(attempts[0].some(record => record.kind === "fragment")).toBe(true)
       await r.flush()
       expect(attempts[1]).toEqual(attempts[0])

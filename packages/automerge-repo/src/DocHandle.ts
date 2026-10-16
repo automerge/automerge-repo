@@ -7,7 +7,14 @@ import {
 } from "./AutomergeUrl.js"
 import { Document } from "./Document.js"
 import { encode } from "./helpers/cbor.js"
-import type { AutomergeUrl, DocumentId, PeerId, UrlHeads } from "./types.js"
+import type {
+  AutomergeUrl,
+  DocumentId,
+  StorageId,
+  SyncInfo,
+  UrlHeads,
+} from "./types.js"
+import type { DocHandleEvents } from "./DocHandleEvents.js"
 import {
   isCursorMarker,
   isPattern,
@@ -17,6 +24,7 @@ import { matchesPattern } from "./subdoc-handles/utils.js"
 import {
   applyScopedChange,
   applyScopedRemove,
+  cursorRangePositions,
   rebasePatchesToScope,
   resolvePropPath,
   resolveSegmentProp,
@@ -34,6 +42,21 @@ import type {
   Segment,
 } from "./subdoc-handles/types.js"
 import { KIND } from "./subdoc-handles/types.js"
+import {
+  EmptyKeyError,
+  isPathPrefixCompatible,
+  sameFixedHeads,
+  segmentEquals,
+  symbolicOnly,
+  zipResolvedSegments,
+} from "./subdoc-handles/segments.js"
+
+/** @internal Construction options; only the Repo and sub-handles build handles. */
+type DocHandleOptions = {
+  heads?: UrlHeads
+  pathSegments?: PathSegment[]
+  range?: CursorRange
+}
 
 /**
  * A DocHandle is a wrapper around an Automerge document. It allows you
@@ -82,19 +105,12 @@ export class DocHandle<T> {
     return this.#document.documentId
   }
 
-  /** @hidden */
-  constructor(document: Document<T>, options: DocHandleOptions<T> = {}) {
+  /** @internal Handles are obtained from a {@link Repo} or another handle. */
+  constructor(document: Document<T>, options: DocHandleOptions = {}) {
     this.#document = document
-
-    if ("heads" in options && options.heads) {
-      this.#fixedHeads = options.heads
-    }
-    if ("pathSegments" in options && options.pathSegments) {
-      this.#path = options.pathSegments
-    }
-    if ("range" in options && options.range) {
-      this.#range = options.range
-    }
+    this.#fixedHeads = options.heads
+    this.#path = options.pathSegments ?? []
+    this.#range = options.range
 
     // Register in the per-document trie so dispatch can find us.
     const node = this.#document.registry.getOrCreateNode(this.#path)
@@ -131,11 +147,6 @@ export class DocHandle<T> {
   isReady = () => this.#document.ready && !this.#document.deleted
 
   /**
-   * @returns true if the document has been unloaded.
-   */
-  isUnloaded = () => false
-
-  /**
    * @returns true if the document has been marked as deleted.
    */
   isDeleted = () => this.#document.deleted
@@ -168,18 +179,6 @@ export class DocHandle<T> {
   heads(): UrlHeads {
     if (this.#fixedHeads) return this.#fixedHeads
     return encodeHeads(this.#document.heads())
-  }
-
-  /** @internal Check for materialized history without encoding URL heads. */
-  hasHeads(): boolean {
-    return this.#fixedHeads
-      ? this.#fixedHeads.length > 0
-      : this.#document.heads().length > 0
-  }
-
-  /** @hidden */
-  begin() {
-    // noop - state machine removed
   }
 
   /**
@@ -316,60 +315,12 @@ export class DocHandle<T> {
     return rebasePatchesToScope(inScope, this.#path.length).patches
   }
 
-  /**
-   * `metadata(head?)` allows you to look at the metadata for a change
-   * this can be used to build history graphs to find commit messages and edit times.
-   * this interface.
-   *
-   * @remarks
-   * I'm really not convinced this is the right way to surface this information so
-   * I'm leaving this API "hidden".
-   *
-   * @hidden
-   */
-  metadata(change?: string): A.DecodedChange | undefined {
-    if (!change) {
-      change = this.heads()[0]
-    }
-    if (!change) return undefined
-    // we return undefined instead of null by convention in this API
-    return (
-      A.inspectChange(
-        this.#document.doc,
-        decodeHeads([change] as UrlHeads)[0]
-      ) || undefined
-    )
-  }
-
-  /**
-   * `update` is called any time we have a new document state; could be
-   * from a local change, a remote change, or a new document from storage.
-   * @throws if a handle has fixed heads
-   * @hidden
-   */
-  update(callback: (doc: A.Doc<T>) => A.Doc<T>): Promise<void> {
-    this.#throwIfFixedHeads("update")
-    return this.#document.applyMutation(
-      callback as (doc: A.Doc<any>) => A.Doc<any>
-    )
-  }
-
   #throwIfFixedHeads(operation: string) {
     if (this.#fixedHeads) {
       throw new Error(
         `Cannot ${operation} on DocHandle#${this.documentId}: it is in view-only mode at specific heads.`
       )
     }
-  }
-
-  /**
-   * `doneLoading` is called by the repo after it decides it has all the changes
-   * it's going to get during setup. This might mean it was created locally,
-   * or that it was loaded from storage, or that it was received from a peer.
-   * @hidden
-   */
-  doneLoading() {
-    // noop - state machine removed
   }
 
   /** Returns the heads and the timestamp of the last update for the storageId. */
@@ -475,33 +426,9 @@ export class DocHandle<T> {
     otherHandle: DocHandle<T>
   ) {
     this.#throwIfFixedHeads("merge")
-    return this.update(doc => A.merge(doc, otherHandle.fullDoc()))
-  }
-
-  /**
-   * Updates the internal state machine to mark the document unavailable.
-   * @hidden
-   */
-  unavailable() {
-    // noop - state machine removed
-  }
-
-  /**
-   * Called by the repo either when the document is not found in storage.
-   * @hidden
-   * */
-  request() {
-    // noop - state machine removed
-  }
-
-  /** Called by the repo to free memory used by the document. */
-  unload() {
-    // noop - state machine removed
-  }
-
-  /** Called by the repo to reuse an unloaded handle. */
-  reload() {
-    // noop - state machine removed
+    return this.#document.applyMutation(doc =>
+      A.merge(doc, otherHandle.fullDoc())
+    )
   }
 
   /**
@@ -522,9 +449,7 @@ export class DocHandle<T> {
    * must have a unique PeerId.
    */
   broadcast(message: unknown) {
-    const bytes = new Uint8Array(encode(message))
-    this.#document.registry.dispatchEphemeralOutbound(bytes)
-    void this.#document.publishEphemeral?.(bytes)
+    void this.#document.publishEphemeral?.(new Uint8Array(encode(message)))
   }
 
   metrics(): { numOps: number; numChanges: number } {
@@ -686,7 +611,6 @@ export class DocHandle<T> {
     if (cached) return cached
 
     return new DocHandle<unknown>(this.#document, {
-      isNew: false,
       pathSegments: path,
       range,
       heads,
@@ -819,22 +743,7 @@ export class DocHandle<T> {
     doc: A.Doc<any>,
     propPath: Prop[] | undefined
   ): [number, number] | undefined {
-    if (!this.#range || !propPath) return undefined
-    try {
-      const start = A.getCursorPosition(
-        doc,
-        propPath,
-        this.#range.start as A.Cursor
-      )
-      const end = A.getCursorPosition(
-        doc,
-        propPath,
-        this.#range.end as A.Cursor
-      )
-      return [start, end]
-    } catch {
-      return undefined
-    }
+    return cursorRangePositions(doc, propPath, this.#range)
   }
 
   /**
@@ -984,252 +893,4 @@ export class DocHandle<T> {
   ): boolean {
     return this.#document.registry.emit(this, event as string, payload)
   }
-
-  // Internal accessors (registry / tests)
-
-  /** @internal Number of handles with at least one listener attached. */
-  get _handleRetainerSize(): number {
-    return this.#document.registry.retainedCount
-  }
-
-  /** @internal Number of nodes in the per-document handle trie. For tests. */
-  get _trieNodeCount(): number {
-    return this.#document.registry.nodeCount
-  }
-
-  /** @internal Used by `DocSynchronizer` to deliver inbound ephemerals. */
-  _receiveInboundEphemeral(senderId: PeerId, message: unknown): void {
-    this.#document.registry.dispatchEphemeral(senderId, message)
-  }
-
-  /** @internal Scope an event's snapshot, not a later reentrant edit. */
-  _docAt(doc: A.Doc<any>): A.Doc<T> | undefined {
-    const path = this.#getPropPath(doc)
-    return scopedValue(doc, path, this.#range, () =>
-      this.#rangePositions(doc, path)
-    ) as A.Doc<T> | undefined
-  }
-}
-
-// Module-private helpers
-
-/**
- * Thrown when a path is built with an empty-string key. Empty keys don't
- * round-trip through URLs (`automerge:docId/` parses as no path), so we
- * reject them at construction rather than silently dropping them later.
- */
-class EmptyKeyError extends Error {
-  constructor() {
-    super(
-      "Empty-string keys are not supported in sub-handle paths: they do not round-trip through URLs."
-    )
-    this.name = "EmptyKeyError"
-  }
-}
-
-/** Strip non-symbolic fields (e.g. legacy `prop`) from an incoming segment. */
-function symbolicOnly(seg: PathSegment): PathSegment {
-  switch (seg[KIND]) {
-    case "key":
-      if (seg.key === "") throw new EmptyKeyError()
-      return { [KIND]: "key", key: seg.key }
-    case "index":
-      return { [KIND]: "index", index: seg.index }
-    case "match":
-      return { [KIND]: "match", match: seg.match }
-  }
-}
-
-/**
- * Build the `ResolvedPathSegment[]` snapshot for `DocHandle.path` by zipping
- * symbolic segments with resolved props. Trailing segments after a failed
- * pattern carry `prop: undefined`.
- */
-function zipResolvedSegments(
-  symbolic: readonly PathSegment[],
-  resolved: Prop[] | undefined
-): ResolvedPathSegment[] {
-  const out: ResolvedPathSegment[] = []
-  const n = resolved?.length ?? 0
-  for (let i = 0; i < symbolic.length; i++) {
-    const seg = symbolic[i]
-    const prop = i < n ? (resolved as Prop[])[i] : undefined
-    switch (seg[KIND]) {
-      case "key":
-        out.push({ [KIND]: "key", key: seg.key, prop: seg.key })
-        break
-      case "index":
-        out.push({ [KIND]: "index", index: seg.index, prop: seg.index })
-        break
-      case "match":
-        out.push({
-          [KIND]: "match",
-          match: seg.match,
-          prop: prop as number | undefined,
-        })
-        break
-    }
-  }
-  return out
-}
-
-/** True iff two `#fixedHeads` arrays describe the same view. */
-function sameFixedHeads(
-  a: UrlHeads | undefined,
-  b: UrlHeads | undefined
-): boolean {
-  if (a === b) return true
-  if (!a || !b) return false
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
-  return true
-}
-
-/** True iff one path prefixes the other (or they're equal). */
-function isPathPrefixCompatible(
-  a: readonly Prop[],
-  b: readonly Prop[]
-): boolean {
-  const len = Math.min(a.length, b.length)
-  for (let i = 0; i < len; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}
-
-/** Structural equality for symbolic segments. */
-function segmentEquals(a: PathSegment, b: PathSegment): boolean {
-  if (a[KIND] !== b[KIND]) return false
-  switch (a[KIND]) {
-    case "key":
-      return a.key === (b as { key: string }).key
-    case "index":
-      return a.index === (b as { index: number }).index
-    case "match": {
-      const am = a.match
-      const bm = (b as { match: Pattern }).match
-      const ka = Object.keys(am)
-      const kb = Object.keys(bm)
-      if (ka.length !== kb.length) return false
-      for (const k of ka) if (am[k] !== bm[k]) return false
-      return true
-    }
-  }
-}
-
-//  TYPES
-
-export type SyncInfo = {
-  lastHeads: UrlHeads
-  lastSyncTimestamp: number
-}
-
-/** Opaque peer-storage identity, independent of legacy storage adapters. */
-export type StorageId = string & { __storageId: true }
-
-/** @hidden */
-export type DocHandleOptions<T> =
-  | // NEW DOCUMENTS
-    {
-      /** If we know this is a new document (because we're creating it) this should be set to true. */
-      isNew: true
-
-      /** The initial value of the document. */
-      initialValue?: T
-    } // EXISTING DOCUMENTS
-  | {
-      isNew?: false
-
-      // An optional point in time to lock the document to.
-      heads?: UrlHeads
-
-      /** The number of milliseconds before we mark this document as unavailable if we don't have it and nobody shares it with us. */
-      timeoutDelay?: number
-
-      /** @hidden Pre-normalized symbolic path; set by `#createSubHandle`. */
-      pathSegments?: PathSegment[]
-
-      /** @hidden Pre-normalized cursor range. */
-      range?: CursorRange
-    }
-
-// EXTERNAL EVENTS
-
-/** These are the events that this DocHandle emits to external listeners */
-export interface DocHandleEvents<T> {
-  "heads-changed": (payload: DocHandleEncodedChangePayload<T>) => void
-  change: (payload: DocHandleChangePayload<T>) => void
-  delete: (payload: DocHandleDeletePayload<T>) => void
-  "ephemeral-message": (payload: DocHandleEphemeralMessagePayload<T>) => void
-  "ephemeral-message-outbound": (
-    payload: DocHandleOutboundEphemeralMessagePayload<T>
-  ) => void
-  "remote-heads": (payload: DocHandleRemoteHeadsPayload) => void
-}
-
-/** Emitted when this document's heads have changed */
-export interface DocHandleEncodedChangePayload<T> {
-  handle: DocHandle<T>
-  doc: A.Doc<T>
-}
-
-/** Emitted when this document has changed */
-export interface DocHandleChangePayload<T> {
-  /** The handle that changed */
-  handle: DocHandle<T>
-  /**
-   * The value after the change, scoped to this handle. For a root handle
-   * this is the whole document; for a sub-handle it is the value at the
-   * handle's path (i.e. equal to `handle.doc()`). `undefined` when the
-   * change removed the handle's scope.
-   */
-  doc: A.Doc<T> | undefined
-  /**
-   * The patches representing the change, with paths **relative to this
-   * handle's scope**. For a root handle these are whole-document paths; for
-   * a sub-handle they are re-rooted at the handle's path.
-   */
-  patches: A.Patch[]
-  /**
-   * `true` when the change replaced or removed this handle's scope wholesale
-   * (a change at or above the scope boundary). Fine-grained consumers should
-   * reconcile from `doc` rather than apply `patches` in this case. Always
-   * `false` for a root handle.
-   */
-  scopeReplaced: boolean
-  /**
-   * Information about the change. Note: `before`/`after` here are
-   * whole-document snapshots, not scoped.
-   */
-  patchInfo: A.PatchInfo<T>
-}
-
-/** Emitted when this document is deleted */
-export interface DocHandleDeletePayload<T> {
-  handle: DocHandle<T>
-}
-
-/** Emitted when this document has been marked unavailable */
-export interface DocHandleUnavailablePayload<T> {
-  handle: DocHandle<T>
-}
-
-/** Emitted when an ephemeral message is received for the document */
-export interface DocHandleEphemeralMessagePayload<T> {
-  handle: DocHandle<T>
-  senderId: PeerId
-  message: unknown
-}
-
-/** Emitted when an ephemeral message is sent for this document */
-export interface DocHandleOutboundEphemeralMessagePayload<T> {
-  handle: DocHandle<T>
-  data: Uint8Array
-}
-
-/** Emitted when we have new remote heads for this document */
-export interface DocHandleRemoteHeadsPayload {
-  storageId: StorageId
-  heads: UrlHeads
-  timestamp: number
 }

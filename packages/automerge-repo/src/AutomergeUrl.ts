@@ -1,5 +1,4 @@
 import type {
-  LegacyDocumentId,
   AutomergeUrl,
   BinaryDocumentId,
   DocumentId,
@@ -7,7 +6,6 @@ import type {
   UrlHeads,
 } from "./types.js"
 
-import * as Uuid from "uuid"
 import bs58check from "bs58check"
 import {
   uint8ArrayFromHexString,
@@ -17,9 +15,6 @@ import { parsePath, serializePath } from "./subdoc-handles/parser.js"
 import type { Segment } from "./subdoc-handles/types.js"
 
 import type { Heads as AutomergeHeads } from "@automerge/automerge/slim"
-import { makeLogger } from "./Logger.js"
-
-const log = makeLogger("automerge-repo:url")
 
 export const urlPrefix = "automerge:"
 
@@ -141,15 +136,6 @@ export const getHeadsFromUrl = (url: AutomergeUrl): string[] | undefined => {
   return heads
 }
 
-export const anyDocumentIdToAutomergeUrl = (id: AnyDocumentId) =>
-  isValidAutomergeUrl(id)
-    ? id
-    : isValidDocumentId(id)
-      ? stringifyAutomergeUrl({ documentId: id })
-      : isValidUuid(id)
-        ? parseLegacyUUID(id)
-        : undefined
-
 /**
  * Given a string, returns true if it is a valid Automerge URL. This function also acts as a type
  * discriminator in Typescript.
@@ -185,14 +171,11 @@ export const isValidDocumentId = (str: unknown): str is DocumentId => {
   return binaryDocumentID !== undefined
 }
 
-export const isValidUuid = (str: unknown): str is LegacyDocumentId =>
-  typeof str === "string" && Uuid.validate(str)
-
-/**
- * Returns a new Automerge URL with a random UUID documentId. Called by Repo.create(), and also used by tests.
- */
+/** Returns a new Automerge URL with a random 16-byte document ID. */
 export const generateAutomergeUrl = (): AutomergeUrl => {
-  const documentId = Uuid.v4(undefined, new Uint8Array(16)) as BinaryDocumentId
+  const documentId = crypto.getRandomValues(
+    new Uint8Array(16)
+  ) as BinaryDocumentId
   return stringifyAutomergeUrl({ documentId })
 }
 
@@ -208,19 +191,12 @@ export const encodeHeads = (heads: AutomergeHeads): UrlHeads =>
 export const decodeHeads = (heads: UrlHeads): AutomergeHeads =>
   heads.map(h => uint8ArrayToHexString(bs58check.decode(h))) as AutomergeHeads
 
-export const parseLegacyUUID = (str: string) => {
-  if (!Uuid.validate(str)) return undefined
-  const documentId = Uuid.parse(str) as BinaryDocumentId
-  return stringifyAutomergeUrl({ documentId })
-}
-
 /**
  * Given any valid expression of a document ID, returns a DocumentId in base58check-encoded form.
  *
  * Currently supports:
  * - base58check-encoded DocumentId
  * - Automerge URL
- * - legacy UUID
  * - binary DocumentId
  *
  * Throws on invalid input.
@@ -234,15 +210,6 @@ export const interpretAsDocumentId = (id: AnyDocumentId) => {
 
   // base58check
   if (isValidDocumentId(id)) return id
-
-  // legacy UUID
-  if (isValidUuid(id)) {
-    log.warn(
-      "Future versions will not support UUIDs as document IDs; use Automerge URLs instead."
-    )
-    const binaryDocumentID = Uuid.parse(id) as BinaryDocumentId
-    return binaryToDocumentId(binaryDocumentID)
-  }
 
   // none of the above
   throw new Error(`Invalid AutomergeUrl: '${id}'`)

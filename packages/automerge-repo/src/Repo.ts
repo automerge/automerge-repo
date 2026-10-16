@@ -14,11 +14,10 @@ import {
   RootQuery,
   queryAtHeads,
   queryAtPath,
-  toProgress,
   waitUntilReady,
-  type DocumentProgress,
   type DocumentQuery,
 } from "./DocumentQuery.js"
+import { toProgress, type DocumentProgress } from "./DocumentProgress.js"
 import { makeLogger } from "./Logger.js"
 import { extractRecords } from "./sedimentree/automerge/index.js"
 import {
@@ -30,11 +29,7 @@ import {
   type SedimentreeId,
 } from "./sedimentree/index.js"
 import type { AnyDocumentId, BinaryDocumentId, DocumentId } from "./types.js"
-import type { AbortOptions } from "./helpers/abortable.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
-
-export type { DocumentProgress, DocumentQuery } from "./DocumentQuery.js"
-export type { SyncInfo } from "./DocHandle.js"
 
 type Entry<T = any> = {
   document: Document<T>
@@ -84,7 +79,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     return this.#track(this.#createDocument(A.clone(handle.fullDoc())))
   }
 
-  /** @deprecated Use query() or find(). */
+  /**
+   * @deprecated Use {@link Repo.query} to observe loading, or
+   * {@link Repo.find} to await it.
+   */
   findWithProgress<T>(
     id: AnyDocumentId,
     _options?: AbortOptions
@@ -144,7 +142,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#checkDeleting(id)
     const existing = this.#entries.get(id)
     if (existing?.query.state().state === "ready") {
-      await existing.handle.update(current => A.merge(current, A.clone(doc)))
+      await existing.document.applyMutation(current =>
+        A.merge(current, A.clone(doc))
+      )
       this.#checkOpen()
       return existing.handle
     }
@@ -155,7 +155,9 @@ export class Repo extends EventEmitter<RepoEvents> {
       if (!(error instanceof BackendError && error.code === "conflict"))
         throw error
       const handle = await this.find<T>(id)
-      await handle.update(current => A.merge(current, A.clone(doc)))
+      await this.#entries
+        .get(id)!
+        .document.applyMutation(current => A.merge(current, A.clone(doc)))
       this.#checkOpen()
       return handle
     }
@@ -297,7 +299,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         void this.#deleteLocal(documentId, entry?.sync).then(resolve, reject)
       } else {
         if (entry) {
-          entry.document.closed = true
+          entry.document.close()
           entry.document.delete()
         }
         resolve()
@@ -385,7 +387,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const entries = [...this.#entries.values()]
     for (const entry of entries) {
       if (entry.sync) entry.sync.close()
-      else entry.document.closed = true
+      else entry.document.close()
     }
     const operations = [...this.#operations]
     const backend = this.#backend
@@ -444,6 +446,11 @@ function collectErrors(results: PromiseSettledResult<unknown>[]): unknown[] {
 
 export interface RepoConfig {
   backend?: SedimentreeBackend
+}
+
+/** Include in an options object to pass an AbortSignal to a function. */
+export interface AbortOptions {
+  signal?: AbortSignal
 }
 
 export type RepoFindOptions = AbortOptions

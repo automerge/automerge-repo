@@ -121,6 +121,38 @@ export function scopedValue(
 }
 
 /**
+ * Resolve a cursor `range` to `[start, end]` against `doc` at `propPath`, or
+ * `undefined` without a range, an unresolved path, or stale cursors.
+ */
+export function cursorRangePositions(
+  doc: A.Doc<any>,
+  propPath: Prop[] | undefined,
+  range: CursorRange | undefined
+): [number, number] | undefined {
+  if (!range || !propPath) return undefined
+  try {
+    return [
+      Automerge.getCursorPosition(doc, propPath, range.start as A.Cursor),
+      Automerge.getCursorPosition(doc, propPath, range.end as A.Cursor),
+    ]
+  } catch {
+    return undefined
+  }
+}
+
+/** Resolve `segments` freshly against `doc` and read the scoped value. */
+export function scopedValueAt(
+  doc: A.Doc<any>,
+  segments: readonly PathSegment[],
+  range: CursorRange | undefined
+): unknown {
+  const propPath = resolvePropPath(doc, segments)
+  return scopedValue(doc, propPath, range, () =>
+    cursorRangePositions(doc, propPath, range)
+  )
+}
+
+/**
  * Apply a change to the value at the resolved `propPath`.
  *
  * `fn` is either a mutator function or a plain replacement value, and that

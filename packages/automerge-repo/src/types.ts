@@ -15,17 +15,7 @@ export type DocumentId = string & { __documentId: true } // for logging
 /** The unencoded 16- or 32-byte ID. Typically use an {@link AutomergeUrl} instead. */
 export type BinaryDocumentId = Uint8Array & { __binaryDocumentId: true } // for storing / syncing
 
-/**
- * A UUID encoded as a hex string. As of v1.0, a {@link DocumentId} is stored as a base58-encoded string with a checksum.
- * Support for this format will be removed in a future version.
- */
-export type LegacyDocumentId = string & { __legacyDocumentId: true }
-
-export type AnyDocumentId =
-  | AutomergeUrl
-  | DocumentId
-  | BinaryDocumentId
-  | LegacyDocumentId
+export type AnyDocumentId = AutomergeUrl | DocumentId | BinaryDocumentId
 
 // We need to define our own version of heads because the AutomergeHeads type is not bs58check encoded
 export type UrlHeads = string[] & { __automergeUrlHeads: unknown }
@@ -33,5 +23,11 @@ export type UrlHeads = string[] & { __automergeUrlHeads: unknown }
 /** A branded type for peer IDs */
 export type PeerId = string & { __peerId: true }
 
-/** A randomly generated string created when the {@link Repo} starts up */
-export type SessionId = string & { __sessionId: true }
+/** Opaque peer-storage identity reported with remote heads. */
+export type StorageId = string & { __storageId: true }
+
+/** The last heads seen from a remote storage peer, and when. */
+export type SyncInfo = {
+  lastHeads: UrlHeads
+  lastSyncTimestamp: number
+}

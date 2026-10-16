@@ -1,8 +1,10 @@
 import { next as A } from "@automerge/automerge/slim"
 import type { Prop } from "@automerge/automerge/slim"
 import type { UrlHeads, PeerId } from "../types.js"
+import { scopedValueAt } from "./path-ops.js"
 import type { Document } from "../Document.js"
-import type { DocHandle, StorageId } from "../DocHandle.js"
+import type { DocHandle } from "../DocHandle.js"
+import type { StorageId } from "../types.js"
 import { KIND } from "./types.js"
 import type { CursorRange, PathSegment, Pattern } from "./types.js"
 import { matchesPattern } from "./utils.js"
@@ -55,6 +57,12 @@ export class HandleRegistry {
   readonly #listeners: Map<DocHandle<any>, Map<string, Set<Listener>>> =
     new Map()
 
+  /** Each cached handle's symbolic scope, for scoping event snapshots. */
+  readonly #scopes = new WeakMap<
+    DocHandle<any>,
+    { path: readonly PathSegment[]; range: CursorRange | undefined }
+  >()
+
   constructor(readonly document: Document<any>) {}
 
   // Identity (trie-as-handle-cache)
@@ -86,6 +94,7 @@ export class HandleRegistry {
   ): void {
     const key = variantKey(range, fixedHeads)
     node.handles.set(key, new WeakRef(handle))
+    this.#scopes.set(handle, { path: node.path, range })
     this.#finalizer.register(handle, { path: node.path, variantKey: key })
   }
 
@@ -334,7 +343,8 @@ export class HandleRegistry {
       if (scoped.patches.length === 0 && !scoped.scopeReplaced) continue
       this.emit(handle, "change", {
         handle,
-        doc: handle._docAt(doc),
+        // Scope this event's snapshot, not a later reentrant edit.
+        doc: this.#scopedDoc(handle, doc),
         patches: scoped.patches,
         scopeReplaced: scoped.scopeReplaced,
         patchInfo,
@@ -372,6 +382,12 @@ export class HandleRegistry {
     }
   }
 
+  #scopedDoc(handle: DocHandle<any>, doc: A.Doc<any>): unknown {
+    const scope = this.#scopes.get(handle)
+    if (!scope) return doc
+    return scopedValueAt(doc, scope.path, scope.range)
+  }
+
   /** Fan out an inbound ephemeral message to every retained handle. */
   dispatchEphemeral(senderId: PeerId, message: unknown): void {
     for (const handle of this.#listeners.keys()) {
@@ -380,13 +396,6 @@ export class HandleRegistry {
         senderId,
         message,
       })
-    }
-  }
-
-  /** Fan out an outbound ephemeral broadcast (typically picked up by network adapters). */
-  dispatchEphemeralOutbound(data: Uint8Array): void {
-    for (const handle of this.#listeners.keys()) {
-      this.emit(handle, "ephemeral-message-outbound", { handle, data })
     }
   }
 }

@@ -1,7 +1,6 @@
 # Sedimentree backend scaffold
 
 Experimental backend contract provided by `@automerge/automerge-repo/sedimentree`.
-See [`SUBDUCTION_INTEGRATION.md`](../../../../SUBDUCTION_INTEGRATION.md).
 This entrypoint has **no external runtime imports**: no document handles,
 Automerge, Subduction, transports, or WASM. Importing that subpath does not
 load document orchestration.

@@ -1,6 +1,5 @@
 import { next as A } from "@automerge/automerge"
 import assert from "assert"
-import { decode } from "cbor-x"
 import { describe, expect, it, vi } from "vitest"
 import {
   encodeHeads,
@@ -10,19 +9,26 @@ import {
 import { eventPromise } from "./helpers/eventPromise.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import { Document } from "../src/Document.js"
-import type { StorageId } from "../src/DocHandle.js"
+import type { StorageId } from "../src/types.js"
 import { TestDoc } from "./types.js"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
+  const documents = new WeakMap<DocHandle<any>, Document<any>>()
   const setup = (options?: any) => {
     const { quick, documentId, doc, ...rest } = options ?? {}
     let id = documentId ?? TEST_ID
     const document = new Document<TestDoc>(id, doc ?? A.init<TestDoc>())
     const handle = new DocHandle<TestDoc>(document, rest)
+    documents.set(handle, document)
     return handle
   }
+  /** Inbound (storage/peer) data path: mutate the Document directly. */
+  const update = (
+    handle: DocHandle<TestDoc>,
+    fn: (doc: A.Doc<TestDoc>) => A.Doc<TestDoc>
+  ) => documents.get(handle)!.applyMutation(fn, { incoming: true })
 
   it("should take the UUID passed into it", () => {
     const handle = setup({ quick: true })
@@ -69,9 +75,9 @@ describe("DocHandle", () => {
     assert.deepEqual(doc, {})
   })
 
-  it("should return data after update", () => {
+  it("should return data after inbound data arrives", () => {
     const handle = setup()
-    handle.update(doc => A.change(doc, d => (d.foo = "bar")))
+    update(handle, doc => A.change(doc, d => (d.foo = "bar")))
     assert.equal(handle.doc().foo, "bar")
   })
 
@@ -132,9 +138,6 @@ describe("DocHandle", () => {
       viewHandle.changeAt(handle.heads()!, d => (d.foo = "one"))
     )
     assert.throws(() => viewHandle.merge(handle))
-    // update() is the storage/network ingress path - it must not
-    // silently mutate the live doc through a view-pinned handle.
-    assert.throws(() => viewHandle.update(d => d))
   })
 
   it("should return fixed heads from heads()", async () => {
@@ -233,42 +236,9 @@ describe("DocHandle", () => {
     assert.throws(() => handle1.diff(handle2))
   })
 
-  it("should allow direct access to decoded changes", async () => {
-    const handle = setup()
-    const time = Date.now()
-    handle.change(d => (d.foo = "foo"), { message: "commitMessage" })
-    assert.equal(handle.isReady(), true)
-
-    const metadata = handle.metadata()
-    assert.deepEqual(metadata.message, "commitMessage")
-    // NOTE: I'm not testing time because of https://github.com/automerge/automerge/issues/965
-    // but it does round-trip successfully!
-  })
-
-  it("should allow direct access to a specific decoded change", async () => {
-    const handle = setup()
-    const time = Date.now()
-    handle.change(d => (d.foo = "foo"), { message: "commitMessage" })
-    handle.change(d => (d.foo = "foo"), { message: "commitMessage2" })
-    handle.change(d => (d.foo = "foo"), { message: "commitMessage3" })
-    handle.change(d => (d.foo = "foo"), { message: "commitMessage4" })
-    assert.equal(handle.isReady(), true)
-
-    const history = handle.history()
-    const metadata = handle.metadata(history[0][0])
-    assert.deepEqual(metadata.message, "commitMessage")
-    // NOTE: I'm not testing time because of https://github.com/automerge/automerge/issues/965
-    // but it does round-trip successfully!
-  })
-
   it("should return empty heads for a fresh handle", () => {
     const handle = setup()
     assert.deepEqual(handle.heads(), [])
-  })
-
-  it("metadata() returns undefined on a fresh handle without crashing", () => {
-    const handle = setup()
-    assert.equal(handle.metadata(), undefined)
   })
 
   it("should emit a change message when changes happen", async () => {
@@ -290,13 +260,13 @@ describe("DocHandle", () => {
     assert.deepStrictEqual(changePayload.handle, handle)
   })
 
-  it("should not emit a change message if no change happens via update", () =>
+  it("should not emit a change message if inbound data changes nothing", () =>
     new Promise<void>((done, reject) => {
       const handle = setup()
       handle.once("change", () => {
         reject(new Error("shouldn't have changed"))
       })
-      handle.update(d => {
+      update(handle, d => {
         queueMicrotask(done)
         return d
       })
@@ -361,10 +331,10 @@ describe("DocHandle", () => {
       })
     }))
 
-  it("should emit a heads-changed event when data arrives via update", async () => {
+  it("should emit a heads-changed event when inbound data arrives", async () => {
     const handle = setup()
     const p = eventPromise(handle, "heads-changed")
-    handle.update(doc => A.change(doc, d => (d.foo = "bar")))
+    update(handle, doc => A.change(doc, d => (d.foo = "bar")))
     await p
     assert.equal(handle.doc().foo, "bar")
   })
@@ -394,30 +364,15 @@ describe("DocHandle", () => {
 
   it("should merge another handle", () => {
     const handle1 = setup()
-    handle1.update(() => A.from<TestDoc>({ foo: "one" }))
+    update(handle1, () => A.from<TestDoc>({ foo: "one" }))
 
     const OTHER_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
     const handle2 = setup({ documentId: OTHER_ID })
-    handle2.update(() => A.from<TestDoc>({ foo: "two" }))
+    update(handle2, () => A.from<TestDoc>({ foo: "two" }))
 
     handle1.merge(handle2)
     // After merge, handle1 should have data from both
     assert.ok(handle1.doc())
-  })
-
-  describe("ephemeral messaging", () => {
-    it("can broadcast a message for the network to send out", async () => {
-      const handle = setup()
-
-      const message = { foo: "bar" }
-
-      const promise = eventPromise(handle, "ephemeral-message-outbound")
-
-      handle.broadcast(message)
-
-      const { data } = await promise
-      assert.deepStrictEqual(decode(data), message)
-    })
   })
 
   it("should cache view handles based on heads", async () => {
@@ -570,7 +525,6 @@ describe("DocHandle", () => {
       const handle = setup()
       assert.equal(handle.isReady(), true)
       assert.equal(handle.isDeleted(), false)
-      assert.equal(handle.isUnloaded(), false)
     })
 
     it("flips to deleted when delete() is called", () => {
@@ -589,7 +543,7 @@ describe("DocHandle", () => {
       assert.equal(await seenDeleted, true)
     })
 
-    it("does not expose deprecated state-machine methods", () => {
+    it("does not expose removed v1 or internal methods", () => {
       const handle = setup()
       for (const name of [
         "state",
@@ -597,6 +551,20 @@ describe("DocHandle", () => {
         "inState",
         "whenReady",
         "getRemoteHeads",
+        "isUnloaded",
+        "begin",
+        "doneLoading",
+        "unavailable",
+        "request",
+        "unload",
+        "reload",
+        "metadata",
+        "update",
+        "hasHeads",
+        "_handleRetainerSize",
+        "_trieNodeCount",
+        "_receiveInboundEphemeral",
+        "_docAt",
       ]) {
         assert.equal(name in handle, false)
       }
@@ -617,7 +585,7 @@ describe("DocHandle", () => {
       const document = new Document<TestDoc>(TEST_ID, A.init<TestDoc>())
       document.recordRemoteHeads("storage-1" as StorageId, ["abcd"])
       const handle = new DocHandle<TestDoc>(document, {})
-      handle.update(d => A.change(d, x => (x.foo = "bar")))
+      document.applyMutation(d => A.change(d, x => (x.foo = "bar")))
       const view = handle.view(handle.heads())
       assert.deepEqual(
         view.getSyncInfo("storage-1" as StorageId),

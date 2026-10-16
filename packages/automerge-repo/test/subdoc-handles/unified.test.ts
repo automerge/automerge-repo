@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import * as Automerge from "@automerge/automerge"
 import { Repo } from "../../src/Repo.js"
-import type { DocHandle } from "../../src/DocHandle.js"
+import { DocHandle } from "../../src/DocHandle.js"
+import { Document } from "../../src/Document.js"
+import type { HandleRegistry } from "../../src/subdoc-handles/handle-registry.js"
 import { encodeHeads } from "../../src/AutomergeUrl.js"
 import { splice } from "../../src/index.js"
 import { cursor } from "../../src/subdoc-handles/utils.js"
@@ -666,8 +668,12 @@ describe("unified DocHandle / Ref", () => {
     // Repo has attached its own listeners (`heads-changed` for autosave).
     // Tests assert deltas against this baseline rather than absolute counts.
     let baseline: number
+    let registry: HandleRegistry
     beforeEach(() => {
-      baseline = (handle as any)._handleRetainerSize
+      const document = new Document<any>(handle.documentId, Automerge.init())
+      handle = new DocHandle(document)
+      registry = document.registry
+      baseline = registry.retainedCount
     })
 
     it("retains sub-handles with listeners attached", () => {
@@ -675,16 +681,16 @@ describe("unified DocHandle / Ref", () => {
         d.title = "Old"
       })
 
-      expect((handle as any)._handleRetainerSize).toBe(baseline)
+      expect(registry.retainedCount).toBe(baseline)
 
       const sub = handle.sub("title")
       const callback = () => {}
       sub.on("change", callback)
 
-      expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
+      expect(registry.retainedCount).toBe(baseline + 1)
 
       sub.off("change", callback)
-      expect((handle as any)._handleRetainerSize).toBe(baseline)
+      expect(registry.retainedCount).toBe(baseline)
     })
 
     it("retains a sub-handle even if the caller drops its local reference", () => {
@@ -698,7 +704,7 @@ describe("unified DocHandle / Ref", () => {
         handle.sub("title").on("change", ({ doc }) => events.push(doc))
       })()
 
-      expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
+      expect(registry.retainedCount).toBe(baseline + 1)
 
       handle.change(d => {
         d.title = "New"
@@ -715,10 +721,10 @@ describe("unified DocHandle / Ref", () => {
       const sub = handle.sub("title")
       sub.on("change", () => {})
       sub.on("heads-changed", () => {})
-      expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
+      expect(registry.retainedCount).toBe(baseline + 1)
 
       sub.removeAllListeners()
-      expect((handle as any)._handleRetainerSize).toBe(baseline)
+      expect(registry.retainedCount).toBe(baseline)
     })
 
     it("releases retention after a once() listener fires", () => {
@@ -728,12 +734,12 @@ describe("unified DocHandle / Ref", () => {
 
       const sub = handle.sub("title")
       sub.once("change", () => {})
-      expect((handle as any)._handleRetainerSize).toBe(baseline + 1)
+      expect(registry.retainedCount).toBe(baseline + 1)
 
       handle.change(d => {
         d.title = "New"
       })
-      expect((handle as any)._handleRetainerSize).toBe(baseline)
+      expect(registry.retainedCount).toBe(baseline)
     })
 
     itGC("survives garbage collection if listeners are attached", async () => {
@@ -766,7 +772,7 @@ describe("unified DocHandle / Ref", () => {
         handle.change(d => {
           d.items = [{ id: "seed", v: 0 }]
         })
-        const baselineNodes = (handle as any)._trieNodeCount
+        const baselineNodes = registry.nodeCount
 
         // Create many transient sub-handles at distinct pattern paths, holding
         // no references and attaching no listeners - they're weakly held only.
@@ -776,14 +782,12 @@ describe("unified DocHandle / Ref", () => {
           }
         })()
 
-        expect((handle as any)._trieNodeCount).toBeGreaterThan(baselineNodes)
+        expect(registry.nodeCount).toBeGreaterThan(baselineNodes)
 
         // Once the transient handles are collected, the finalizer prunes their
         // nodes back toward the baseline (bounded by live handles).
         expect(
-          await waitForGC(
-            () => (handle as any)._trieNodeCount < baselineNodes + 50
-          )
+          await waitForGC(() => registry.nodeCount < baselineNodes + 50)
         ).toBe(true)
       }
     )

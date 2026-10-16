@@ -30,8 +30,7 @@
     "bs58check": "^4.0.0",
     "cbor-x": "catalog:",
     "debug": "catalog:",
-    "eventemitter3": "catalog:",
-    "uuid": "catalog:"
+    "eventemitter3": "catalog:"
   },
   "exports": {
     ".": "./dist/entrypoints/fullfat.js",

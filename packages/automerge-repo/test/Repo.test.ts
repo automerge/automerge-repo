@@ -115,7 +115,10 @@ describe("backend-driven Repo", () => {
     await saving
     expect(await r.find(sub.url)).toBe(sub)
     expect(await r.find(old.url)).toBe(old)
-    expect(handle.metadata()?.message).toBe("edit")
+    expect(
+      A.inspectChange(handle.fullDoc(), A.getHeads(handle.fullDoc())[0])
+        ?.message
+    ).toBe("edit")
     expect(handle.history()).toHaveLength(2)
   })
 

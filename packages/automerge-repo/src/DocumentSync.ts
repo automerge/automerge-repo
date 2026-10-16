@@ -1,9 +1,8 @@
 import { next as A } from "@automerge/automerge/slim"
 import type { Document } from "./Document.js"
-import type { StorageId } from "./DocHandle.js"
 import type { RootQuery } from "./DocumentQuery.js"
 import { decode } from "./helpers/cbor.js"
-import type { PeerId } from "./types.js"
+import type { PeerId, StorageId } from "./types.js"
 import {
   recordHead,
   type BackendIdentity,
@@ -202,7 +201,7 @@ export class DocumentSync<T> {
 
   /** Stop edits; unsaved history can still be drained with flush(). */
   close(): void {
-    this.document.closed = true
+    this.document.close()
   }
 
   /** Stop edits and stores, settle the query as deleted, and notify handles. */
