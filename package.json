@@ -10,7 +10,7 @@
   "type": "module",
   "scripts": {
     "version:bump": "node scripts/version.mjs bump",
-    "build": "pnpm -r build",
+    "build": "pnpm -r build && pnpm run check:bundles",
     "build:docs": "typedoc",
     "dev:demo": "pnpm -F @automerge/automerge-repo-demo-todo dev",
     "dev:svelte-demo": "pnpm -F @automerge/automerge-repo-demo-counter-svelte dev",
@@ -20,7 +20,7 @@
     "preinstall": "npx only-allow pnpm",
     "repocheck": "manypkg check",
     "format": "oxfmt",
-    "lint": "oxfmt --check . && oxlint && pnpm run lint:check-types && pnpm run check:bundles",
+    "lint": "oxfmt --check . && oxlint && pnpm run lint:check-types",
     "test": "vitest",
     "test:log": "cross-env DEBUG='automerge-repo:*' vitest",
     "test:coverage": "vitest --coverage",
