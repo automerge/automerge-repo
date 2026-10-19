@@ -25,9 +25,7 @@ export default defineConfig({
     },
     target: "esnext",
     rollupOptions: {
-      // Bundle this package's own source and nothing else. Matching on
-      // specifiers alone missed workspace siblings, which vite resolves to a
-      // path before the check.
+      // Bundle this package's own source and nothing else.
       external: (id: string) =>
         !id.startsWith("\0") &&
         !id.startsWith(".") &&
