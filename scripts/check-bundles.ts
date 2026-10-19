@@ -1,8 +1,6 @@
 // The bundled packages must ship their own source and nothing else. An inlined
 // dependency is delivered twice, once bundled and once installed, and for
-// anything identity-bearing the two copies are not interchangeable. #660 tried
-// to fix this with externals matched on import specifiers, which does not catch
-// a workspace sibling because vite resolves it to a path first.
+// anything identity-bearing the two copies are not interchangeable.
 //
 // The sourcemap lists every file that contributed to the bundle, so use that
 // rather than scanning for inlined module markers: rolldown emits no //#region
