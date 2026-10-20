@@ -127,7 +127,9 @@ export interface SedimentreeBackend {
   /**
    * Capture and drain accepted local persistence for these IDs (all if omitted).
    * Work accepted before the call is included; later work need not hold this
-   * barrier open. Drain all targeted work before reporting errors. Do not wait
+   * barrier open. Drain all targeted work before reporting errors. A failed
+   * accepted write is reported by every later flush covering its ID, until the
+   * ID is deleted; a successful retry does not clear it. Do not wait
    * for network delivery or stream consumers. Work buffered by the caller but
    * not yet submitted is outside this barrier and must be submitted first.
    */

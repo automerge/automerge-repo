@@ -312,11 +312,12 @@ export class StorageBridge implements N.SedimentreeStorage {
   }
 
   /** Capture pending/failed mutations only; later calls belong to a later
-   * barrier. Wait for every captured attempt before reporting and clearing its
-   * failures. Concurrent barriers can report the same captured failure.
+   * barrier. Wait for every captured attempt before reporting its failures.
+   * Failures are retained: every later barrier reports them again, until
+   * {@link StorageBridge.forget} after deletion.
    * settledOnly sweeps already-failed mutations after an owner-side barrier:
    * captured local jobs may enter native storage after that barrier was called,
-   * but its cleanup must not wait for subsequently accepted native writes.
+   * but it must not wait for subsequently accepted native writes.
    */
   async flush(
     ids?: readonly SedimentreeId[],
@@ -331,12 +332,18 @@ export class StorageBridge implements N.SedimentreeStorage {
         (!filter || filter.has(a.id.padEnd(64, "0")))
     )
     const results = await Promise.allSettled(captured.map(a => a.work))
-    captured.forEach(a => this.attempts.delete(a))
     const errors = results.flatMap(r =>
       r.status === "rejected" ? [r.reason] : []
     )
     if (errors.length)
       throw new AggregateError(errors, "Accepted bridge mutations failed")
+  }
+
+  /** Drop retained failures for a deleted tree. */
+  forget(id: SedimentreeId): void {
+    const tree = sedimentreeId(id).padEnd(64, "0")
+    for (const attempt of this.attempts)
+      if (attempt.id.padEnd(64, "0") === tree) this.attempts.delete(attempt)
   }
 
   private async read(

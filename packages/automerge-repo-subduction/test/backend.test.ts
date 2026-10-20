@@ -599,7 +599,7 @@ describe("real local Subduction", () => {
     expect(loaded.complete.marker).toBeUndefined()
   })
 
-  it("stores none of a batch after a mid-batch failure; a full retry completes it", async () => {
+  it("stores none of a batch after a mid-batch failure; a full retry completes it, flush still reports", async () => {
     const backend = create()
     const { iterator } = await initial(backend.open(tree))
     const records = Array.from({ length: 10 }, (_, i) =>
@@ -634,7 +634,8 @@ describe("real local Subduction", () => {
     const reloaded = await initial(backend.open(tree))
     expect(reloaded.records).toEqual(records)
     expect(reloaded.complete.marker).toBeUndefined()
-    await backend.flush()
+    // A write failure is never forgotten, even after a successful retry.
+    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
   })
 
   it("has no total-history cap: a tree grown past any old budget reopens, enumerates and deletes", async () => {
@@ -845,7 +846,7 @@ describe("real local Subduction", () => {
     }
   )
 
-  it("rescans after a failed batch, reports historical failure to flush, and retries safely", async () => {
+  it("rescans after a failed batch, keeps reporting the failure to flush, and retries safely", async () => {
     const backend = create()
     const { iterator } = await initial(backend.open(tree))
     let count = 0
@@ -870,7 +871,7 @@ describe("real local Subduction", () => {
       record(1),
       record(2),
     ])
-    await backend.flush()
+    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
   })
 
   it("recovers record observations when save commits bytes but then rejects", async () => {
@@ -1013,6 +1014,22 @@ describe("real local Subduction", () => {
     expect((await initial(create().open(tree))).records).toEqual([record(1)])
   })
 
+  it("forgets a retained write failure once its tree is deleted", async () => {
+    const backend = create()
+    const otherTree = sedimentreeId("cd".repeat(16))
+    storage.beforeSave = async key => {
+      if (key.includes("/commits/")) throw new Error("disk failed")
+    }
+    await expect(backend.store(tree, [record(1)])).rejects.toThrow()
+    await expect(backend.store(otherTree, [record(1)])).rejects.toThrow()
+    storage.beforeSave = undefined
+    await expect(backend.flush([tree])).rejects.toBeInstanceOf(AggregateError)
+    await backend.deleteLocal(tree)
+    await backend.flush([tree])
+    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
+    await backend.close().catch(() => {})
+  })
+
   it("flush drains every captured attempt before reporting an earlier failure", async () => {
     const backend = create()
     const gate = deferred(),
@@ -1040,15 +1057,17 @@ describe("real local Subduction", () => {
     const aggregate = await failure
     expect(aggregate).toBeInstanceOf(AggregateError)
     // Local submissions and native storage callbacks have independent ledgers;
-    // the same I/O failure may be represented in both. Neither may be forgotten
-    // or reported again by the next barrier.
+    // the same I/O failure may be represented in both. Neither is forgotten:
+    // every later barrier reports it again.
     const failures = aggregate.errors.flatMap((error: unknown) =>
       error instanceof AggregateError ? error.errors : [error]
     )
     expect(failures.map(String)).toContainEqual(
       expect.stringContaining("first failed")
     )
-    await backend.flush()
+    const again = await backend.flush().catch(cause => cause)
+    expect(again).toBeInstanceOf(AggregateError)
+    expect(again.errors).toHaveLength(aggregate.errors.length)
   })
 
   it("pins bounded initial batches independently of replay and allows immediate return during blocked acquisition", async () => {

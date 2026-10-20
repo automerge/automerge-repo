@@ -796,7 +796,7 @@ describe("Repo loading", () => {
       expect(handle.doc()).toEqual({ count: 1 })
     })
 
-    it("replaces stale initial targets without discarding unsaved writes", async () => {
+    it("replaces stale initial targets and keeps a write failure across a rescan", async () => {
       const { handle, session, scripted, progress, r } = await lookup()
       const store = vi
         .spyOn(scripted.backend, "store")
@@ -819,9 +819,6 @@ describe("Repo loading", () => {
           d.count = 1
         })
       ).rejects.toThrow("disk full")
-      const failedBytes = store.mock.calls[0][1].map(record =>
-        record.blob.slice()
-      )
       await session.end({ type: "rescan-required", sequence: 2 })
       const reopened = await scripted.session(1)
       await reopened.push({
@@ -830,10 +827,8 @@ describe("Repo loading", () => {
         marker: { sequence: 1, heads: heads(handle.fullDoc()) },
       })
       expect(progress.state().state).toBe("ready")
-      await r.flush()
-      expect(store.mock.calls[1][1].map(record => record.blob)).toEqual(
-        failedBytes
-      )
+      await expect(r.flush()).rejects.toThrow("Repo flush failed")
+      expect(store).toHaveBeenCalledOnce()
     })
   })
 

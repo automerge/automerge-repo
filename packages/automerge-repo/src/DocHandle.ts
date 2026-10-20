@@ -339,6 +339,7 @@ export class DocHandle<T> {
    *
    * Mutation and events are immediate. The returned promise resolves once local
    * history is recoverable; it does not wait for peers or remote durability.
+   * After a failed save, every later change rejects with that error, unapplied.
    *
    * On sub-handles a non-function `callback` is shorthand for "replace
    * the value at this path" (e.g. `counterSub.change(42)`). Function-typed

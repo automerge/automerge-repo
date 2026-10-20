@@ -241,10 +241,10 @@ batch stores none of its records. A save that commits and then rejects is
 ambiguous: native rescans storage and redelivers it to open sessions, and an
 exact retry dedupes. Repo neither orders nor batches a document's writes: each
 edit is submitted at once, concurrently with earlier ones, and native does not
-sequence them either. A later edit can therefore be durable while an earlier
-one it depends on failed; Repo retries failed changes with the next edit and
-on `flush()`, which keeps reporting them until stored. Malformed records fail rather than appearing
-absent. Each record uses separate `blob/<id>` and `meta/<id>` keys under
+sequence them either. Failed writes are not retried: after one, Repo rejects
+further local edits to that document, and `flush()` keeps reporting it. Edits
+already in flight still land, so one can be durable while an earlier edit it
+depends on failed. Malformed records fail rather than appearing absent. Each record uses separate `blob/<id>` and `meta/<id>` keys under
 `commits/` or `fragments/`, read together in one transaction; missing halves
 fail loudly. Metadata decoding detects malformed signed bytes; native hydration
 checks blob digests. Storage is not protected against malicious tampering.
@@ -255,8 +255,9 @@ same-head variants coexist, and a head lookup returns the one native keeps
 
 Observers must handle duplicate durable deliveries. A session that falls
 behind its replay budget ends with `rescan-required`. `flush()` drains accepted local work
-and reports persistence failures, but does not wait for peer delivery. A
-successful retry does not erase previously unreported failures.
+and reports persistence failures, but does not wait for peer delivery. Failures
+are retained: every later `flush()` (and `close()`) reports them again, even after
+a successful retry, until the tree is deleted.
 
 ## Limits
 

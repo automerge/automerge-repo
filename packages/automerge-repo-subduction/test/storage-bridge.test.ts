@@ -574,7 +574,7 @@ describe("StorageBridge native transactions", () => {
     expect(await withId(id => bridge.containsSedimentreeId(id))).toBe(false)
   })
 
-  it("reports an ambiguous batch save through flush; an exact retry does not rewrite", async () => {
+  it("keeps reporting an ambiguous batch save through flush; an exact retry does not rewrite", async () => {
     const storage = new MemoryStore()
     const bridge = new StorageBridge(storage)
     const error = new Error("saved, then rejected")
@@ -588,13 +588,16 @@ describe("StorageBridge native transactions", () => {
       third,
     ])
     await expect(bridge.flush()).rejects.toMatchObject({ errors: [error] })
-    await expect(bridge.flush()).resolves.toBeUndefined()
+    await expect(bridge.flush()).rejects.toMatchObject({ errors: [error] })
     storage.afterSave = undefined
     const written = storage.written.length
     await batch(bridge, [first, second, third])
     expect(
       storage.written.slice(written).filter(key => key.includes("/commits/"))
     ).toEqual([])
+    await expect(bridge.flush()).rejects.toMatchObject({ errors: [error] })
+    bridge.forget(tree)
+    await expect(bridge.flush()).resolves.toBeUndefined()
   })
 
   it("reports synchronous preparation errors through flush", async () => {
@@ -615,10 +618,12 @@ describe("StorageBridge native transactions", () => {
       errors: [expect.any(Error)],
     })
     expect(storage.calls).toEqual([])
-    await bridge.flush()
+    await expect(bridge.flush()).rejects.toMatchObject({
+      errors: [expect.any(Error)],
+    })
   })
 
-  it("flush captures relevant pending/failed mutations, waits ALL and clears reported failures", async () => {
+  it("flush captures relevant pending/failed mutations, waits ALL and keeps reported failures", async () => {
     const storage = new MemoryStore()
     const bridge = new StorageBridge(storage)
     const errorA = new Error("A"),
@@ -648,15 +653,16 @@ describe("StorageBridge native transactions", () => {
     await gate.entered
     await expect(onlyA).rejects.toMatchObject({ errors: [errorA] })
     expect(allSettled).toBe(false)
-    // A new failed attempt is not cleared by either already captured barrier.
+    // A later failed attempt is not part of either already captured barrier.
     const later = withId(id => bridge.saveSedimentreeId(id)).catch(e => e)
     gate.release()
     expect(await allResult).toMatchObject({ errors: [errorA, errorB] })
     await Promise.all([a, b, later])
-    await expect(bridge.flush([other])).resolves.toBeUndefined()
-    await expect(bridge.flush([tree])).rejects.toMatchObject({
-      errors: [errorA],
+    await expect(bridge.flush([other])).rejects.toMatchObject({
+      errors: [errorB],
     })
-    await bridge.flush()
+    await expect(bridge.flush([tree])).rejects.toMatchObject({
+      errors: [errorA, errorA],
+    })
   })
 })

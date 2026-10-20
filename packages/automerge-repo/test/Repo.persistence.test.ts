@@ -5,11 +5,7 @@ import { DocHandle } from "../src/DocHandle.js"
 import { Document } from "../src/Document.js"
 import { documentIdToBinary } from "../src/AutomergeUrl.js"
 import { MemoryBackend } from "../src/sedimentree/testing/MemoryBackend.js"
-import {
-  sedimentreeId,
-  type RecordBatch,
-  type SedimentreeId,
-} from "../src/sedimentree/index.js"
+import { sedimentreeId, type SedimentreeId } from "../src/sedimentree/index.js"
 import { applyRecords } from "../src/sedimentree/automerge/index.js"
 import type { DocumentId } from "../src/types.js"
 import { scriptedBackend } from "./helpers/scriptedBackend.js"
@@ -153,11 +149,10 @@ describe("Repo persistence", () => {
       expect(handle.doc()?.nested).toBeUndefined()
     })
 
-    it("retries failed history together with a later dependent edit", async () => {
+    it("rejects later edits after a failed write, without applying or storing them", async () => {
       const backend = new MemoryBackend()
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
-      const initial = A.clone(handle.fullDoc())
       const store = vi
         .spyOn(backend, "store")
         .mockRejectedValueOnce(new Error("disk full"))
@@ -166,20 +161,18 @@ describe("Repo persistence", () => {
           d.count = 1
         })
       ).rejects.toThrow("disk full")
-      const failed = store.mock.calls[0][1]
-      await handle.change(d => {
-        d.count = 2
-      })
-      const merged = store.mock.calls[1][1]
-      expect(merged.slice(0, failed.length)).toEqual(failed)
-      expect(A.getHeads(applyRecords(initial, merged))).toEqual(
-        A.getHeads(handle.fullDoc())
-      )
-      await r.flush()
-      expect(store).toHaveBeenCalledTimes(2)
+      const heads = handle.heads()
+      await expect(
+        handle.change(d => {
+          d.count = 2
+        })
+      ).rejects.toThrow("disk full")
+      expect(handle.heads()).toEqual(heads)
+      expect(handle.doc()).toEqual({ count: 1 })
+      expect(store).toHaveBeenCalledOnce()
     })
 
-    it("does not batch edits made during a store; flush retries a failed one", async () => {
+    it("does not batch edits made during a store; a failure blocks only that document", async () => {
       const backend = new MemoryBackend()
       const blocked = gate()
       const r = repo(backend)
@@ -217,49 +210,17 @@ describe("Repo persistence", () => {
       ])
       blocked.resolve()
       await first
-      await r.flush()
-      expect(store).toHaveBeenCalledTimes(5)
-      expect(store.mock.calls[4][1]).toEqual(store.mock.calls[0][1])
-      expect(await backendDoc(backend, handle)).toEqual({ count: 3 })
-    })
-
-    it("retries a boundary batch with its original fragment bytes", async () => {
-      // Fixed actors and times make change hashes, and so fragment depths, stable.
-      const initial = A.change(
-        A.init<Doc>({ actor: "abcdef" }),
-        { time: 0 },
-        doc => {
-          doc.count = 0
-        }
-      )
-      let fork = A.clone(initial, { actor: "fedcba" })
-      for (let count = 1; count <= 500; count++)
-        fork = A.change(fork, { time: 0 }, doc => {
-          doc.count = count
+      await expect(
+        handle.change(d => {
+          d.count = 5
         })
-      expect(A.getFragmentMetadata(fork).some(meta => meta.level > 0)).toBe(
-        true
-      )
-      const backend = new MemoryBackend()
-      const r = repo(backend)
-      const handle = await r.import<Doc>(A.save(initial))
-      const attempts: RecordBatch[] = []
-      const store = backend.store.bind(backend)
-      vi.spyOn(backend, "store").mockImplementation(async (id, records) => {
-        attempts.push(
-          records.map(record => ({ ...record, blob: record.blob.slice() }))
-        )
-        if (attempts.length === 1) throw new Error("disk full")
-        return store(id, records)
+      ).rejects.toThrow("disk full")
+      await other.change(d => {
+        d.count = 5
       })
-      const forked = new DocHandle(new Document("fork" as DocumentId, fork))
-      await expect(handle.merge(forked)).rejects.toThrow("disk full")
-      expect(attempts[0].some(record => record.kind === "fragment")).toBe(true)
-      await r.flush()
-      expect(attempts[1]).toEqual(attempts[0])
-      expect(A.getHeads(applyRecords(A.clone(initial), attempts[1]))).toEqual(
-        A.getHeads(fork)
-      )
+      expect(store).toHaveBeenCalledTimes(5)
+      await expect(r.flush()).rejects.toThrow("Repo flush failed")
+      await r.flush([other.documentId])
     })
 
     it("skips known-head echoes without applying or acknowledging them", async () => {
@@ -292,9 +253,8 @@ describe("Repo persistence", () => {
       expect(changed).toHaveBeenCalledOnce()
       reject(new Error("storage failed"))
       await expect(pending).rejects.toThrow("storage failed")
-      await r.flush()
-      expect(store).toHaveBeenCalledTimes(2)
-      expect(store.mock.calls[1][1]).toEqual(echoed)
+      await expect(r.flush()).rejects.toThrow("Repo flush failed")
+      expect(store).toHaveBeenCalledOnce()
     })
   })
 
@@ -332,44 +292,27 @@ describe("Repo persistence", () => {
       await later
     })
 
-    it("succeeds when a captured store fails but its retry persists", async () => {
+    it("rejects with a failed write, and keeps rejecting without retrying", async () => {
       const backend = new MemoryBackend()
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
-      vi.spyOn(backend, "store").mockRejectedValueOnce(
-        new Error("temporary failure")
-      )
+      const store = vi
+        .spyOn(backend, "store")
+        .mockRejectedValueOnce(new Error("disk full"))
       const failed = expect(
-        handle.change(d => {
-          d.count = 1
-        })
-      ).rejects.toThrow("temporary failure")
-      const flush = r.flush()
-      await failed
-      await flush
-      expect(await backendDoc(backend, handle)).toEqual({ count: 1 })
-    })
-
-    it("reports history that still fails after the retry", async () => {
-      const backend = new MemoryBackend()
-      const r = repo(backend)
-      const handle = await r.create<Doc>({ count: 0 })
-      vi.spyOn(backend, "store").mockRejectedValue(new Error("disk full"))
-      await expect(
         handle.change(d => {
           d.count = 1
         })
       ).rejects.toThrow("disk full")
       const flush = r.flush()
-      await expect(flush).rejects.toThrow("Repo flush failed")
-      await expect(flush).rejects.toMatchObject({
-        errors: [
-          expect.objectContaining({
-            message: "Document still has unsaved history",
-            errors: [expect.objectContaining({ message: "disk full" })],
-          }),
-        ],
-      })
+      await failed
+      for (const attempt of [flush, r.flush(), r.flush([handle.documentId])])
+        await expect(attempt).rejects.toMatchObject({
+          message: "Repo flush failed",
+          errors: [expect.objectContaining({ message: "disk full" })],
+        })
+      expect(store).toHaveBeenCalledOnce()
+      expect(await backendDoc(backend, handle)).toEqual({ count: 0 })
     })
 
     it("does not hide opaque backend flush failures after store recovery", async () => {
@@ -443,7 +386,7 @@ describe("Repo persistence", () => {
       later.resolve()
     })
 
-    it("waits for a pending store before the backend barrier, without later writes", async () => {
+    it("captures the backend barrier at call time and waits for pending stores, not later ones", async () => {
       const backend = new MemoryBackend()
       const blocked = gate()
       const later = gate()
@@ -463,14 +406,19 @@ describe("Repo persistence", () => {
       })
       await vi.waitFor(() => expect(spy).toHaveBeenCalledOnce())
       const flushing = r.flush()
+      expect(barrier).toHaveBeenCalledExactlyOnceWith(undefined)
       const second = handle.change(d => {
         d.count = 2
       })
-      expect(barrier).not.toHaveBeenCalled()
+      let settled = false
+      void flushing.then(() => {
+        settled = true
+      })
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(settled).toBe(false)
       blocked.resolve()
       await first
       await flushing
-      expect(barrier).toHaveBeenCalledExactlyOnceWith(undefined)
       later.resolve()
       await second
     })
@@ -509,27 +457,27 @@ describe("Repo persistence", () => {
       expect(reopened.doc()).toEqual({ count: 9 })
     })
 
-    it("retains the entry and failed batches when it cannot drain", async () => {
+    it("refuses eviction after a failed write, without retrying it", async () => {
       const backend = new MemoryBackend()
       const store = backend.store.bind(backend)
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
       const attempts = vi
         .spyOn(backend, "store")
-        .mockRejectedValue(new Error("disk full"))
+        .mockRejectedValueOnce(new Error("disk full"))
       await expect(
         handle.change(d => {
           d.count = 1
         })
       ).rejects.toThrow("disk full")
-      await expect(r.removeFromCache(handle.documentId)).rejects.toThrow(
-        "Repo flush failed"
-      )
-      expect(r.handles[handle.documentId]).toBe(handle)
       attempts.mockImplementation(store)
-      await r.removeFromCache(handle.documentId)
-      expect(attempts).toHaveBeenCalledTimes(3)
-      expect(await backendDoc(backend, handle)).toEqual({ count: 1 })
+      for (let i = 0; i < 2; i++) {
+        await expect(r.removeFromCache(handle.documentId)).rejects.toThrow(
+          "Repo flush failed"
+        )
+        expect(r.handles[handle.documentId]).toBe(handle)
+      }
+      expect(attempts).toHaveBeenCalledOnce()
     })
 
     it("keeps the entry when the backend barrier fails, and can retry", async () => {
@@ -539,9 +487,9 @@ describe("Repo persistence", () => {
       const flush = vi
         .spyOn(backend, "flush")
         .mockRejectedValueOnce(new Error("barrier failed"))
-      await expect(r.removeFromCache(handle.documentId)).rejects.toThrow(
-        "barrier failed"
-      )
+      await expect(r.removeFromCache(handle.documentId)).rejects.toMatchObject({
+        errors: [expect.objectContaining({ message: "barrier failed" })],
+      })
       expect(r.handles[handle.documentId]).toBe(handle)
       await r.removeFromCache(handle.documentId)
       expect(flush).toHaveBeenCalledTimes(2)
@@ -753,22 +701,20 @@ describe("Repo persistence", () => {
       expect(close).toHaveBeenCalledOnce()
     })
 
-    it("retries retained writes after closing document producers", async () => {
+    it("does not retry a failed write at shutdown", async () => {
       const backend = new MemoryBackend()
-      const store = backend.store.bind(backend)
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
       const attempts = vi
         .spyOn(backend, "store")
         .mockRejectedValueOnce(new Error("disk full"))
-      attempts.mockImplementationOnce(async (id, batch) => store(id, batch))
       await expect(
         handle.change(d => {
           d.count = 1
         })
       ).rejects.toThrow("disk full")
       await r.shutdown()
-      expect(attempts).toHaveBeenCalledTimes(2)
+      expect(attempts).toHaveBeenCalledOnce()
       expect(() =>
         handle.change(d => {
           d.count = 2
@@ -776,7 +722,7 @@ describe("Repo persistence", () => {
       ).toThrow("closed")
     })
 
-    it("recovers a store attempt captured while still pending", async () => {
+    it("waits for a store pending at shutdown without retrying it", async () => {
       const backend = new MemoryBackend()
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
@@ -791,7 +737,7 @@ describe("Repo persistence", () => {
       const shutdown = r.shutdown()
       await failed
       await shutdown
-      expect(store).toHaveBeenCalledTimes(2)
+      expect(store).toHaveBeenCalledOnce()
     })
 
     it("attempts backend close even when draining and flush fail", async () => {

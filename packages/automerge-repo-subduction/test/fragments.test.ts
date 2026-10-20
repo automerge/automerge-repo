@@ -401,7 +401,8 @@ describe("local Subduction fragments", () => {
     await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     storage.beforeSave = undefined
     await backend.store(tree, records)
-    await backend.flush()
+    // The earlier failure is still reported after the retry.
+    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     expect((await initial(backend)).records).toEqual(records)
   })
 
@@ -488,7 +489,7 @@ describe("local Subduction fragments", () => {
     await backend.store(tree, [fragment(4)])
     expect((await initial(backend)).records).toEqual([fragment(4)])
     await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
-    await backend.flush()
+    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
   })
 
   it("stores and reloads a record larger than the former 16 MiB limit", async () => {

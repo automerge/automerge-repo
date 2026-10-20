@@ -28,6 +28,8 @@ export class Document<T = unknown> {
   /** Set by {@link Document.delete}. */
   deleted = false
   #closed = false
+  /** The first failed local write; once set, local edits are rejected. */
+  writeFailure?: { error: unknown }
 
   #syncInfo = new Map<StorageId, SyncInfo>()
 
@@ -132,6 +134,8 @@ export class Document<T = unknown> {
     if (this.closed) throw new Error("Document is closed")
     if (!options.incoming && !this.ready)
       throw new Error("Document is not ready")
+    if (!options.incoming && this.writeFailure)
+      return Promise.reject(this.writeFailure.error)
     const before = this.doc
     const after = mutator(before)
     return this.#adopt(before, after, options)

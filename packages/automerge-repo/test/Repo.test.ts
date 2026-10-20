@@ -151,7 +151,7 @@ describe("backend-driven Repo", () => {
     expect(settled).toBe(true)
   })
 
-  it("retains ambiguous failures and retries original bytes through flush", async () => {
+  it("treats an ambiguous store failure as failed and does not retry it", async () => {
     const backend = new MemoryBackend()
     const r = repo(backend)
     const handle = await r.create({ count: 0 })
@@ -172,11 +172,9 @@ describe("backend-driven Repo", () => {
       })
     ).rejects.toThrow("receipt lost")
     expect(handle.doc()).toEqual({ count: 1 })
-    await r.flush()
-    expect(attempted).toHaveLength(2)
-    expect(attempted[1]).toEqual(attempted[0])
-    await r.flush()
-    expect(attempted).toHaveLength(2)
+    await expect(r.flush()).rejects.toThrow("Repo flush failed")
+    await expect(r.flush()).rejects.toThrow("Repo flush failed")
+    expect(attempted).toHaveLength(1)
   })
 
   it("flush rejects remaining failures; shutdown still attempts every cleanup", async () => {

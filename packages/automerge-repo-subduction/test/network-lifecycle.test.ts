@@ -548,7 +548,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     expect(initialRecords((await observe(b)).events)).toEqual(persistedRecords)
   }, 20000)
 
-  it("recovers ambiguous incoming saves, exposes failure to flush, and reconnects without losing or duplicating the record", async () => {
+  it("recovers ambiguous incoming saves, keeps reporting the failure to flush, and reconnects without losing or duplicating the record", async () => {
     const a = peer(),
       b = peer()
     const {
@@ -575,12 +575,12 @@ describe("authenticated network failure and lifecycle barriers", () => {
         ),
       wait
     )
-    await expect(b.backend.flush()).rejects.toSatisfy(
-      (error: unknown) =>
-        error instanceof AggregateError &&
-        errorText(error).includes("ambiguous incoming record save")
-    )
-    await b.backend.flush()
+    const reportsIncoming = (error: unknown) =>
+      error instanceof AggregateError &&
+      errorText(error).includes("ambiguous incoming record save")
+    // The failure is never forgotten.
+    await expect(b.backend.flush()).rejects.toSatisfy(reportsIncoming)
+    await expect(b.backend.flush()).rejects.toSatisfy(reportsIncoming)
     // Native may already have dropped the peer whose message failed.
     await oldWire.disconnect()
 
@@ -608,13 +608,18 @@ describe("authenticated network failure and lifecycle barriers", () => {
       )
       expect(result.outcome).toBe("complete")
       await b.backend.store(tree, records)
-      await b.backend.flush()
+      await expect(b.backend.flush()).rejects.toSatisfy(reportsIncoming)
     }
     expect(await recordKeys()).toEqual(keys)
     expect(await Promise.all(keys.map(key => b.storage.load(key)))).toEqual(
       bytes
     )
-    await b.backend.close()
+    // Close still completes, and reports the retained failure.
+    await expect(b.backend.close()).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof AggregateError &&
+        errorText(error).includes("ambiguous incoming record save")
+    )
     expect(initialRecords((await observe(peer(b.storage))).events)).toEqual(
       persistedRecords
     )

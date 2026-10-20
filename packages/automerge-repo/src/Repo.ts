@@ -326,8 +326,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
-   * Retry and drain accepted local history; reject after all targeted work
-   * settles. This is a persistence barrier only: it does not wait for
+   * Drain accepted local history; reject after all targeted work settles, and
+   * whenever a targeted document has ever failed to store. Failed writes are
+   * not retried. This is a persistence barrier only: it does not wait for
    * in-progress deletions or for network delivery.
    */
   flush(documents?: DocumentId[]): Promise<void> {
@@ -341,18 +342,23 @@ export class Repo extends EventEmitter<RepoEvents> {
         .map(entry => entry.sync)
         .filter(
           (sync): sync is DocumentSync<unknown> =>
-            !!sync &&
-            sync.hasUnsavedHistory &&
-            (!targets || targets.has(sync.id))
+            !!sync && (!targets || targets.has(sync.id))
         )
         .map(sync => sync.flush())
-      // With nothing to drain, capture the backend barrier before later edits.
-      if (!drains.length) return this.#track(backend.flush(ids))
+      // Capture the backend barrier now, before later edits.
+      const barrier = backend.flush(ids)
       return this.#track(
         (async () => {
-          const results = await Promise.allSettled(drains)
-          results.push(...(await Promise.allSettled([backend.flush(ids)])))
-          const errors = collectErrors(results)
+          const results = await Promise.allSettled([...drains, barrier])
+          // A document's failure is usually also in the backend's aggregate;
+          // report each failure once.
+          const errors = [
+            ...new Set(
+              collectErrors(results).flatMap(error =>
+                error instanceof AggregateError ? error.errors : [error]
+              )
+            ),
+          ]
           if (errors.length)
             throw new AggregateError(errors, "Repo flush failed")
         })()

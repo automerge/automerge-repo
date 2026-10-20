@@ -941,8 +941,8 @@ export class SubductionBackend implements SedimentreeBackend {
       })
       const attempt = { id, work }
       this.attempts.add(attempt)
-      // Successful settled work needs no ledger; failed attempts remain visible
-      // until a captured flush/close barrier has reported them.
+      // Successful settled work needs no ledger; failed attempts stay, so every
+      // later flush reports them (until the ID is deleted or the backend closes).
       void work.then(
         () => this.attempts.delete(attempt),
         cause => {
@@ -978,24 +978,34 @@ export class SubductionBackend implements SedimentreeBackend {
       const targeted = filter ? [...filter] : undefined
       // Capture native incoming writes now, not after the local-store drain.
       const incoming = this.bridge.flush(targeted)
-      return Promise.allSettled([this.drain(captured), incoming])
-        .then(async results => {
+      return Promise.allSettled([this.drain(captured), incoming]).then(
+        async results => {
           // Captured local stores may enter native storage only AFTER flush
-          // was called. Report/retire their now-settled bridge failures too,
-          // without waiting for subsequently accepted writes.
+          // was called. Report their now-settled bridge failures too, without
+          // waiting for subsequently accepted writes.
           results.push(
             ...(await Promise.allSettled([this.bridge.flush(targeted, true)]))
           )
-          const errors = results.flatMap(r =>
-            r.status === "rejected" ? [r.reason] : []
-          )
+          // Failures are retained, so both bridge passes can see one; and a
+          // local store failure usually is its bridge failure. Report once.
+          const errors = [
+            ...new Set(
+              results.flatMap(r =>
+                r.status === "rejected"
+                  ? r.reason instanceof AggregateError
+                    ? r.reason.errors
+                    : [r.reason]
+                  : []
+              )
+            ),
+          ]
           if (errors.length)
             throw new AggregateError(
               errors,
               "Accepted persistence attempts failed"
             )
-        })
-        .finally(() => captured.forEach(a => this.attempts.delete(a)))
+        }
+      )
     } catch (cause) {
       return Promise.reject(cause)
     }
@@ -1022,6 +1032,10 @@ export class SubductionBackend implements SedimentreeBackend {
           await this.bridge.records(native)
           await this.engine.removeSedimentree(native)
           await this.bridge.cleanup(native)
+          // The history is gone; its earlier write failures no longer apply.
+          this.bridge.forget(id)
+          for (const attempt of this.attempts)
+            if (attempt.id === id) this.attempts.delete(attempt)
         } finally {
           native.free()
           await this.resetEngine()

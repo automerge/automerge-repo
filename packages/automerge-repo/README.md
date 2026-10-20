@@ -75,16 +75,18 @@ try {
   `Promise<void>` for local persistence. Await it to observe failures; it does not
   promise remote delivery or durability.
   `changeAt()` returns heads synchronously; use `flush()` to await its persistence.
-  A rejected save does not undo the edit.
+  A rejected save does not undo the edit, and is not retried: the document then
+  rejects every later local edit with that error, without applying it.
 - `clone(handle)` returns `Promise<DocHandle<T>>`, preserving the source history.
 - `export(id)` serializes document history as an Automerge binary.
 - `delete(id)` returns `Promise<void>` for local deletion, not deletion on peers.
   Existing handles become deleted; a later lookup can reacquire the ID.
 - `removeFromCache(id)` drains writes and releases a backend-backed document
-  without deleting its history. Without a backend it rejects, since the handle
-  holds the only copy.
-- `flush(documentIds?)` drains/retries accepted local history and rejects on
-  persistence failures. It is not a remote synchronization barrier.
+  without deleting its history. Without a backend, or after a failed write, it
+  rejects, since the handle holds the only copy.
+- `flush(documentIds?)` drains accepted local history and rejects on persistence
+  failures. A failed write is never forgotten: every later `flush()` covering
+  that document rejects with it. It is not a remote synchronization barrier.
 - `shutdown()` returns `Promise<void>` for idempotent, best-effort teardown.
   Shutdown logs failures rather than rejecting them; call `flush()` first when
   persistence errors must be observable.

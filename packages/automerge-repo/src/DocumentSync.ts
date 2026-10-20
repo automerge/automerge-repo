@@ -7,7 +7,6 @@ import {
   recordHead,
   type BackendIdentity,
   type HistoryMarker,
-  type RecordBatch,
   type SedimentreeBackend,
   type SedimentreeEvent,
   type SedimentreeId,
@@ -20,22 +19,14 @@ import {
 } from "./sedimentree/automerge/index.js"
 import { concatBytes } from "./sedimentree/concatBytes.js"
 
-type WriteJob = {
-  records: RecordBatch
-  error?: unknown
-  /** Settles when the store carrying this job does. */
-  storing?: Promise<void>
-}
-
 /**
  * Per-document backend consumer: owns the session, applies its events to the
- * CRDT, verifies readiness markers, and keeps exact unsaved write batches so
- * failed stores can be retried. Each edit is stored at once, without ordering
- * or batching; the backend owns those, durability, deletion fences and the
- * flush barrier.
+ * CRDT and verifies readiness markers. Each edit is stored at once, without
+ * ordering or batching; the backend owns those, durability and deletion
+ * fences. A failed store is not retried: the document stops accepting local
+ * edits, and every later flush rejects with that failure.
  */
 export class DocumentSync<T> {
-  #unsaved: WriteJob[] = []
   #storing = new Set<Promise<void>>()
   #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
   #session?: SedimentreeSession
@@ -114,77 +105,32 @@ export class DocumentSync<T> {
   // -- Writes --
 
   commit(before: A.Doc<T>, after: A.Doc<T>): Promise<void> {
-    const records = extractNewRecords(before, after)
-    if (records.length) this.#unsaved.push({ records })
-    // Earlier failures retry with the next edit.
-    const jobs = this.#unsaved.filter(job => !job.storing)
-    if (!jobs.length) return Promise.resolve()
-    return this.#store(jobs)
-  }
-
-  #store(jobs: WriteJob[]): Promise<void> {
+    const failure = this.document.writeFailure
+    if (failure) return Promise.reject(failure.error)
     if (this.#deleted) return Promise.reject(new Error("Document deleted"))
+    const records = extractNewRecords(before, after)
+    if (!records.length) return Promise.resolve()
     let stored: Promise<void>
     try {
-      stored = this.backend.store(
-        this.id,
-        jobs.flatMap(job => job.records)
-      )
+      stored = this.backend.store(this.id, records)
     } catch (error) {
       stored = Promise.reject(error)
     }
-    const work = stored
-      .then(
-        () => {
-          this.#unsaved = this.#unsaved.filter(job => !jobs.includes(job))
-        },
-        error => {
-          for (const job of jobs) job.error = error
-          throw error
-        }
-      )
-      .finally(() => {
-        for (const job of jobs) job.storing = undefined
-      })
+    const work = stored.catch(error => {
+      if (!this.#deleted) this.document.writeFailure ??= { error }
+      throw error
+    })
     const settled = work.catch(() => {})
-    for (const job of jobs) job.storing = settled
     this.#storing.add(settled)
     void settled.then(() => this.#storing.delete(settled))
     return work
   }
 
-  get hasUnsavedHistory(): boolean {
-    return this.#unsaved.length > 0
-  }
-
-  /** Wait for captured writes, retry captured failures once, then report. */
+  /** Wait for stores already in flight, then reject if any write ever failed. */
   async flush(): Promise<void> {
-    const captured = [...this.#unsaved]
-    if (!captured.length) return
-    // Wait only for stores carrying captured jobs, not for later edits.
-    const settle = async () => {
-      for (;;) {
-        const pending = captured.flatMap(job => job.storing ?? [])
-        if (!pending.length) return
-        await Promise.all(pending)
-      }
-    }
-    await settle()
-    const retry = captured.filter(job => this.#unsaved.includes(job))
-    if (!this.#deleted && retry.length) await this.#store(retry).catch(() => {})
-    await settle()
-    const failures = captured.filter(job => this.#unsaved.includes(job))
-    if (failures.length)
-      throw new AggregateError(
-        [
-          ...new Set(
-            failures.map(
-              job => job.error ?? new Error("Unstored document history")
-            )
-          ),
-        ],
-        "Document still has unsaved history"
-      )
+    await Promise.all([...this.#storing])
+    const failure = this.document.writeFailure
+    if (failure) throw failure.error
   }
 
   // -- Lifecycle --
@@ -208,7 +154,7 @@ export class DocumentSync<T> {
     })
   }
 
-  /** Stop edits; unsaved history can still be drained with flush(). */
+  /** Stop edits; stores in flight can still be awaited with flush(). */
   close(): void {
     this.document.close()
   }
@@ -217,8 +163,6 @@ export class DocumentSync<T> {
   markDeleted(): void {
     this.close()
     this.#deleted = true
-    // Nothing more reaches the backend, so there is nothing left to report.
-    this.#unsaved = []
     this.document.delete()
   }
 
