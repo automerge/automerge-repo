@@ -276,74 +276,21 @@ interface Prepared {
  * sequence calls. Writes rely on idempotent keys and atomic `saveBatch`.
  */
 export class StorageBridge implements N.SedimentreeStorage {
-  private readonly attempts = new Set<{
-    id: SedimentreeId
-    work: Promise<unknown>
-    settled: boolean
-  }>()
-
   constructor(private readonly storage: ByteStore) {}
 
   /** Preparation is synchronous, before any await. Only owned JS snapshots
    * may be captured by the returned transaction, never native inputs.
-   * Even preparation failures are accepted, reported and visible to flush.
+   * Failures, including preparation failures, reject to native.
    */
   private mutate<T>(
     id: N.SedimentreeId,
     prepare: (tree: string) => () => Promise<T>
   ): Promise<T> {
-    const sid = logicalId(id)
-    const tree = sid.padEnd(64, "0")
-    let work: Promise<T>
     try {
-      work = prepare(tree)()
+      return prepare(treeHex(id))()
     } catch (cause) {
-      work = Promise.reject(cause)
+      return Promise.reject(cause)
     }
-    const attempt = { id: sid, work, settled: false }
-    this.attempts.add(attempt)
-    void work.then(
-      () => this.attempts.delete(attempt),
-      () => {
-        attempt.settled = true
-      }
-    )
-    return work
-  }
-
-  /** Capture pending/failed mutations only; later calls belong to a later
-   * barrier. Wait for every captured attempt before reporting its failures.
-   * Failures are retained: every later barrier reports them again, until
-   * {@link StorageBridge.forget} after deletion.
-   * settledOnly sweeps already-failed mutations after an owner-side barrier:
-   * captured local jobs may enter native storage after that barrier was called,
-   * but it must not wait for subsequently accepted native writes.
-   */
-  async flush(
-    ids?: readonly SedimentreeId[],
-    settledOnly = false
-  ): Promise<void> {
-    const filter = ids
-      ? new Set(ids.map(id => sedimentreeId(id).padEnd(64, "0")))
-      : undefined
-    const captured = [...this.attempts].filter(
-      a =>
-        (!settledOnly || a.settled) &&
-        (!filter || filter.has(a.id.padEnd(64, "0")))
-    )
-    const results = await Promise.allSettled(captured.map(a => a.work))
-    const errors = results.flatMap(r =>
-      r.status === "rejected" ? [r.reason] : []
-    )
-    if (errors.length)
-      throw new AggregateError(errors, "Accepted bridge mutations failed")
-  }
-
-  /** Drop retained failures for a deleted tree. */
-  forget(id: SedimentreeId): void {
-    const tree = sedimentreeId(id).padEnd(64, "0")
-    for (const attempt of this.attempts)
-      if (attempt.id.padEnd(64, "0") === tree) this.attempts.delete(attempt)
   }
 
   private async read(
@@ -410,13 +357,6 @@ export class StorageBridge implements N.SedimentreeStorage {
     }
   }
 
-  /** One validated read of BOTH kinds, from a single
-   * `loadPrefix` (one storage transaction) rather than a list plus a load per
-   * record. Every record is validated exactly as a single-key read would be. */
-  private async snapshot(tree: string): Promise<Stored[]> {
-    return this.decodeAll(tree, await this.storage.loadPrefix(prefix(tree)))
-  }
-
   /** Pair the two stored values for each key without interpreting record data. */
   private pairs(tree: string, entries: [string, Uint8Array][]) {
     const p = prefix(tree)
@@ -440,47 +380,6 @@ export class StorageBridge implements N.SedimentreeStorage {
       paired.push({ ref, meta, blob })
     }
     return paired
-  }
-
-  private decodeAll(tree: string, entries: [string, Uint8Array][]): Stored[] {
-    const values: Stored[] = []
-    try {
-      for (const { ref, meta, blob } of this.pairs(tree, entries))
-        values.push(this.decode(ref, meta, blob))
-      return values
-    } catch (error) {
-      values.forEach(v => v.signed.free())
-      throw error
-    }
-  }
-
-  async records(id: N.SedimentreeId): Promise<SedimentreeRecord[]> {
-    return this.recordsFor(treeHex(id))
-  }
-
-  /** Stored commits with these IDs (undefined where absent). One paired read
-   * each; never a tree scan. */
-  async lookupCommits(
-    id: N.SedimentreeId,
-    commits: readonly LooseCommitRecord[]
-  ): Promise<(SedimentreeRecord | undefined)[]> {
-    const tree = treeHex(id)
-    const ids = commits.map(commit => commit.id)
-    const found: (SedimentreeRecord | undefined)[] = []
-    for (const key of ids) {
-      const value = await this.read(tree, { kind: "commit", key })
-      value?.signed.free()
-      found.push(value?.record)
-    }
-    return found
-  }
-
-  private async recordsFor(tree: string): Promise<SedimentreeRecord[]> {
-    const values = await this.snapshot(tree)
-    return values.map(v => {
-      v.signed.free()
-      return v.record
-    })
   }
 
   async saveSedimentreeId(id: N.SedimentreeId): Promise<void> {
@@ -755,9 +654,5 @@ export class StorageBridge implements N.SedimentreeStorage {
         return copies.length
       }
     })
-  }
-  async cleanup(id: N.SedimentreeId): Promise<void> {
-    // Local follow-up to native deletion; the ID index is managed by native.
-    return this.mutate(id, tree => () => this.storage.removeRange(prefix(tree)))
   }
 }

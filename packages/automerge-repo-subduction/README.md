@@ -218,9 +218,8 @@ reconnections, without a peer-loading timeout. An empty local scan with no
 connected peers is provisionally unavailable; if peers are connected but none
 supplies history, the lookup stays loading. Neither proves global absence.
 Local history is returned immediately, then refreshed and subscribed through
-the same stream. Deletion
-disconnects **all** peers, including those used by unrelated documents.
-Helper-managed connections retry; low-level callers must reconnect.
+the same stream. Deletion ends the document's sessions and removes its history
+through native `removeSedimentree`; connections stay open.
 
 ### Ephemeral messages
 
@@ -241,27 +240,46 @@ batch stores none of its records. A save that commits and then rejects is
 ambiguous: native rescans storage and redelivers it to open sessions, and an
 exact retry dedupes. Repo neither orders nor batches a document's writes: each
 edit is submitted at once, concurrently with earlier ones. Failed writes are not
-retried: after one, Repo rejects further local edits to that document, and
-`flush()` keeps reporting it. **Known contract gap:** the backend contract
-requires stores to one tree to be acknowledged in submission order, so that a
-`change()` never resolves while an earlier edit it depends on has failed. Native
-does not sequence acknowledgements yet, so an edit already in flight can still
-be acknowledged after an earlier one fails; on reload the orphan stays pending
-and the document opens at its last complete state. Malformed records fail
+retried: after one, Repo rejects further local edits to that document.
+Malformed records fail
 rather than appearing absent. Each record uses separate `blob/<id>` and `meta/<id>` keys under
 `commits/` or `fragments/`, read together in one transaction; missing halves
 fail loudly. Metadata decoding detects malformed signed bytes; native hydration
 checks blob digests. Storage is not protected against malicious tampering.
-A different representation of an existing commit ID is rejected. As in native
+A different representation of an existing commit ID is rejected, as an opaque
+`io` error (native does not pass the bridge's typed error through). As in native
 Subduction storage, fragments are keyed by head plus payload digest: valid
 same-head variants coexist, and a head lookup returns the one native keeps
 (lowest payload digest). Compaction is not supported.
 
 Observers must handle duplicate durable deliveries. A session that falls
-behind its replay budget ends with `rescan-required`. `flush()` drains accepted local work
-and reports persistence failures, but does not wait for peer delivery. Failures
-are retained: every later `flush()` (and `close()`) reports them again, even after
-a successful retry, until the tree is deleted.
+behind its replay budget ends with `rescan-required`. `close()` waits for
+accepted native work, local and ingested, before freeing the engine.
+
+Storage is accessed only through Subduction: the bridge implements native's
+storage callbacks and nothing else, and the backend keeps no record of write
+outcomes.
+
+Until native provides per-tree ordering and a flush barrier, the backend keeps
+an interim, self-clearing acknowledgement chain per document over its own
+stores: saves run concurrently, but each `store()` resolves only after earlier
+stores to that document (and rejects if any of them failed). `flush()` waits for
+the stores accepted before the call and reports their failures; `deleteLocal`
+waits for them before removing the tree. No failure is retained: Repo keeps each
+document's first failure and reports it from `repo.flush()`.
+
+### Known gaps
+
+The backend contract asks for behaviour native Subduction does not provide yet.
+These are tracked upstream rather than emulated here:
+
+- **Ingested writes.** `flush()` does not wait for writes of peer data, and a
+  failed one is not reported to the document's session.
+- **Deletion fencing.** Deletion waits for local stores, but not for ingested
+  writes in flight, and does not stop peer sync: a subscribed peer can resend
+  the tree.
+- **Typed write errors.** Native wraps storage rejections in opaque errors, so a
+  conflicting representation surfaces as `io`, not `conflict`.
 
 ## Limits
 
@@ -276,8 +294,8 @@ Default limits:
 A write reads only the keys it writes (to detect a conflicting representation
 and duplicate notifications); it does not rescan the tree. A
 `store()`/`create()` submission of any size is accepted: it is validated up
-front (wire counts, commit conflicts within the batch and against storage),
-then written in one native call. It is not split: a document must already fit
+front (wire counts), then written in one native call; the bridge checks each
+record against its own stored key. It is not split: a document must already fit
 in Automerge's WASM memory, which is exhausted long before a submission would
 strain Subduction's. Neither a single record nor a tree's total history is
 capped: whatever was accepted can always be reopened, enumerated, synced and

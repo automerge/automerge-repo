@@ -45,7 +45,7 @@ function connectTo(
   return wires
 }
 
-it("syncs through real native handshakes and reconnects after deleteLocal resets the engine", async () => {
+it("syncs through real native handshakes and keeps the connection across deleteLocal", async () => {
   const remoteSigner = N.MemorySigner.generate()
   const remoteBackend = new SubductionBackend({
     signer: remoteSigner,
@@ -65,13 +65,8 @@ it("syncs through real native handshakes and reconnects after deleteLocal resets
       handle.documentId
     )
     await peer.backend.deleteLocal(sedimentreeId("73".repeat(16)))
-    await vi.waitFor(
-      () => {
-        expect(openTransport.mock.calls.length).toBeGreaterThanOrEqual(2)
-        expect(peer.connections[0].status).toBe("connected")
-      },
-      { timeout: 10_000 }
-    )
+    expect(openTransport).toHaveBeenCalledOnce()
+    expect(peer.connections[0].status).toBe("connected")
     await handle.change(doc => {
       doc.count++
     })
@@ -93,7 +88,7 @@ it("syncs through real native handshakes and reconnects after deleteLocal resets
   }
 }, 30_000)
 
-it("retries onboarding superseded by deletion without treating the backend as closed", async () => {
+it("completes onboarding while an unrelated deletion runs", async () => {
   const remoteSigner = N.MemorySigner.generate()
   const remoteBackend = new SubductionBackend({
     signer: remoteSigner,
@@ -128,7 +123,7 @@ it("retries onboarding superseded by deletion without treating the backend as cl
     release()
     await deleting
     await ready
-    expect(openTransport.mock.calls.length).toBeGreaterThanOrEqual(2)
+    expect(openTransport).toHaveBeenCalledOnce()
     expect(peer.connections[0].status).toBe("connected")
     await expect(peer.backend.flush()).resolves.toBeUndefined()
   } finally {

@@ -328,22 +328,35 @@ export class Repo extends EventEmitter<RepoEvents> {
   /**
    * The backend's persistence barrier: drain accepted local history and reject
    * after it settles whenever a targeted document has ever failed to store.
-   * Failed writes are not retried. Does not wait for in-progress deletions or
-   * for network delivery.
+   * The backend reports failures of the stores it drained; each document keeps
+   * its own first failure. Failed writes are not retried. Does not wait for
+   * in-progress deletions or for network delivery.
    */
   flush(documents?: DocumentId[]): Promise<void> {
     try {
       this.#checkOpen()
       const backend = this.#backend
       if (!backend) return Promise.resolve()
+      const targets = documents
+        ? documents.flatMap(id => this.#entries.get(id) ?? [])
+        : [...this.#entries.values()]
       return this.#track(
-        backend
-          .flush(documents?.map(id => this.#backendId(id)))
-          .catch(error => {
-            const errors =
+        (async () => {
+          const [result] = await Promise.allSettled([
+            backend.flush(documents?.map(id => this.#backendId(id))),
+          ])
+          const errors = new Set(
+            collectErrors([result]).flatMap(error =>
               error instanceof AggregateError ? error.errors : [error]
-            throw new AggregateError(errors, "Repo flush failed")
-          })
+            )
+          )
+          for (const entry of targets) {
+            const failure = entry.document.writeFailure
+            if (failure && !entry.document.deleted) errors.add(failure.error)
+          }
+          if (errors.size)
+            throw new AggregateError([...errors], "Repo flush failed")
+        })()
       )
     } catch (error) {
       return Promise.reject(error)

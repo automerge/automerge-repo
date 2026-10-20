@@ -203,7 +203,7 @@ describe("real native ephemerals", () => {
     expect(await b.storage.list("subduction-v2/")).toEqual([])
   })
 
-  it("does not replay offline messages; restores interests after reopen, reconnect, and engine retirement", async () => {
+  it("does not replay offline messages; restores interests after reopen and reconnect", async () => {
     const a = peer(),
       b = peer()
     const left = await observe(a),
@@ -229,10 +229,6 @@ describe("real native ephemerals", () => {
       () => expect(ephemerals(fresh.events)).toHaveLength(1),
       wait
     )
-    const retired = callbacks[1]
-    await b.backend.deleteLocal(other)
-    deliver(retired, a, message("retired"))
-    await connect(a, b)
     await left.session.publishEphemeral(message("restored"))
     await vi.waitFor(
       () => expect(ephemerals(fresh.events)).toHaveLength(2),
@@ -467,7 +463,7 @@ describe("real native ephemerals", () => {
     ).resolves.toBeUndefined()
   })
 
-  it("fences stopping callbacks and labels publication failures after a queued reset as ephemeral", async () => {
+  it("deleting another document leaves this session's ephemerals working", async () => {
     const a = peer(),
       b = peer()
     const observed = await observe(a)
@@ -475,15 +471,12 @@ describe("real native ephemerals", () => {
     const deleting = a.backend.deleteLocal(other)
     const publishing = observed.session.publishEphemeral(message())
     deliver(callback, b, message())
-    expect(ephemerals(observed.events)).toHaveLength(0)
-    await expect(publishing).rejects.toMatchObject({
-      operation: "ephemeral",
-      code: "io",
-    })
+    await expect(publishing).resolves.toBeUndefined()
     await deleting
-    await expect(
-      observed.session.publishEphemeral(message())
-    ).resolves.toBeUndefined()
+    await vi.waitFor(
+      () => expect(ephemerals(observed.events)).toHaveLength(1),
+      wait
+    )
   })
 
   it("retirement waits for started publications before freeing their topic and engine", async () => {

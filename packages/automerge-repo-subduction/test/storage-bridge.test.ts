@@ -18,7 +18,7 @@ import {
   unsignedFragment,
 } from "../src/storage.js"
 import type { ByteStore } from "../src/ByteStore.js"
-import { deferred } from "./storage.js"
+import { deferred, storedRecords } from "./storage.js"
 import { signedBytes } from "./frame.js"
 
 const tree = sedimentreeId("ab".repeat(16))
@@ -246,9 +246,9 @@ describe("StorageBridge native transactions", () => {
     const key = `subduction-v1/${tree.padEnd(64, "0")}/id`
     storage.values.set(key, new Uint8Array([1]))
     const bridge = new StorageBridge(storage)
-    expect(await withId(id => bridge.records(id))).toEqual([])
+    expect(await storedRecords(bridge, tree)).toEqual([])
     await save(bridge, first)
-    expect(await withId(id => bridge.records(id))).toEqual([first])
+    expect(await storedRecords(bridge, tree)).toEqual([first])
     expect(storage.values.get(key)).toEqual(new Uint8Array([1]))
   })
 
@@ -316,14 +316,14 @@ describe("StorageBridge native transactions", () => {
     await expect(save(bridge, conflict)).rejects.toMatchObject({
       code: "conflict",
     })
-    expect(await withId(id => bridge.records(id))).toEqual([first, fragment])
+    expect(await storedRecords(bridge, tree)).toEqual([first, fragment])
   })
 
   it("owns decoded blobs after the stored bytes change", async () => {
     const storage = new MemoryStore()
     const bridge = new StorageBridge(storage)
     await save(bridge, first)
-    const [record] = await withId(id => bridge.records(id))
+    const [record] = await storedRecords(bridge, tree)
     const blob = [...storage.values.entries()].find(([key]) =>
       key.includes("/blob/")
     )![1]
@@ -430,7 +430,7 @@ describe("StorageBridge native transactions", () => {
         await expect(
           withId(treeId => bridge.loadCommit(treeId, id))
         ).rejects.toThrow("Incomplete stored record")
-        await expect(withId(treeId => bridge.records(treeId))).rejects.toThrow(
+        await expect(storedRecords(bridge, tree)).rejects.toThrow(
           "Incomplete stored record"
         )
         await expect(
@@ -493,7 +493,6 @@ describe("StorageBridge native transactions", () => {
     await gate.entered
     const key = N.CommitId.fromHexString(cid(1))
     const operations = withId(id => [
-      bridge.records(id),
       bridge.loadCommit(id, key),
       bridge.listCommitIds(id),
       bridge.loadAllCommits(id),
@@ -504,10 +503,9 @@ describe("StorageBridge native transactions", () => {
     key.free()
     // Reads complete while the write is still held.
     const values = await Promise.all(operations)
-    expect(values[0]).toEqual([first, fragment])
-    for (const index of [2, 3, 5, 6]) expect(values[index]).toHaveLength(1)
-    expect(values[1]).toBeInstanceOf(N.CommitWithBlob)
-    expect(values[4]).toBeInstanceOf(N.FragmentWithBlob)
+    for (const index of [1, 2, 4, 5]) expect(values[index]).toHaveLength(1)
+    expect(values[0]).toBeInstanceOf(N.CommitWithBlob)
+    expect(values[3]).toBeInstanceOf(N.FragmentWithBlob)
     values.forEach(dispose)
     expect(storage.maxActive).toBeGreaterThan(1)
     gate.release()
@@ -546,11 +544,7 @@ describe("StorageBridge native transactions", () => {
     await batch(bridge, [first, second, fragment])
     expect(storage.written).toHaveLength(6)
     expect(await withId(id => bridge.containsSedimentreeId(id))).toBe(false)
-    expect(await withId(id => bridge.records(id))).toEqual([
-      first,
-      second,
-      fragment,
-    ])
+    expect(await storedRecords(bridge, tree)).toEqual([first, second, fragment])
   })
 
   it("lists registered IDs without reading records, including empty trees", async () => {
@@ -574,7 +568,7 @@ describe("StorageBridge native transactions", () => {
     expect(await withId(id => bridge.containsSedimentreeId(id))).toBe(false)
   })
 
-  it("keeps reporting an ambiguous batch save through flush; an exact retry does not rewrite", async () => {
+  it("rejects an ambiguous batch save to native; an exact retry does not rewrite", async () => {
     const storage = new MemoryStore()
     const bridge = new StorageBridge(storage)
     const error = new Error("saved, then rejected")
@@ -582,25 +576,16 @@ describe("StorageBridge native transactions", () => {
       throw error
     }
     await expect(batch(bridge, [first, second, third])).rejects.toBe(error)
-    expect(await withId(id => bridge.records(id))).toEqual([
-      first,
-      second,
-      third,
-    ])
-    await expect(bridge.flush()).rejects.toMatchObject({ errors: [error] })
-    await expect(bridge.flush()).rejects.toMatchObject({ errors: [error] })
+    expect(await storedRecords(bridge, tree)).toEqual([first, second, third])
     storage.afterSave = undefined
     const written = storage.written.length
     await batch(bridge, [first, second, third])
     expect(
       storage.written.slice(written).filter(key => key.includes("/commits/"))
     ).toEqual([])
-    await expect(bridge.flush()).rejects.toMatchObject({ errors: [error] })
-    bridge.forget(tree)
-    await expect(bridge.flush()).resolves.toBeUndefined()
   })
 
-  it("reports synchronous preparation errors through flush", async () => {
+  it("rejects synchronous preparation errors without touching storage", async () => {
     const storage = new MemoryStore()
     const bridge = new StorageBridge(storage)
     const wrong = N.CommitId.fromHexString(second.id)
@@ -612,57 +597,7 @@ describe("StorageBridge native transactions", () => {
       wrong.free()
       value.free()
     }
-    const flushed = bridge.flush()
     await expect(operation).rejects.toThrow(/key/)
-    await expect(flushed).rejects.toMatchObject({
-      errors: [expect.any(Error)],
-    })
     expect(storage.calls).toEqual([])
-    await expect(bridge.flush()).rejects.toMatchObject({
-      errors: [expect.any(Error)],
-    })
-  })
-
-  it("flush captures relevant pending/failed mutations, waits ALL and keeps reported failures", async () => {
-    const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage)
-    const errorA = new Error("A"),
-      errorB = new Error("B")
-    const gate = pause(
-      storage,
-      (op, key) => op === "remove" && key.includes(other)
-    )
-    storage.afterSave = () => {
-      throw errorA
-    }
-    const originalRemove = storage.remove.bind(storage)
-    storage.remove = async key => {
-      await originalRemove(key)
-      throw errorB
-    }
-    const a = withId(id => bridge.saveSedimentreeId(id)).catch(e => e)
-    const b = withId(id => bridge.deleteSedimentreeId(id), other).catch(e => e)
-    const onlyA = bridge.flush([tree])
-    const all = bridge.flush()
-    let allSettled = false
-    const allResult = all
-      .catch(e => e)
-      .finally(() => {
-        allSettled = true
-      })
-    await gate.entered
-    await expect(onlyA).rejects.toMatchObject({ errors: [errorA] })
-    expect(allSettled).toBe(false)
-    // A later failed attempt is not part of either already captured barrier.
-    const later = withId(id => bridge.saveSedimentreeId(id)).catch(e => e)
-    gate.release()
-    expect(await allResult).toMatchObject({ errors: [errorA, errorB] })
-    await Promise.all([a, b, later])
-    await expect(bridge.flush([other])).rejects.toMatchObject({
-      errors: [errorB],
-    })
-    await expect(bridge.flush([tree])).rejects.toMatchObject({
-      errors: [errorA, errorA],
-    })
   })
 })

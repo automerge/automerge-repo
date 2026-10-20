@@ -448,7 +448,7 @@ describe("public Repo with native Subduction", () => {
     )
   })
 
-  it("reports storage failure from change and flush, but shutdown is best effort", async () => {
+  it("reports storage failure from change, but shutdown is best effort", async () => {
     const p = peer()
     const handle = await p.repo.create<State>({ count: 0 })
     p.storage.beforeSave = async () => {
@@ -460,8 +460,21 @@ describe("public Repo with native Subduction", () => {
       })
     ).rejects.toThrow()
     expect(handle.doc()).toEqual({ count: 1 })
-    await expect(p.repo.flush()).rejects.toThrow()
     await expect(p.repo.shutdown()).resolves.toBeUndefined()
+  })
+
+  it("flush reports an earlier storage failure", async () => {
+    const p = peer()
+    const handle = await p.repo.create<State>({ count: 0 })
+    p.storage.beforeSave = async () => {
+      throw new Error("Disk unavailable")
+    }
+    await handle
+      .change(doc => {
+        doc.count = 1
+      })
+      .catch(() => {})
+    await expect(p.repo.flush()).rejects.toThrow()
   })
 
   it("reloads acknowledged history after a failed fragmented write", async () => {

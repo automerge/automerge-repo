@@ -3,13 +3,11 @@ import {
   BackendError,
   commitId,
   copyRecord,
-  equalRecords,
   recordBytes,
   sedimentreeId,
   type BackendIdentity,
   type BackendOperation,
   type HistoryMarker,
-  type LooseCommitRecord,
   type SedimentreeRecord,
   type RecordBatch,
   type SedimentreeBackend,
@@ -154,10 +152,6 @@ export class SubductionBackend implements SedimentreeBackend {
   private readonly bridge: StorageBridge
   private engine: N.Subduction
   private generation!: EngineGeneration
-  /** Settles once an in-progress engine replacement (delete/close) has. */
-  private replacing: Promise<unknown> = Promise.resolve()
-  /** Deletions replace the whole engine, so they run one at a time. */
-  private deleteTail: Promise<unknown> = Promise.resolve()
   private closed = false
   private closing?: Promise<void>
   private sequence = 0
@@ -168,10 +162,14 @@ export class SubductionBackend implements SedimentreeBackend {
   private readonly recovering = new Set<SedimentreeId>()
   /** Sessions whose consumer verified a complete snapshot (markComplete). */
   private readonly completed = new Set<Watch<SedimentreeEvent>>()
-  private readonly attempts = new Set<{
-    id: SedimentreeId
-    work: Promise<void>
-  }>()
+  /**
+   * Interim stand-in for native per-tree ordering and flush: the latest store's
+   * acknowledgement per document. Each store resolves only after earlier ones
+   * (rejecting if any did); flush and deleteLocal wait on it. Self-clearing; no
+   * failures are retained. Remove once Subduction acknowledges stores to a tree
+   * in submission order and exposes a flush barrier.
+   */
+  private readonly acks = new Map<SedimentreeId, Promise<void>>()
   private readonly signer: NativeSigner
   private readonly seenEphemerals = new Set<string>()
   private readonly self: string
@@ -326,34 +324,9 @@ export class SubductionBackend implements SedimentreeBackend {
     // Failed syncs are reported to their callers/streams, not as close errors.
     if (stopped[0].status === "rejected") throw stopped[0].reason
   }
-  private resetEngine(): Promise<void> {
-    const reset = (async () => {
-      try {
-        await this.retireEngine()
-      } finally {
-        this.engine = this.createEngine()
-        for (const id of new Set(this.watches.values()))
-          this.reconcileInterest(id)
-      }
-    })()
-    this.replacing = reset.catch(() => {})
-    return reset
-  }
-  /** The live engine, waiting out a replacement in progress. */
-  private async live(
-    operation: BackendOperation,
-    id?: SedimentreeId
-  ): Promise<{ engine: N.Subduction; generation: EngineGeneration }> {
-    for (;;) {
-      this.check(operation, id)
-      if (this.generation.active)
-        return { engine: this.engine, generation: this.generation }
-      await this.replacing
-    }
-  }
 
   /** Borrow the authenticated wrapper until this promise settles. On success,
-   * the engine owns a connection clone and disconnects it on close/reset/delete.
+   * the engine owns a connection clone and disconnects it on close.
    * Keep the underlying JS transport alive until disconnection. Authentication
    * is the caller's responsibility; no document handle is materialized here.
    *
@@ -624,8 +597,7 @@ export class SubductionBackend implements SedimentreeBackend {
     const observe = async (): Promise<void> => {
       this.check("open", id)
       if (released) return
-      const { engine, generation } = await this.live("open", id)
-      if (released) return
+      const { engine, generation } = this
       const native = nativeId(id)
       const updates = engine.loadAndWatch(native)
       stream = updates
@@ -854,37 +826,15 @@ export class SubductionBackend implements SedimentreeBackend {
         const native = nativeId(id)
         let submitted = false
         try {
-          if (creating && (await this.bridge.containsSedimentreeId(native)))
-            throw new BackendError(
-              "create",
-              "conflict",
-              "Document already exists"
-            )
-          // Conflict preflight against the batch itself and the stored keys it
-          // touches. Native wraps the bridge's own rejection in an opaque error,
-          // so detect the typed conflict here first; the bridge check remains
-          // authoritative for incoming writes and anything that races past this.
-          const conflict = () =>
-            new BackendError(
-              "store",
-              "conflict",
-              "Different same-key representation is unsupported"
-            )
-          // Fragments are exempt: one head can have several valid
-          // representations, each stored under its own payload digest.
-          const commits = records.filter(
-            (r): r is LooseCommitRecord => r.kind === "commit"
-          )
-          const keys = new Map<string, LooseCommitRecord>()
-          for (const record of commits) {
-            const old = keys.get(record.id)
-            if (old && !equalRecords(old, record)) throw conflict()
-            keys.set(record.id, record)
-          }
-          const stored = await this.bridge.lookupCommits(native, commits)
-          for (const [index, record] of commits.entries()) {
-            const old = stored[index]
-            if (old && !equalRecords(old, record)) throw conflict()
+          if (creating) {
+            const heads = (await engine.getHeads(native)) ?? []
+            heads.forEach(head => head.free())
+            if (heads.length)
+              throw new BackendError(
+                "create",
+                "conflict",
+                "Document already exists"
+              )
           }
           // One native call: it signs everything, saves through the bridge
           // once and minimizes once. Automerge's own memory limit is reached
@@ -924,91 +874,53 @@ export class SubductionBackend implements SedimentreeBackend {
           native.free()
         }
       }
-      const start = (live: {
-        engine: N.Subduction
-        generation: EngineGeneration
-      }) =>
-        this.nativeWork(live.generation, () =>
-          run(live.engine, live.generation)
-        )
-      // Start at once on a live engine so its retirement waits for this store.
-      const work = (
-        this.generation.active
-          ? start({ engine: this.engine, generation: this.generation })
-          : this.live(operation, id).then(start)
+      const generation = this.generation
+      // Register with the engine at once so its retirement waits for this store.
+      const write = this.nativeWork(generation, () =>
+        run(this.engine, generation)
       ).catch(cause => {
         throw error(operation, cause)
       })
-      const attempt = { id, work }
-      this.attempts.add(attempt)
-      // Successful settled work needs no ledger; failed attempts stay, so every
-      // later flush reports them (until the ID is deleted or the backend closes).
-      void work.then(
-        () => this.attempts.delete(attempt),
-        cause => {
-          if (
-            cause instanceof BackendError &&
-            cause.operation === "create" &&
-            cause.code === "conflict"
-          )
-            this.attempts.delete(attempt)
-        }
-      )
-      return work
+      // Saves run concurrently; acknowledgement follows submission order.
+      const earlier = this.acks.get(id)
+      const ack = earlier
+        ? Promise.allSettled([earlier, write]).then(([before, own]) => {
+            if (own.status === "rejected") throw own.reason
+            if (before.status === "rejected")
+              throw new BackendError(
+                operation,
+                "io",
+                "An earlier store to this document failed",
+                false,
+                { cause: before.reason }
+              )
+          })
+        : write
+      this.acks.set(id, ack)
+      const clear = () => {
+        if (this.acks.get(id) === ack) this.acks.delete(id)
+      }
+      void ack.then(clear, clear)
+      return ack
     } catch (cause) {
       return Promise.reject(cause)
     }
   }
-  private async drain(attempts: { work: Promise<void> }[]): Promise<void> {
-    const results = await Promise.allSettled(attempts.map(a => a.work))
-    const errors = results.flatMap(r =>
+  /**
+   * Waits for local stores accepted before the call and reports their
+   * failures. Ingested writes are not covered: native has no barrier yet.
+   */
+  async flush(ids?: readonly SedimentreeId[]): Promise<void> {
+    this.check("flush")
+    const targets = ids?.map(sedimentreeId)
+    const captured = targets
+      ? targets.flatMap(id => this.acks.get(id) ?? [])
+      : [...this.acks.values()]
+    const errors = (await Promise.allSettled(captured)).flatMap(r =>
       r.status === "rejected" ? [r.reason] : []
     )
     if (errors.length)
       throw new AggregateError(errors, "Accepted persistence attempts failed")
-  }
-  flush(ids?: readonly SedimentreeId[]): Promise<void> {
-    try {
-      this.check("flush")
-      const filter = ids ? new Set(ids.map(sedimentreeId)) : undefined
-      const captured = [...this.attempts].filter(
-        a => !filter || filter.has(a.id)
-      )
-      // Snapshot the filter for the later failure sweep as well.
-      const targeted = filter ? [...filter] : undefined
-      // Capture native incoming writes now, not after the local-store drain.
-      const incoming = this.bridge.flush(targeted)
-      return Promise.allSettled([this.drain(captured), incoming]).then(
-        async results => {
-          // Captured local stores may enter native storage only AFTER flush
-          // was called. Report their now-settled bridge failures too, without
-          // waiting for subsequently accepted writes.
-          results.push(
-            ...(await Promise.allSettled([this.bridge.flush(targeted, true)]))
-          )
-          // Failures are retained, so both bridge passes can see one; and a
-          // local store failure usually is its bridge failure. Report once.
-          const errors = [
-            ...new Set(
-              results.flatMap(r =>
-                r.status === "rejected"
-                  ? r.reason instanceof AggregateError
-                    ? r.reason.errors
-                    : [r.reason]
-                  : []
-              )
-            ),
-          ]
-          if (errors.length)
-            throw new AggregateError(
-              errors,
-              "Accepted persistence attempts failed"
-            )
-        }
-      )
-    } catch (cause) {
-      return Promise.reject(cause)
-    }
   }
   deleteLocal(input: SedimentreeId): Promise<void> {
     try {
@@ -1019,37 +931,26 @@ export class SubductionBackend implements SedimentreeBackend {
       const sequence = ++this.sequence
       for (const [watch, tree] of this.watches)
         if (tree === id) watch.finish({ type: "deleted", sequence })
-      // No document-unsubscribe/drain API exists natively. This conservative
-      // experiment disconnects ALL peers on deletion, then revokes the entire
-      // old engine before removing history. Reconnect explicitly afterward.
-      void this.stopNetwork().catch(() => {})
-      const run = async () => {
+      // Local stores accepted earlier land first. Native owns removal and
+      // should fence ingested writes and peer sync for this tree.
+      const generation = this.generation
+      const earlier = this.acks.get(id)
+      const work = this.nativeWork(generation, async () => {
+        await Promise.allSettled([earlier])
         const native = nativeId(id)
         try {
-          await this.resetEngine()
-          // Validate the generation before deleting; corrupt storage must not
-          // silently appear absent (or be erased as if it had loaded cleanly).
-          await this.bridge.records(native)
           await this.engine.removeSedimentree(native)
-          await this.bridge.cleanup(native)
-          // The history is gone; its earlier write failures no longer apply.
-          this.bridge.forget(id)
-          for (const attempt of this.attempts)
-            if (attempt.id === id) this.attempts.delete(attempt)
         } finally {
           native.free()
-          await this.resetEngine()
         }
-      }
-      const work = this.deleteTail
-        .then(run)
+        if (this.acks.get(id) === earlier) this.acks.delete(id)
+      })
         .catch(cause => {
           throw error("delete", cause)
         })
         .finally(() => {
           this.deleting.delete(id)
         })
-      this.deleteTail = work.catch(() => {})
       this.deleting.set(id, work)
       return work
     } catch (cause) {
@@ -1061,25 +962,12 @@ export class SubductionBackend implements SedimentreeBackend {
     this.closed = true
     this.recovering.clear()
     this.seenEphemerals.clear()
-    const captured = [...this.attempts]
-    const deletions = [...this.deleting.values()]
     this.closing = Promise.resolve().then(async () => {
-      // A deletion's engine swap must finish before the final retirement.
-      await this.deleteTail
-      await this.replacing
-      const retired = this.retireEngine()
-      this.replacing = retired.catch(() => {})
-      const outcomes = await Promise.allSettled([
-        this.drain(captured),
-        ...deletions,
-        retired,
-      ])
-      const incoming = await Promise.allSettled([this.bridge.flush()])
-      outcomes.push(...incoming)
+      // Retirement waits for accepted stores and deletions before freeing.
+      const outcomes = await Promise.allSettled([this.retireEngine()])
       const errors = outcomes.flatMap(r =>
         r.status === "rejected" ? [r.reason] : []
       )
-      this.attempts.clear()
       if (errors.length)
         throw new AggregateError(errors, "Backend close failed")
     })

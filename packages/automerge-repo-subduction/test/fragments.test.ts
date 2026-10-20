@@ -32,7 +32,7 @@ import {
   extractNewRecords,
   extractRecords,
 } from "@automerge/automerge-repo/sedimentree/automerge"
-import { TestStore, deferred } from "./storage.js"
+import { TestStore, deferred, storedRecords } from "./storage.js"
 import { corruptFrame, signedBytes } from "./frame.js"
 import { repoFragmentFixture } from "./repoFixture.js"
 
@@ -89,14 +89,7 @@ async function initial(backend: SubductionBackend, inspectRecords = true) {
     if (event.type === "blobs") blobs.push(...event.blobs)
     if (event.type === "local-load-complete") {
       if (!inspectRecords) return { records, blobs, event, iterator }
-      const native = nativeId(tree)
-      try {
-        records.push(
-          ...(await new StorageBridge(currentStorage).records(native))
-        )
-      } finally {
-        native.free()
-      }
+      records.push(...(await storedRecords(currentStorage, tree)))
       expect(
         blobs.map(blob => Buffer.from(blob).toString("hex")).sort()
       ).toEqual(
@@ -398,11 +391,8 @@ describe("local Subduction fragments", () => {
         key => !key.startsWith("subduction-v2/ids/")
       )
     ).toEqual([])
-    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     storage.beforeSave = undefined
     await backend.store(tree, records)
-    // The earlier failure is still reported after the retry.
-    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     expect((await initial(backend)).records).toEqual(records)
   })
 
@@ -488,8 +478,6 @@ describe("local Subduction fragments", () => {
     })
     await backend.store(tree, [fragment(4)])
     expect((await initial(backend)).records).toEqual([fragment(4)])
-    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
-    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
   })
 
   it("stores and reloads a record larger than the former 16 MiB limit", async () => {
@@ -581,7 +569,6 @@ describe("local Subduction fragments", () => {
       )
       // The first local write hydrates native, which reads both kinds.
       await expect(reopened.store(tree, [loose(5, [4])])).rejects.toThrow()
-      await expect(reopened.flush()).rejects.toBeInstanceOf(AggregateError)
       // A fresh open reports the corruption as a failure, not an empty tree.
       const stream = create().open(tree).events[Symbol.asyncIterator]()
       expect(await next(stream)).toMatchObject({ type: "failure" })
@@ -615,40 +602,51 @@ describe("local Subduction fragments", () => {
     expect(await storage.list("subduction-v2/")).toEqual([])
   })
 
-  it.each(["delete", "close"])(
-    "%s fences watches and drains a delayed fragment write",
-    async operation => {
-      const backend = create()
-      const { iterator } = await initial(backend)
-      const entered = deferred(),
-        release = deferred()
-      storage.beforeSave = async key => {
-        if (key.includes("/fragments/")) {
-          entered.resolve()
-          await release.promise
-        }
+  it("close fences watches and drains a delayed fragment write", async () => {
+    const backend = create()
+    const { iterator } = await initial(backend)
+    const entered = deferred(),
+      release = deferred()
+    storage.beforeSave = async key => {
+      if (key.includes("/fragments/")) {
+        entered.resolve()
+        await release.promise
       }
-      const writing = backend.store(tree, [fragment(4)])
-      await entered.promise
-      const ending =
-        operation === "delete" ? backend.deleteLocal(tree) : backend.close()
-      if (operation === "delete")
-        expect(await next(iterator)).toMatchObject({ type: "deleted" })
-      expect((await iterator.next()).done).toBe(true)
-      let finished = false
-      void ending.then(() => {
-        finished = true
-      })
-      await Promise.resolve()
-      expect(finished).toBe(false)
-      release.resolve()
-      await writing
-      await ending
-      if (operation === "delete") {
-        expect(await storage.list("subduction-v2/")).toEqual([])
-        await backend.store(tree, [fragment(4)])
-        expect((await initial(backend)).records).toEqual([fragment(4)])
-      } else expect((await initial(create())).records).toEqual([fragment(4)])
     }
-  )
+    const writing = backend.store(tree, [fragment(4)])
+    await entered.promise
+    const ending = backend.close()
+    expect((await iterator.next()).done).toBe(true)
+    let finished = false
+    void ending.then(() => {
+      finished = true
+    })
+    await Promise.resolve()
+    expect(finished).toBe(false)
+    release.resolve()
+    await writing
+    await ending
+    expect((await initial(create())).records).toEqual([fragment(4)])
+  })
+
+  it("delete drains a delayed fragment write", async () => {
+    const backend = create()
+    const { iterator } = await initial(backend)
+    const entered = deferred(),
+      release = deferred()
+    storage.beforeSave = async key => {
+      if (key.includes("/fragments/")) {
+        entered.resolve()
+        await release.promise
+      }
+    }
+    const writing = backend.store(tree, [fragment(4)])
+    await entered.promise
+    const ending = backend.deleteLocal(tree)
+    expect(await next(iterator)).toMatchObject({ type: "deleted" })
+    release.resolve()
+    await writing
+    await ending
+    expect(await storage.list("subduction-v2/")).toEqual([])
+  })
 })

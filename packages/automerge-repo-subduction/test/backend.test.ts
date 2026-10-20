@@ -12,8 +12,8 @@ import {
   SubductionBackend,
   type SubductionBackendOptions,
 } from "../src/index.js"
-import { nativeId, logicalId, StorageBridge } from "../src/storage.js"
-import { TestStore, deferred, savedKeys } from "./storage.js"
+import { nativeId, logicalId } from "../src/storage.js"
+import { TestStore, deferred, savedKeys, storedRecords } from "./storage.js"
 import { corruptFrame, signedBytes } from "./frame.js"
 
 const tree = sedimentreeId("ab".repeat(16))
@@ -39,20 +39,16 @@ async function initial(session: SedimentreeSession, id = tree) {
     if (result.value.type === "local-load-complete") {
       // Legacy metadata assertions below inspect the test store separately;
       // open itself must deliver only Subduction's blobs.
-      const native = nativeId(id)
-      try {
-        const available = (await new StorageBridge(currentStorage).records(
-          native
-        )) as LooseCommitRecord[]
-        for (const blob of blobs) {
-          const index = available.findIndex(record =>
-            Buffer.from(record.blob).equals(blob)
-          )
-          if (index < 0) throw new Error("Initial blob missing from test store")
-          records.push(available.splice(index, 1)[0])
-        }
-      } finally {
-        native.free()
+      const available = (await storedRecords(
+        currentStorage,
+        id
+      )) as LooseCommitRecord[]
+      for (const blob of blobs) {
+        const index = available.findIndex(record =>
+          Buffer.from(record.blob).equals(blob)
+        )
+        if (index < 0) throw new Error("Initial blob missing from test store")
+        records.push(available.splice(index, 1)[0])
       }
       return { records, blobs, complete: result.value, iterator }
     }
@@ -155,18 +151,13 @@ describe("real local Subduction", () => {
     return { entered: entered.promise, release: release.resolve }
   }
 
-  it("opens via a native stored stream without a Repo-facing bridge records read", async () => {
+  it("opens via a native stored stream", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
-    const internals = backend as unknown as {
-      engine: N.Subduction
-      bridge: StorageBridge
-    }
+    const internals = backend as unknown as { engine: N.Subduction }
     const native = vi.spyOn(internals.engine, "loadAndWatch")
-    const direct = vi.spyOn(internals.bridge, "records")
     const loaded = await initial(backend.open(tree))
     expect(native).toHaveBeenCalledOnce()
-    expect(direct).not.toHaveBeenCalled()
     expect(loaded.blobs).toEqual([record(1).blob])
     expect(loaded.complete).toMatchObject({ found: true })
     expect(loaded.complete.marker).toBeUndefined()
@@ -221,7 +212,6 @@ describe("real local Subduction", () => {
     scan.release()
     await deletion
     expect(await next(iterator)).toMatchObject({ type: "deleted" })
-    // The old engine's stream ended; the session restarted on its successor.
     await backend.store(otherTree, [record(1)])
     // Live, or within the restarted stream's replay.
     let event = await next(other.iterator)
@@ -230,33 +220,6 @@ describe("real local Subduction", () => {
     expect(
       event.type === "records" ? event.records[0].blob : event.blobs[0]
     ).toEqual(record(1).blob)
-    await backend.close()
-  })
-
-  it("starts opens arriving during retirement on the replacement engine", async () => {
-    const backend = create()
-    const internals = backend as unknown as {
-      engine: N.Subduction
-      bridge: StorageBridge
-    }
-    const oldRead = vi.spyOn(internals.engine, "loadAndWatch")
-    const originalClose = internals.engine.close.bind(internals.engine)
-    const entered = deferred(),
-      release = deferred()
-    vi.spyOn(internals.engine, "close").mockImplementationOnce(async () => {
-      entered.resolve()
-      await release.promise
-      return originalClose()
-    })
-    const deletion = backend.deleteLocal(tree)
-    await entered.promise
-    const otherTree = sedimentreeId("cd".repeat(16))
-    const session = backend.open(otherTree)
-    expect(oldRead).not.toHaveBeenCalled()
-    release.resolve()
-    await deletion
-    expect((await initial(session, otherTree)).complete.found).toBe(false)
-    expect(oldRead).not.toHaveBeenCalled()
     await backend.close()
   })
 
@@ -387,10 +350,10 @@ describe("real local Subduction", () => {
     const loadPrefix = vi.spyOn(storage, "loadPrefix")
     const reload = create()
     const loaded = await initial(reload.open(tree))
-    // Native reads commits and fragments separately; the test helper reads
-    // once more to verify legacy metadata assertions.
+    // Native reads commits and fragments separately; the test helper does
+    // the same again to verify metadata.
     expect(hydration).not.toHaveBeenCalled()
-    expect(loadPrefix).toHaveBeenCalledTimes(3)
+    expect(loadPrefix).toHaveBeenCalledTimes(4)
     expect(loaded.records).toEqual([record(1), record(2, [1])])
     expect(loaded.complete.marker).toBeUndefined()
     // Native hydrates on demand from storage and finds both commits.
@@ -541,47 +504,20 @@ describe("real local Subduction", () => {
     })
   })
 
-  it("reports a stored-key conflict with its typed code before any write, without rescanning", async () => {
+  it("refuses a stored-key conflict without writing or rescanning", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
     const list = vi.spyOn(storage, "list")
     const save = vi.spyOn(storage, "saveBatch")
     const variant = { ...record(1), blob: new Uint8Array([9, 42]) }
+    // Native wraps the bridge's typed conflict in an opaque write error.
     await expect(backend.store(tree, [variant])).rejects.toMatchObject({
       operation: "store",
-      code: "conflict",
+      code: "io",
     })
-    expect(save).not.toHaveBeenCalled()
+    expect(savedKeys(save).filter(key => key.includes("/commits/"))).toEqual([])
     expect(list).not.toHaveBeenCalled()
-    // Flush reports the refused attempt once; the original record is intact.
-    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])
-  })
-
-  it("a conflict that races past the preflight is still refused by the bridge, as a retryable store failure", async () => {
-    // Variant of record(1) lands between this backend's preflight and its
-    // native write (a shared-store race). Native wraps the bridge's rejection,
-    // so the typed conflict code is lost at this layer; what matters is that
-    // the write is refused, nothing is overwritten, and the error belongs to
-    // this store rather than being borrowed from another operation.
-    const backend = create()
-    const variant = { ...record(1), blob: new Uint8Array([9, 42]) }
-    const original = storage.loadMany.bind(storage)
-    let seeded = false
-    vi.spyOn(storage, "loadMany").mockImplementation(async keys => {
-      if (!seeded && keys[0].endsWith(`/meta/${cid(1)}`)) {
-        seeded = true
-        // Preflight sees "absent"; then the variant appears before the write.
-        await storage.saveBatch(await encodedPair(variant))
-        return keys.map(() => undefined)
-      }
-      return original(keys)
-    })
-    const failure = await backend.store(tree, [record(1)]).catch(e => e)
-    expect(failure).toMatchObject({ operation: "store", code: "io" })
-    expect(failure.retryable).toBe(true)
-    vi.mocked(storage.loadMany).mockRestore()
-    expect((await initial(backend.open(tree))).records).toEqual([variant])
   })
 
   it("writes a submission of any size in one native call, in order", async () => {
@@ -599,7 +535,7 @@ describe("real local Subduction", () => {
     expect(loaded.complete.marker).toBeUndefined()
   })
 
-  it("stores none of a batch after a mid-batch failure; a full retry completes it, flush still reports", async () => {
+  it("stores none of a batch after a mid-batch failure; a full retry completes it", async () => {
     const backend = create()
     const { iterator } = await initial(backend.open(tree))
     const records = Array.from({ length: 10 }, (_, i) =>
@@ -618,7 +554,6 @@ describe("real local Subduction", () => {
       marker: { heads: [] },
     })
     expect((await initial(backend.open(tree))).records).toEqual([])
-    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     storage.beforeSave = undefined
     const save = vi.spyOn(storage, "saveBatch")
     await backend.store(tree, records)
@@ -634,8 +569,6 @@ describe("real local Subduction", () => {
     const reloaded = await initial(backend.open(tree))
     expect(reloaded.records).toEqual(records)
     expect(reloaded.complete.marker).toBeUndefined()
-    // A write failure is never forgotten, even after a successful retry.
-    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
   })
 
   it("has no total-history cap: a tree grown past any old budget reopens, enumerates and deletes", async () => {
@@ -674,11 +607,11 @@ describe("real local Subduction", () => {
     })
     expect(list).not.toHaveBeenCalled()
     expect(getHeads).toHaveBeenCalledOnce()
-    // One preflight lookup plus the bridge's own same-key check: per record,
-    // independent of how much history the tree holds.
+    // The bridge's own same-key check: per record, independent of how much
+    // history the tree holds.
     const path = `subduction-v2/trees/${tree.padEnd(64, "0")}/commits/`
     const pair = [`${path}meta/${cid(2)}`, `${path}blob/${cid(2)}`]
-    expect(load.mock.calls.map(([keys]) => keys)).toEqual([pair, pair])
+    expect(load.mock.calls.map(([keys]) => keys)).toEqual([pair])
     // Readers still validate the authoritative stored history.
     expect((await initial(backend.open(tree))).records).toEqual([
       record(1),
@@ -811,8 +744,9 @@ describe("real local Subduction", () => {
       error: { code: "io" },
     })
     expect((await iterator.next()).done).toBe(true)
-    await expect(backend.deleteLocal(tree)).rejects.toThrow()
-    expect(await storage.list("subduction-v2/")).toHaveLength(1)
+    // Deletion goes through native and does not need a readable tree.
+    await backend.deleteLocal(tree)
+    expect(await storage.list("subduction-v2/")).toEqual([])
   })
 
   // The bridge pairs stored values and decodes signed frames; Subduction
@@ -846,7 +780,7 @@ describe("real local Subduction", () => {
     }
   )
 
-  it("rescans after a failed batch, keeps reporting the failure to flush, and retries safely", async () => {
+  it("rescans after a failed batch and retries safely", async () => {
     const backend = create()
     const { iterator } = await initial(backend.open(tree))
     let count = 0
@@ -860,7 +794,6 @@ describe("real local Subduction", () => {
       marker: { heads: [] },
     })
     expect((await initial(backend.open(tree))).records).toEqual([])
-    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
     storage.beforeSave = undefined
     await backend.store(tree, [record(1), record(2)])
     // The original session keeps observing after recovery.
@@ -871,7 +804,6 @@ describe("real local Subduction", () => {
       record(1),
       record(2),
     ])
-    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
   })
 
   it("recovers record observations when save commits bytes but then rejects", async () => {
@@ -907,7 +839,6 @@ describe("real local Subduction", () => {
     ).toHaveLength(writes)
     await retry.iterator.return!()
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])
-    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
   })
 
   it("enumerates a registered tree even if its batch fails", async () => {
@@ -921,42 +852,86 @@ describe("real local Subduction", () => {
     ])
   })
 
-  it("flush captures work, drains failures, and is not held open by later writes", async () => {
+  it("flush drains in-flight stores and reports their failures without retaining them", async () => {
     const backend = create()
-    const first = deferred(),
-      second = deferred(),
-      enteredFirst = deferred(),
-      enteredSecond = deferred()
+    const gate = deferred(),
+      entered = deferred()
     storage.beforeSave = async key => {
-      if (key.endsWith(`/meta/${cid(1)}`)) {
-        enteredFirst.resolve()
-        await first.promise
-      }
-      if (key.endsWith(`/meta/${cid(2)}`)) {
-        enteredSecond.resolve()
-        await second.promise
+      if (key.includes("/commits/")) {
+        entered.resolve()
+        await gate.promise
+        throw new Error("disk failed")
       }
     }
-    const a = backend.store(tree, [record(1)])
-    await enteredFirst.promise
-    const flush = backend.flush()
-    const b = backend.store(tree, [record(2)])
-    first.resolve()
-    await flush
-    await a
-    await enteredSecond.promise
-    let done = false
-    void b.then(() => {
-      done = true
+    const writing = backend.store(tree, [record(1)]).catch(e => e)
+    await entered.promise
+    let settled = false
+    const flushing = backend.flush([tree]).finally(() => {
+      settled = true
     })
-    expect(done).toBe(false)
-    second.resolve()
-    await b
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    gate.resolve()
+    await expect(flushing).rejects.toBeInstanceOf(AggregateError)
+    await writing
+    storage.beforeSave = undefined
+    // Repo keeps each document's failure; the backend does not.
+    await backend.flush()
+    await backend.close()
+    await expect(backend.flush()).rejects.toMatchObject({ code: "closed" })
   })
 
-  it("fences deletion immediately, drains earlier writes, and allows later reacquisition", async () => {
+  it("acknowledges stores to one tree in submission order", async () => {
     const backend = create()
+    const gate = deferred(),
+      entered = deferred()
+    storage.beforeSave = async key => {
+      if (key.endsWith(`/meta/${cid(1)}`)) {
+        entered.resolve()
+        await gate.promise
+        throw new Error("disk failed")
+      }
+    }
+    const first = backend.store(tree, [record(1)]).catch(e => e)
+    await entered.promise
+    // The later save completes on its own, but is not acknowledged before or
+    // without the earlier one.
+    let acknowledged = false
+    const second = backend.store(tree, [record(2, [1])]).then(() => {
+      acknowledged = true
+    })
+    await vi.waitFor(async () =>
+      expect(
+        (await storage.list("subduction-v2/")).some(key =>
+          key.endsWith(`/meta/${cid(2)}`)
+        )
+      ).toBe(true)
+    )
+    expect(acknowledged).toBe(false)
+    gate.resolve()
+    await expect(second).rejects.toMatchObject({ operation: "store" })
+    expect(await first).toBeInstanceOf(Error)
+  })
+
+  it("fences deletion immediately and allows later reacquisition", async () => {
+    const backend = create()
+    await backend.store(tree, [record(1)])
     const { iterator } = await initial(backend.open(tree))
+    const deleting = backend.deleteLocal(tree)
+    expect(await next(iterator)).toMatchObject({ type: "deleted" })
+    expect((await iterator.next()).done).toBe(true)
+    await expect(backend.store(tree, [record(2)])).rejects.toMatchObject({
+      code: "deleted",
+    })
+    await deleting
+    expect(await storage.list("subduction-v2/")).toEqual([])
+    expect((await initial(backend.open(tree))).complete.found).toBe(false)
+    await backend.store(tree, [record(2)])
+    expect((await initial(backend.open(tree))).records).toEqual([record(2)])
+  })
+
+  it("deletion drains a local write already in flight", async () => {
+    const backend = create()
     const gate = deferred(),
       entered = deferred()
     storage.beforeSave = async key => {
@@ -968,18 +943,10 @@ describe("real local Subduction", () => {
     const writing = backend.store(tree, [record(1)])
     await entered.promise
     const deleting = backend.deleteLocal(tree)
-    expect(await next(iterator)).toMatchObject({ type: "deleted" })
-    expect((await iterator.next()).done).toBe(true)
-    await expect(backend.store(tree, [record(2)])).rejects.toMatchObject({
-      code: "deleted",
-    })
     gate.resolve()
     await writing
     await deleting
     expect(await storage.list("subduction-v2/")).toEqual([])
-    expect((await initial(backend.open(tree))).complete.found).toBe(false)
-    await backend.store(tree, [record(2)])
-    expect((await initial(backend.open(tree))).records).toEqual([record(2)])
   })
 
   it("close ends watches immediately but waits for accepted persistence and leaves borrowed disk intact", async () => {
@@ -1014,62 +981,6 @@ describe("real local Subduction", () => {
     expect((await initial(create().open(tree))).records).toEqual([record(1)])
   })
 
-  it("forgets a retained write failure once its tree is deleted", async () => {
-    const backend = create()
-    const otherTree = sedimentreeId("cd".repeat(16))
-    storage.beforeSave = async key => {
-      if (key.includes("/commits/")) throw new Error("disk failed")
-    }
-    await expect(backend.store(tree, [record(1)])).rejects.toThrow()
-    await expect(backend.store(otherTree, [record(1)])).rejects.toThrow()
-    storage.beforeSave = undefined
-    await expect(backend.flush([tree])).rejects.toBeInstanceOf(AggregateError)
-    await backend.deleteLocal(tree)
-    await backend.flush([tree])
-    await expect(backend.flush()).rejects.toBeInstanceOf(AggregateError)
-    await backend.close().catch(() => {})
-  })
-
-  it("flush drains every captured attempt before reporting an earlier failure", async () => {
-    const backend = create()
-    const gate = deferred(),
-      entered = deferred()
-    storage.beforeSave = async key => {
-      if (key.endsWith(`/meta/${cid(1)}`)) throw new Error("first failed")
-      if (key.endsWith(`/meta/${cid(2)}`)) {
-        entered.resolve()
-        await gate.promise
-      }
-    }
-    const first = backend.store(tree, [record(1)]).catch(() => {})
-    const second = backend.store(tree, [record(2)])
-    const captured = backend.flush()
-    let reported = false
-    const failure = captured.catch(cause => {
-      reported = true
-      return cause
-    })
-    await first
-    await entered.promise
-    expect(reported).toBe(false)
-    gate.resolve()
-    await second
-    const aggregate = await failure
-    expect(aggregate).toBeInstanceOf(AggregateError)
-    // Local submissions and native storage callbacks have independent ledgers;
-    // the same I/O failure may be represented in both. Neither is forgotten:
-    // every later barrier reports it again.
-    const failures = aggregate.errors.flatMap((error: unknown) =>
-      error instanceof AggregateError ? error.errors : [error]
-    )
-    expect(failures.map(String)).toContainEqual(
-      expect.stringContaining("first failed")
-    )
-    const again = await backend.flush().catch(cause => cause)
-    expect(again).toBeInstanceOf(AggregateError)
-    expect(again.errors).toHaveLength(aggregate.errors.length)
-  })
-
   it("pins bounded initial batches independently of replay and allows immediate return during blocked acquisition", async () => {
     const backend = create({ replayEvents: 1 })
     await backend.store(tree, [record(1)])
@@ -1100,7 +1011,7 @@ describe("real local Subduction", () => {
     await backend.store(tree, [record(1)])
     await expect(
       backend.store(tree, [{ ...record(1), blob: new Uint8Array([8]) }])
-    ).rejects.toMatchObject({ code: "conflict" })
+    ).rejects.toMatchObject({ code: "io" })
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])
   })
 })
