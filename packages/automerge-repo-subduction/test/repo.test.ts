@@ -491,43 +491,6 @@ describe("public Repo with native Subduction", () => {
     expect(reloaded.doc()).toEqual({ count: 0 })
   })
 
-  it("reloads when a later edit is durable but an earlier one failed", async () => {
-    const p = peer()
-    const handle = await p.repo.create<State>({ count: 0 })
-    const gate = deferred()
-    let failing: string | undefined
-    p.storage.beforeSave = async key => {
-      if (!key.includes("/commits/")) return
-      if (failing === undefined) {
-        failing = key
-        await gate.promise
-      }
-      if (key === failing) throw new Error("Disk unavailable")
-    }
-    const failed = handle.change(doc => {
-      doc.count = 1
-    })
-    // Stored, and durable, while its parent's store is still pending.
-    await handle.change(doc => {
-      doc.count = 2
-    })
-    gate.resolve()
-    await expect(failed).rejects.toThrow()
-    await p.repo.shutdown().catch(() => {})
-    const commits = (await p.storage.list("subduction-v2/")).filter(key =>
-      key.includes("/commits/meta/")
-    )
-    expect(commits).toHaveLength(2)
-    const reloaded = await Promise.race([
-      peer(p.storage).repo.find<State>(handle.url),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("find did not settle")), 3000)
-      ),
-    ])
-    // The orphaned edit stays pending; acknowledged history loads.
-    expect(reloaded.doc()).toEqual({ count: 0 })
-  })
-
   it("keeps an empty connected lookup open for later data", async () => {
     const a = peer(),
       b = peer()

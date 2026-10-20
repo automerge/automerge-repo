@@ -89,23 +89,16 @@ describe("Repo persistence", () => {
           await blocked.promise
           return store(id, batch)
         })
-      let firstDone = false
-      const first = handle
-        .change(d => {
-          d.count = 1
-        })
-        .then(() => {
-          firstDone = true
-        })
+      const first = handle.change(d => {
+        d.count = 1
+      })
       const second = handle.change(d => {
         d.count = 2
       })
       expect(spy).toHaveBeenCalledTimes(2)
       expect(spy.mock.calls[1][1]).toHaveLength(1)
-      await second
-      expect(firstDone).toBe(false)
       blocked.resolve()
-      await first
+      await Promise.all([first, second])
       expect(await backendDoc(backend, handle)).toEqual({ count: 2 })
     })
 
@@ -191,53 +184,37 @@ describe("Repo persistence", () => {
       expect(handle.doc()).toEqual({ count: 1 })
     })
 
-    it("does not batch edits made during a store; a failure blocks only that document", async () => {
-      const backend = new MemoryBackend()
-      const blocked = gate()
+    it("a failed store blocks only that document; later edits reject unapplied", async () => {
+      let failing: SedimentreeId | undefined
+      const backend = new MemoryBackend({
+        beforeStore: id => {
+          if (id === failing) throw new Error("disk full")
+        },
+      })
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
       const other = await r.create<Doc>({ count: 0 })
-      const store = vi
-        .spyOn(backend, "store")
-        .mockImplementationOnce(async () => {
-          await blocked.promise
-          throw new Error("disk full")
-        })
-      const first = expect(
+      const store = vi.spyOn(backend, "store")
+      failing = treeId(handle)
+      await expect(
         handle.change(d => {
           d.count = 1
         })
       ).rejects.toThrow("disk full")
-      const second = handle.change(d => {
-        d.count = 2
-      })
-      const third = handle.change(d => {
-        d.count = 3
-      })
+      failing = undefined
+      await expect(
+        handle.change(d => {
+          d.count = 2
+        })
+      ).rejects.toThrow("disk full")
+      expect(handle.doc()).toEqual({ count: 1 })
       await other.change(d => {
         d.count = 4
       })
-      await Promise.all([second, third])
       expect(store.mock.calls.map(([id]) => id)).toEqual([
-        treeId(handle),
-        treeId(handle),
         treeId(handle),
         treeId(other),
       ])
-      expect(store.mock.calls.map(([, batch]) => batch.length)).toEqual([
-        1, 1, 1, 1,
-      ])
-      blocked.resolve()
-      await first
-      await expect(
-        handle.change(d => {
-          d.count = 5
-        })
-      ).rejects.toThrow("disk full")
-      await other.change(d => {
-        d.count = 5
-      })
-      expect(store).toHaveBeenCalledTimes(5)
       await expect(r.flush()).rejects.toThrow("Repo flush failed")
       await r.flush([other.documentId])
     })
@@ -272,7 +249,6 @@ describe("Repo persistence", () => {
       expect(changed).toHaveBeenCalledOnce()
       reject(new Error("storage failed"))
       await expect(pending).rejects.toThrow("storage failed")
-      await expect(r.flush()).rejects.toThrow("Repo flush failed")
       expect(store).toHaveBeenCalledOnce()
     })
   })
@@ -312,12 +288,16 @@ describe("Repo persistence", () => {
     })
 
     it("rejects with a failed write, and keeps rejecting without retrying", async () => {
-      const backend = new MemoryBackend()
+      let fail = false
+      const backend = new MemoryBackend({
+        beforeStore: () => {
+          if (fail) throw new Error("disk full")
+        },
+      })
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
-      const store = vi
-        .spyOn(backend, "store")
-        .mockRejectedValueOnce(new Error("disk full"))
+      const store = vi.spyOn(backend, "store")
+      fail = true
       const failed = expect(
         handle.change(d => {
           d.count = 1
@@ -406,19 +386,16 @@ describe("Repo persistence", () => {
     })
 
     it("captures the backend barrier at call time and waits for pending stores, not later ones", async () => {
-      const backend = new MemoryBackend()
       const blocked = gate()
       const later = gate()
-      const store = backend.store.bind(backend)
+      const gates: ReturnType<typeof gate>[] = []
+      const backend = new MemoryBackend({
+        beforeStore: () => gates.shift()?.promise,
+      })
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
-      let count = 0
-      const spy = vi
-        .spyOn(backend, "store")
-        .mockImplementation(async (id, batch) => {
-          await (++count === 1 ? blocked.promise : later.promise)
-          return store(id, batch)
-        })
+      gates.push(blocked, later)
+      const spy = vi.spyOn(backend, "store")
       const barrier = vi.spyOn(backend, "flush")
       const first = handle.change(d => {
         d.count = 1
@@ -477,19 +454,22 @@ describe("Repo persistence", () => {
     })
 
     it("refuses eviction after a failed write, without retrying it", async () => {
-      const backend = new MemoryBackend()
-      const store = backend.store.bind(backend)
+      let fail = false
+      const backend = new MemoryBackend({
+        beforeStore: () => {
+          if (fail) throw new Error("disk full")
+        },
+      })
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
-      const attempts = vi
-        .spyOn(backend, "store")
-        .mockRejectedValueOnce(new Error("disk full"))
+      const attempts = vi.spyOn(backend, "store")
+      fail = true
       await expect(
         handle.change(d => {
           d.count = 1
         })
       ).rejects.toThrow("disk full")
-      attempts.mockImplementation(store)
+      fail = false
       for (let i = 0; i < 2; i++) {
         await expect(r.removeFromCache(handle.documentId)).rejects.toThrow(
           "Repo flush failed"
@@ -532,15 +512,14 @@ describe("Repo persistence", () => {
 
   describe("delete", () => {
     it("stops producers, drains earlier work, then deletes", async () => {
-      const backend = new MemoryBackend()
       const blocked = gate()
-      const store = backend.store.bind(backend)
+      let held: SedimentreeId | undefined
+      const backend = new MemoryBackend({
+        beforeStore: id => (id === held ? blocked.promise : undefined),
+      })
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
-      vi.spyOn(backend, "store").mockImplementationOnce(async (id, batch) => {
-        await blocked.promise
-        return store(id, batch)
-      })
+      held = treeId(handle)
       const deleted = vi.spyOn(backend, "deleteLocal")
       const removed = vi.fn()
       r.on("delete-document", removed)
@@ -556,7 +535,12 @@ describe("Repo persistence", () => {
       ).toThrow("deleted")
       await expect(r.find(handle.url)).rejects.toThrow("deletion in progress")
       await expect(r.create()).resolves.toBeDefined()
-      expect(deleted).not.toHaveBeenCalled()
+      let settled = false
+      void deletion.then(() => {
+        settled = true
+      })
+      await new Promise(resolve => setTimeout(resolve, 0))
+      expect(settled).toBe(false)
       blocked.resolve()
       await write
       await deletion

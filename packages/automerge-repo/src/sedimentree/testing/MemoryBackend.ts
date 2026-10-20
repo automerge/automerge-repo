@@ -30,6 +30,12 @@ export interface MemoryBackendOptions {
   replayEvents?: number
   /** Maximum retained encoded record/metadata bytes in each replay window. */
   replayBytes?: number
+  /**
+   * Test seam run inside `store()` after the batch is copied and validated:
+   * await to hold the store in flight, throw to fail it. Either way the
+   * backend's barrier and failure memory see it, unlike a `vi.spyOn` wrapper.
+   */
+  beforeStore?: (id: SedimentreeId, batch: RecordBatch) => void | Promise<void>
 }
 
 interface Tree {
@@ -44,15 +50,23 @@ interface Tree {
  * Stores exact representations, without compaction or network simulation. Same
  * logical key/different representation rejects; this deliberately does not model
  * Subduction's variant tiebreaking or prove generic history equivalence.
- * Persistence is synchronous and process-local, so flush's barrier is immediate.
+ * Persistence is synchronous and process-local, so flush's barrier is immediate
+ * and stores to one ID are acknowledged in submission order; flush reports
+ * rejected stores until the ID is deleted.
  */
 export class MemoryBackend implements SedimentreeBackend {
-  readonly #options: Required<MemoryBackendOptions>
+  readonly #options: Required<Omit<MemoryBackendOptions, "beforeStore">>
+  readonly #beforeStore?: MemoryBackendOptions["beforeStore"]
   readonly #trees = new Map<SedimentreeId, Tree>()
+  /** Stores held open by `beforeStore`; flush and delete drain them. */
+  readonly #inFlight = new Set<Promise<void>>()
+  /** Rejected stores, reported by every later flush until the ID is deleted. */
+  readonly #failed = new Map<SedimentreeId, unknown[]>()
   #closed = false
   #round = 0
 
   constructor(options: MemoryBackendOptions = {}) {
+    this.#beforeStore = options.beforeStore
     this.#options = {
       batchRecords: options.batchRecords ?? 128,
       batchBytes: options.batchBytes ?? 1024 * 1024,
@@ -143,7 +157,16 @@ export class MemoryBackend implements SedimentreeBackend {
 
   async store(rawId: SedimentreeId, batch: RecordBatch): Promise<void> {
     this.#assertOpen("store")
-    const id = sedimentreeId(rawId)
+    const work = this.#store(sedimentreeId(rawId), batch)
+    this.#inFlight.add(work)
+    try {
+      await work
+    } finally {
+      this.#inFlight.delete(work)
+    }
+  }
+
+  async #store(id: SedimentreeId, batch: RecordBatch): Promise<void> {
     const staged = new Map<string, SedimentreeRecord>()
     const existing = this.#trees.get(id)
     try {
@@ -167,18 +190,29 @@ export class MemoryBackend implements SedimentreeBackend {
           }
         } else staged.set(key, record)
       }
-    } catch (error) {
-      if (error instanceof BackendError) throw error
-      throw new BackendError(
-        "store",
-        "invalid-record",
-        "Invalid sedimentree record",
-        false,
-        { cause: error }
+    } catch (cause) {
+      throw this.#fail(
+        id,
+        cause instanceof BackendError
+          ? cause
+          : new BackendError(
+              "store",
+              "invalid-record",
+              "Invalid sedimentree record",
+              false,
+              { cause }
+            )
       )
     }
+    if (this.#beforeStore) {
+      try {
+        await this.#beforeStore(id, [...staged.values()])
+      } catch (error) {
+        throw this.#fail(id, error)
+      }
+    }
     if (staged.size === 0) return
-    const tree = existing ?? this.#tree(id)
+    const tree = this.#trees.get(id) ?? this.#tree(id)
     for (const [key, record] of staged) tree.records.set(key, record)
     for (const records of this.#batches([...staged.values()])) {
       tree.log.append(
@@ -195,13 +229,21 @@ export class MemoryBackend implements SedimentreeBackend {
 
   async flush(ids?: readonly SedimentreeId[]): Promise<void> {
     this.#assertOpen("flush")
-    ids?.forEach(sedimentreeId)
-    // All accepted writes have already settled in this synchronous memory model.
+    const targets = ids?.map(sedimentreeId)
+    // Capture the barrier now; stores accepted later are not part of it.
+    await this.#drain()
+    const errors = (targets ?? [...this.#failed.keys()]).flatMap(
+      id => this.#failed.get(id) ?? []
+    )
+    if (errors.length)
+      throw new AggregateError(errors, "Accepted persistence attempts failed")
   }
 
   async deleteLocal(rawId: SedimentreeId): Promise<void> {
     this.#assertOpen("delete")
     const id = sedimentreeId(rawId)
+    await this.#drain()
+    this.#failed.delete(id)
     const tree = this.#trees.get(id)
     if (!tree) return
     this.#trees.delete(id)
@@ -221,6 +263,15 @@ export class MemoryBackend implements SedimentreeBackend {
       tree.log.clear()
     }
     this.#trees.clear()
+  }
+
+  #drain(): Promise<unknown> {
+    return Promise.allSettled([...this.#inFlight])
+  }
+
+  #fail(id: SedimentreeId, error: unknown): unknown {
+    this.#failed.set(id, [...(this.#failed.get(id) ?? []), error])
+    return error
   }
 
   #assertOpen(operation: BackendOperation): void {

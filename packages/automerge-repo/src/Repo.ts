@@ -310,10 +310,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     return deleting
   }
 
-  /** Release the session after the store in flight, then remove local history.
-   * Cleanup always proceeds to deleteLocal; every failure is reported. */
+  /** Release the session, then remove local history; the backend drains
+   * stores in flight. Cleanup always proceeds to deleteLocal; every failure
+   * is reported. */
   async #deleteLocal(id: DocumentId, sync?: DocumentSync<any>): Promise<void> {
-    await sync?.idle()
     const results = await Promise.allSettled([sync?.release()])
     results.push(
       ...(await Promise.allSettled([
@@ -326,42 +326,24 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /**
-   * Drain accepted local history; reject after all targeted work settles, and
-   * whenever a targeted document has ever failed to store. Failed writes are
-   * not retried. This is a persistence barrier only: it does not wait for
-   * in-progress deletions or for network delivery.
+   * The backend's persistence barrier: drain accepted local history and reject
+   * after it settles whenever a targeted document has ever failed to store.
+   * Failed writes are not retried. Does not wait for in-progress deletions or
+   * for network delivery.
    */
   flush(documents?: DocumentId[]): Promise<void> {
     try {
       this.#checkOpen()
       const backend = this.#backend
       if (!backend) return Promise.resolve()
-      const ids = documents?.map(id => this.#backendId(id))
-      const targets = ids && new Set(ids)
-      const drains = [...this.#entries.values()]
-        .map(entry => entry.sync)
-        .filter(
-          (sync): sync is DocumentSync<unknown> =>
-            !!sync && (!targets || targets.has(sync.id))
-        )
-        .map(sync => sync.flush())
-      // Capture the backend barrier now, before later edits.
-      const barrier = backend.flush(ids)
       return this.#track(
-        (async () => {
-          const results = await Promise.allSettled([...drains, barrier])
-          // A document's failure is usually also in the backend's aggregate;
-          // report each failure once.
-          const errors = [
-            ...new Set(
-              collectErrors(results).flatMap(error =>
-                error instanceof AggregateError ? error.errors : [error]
-              )
-            ),
-          ]
-          if (errors.length)
+        backend
+          .flush(documents?.map(id => this.#backendId(id)))
+          .catch(error => {
+            const errors =
+              error instanceof AggregateError ? error.errors : [error]
             throw new AggregateError(errors, "Repo flush failed")
-        })()
+          })
       )
     } catch (error) {
       return Promise.reject(error)
@@ -401,10 +383,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#shutdown = Promise.resolve().then(async () => {
       for (const entry of entries)
         entry.query.fail(new Error("Repo is shut down"))
-      const results = await Promise.allSettled([
-        ...operations,
-        ...entries.map(entry => entry.sync?.flush()),
-      ])
+      const results = await Promise.allSettled(operations)
       if (backend) {
         results.push(...(await Promise.allSettled([backend.flush()])))
         results.push(...(await Promise.allSettled([backend.close()])))

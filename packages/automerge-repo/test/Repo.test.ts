@@ -152,20 +152,18 @@ describe("backend-driven Repo", () => {
   })
 
   it("treats an ambiguous store failure as failed and does not retry it", async () => {
-    const backend = new MemoryBackend()
-    const r = repo(backend)
-    const handle = await r.create({ count: 0 })
-    const store = backend.store.bind(backend)
-    const attempted: Uint8Array[] = []
-    let fail = true
-    vi.spyOn(backend, "store").mockImplementation(async (id, records) => {
-      attempted.push(records[0].blob.slice())
-      await store(id, records)
-      if (fail) {
+    let fail = false
+    const backend = new MemoryBackend({
+      beforeStore: () => {
+        if (!fail) return
         fail = false
         throw new Error("saved but receipt lost")
-      }
+      },
     })
+    const r = repo(backend)
+    const handle = await r.create({ count: 0 })
+    const store = vi.spyOn(backend, "store")
+    fail = true
     await expect(
       handle.change(doc => {
         doc.count = 1
@@ -174,14 +172,19 @@ describe("backend-driven Repo", () => {
     expect(handle.doc()).toEqual({ count: 1 })
     await expect(r.flush()).rejects.toThrow("Repo flush failed")
     await expect(r.flush()).rejects.toThrow("Repo flush failed")
-    expect(attempted).toHaveLength(1)
+    expect(store).toHaveBeenCalledOnce()
   })
 
   it("flush rejects remaining failures; shutdown still attempts every cleanup", async () => {
-    const backend = new MemoryBackend()
+    let fail = false
+    const backend = new MemoryBackend({
+      beforeStore: () => {
+        if (fail) throw new Error("disk unavailable")
+      },
+    })
     const r = repo(backend)
     const handle = await r.create({ count: 0 })
-    vi.spyOn(backend, "store").mockRejectedValue(new Error("disk unavailable"))
+    fail = true
     const close = vi.spyOn(backend, "close")
     await expect(
       handle.change(doc => {

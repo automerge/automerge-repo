@@ -240,11 +240,15 @@ under `subduction-v2/ids/<tree>`; records live under
 batch stores none of its records. A save that commits and then rejects is
 ambiguous: native rescans storage and redelivers it to open sessions, and an
 exact retry dedupes. Repo neither orders nor batches a document's writes: each
-edit is submitted at once, concurrently with earlier ones, and native does not
-sequence them either. Failed writes are not retried: after one, Repo rejects
-further local edits to that document, and `flush()` keeps reporting it. Edits
-already in flight still land, so one can be durable while an earlier edit it
-depends on failed. Malformed records fail rather than appearing absent. Each record uses separate `blob/<id>` and `meta/<id>` keys under
+edit is submitted at once, concurrently with earlier ones. Failed writes are not
+retried: after one, Repo rejects further local edits to that document, and
+`flush()` keeps reporting it. **Known contract gap:** the backend contract
+requires stores to one tree to be acknowledged in submission order, so that a
+`change()` never resolves while an earlier edit it depends on has failed. Native
+does not sequence acknowledgements yet, so an edit already in flight can still
+be acknowledged after an earlier one fails; on reload the orphan stays pending
+and the document opens at its last complete state. Malformed records fail
+rather than appearing absent. Each record uses separate `blob/<id>` and `meta/<id>` keys under
 `commits/` or `fragments/`, read together in one transaction; missing halves
 fail loudly. Metadata decoding detects malformed signed bytes; native hydration
 checks blob digests. Storage is not protected against malicious tampering.

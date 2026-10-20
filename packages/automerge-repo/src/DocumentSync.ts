@@ -22,12 +22,11 @@ import { concatBytes } from "./sedimentree/concatBytes.js"
 /**
  * Per-document backend consumer: owns the session, applies its events to the
  * CRDT and verifies readiness markers. Each edit is stored at once, without
- * ordering or batching; the backend owns those, durability and deletion
- * fences. A failed store is not retried: the document stops accepting local
- * edits, and every later flush rejects with that failure.
+ * ordering or batching; the backend owns those, durability, the flush barrier
+ * and deletion fences. A failed store is not retried: the document stops
+ * accepting local edits, and the backend reports the failure on every later flush.
  */
 export class DocumentSync<T> {
-  #storing = new Set<Promise<void>>()
   #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
   #session?: SedimentreeSession
   #consumer: Promise<void> = Promise.resolve()
@@ -116,21 +115,10 @@ export class DocumentSync<T> {
     } catch (error) {
       stored = Promise.reject(error)
     }
-    const work = stored.catch(error => {
+    return stored.catch(error => {
       if (!this.#deleted) this.document.writeFailure ??= { error }
       throw error
     })
-    const settled = work.catch(() => {})
-    this.#storing.add(settled)
-    void settled.then(() => this.#storing.delete(settled))
-    return work
-  }
-
-  /** Wait for stores already in flight, then reject if any write ever failed. */
-  async flush(): Promise<void> {
-    await Promise.all([...this.#storing])
-    const failure = this.document.writeFailure
-    if (failure) throw failure.error
   }
 
   // -- Lifecycle --
@@ -154,7 +142,7 @@ export class DocumentSync<T> {
     })
   }
 
-  /** Stop edits; stores in flight can still be awaited with flush(). */
+  /** Stop edits; stores in flight can still be awaited with the backend's flush. */
   close(): void {
     this.document.close()
   }
@@ -164,11 +152,6 @@ export class DocumentSync<T> {
     this.close()
     this.#deleted = true
     this.document.delete()
-  }
-
-  /** Settles once every store in flight has. */
-  async idle(): Promise<void> {
-    while (this.#storing.size) await Promise.all(this.#storing)
   }
 
   /** Close the session, keeping it for a retry if closing fails. */
@@ -194,7 +177,9 @@ export class DocumentSync<T> {
         if (!input.byteLength) break
         const current = this.document.peekDoc()
         if (!current) {
-          // The initial storage batch can become the document directly.
+          // The initial storage batch can become the document directly. A
+          // crash mid-flush or an interrupted sync can leave a record on disk
+          // without its parents; load the complete prefix and keep the rest pending.
           const next = A.load<T>(input, { allowMissingChanges: true })
           void this.document.applyLoaded(next, this.query.pending)
         } else {

@@ -337,9 +337,10 @@ export class DocHandle<T> {
    * instead of mutating it which will prevent clean merges. This may be what you want, but
    * `doc.foo = { ...doc.foo, bar: "baz" }` is not equivalent to `doc.foo.bar = "baz"`.
    *
-   * Mutation and events are immediate. The returned promise resolves once local
-   * history is recoverable; it does not wait for peers or remote durability.
-   * After a failed save, every later change rejects with that error, unapplied.
+   * Mutation and events are immediate. The returned promise resolves once this
+   * change and every earlier local change are recoverable; it does not wait for
+   * peers or remote durability. If an earlier save fails, this rejects too, and
+   * every later change rejects with that error, unapplied.
    *
    * On sub-handles a non-function `callback` is shorthand for "replace
    * the value at this path" (e.g. `counterSub.change(42)`). Function-typed

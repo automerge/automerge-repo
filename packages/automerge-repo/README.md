@@ -72,11 +72,11 @@ try {
 - `handle.doc()` reads the current document. Listen to `handle.on("change", fn)`
   for updates; scoped handles expose the referenced subtree.
 - `handle.change(fn, options?)` applies edits immediately and returns
-  `Promise<void>` for local persistence. Await it to observe failures; it does not
-  promise remote delivery or durability.
-  `changeAt(heads, fn, options?)` behaves the same, resolving with the new heads.
-  A rejected save does not undo the edit, and is not retried: the document then
-  rejects every later local edit with that error, without applying it.
+  `Promise<void>` for local persistence of this edit and every earlier local
+  edit. Await it to observe failures; it does not promise remote delivery or
+  durability. `changeAt(heads, fn, options?)` behaves the same, resolving with
+  the new heads. A rejected save does not undo the edit, and is not retried: the
+  document then rejects every later local edit with that error, without applying it.
 - `clone(handle)` returns `Promise<DocHandle<T>>`, preserving the source history.
 - `export(id)` serializes document history as an Automerge binary.
 - `delete(id)` returns `Promise<void>` for local deletion, not deletion on peers.
@@ -84,9 +84,11 @@ try {
 - `removeFromCache(id)` drains writes and releases a backend-backed document
   without deleting its history. Without a backend, or after a failed write, it
   rejects, since the handle holds the only copy.
-- `flush(documentIds?)` drains accepted local history and rejects on persistence
-  failures. A failed write is never forgotten: every later `flush()` covering
-  that document rejects with it. It is not a remote synchronization barrier.
+- `flush(documentIds?)` is the backend's persistence barrier: it drains accepted
+  local history across documents, including `create()`/`import()`, and rejects
+  on persistence failures. A failed write is never forgotten: every later
+  `flush()` covering that document rejects with it. For a single edit, awaiting
+  `change()` is equivalent. It is not a remote synchronization barrier.
 - `shutdown()` returns `Promise<void>` for idempotent, best-effort teardown.
   Shutdown logs failures rather than rejecting them; call `flush()` first when
   persistence errors must be observable.

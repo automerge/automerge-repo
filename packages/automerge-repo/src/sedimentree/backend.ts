@@ -112,6 +112,11 @@ export interface SedimentreeBackend {
    * observer consumes it. Schedule propagation according to backend policy even
    * when there is no open session for the ID.
    *
+   * Acknowledge stores to one ID in submission order: resolve only once every
+   * earlier store to that ID has resolved, and reject if any of them rejected.
+   * Saves themselves may run concurrently. An acknowledged record is therefore
+   * never recoverable without the locally submitted history before it.
+   *
    * A batch is NOT a transaction: rejection may leave some records persisted
    * and observed. No rollback is required. Retrying the whole equivalent batch
    * must be safe. Acknowledging a replacement must not lose both old and new data.

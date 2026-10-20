@@ -797,7 +797,7 @@ describe("Repo loading", () => {
     })
 
     it("replaces stale initial targets and keeps a write failure across a rescan", async () => {
-      const { handle, session, scripted, progress, r } = await lookup()
+      const { handle, session, scripted, progress } = await lookup()
       const store = vi
         .spyOn(scripted.backend, "store")
         .mockRejectedValueOnce(new Error("disk full"))
@@ -827,7 +827,11 @@ describe("Repo loading", () => {
         marker: { sequence: 1, heads: heads(handle.fullDoc()) },
       })
       expect(progress.state().state).toBe("ready")
-      await expect(r.flush()).rejects.toThrow("Repo flush failed")
+      await expect(
+        handle.change(d => {
+          d.count = 2
+        })
+      ).rejects.toThrow("disk full")
       expect(store).toHaveBeenCalledOnce()
     })
   })
