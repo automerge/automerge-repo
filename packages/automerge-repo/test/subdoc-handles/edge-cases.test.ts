@@ -1076,7 +1076,7 @@ describe("Edge Cases", () => {
       expect(handle.doc().title).toBe("world")
     })
 
-    it("changeAt ignores a function callback's return value on an object scope", () => {
+    it("changeAt ignores a function callback's return value on an object scope", async () => {
       handle.change(d => {
         d.profile = { name: "ada", age: 36 }
       })
@@ -1087,7 +1087,9 @@ describe("Edge Cases", () => {
 
       // Arrow-expression return must be ignored on changeAt too (in-place),
       // consistent with change() - the object stays an object.
-      handle.sub("profile").changeAt(oldHeads, (d: any) => (d.name = "grace"))
+      await handle
+        .sub("profile")
+        .changeAt(oldHeads, (d: any) => (d.name = "grace"))
 
       const profile = handle.doc().profile
       expect(typeof profile).toBe("object")

@@ -373,14 +373,16 @@ export class DocHandle<T> {
   /**
    * Makes a change as if the document were at `heads`.
    *
-   * @returns A set of heads representing the concurrent change that was made.
-   * Persistence is captured immediately; use `Repo.flush()` to await it.
+   * Mutation and events are immediate, as with {@link DocHandle.change}.
+   *
+   * @returns A promise resolving, once local history is recoverable, to the
+   * heads of the concurrent change that was made.
    */
   changeAt(
     heads: UrlHeads,
     callback: A.ChangeFn<T>,
     options: A.ChangeOptions<T> = {}
-  ): UrlHeads | undefined {
+  ): Promise<UrlHeads | undefined> {
     this.#throwIfFixedHeads("changeAt")
     const decoded = decodeHeads(heads)
     let resultHeads: UrlHeads | undefined
@@ -392,12 +394,13 @@ export class DocHandle<T> {
             this.#applyScopedChange(d as A.Doc<any>, callback as SubChangeFn<T>)
           }) as A.ChangeFn<T>)
 
-    void this.#document.applyMutation(doc => {
-      const result = A.changeAt(doc as A.Doc<T>, decoded, options, inner)
-      resultHeads = result.newHeads ? encodeHeads(result.newHeads) : undefined
-      return result.newDoc
-    })
-    return resultHeads
+    return this.#document
+      .applyMutation(doc => {
+        const result = A.changeAt(doc as A.Doc<T>, decoded, options, inner)
+        resultHeads = result.newHeads ? encodeHeads(result.newHeads) : undefined
+        return result.newDoc
+      })
+      .then(() => resultHeads)
   }
 
   /**

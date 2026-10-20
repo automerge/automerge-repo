@@ -380,7 +380,7 @@ describe("unified DocHandle / Ref", () => {
   })
 
   describe("live vs historical resolution", () => {
-    it("changeAt resolves a pattern path against the historical doc, not the live one", () => {
+    it("changeAt resolves a pattern path against the historical doc, not the live one", async () => {
       handle.change(d => {
         d.items = [
           { id: "a", n: 1 },
@@ -400,7 +400,7 @@ describe("unified DocHandle / Ref", () => {
       // pattern must resolve against that historical doc, not the live one
       // (where index 1 historically held "b").
       const aRef = handle.sub("items", { id: "a" })
-      aRef.changeAt(oldHeads, (item: any) => {
+      await aRef.changeAt(oldHeads, (item: any) => {
         item.n = 99
       })
 

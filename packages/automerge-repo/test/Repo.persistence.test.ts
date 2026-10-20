@@ -133,7 +133,7 @@ describe("Repo persistence", () => {
       await handle.change(d => {
         d.count = 1
       })
-      expect(handle.changeAt(heads, d => (d.count = 2))).toBeDefined()
+      expect(await handle.changeAt(heads, d => (d.count = 2))).toBeDefined()
       await r.flush()
       const other = new DocHandle(
         new Document(
@@ -167,9 +167,28 @@ describe("Repo persistence", () => {
           d.count = 2
         })
       ).rejects.toThrow("disk full")
+      await expect(
+        handle.changeAt(heads, d => {
+          d.count = 3
+        })
+      ).rejects.toThrow("disk full")
       expect(handle.heads()).toEqual(heads)
       expect(handle.doc()).toEqual({ count: 1 })
       expect(store).toHaveBeenCalledOnce()
+    })
+
+    it("rejects changeAt when its own write fails, keeping the edit", async () => {
+      const backend = new MemoryBackend()
+      const r = repo(backend)
+      const handle = await r.create<Doc>({ count: 0 })
+      const heads = handle.heads()
+      vi.spyOn(backend, "store").mockRejectedValueOnce(new Error("disk full"))
+      await expect(
+        handle.changeAt(heads, d => {
+          d.count = 1
+        })
+      ).rejects.toThrow("disk full")
+      expect(handle.doc()).toEqual({ count: 1 })
     })
 
     it("does not batch edits made during a store; a failure blocks only that document", async () => {

@@ -401,7 +401,7 @@ describe("public Repo with native Subduction", () => {
     await handle.merge(fork)
     expect(handle.doc()).toEqual({ count: 1, right: 20 })
     expect(
-      handle.changeAt(oldHeads, doc => {
+      await handle.changeAt(oldHeads, doc => {
         doc.left = 10
       })
     ).toBeDefined()

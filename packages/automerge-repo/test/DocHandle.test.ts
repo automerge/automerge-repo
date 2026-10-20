@@ -353,7 +353,7 @@ describe("DocHandle", () => {
     })
 
     let wasBar = false
-    let newHeads = handle.changeAt(headsBefore, doc => {
+    let newHeads = await handle.changeAt(headsBefore, doc => {
       wasBar = doc.foo === "bar"
       doc.foo = "baz"
     })
@@ -594,7 +594,7 @@ describe("DocHandle", () => {
     })
   })
 
-  it("should continue to function after recovering from an exception in changeAt", () => {
+  it("should continue to function after recovering from an exception in changeAt", async () => {
     const handle = setup()
     handle.change(d => (d.foo = "bar"))
 
@@ -615,7 +615,7 @@ describe("DocHandle", () => {
     assert.equal(err, expectedErr, "should have thrown the error")
 
     // Future changes should still work
-    const newHeads = handle.changeAt(heads, doc => {
+    const newHeads = await handle.changeAt(heads, doc => {
       doc.foo = "baz"
     })
     assert.ok(newHeads, "should have new heads")

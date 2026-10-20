@@ -74,7 +74,7 @@ try {
 - `handle.change(fn, options?)` applies edits immediately and returns
   `Promise<void>` for local persistence. Await it to observe failures; it does not
   promise remote delivery or durability.
-  `changeAt()` returns heads synchronously; use `flush()` to await its persistence.
+  `changeAt(heads, fn, options?)` behaves the same, resolving with the new heads.
   A rejected save does not undo the edit, and is not retried: the document then
   rejects every later local edit with that error, without applying it.
 - `clone(handle)` returns `Promise<DocHandle<T>>`, preserving the source history.
