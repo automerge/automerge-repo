@@ -23,20 +23,20 @@ import { concatBytes } from "./sedimentree/concatBytes.js"
 type WriteJob = {
   records: RecordBatch
   error?: unknown
+  /** Settles when the store carrying this job does. */
+  storing?: Promise<void>
 }
 
 /**
  * Per-document backend consumer: owns the session, applies its events to the
  * CRDT, verifies readiness markers, and keeps exact unsaved write batches so
- * failed stores can be retried. Writes are ordered per document; the backend
- * owns durability, deletion fences and the flush barrier.
+ * failed stores can be retried. Each edit is stored at once, without ordering
+ * or batching; the backend owns those, durability, deletion fences and the
+ * flush barrier.
  */
 export class DocumentSync<T> {
   #unsaved: WriteJob[] = []
-  #tail: Promise<void> = Promise.resolve()
-  #running = false
-  /** A store that has not started yet; edits made meanwhile join it. */
-  #queued?: Promise<void>
+  #storing = new Set<Promise<void>>()
   #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
   #session?: SedimentreeSession
   #consumer: Promise<void> = Promise.resolve()
@@ -116,41 +116,41 @@ export class DocumentSync<T> {
   commit(before: A.Doc<T>, after: A.Doc<T>): Promise<void> {
     const records = extractNewRecords(before, after)
     if (records.length) this.#unsaved.push({ records })
-    if (!this.#unsaved.length) return Promise.resolve()
-    return this.#store()
+    // Earlier failures retry with the next edit.
+    const jobs = this.#unsaved.filter(job => !job.storing)
+    if (!jobs.length) return Promise.resolve()
+    return this.#store(jobs)
   }
 
-  /** One store in flight per document, started at once when idle; edits made
-   * meanwhile join the next one. */
-  #store(): Promise<void> {
-    if (this.#queued) return this.#queued
-    const idle = !this.#running
-    const job = idle ? this.#persist() : this.#tail.then(() => this.#persist())
-    if (!idle) this.#queued = job
-    this.#tail = job.catch(() => {})
-    return job
-  }
-
-  async #persist(): Promise<void> {
-    this.#queued = undefined
-    this.#running = true
+  #store(jobs: WriteJob[]): Promise<void> {
+    if (this.#deleted) return Promise.reject(new Error("Document deleted"))
+    let stored: Promise<void>
     try {
-      if (this.#deleted) throw new Error("Document deleted")
-      const jobs = [...this.#unsaved]
-      if (!jobs.length) return
-      try {
-        await this.backend.store(
-          this.id,
-          jobs.flatMap(job => job.records)
-        )
-      } catch (error) {
-        for (const job of jobs) job.error = error
-        throw error
-      }
-      this.#unsaved = this.#unsaved.filter(job => !jobs.includes(job))
-    } finally {
-      this.#running = false
+      stored = this.backend.store(
+        this.id,
+        jobs.flatMap(job => job.records)
+      )
+    } catch (error) {
+      stored = Promise.reject(error)
     }
+    const work = stored
+      .then(
+        () => {
+          this.#unsaved = this.#unsaved.filter(job => !jobs.includes(job))
+        },
+        error => {
+          for (const job of jobs) job.error = error
+          throw error
+        }
+      )
+      .finally(() => {
+        for (const job of jobs) job.storing = undefined
+      })
+    const settled = work.catch(() => {})
+    for (const job of jobs) job.storing = settled
+    this.#storing.add(settled)
+    void settled.then(() => this.#storing.delete(settled))
+    return work
   }
 
   get hasUnsavedHistory(): boolean {
@@ -161,9 +161,18 @@ export class DocumentSync<T> {
   async flush(): Promise<void> {
     const captured = [...this.#unsaved]
     if (!captured.length) return
-    await this.#tail
-    if (!this.#deleted && captured.some(job => this.#unsaved.includes(job)))
-      await this.#store().catch(() => {})
+    // Wait only for stores carrying captured jobs, not for later edits.
+    const settle = async () => {
+      for (;;) {
+        const pending = captured.flatMap(job => job.storing ?? [])
+        if (!pending.length) return
+        await Promise.all(pending)
+      }
+    }
+    await settle()
+    const retry = captured.filter(job => this.#unsaved.includes(job))
+    if (!this.#deleted && retry.length) await this.#store(retry).catch(() => {})
+    await settle()
     const failures = captured.filter(job => this.#unsaved.includes(job))
     if (failures.length)
       throw new AggregateError(
@@ -213,9 +222,9 @@ export class DocumentSync<T> {
     this.document.delete()
   }
 
-  /** Settles once the store in flight (if any) has. */
-  idle(): Promise<void> {
-    return this.#tail
+  /** Settles once every store in flight has. */
+  async idle(): Promise<void> {
+    while (this.#storing.size) await Promise.all(this.#storing)
   }
 
   /** Close the session, keeping it for a retry if closing fails. */

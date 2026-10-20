@@ -138,7 +138,6 @@ beforeAll(async () => {
         signed.set(record, signedBytes(value))
       } finally {
         await engine.disconnectAll()
-        await bridge.drain()
         engine.free()
         id.free()
       }
@@ -241,7 +240,7 @@ function dispose(value: unknown): void {
     (value as { free(): void }).free()
 }
 
-describe("StorageBridge native transaction ordering", () => {
+describe("StorageBridge native transactions", () => {
   it("ignores earlier storage namespaces without erasing them", async () => {
     const storage = new MemoryStore()
     const key = `subduction-v1/${tree.padEnd(64, "0")}/id`
@@ -299,27 +298,25 @@ describe("StorageBridge native transaction ordering", () => {
     expect(storage.written).toHaveLength(2)
   })
 
-  it("serializes same-head conflicts and exact retries, but allows both kinds", async () => {
+  it("rejects a stored same-key conflict; concurrent exact duplicates converge", async () => {
     const storage = new MemoryStore()
     const bridge = new StorageBridge(storage)
     const outcomes = await Promise.allSettled([
       save(bridge, first),
       save(bridge, first),
-      save(bridge, conflict),
       save(bridge, fragment),
       save(bridge, fragment),
     ])
     expect(outcomes.map(r => r.status)).toEqual([
       "fulfilled",
       "fulfilled",
-      "rejected",
       "fulfilled",
       "fulfilled",
     ])
-    expect(outcomes[2]).toMatchObject({ reason: { code: "conflict" } })
+    await expect(save(bridge, conflict)).rejects.toMatchObject({
+      code: "conflict",
+    })
     expect(await withId(id => bridge.records(id))).toEqual([first, fragment])
-    expect(storage.written).toHaveLength(4)
-    expect(storage.maxActive).toBe(1)
   })
 
   it("owns decoded blobs after the stored bytes change", async () => {
@@ -484,29 +481,7 @@ describe("StorageBridge native transaction ordering", () => {
     ])
   })
 
-  it("keeps batches, reads, and cleanup in acceptance order with freed inputs", async () => {
-    const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage)
-    const gate = pause(
-      storage,
-      (op, key) => op === "saveBatch" && key.includes(cid(1))
-    )
-    const writing = batch(bridge, [first, second, fragment])
-    const snapshot = withId(id => bridge.records(id))
-    const later = save(bridge, third)
-    const cleanup = withId(id => bridge.cleanup(id))
-    const empty = withId(id => bridge.records(id))
-    await gate.entered
-    gate.release()
-    await expect(writing).resolves.toBe(3)
-    await expect(snapshot).resolves.toEqual([first, second, fragment])
-    await Promise.all([later, cleanup])
-    await expect(empty).resolves.toEqual([])
-    expect(storage.maxActive).toBe(1)
-    expect(storage.values.size).toBe(0)
-  })
-
-  it("queues document reads and deletes behind same-document writes", async () => {
+  it("does not sequence same-document reads behind an in-flight write", async () => {
     const storage = new MemoryStore()
     const bridge = new StorageBridge(storage)
     await Promise.all([save(bridge, first), save(bridge, fragment)])
@@ -516,7 +491,6 @@ describe("StorageBridge native transaction ordering", () => {
     )
     const writing = save(bridge, third)
     await gate.entered
-    const calls = storage.calls.length
     const key = N.CommitId.fromHexString(cid(1))
     const operations = withId(id => [
       bridge.records(id),
@@ -526,52 +500,21 @@ describe("StorageBridge native transaction ordering", () => {
       bridge.loadFragment(id, key),
       bridge.listFragmentIds(id),
       bridge.loadAllFragments(id),
-      bridge.deleteCommit(id, key),
-      bridge.deleteFragment(id, key),
-      bridge.deleteAllCommits(id),
-      bridge.deleteAllFragments(id),
-      bridge.cleanup(id),
     ])
     key.free()
-    await Promise.resolve()
-    expect(storage.calls).toHaveLength(calls)
-    gate.release()
-    await writing
+    // Reads complete while the write is still held.
     const values = await Promise.all(operations)
-    expect(values[0]).toEqual([first, third, fragment])
-    for (const index of [2, 3, 5, 6])
-      expect(values[index]).toHaveLength(index < 4 ? 2 : 1)
+    expect(values[0]).toEqual([first, fragment])
+    for (const index of [2, 3, 5, 6]) expect(values[index]).toHaveLength(1)
     expect(values[1]).toBeInstanceOf(N.CommitWithBlob)
     expect(values[4]).toBeInstanceOf(N.FragmentWithBlob)
     values.forEach(dispose)
-    expect(storage.values.size).toBe(0)
-    expect(storage.maxActive).toBe(1)
-  })
-
-  it("keeps ID inventory and index changes in acceptance order", async () => {
-    const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage)
-    const gate = pause(
-      storage,
-      (op, key) => op === "save" && key.startsWith("subduction-v2/ids/")
-    )
-    const marker = withId(id => bridge.saveSedimentreeId(id))
-    await gate.entered
-    const inventory = bridge.loadAllSedimentreeIds()
-    const contains = withId(id => bridge.containsSedimentreeId(id))
-    const deletion = withId(id => bridge.deleteSedimentreeId(id))
-    const empty = bridge.loadAllSedimentreeIds()
+    expect(storage.maxActive).toBeGreaterThan(1)
     gate.release()
-    await marker
-    const ids = await inventory
-    expect(ids).toHaveLength(1)
-    ids.forEach(id => id.free())
-    expect(await contains).toBe(true)
-    await deletion
-    expect(await empty).toEqual([])
+    await writing
   })
 
-  it("overlaps reads of different documents and drains both", async () => {
+  it("overlaps reads of different documents", async () => {
     const storage = new MemoryStore()
     const bridge = new StorageBridge(storage)
     const gate = pause(
@@ -584,17 +527,9 @@ describe("StorageBridge native transaction ordering", () => {
     await gate.entered
     const second = await withId(id => bridge.loadAllCommits(id), other)
     expect(second).toEqual([])
-    let drained = false
-    const draining = bridge.drain().then(() => {
-      drained = true
-    })
-    await Promise.resolve()
-    expect(drained).toBe(false)
     expect(storage.maxActive).toBe(2)
     gate.release()
     expect(await first).toEqual([])
-    await draining
-    expect(drained).toBe(true)
   })
 
   it("writes records atomically without registering the tree itself", async () => {
@@ -681,7 +616,6 @@ describe("StorageBridge native transaction ordering", () => {
     })
     expect(storage.calls).toEqual([])
     await bridge.flush()
-    await bridge.drain()
   })
 
   it("flush captures relevant pending/failed mutations, waits ALL and clears reported failures", async () => {
@@ -696,13 +630,13 @@ describe("StorageBridge native transaction ordering", () => {
     storage.afterSave = () => {
       throw errorA
     }
-    const a = withId(id => bridge.saveSedimentreeId(id)).catch(e => e)
-    const b = withId(id => bridge.deleteSedimentreeId(id), other).catch(e => e)
     const originalRemove = storage.remove.bind(storage)
     storage.remove = async key => {
       await originalRemove(key)
       throw errorB
     }
+    const a = withId(id => bridge.saveSedimentreeId(id)).catch(e => e)
+    const b = withId(id => bridge.deleteSedimentreeId(id), other).catch(e => e)
     const onlyA = bridge.flush([tree])
     const all = bridge.flush()
     let allSettled = false
@@ -723,34 +657,6 @@ describe("StorageBridge native transaction ordering", () => {
     await expect(bridge.flush([tree])).rejects.toMatchObject({
       errors: [errorA],
     })
-    await bridge.flush()
-  })
-
-  it("drain captures reads, settles after failures, and does not wait for later calls", async () => {
-    const storage = new MemoryStore()
-    const bridge = new StorageBridge(storage)
-    const readGate = pause(storage, op => op === "loadPrefix")
-    const error = new Error("read failed")
-    const originalLoadPrefix = storage.loadPrefix.bind(storage)
-    storage.loadPrefix = async prefix => {
-      await originalLoadPrefix(prefix)
-      throw error
-    }
-    const reading = withId(id => bridge.records(id)).catch(e => e)
-    const drained = bridge.drain()
-    await readGate.entered
-    const lateGate = pause(storage, op => op === "save")
-    const later = withId(id => bridge.saveSedimentreeId(id))
-    // No mutation was accepted at the time of this empty filtered barrier.
-    await bridge.flush([])
-    readGate.release()
-    await drained
-    expect(await reading).toBe(error)
-    await lateGate.entered
-    expect(storage.active).toBe(1)
-    lateGate.release()
-    await later
-    // Read failures are not mutation failures.
     await bridge.flush()
   })
 })

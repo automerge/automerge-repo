@@ -240,13 +240,13 @@ describe("real local Subduction", () => {
       bridge: StorageBridge
     }
     const oldRead = vi.spyOn(internals.engine, "loadAndWatch")
-    const originalDrain = internals.bridge.drain.bind(internals.bridge)
+    const originalClose = internals.engine.close.bind(internals.engine)
     const entered = deferred(),
       release = deferred()
-    vi.spyOn(internals.bridge, "drain").mockImplementationOnce(async () => {
+    vi.spyOn(internals.engine, "close").mockImplementationOnce(async () => {
       entered.resolve()
       await release.promise
-      return originalDrain()
+      return originalClose()
     })
     const deletion = backend.deleteLocal(tree)
     await entered.promise
@@ -329,16 +329,18 @@ describe("real local Subduction", () => {
     expect((await iterator.next()).done).toBe(true)
   })
 
-  it("accepts backend-only IDs and rejects concurrent creation without merging or poisoning flush", async () => {
+  it("accepts backend-only IDs and rejects creating an existing ID without merging or poisoning flush", async () => {
     const backend = create()
     const full = sedimentreeId("cd".repeat(32))
     for (const id of [tree, full]) {
       const empty = backend.open(id)
       await initial(empty, id)
       await empty.close()
-      const first = backend.create([record(1)], { documentId: id })
+      // Concurrent creates are not fenced; only an already-stored ID conflicts.
+      await expect(
+        backend.create([record(1)], { documentId: id })
+      ).resolves.toBe(id)
       const second = backend.create([record(2)], { documentId: id })
-      await expect(first).resolves.toBe(id)
       await expect(second).rejects.toMatchObject({
         operation: "create",
         code: "conflict",
@@ -507,15 +509,30 @@ describe("real local Subduction", () => {
     await expect(wait).rejects.toThrow("cancel wait")
     gate.resolve()
     await writing
-    expect((await next(iterator)).type).toBe("records")
-    expect(await next(iterator)).toMatchObject({
-      type: "history-marker",
-      marker: { heads: [cid(1)] },
-    })
-    expect(await next(iterator)).toMatchObject({
-      type: "synchronized",
-      result: { outcome: "no-peers", marker: { heads: [cid(1)] } },
-    })
+    // The round does not wait for the in-flight write; only each kind's
+    // content is fixed, not their relative order.
+    const events = [
+      await next(iterator),
+      await next(iterator),
+      await next(iterator),
+    ]
+    expect(events.map(e => e.type).sort()).toEqual([
+      "history-marker",
+      "records",
+      "synchronized",
+    ])
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "history-marker",
+        marker: expect.objectContaining({ heads: [cid(1)] }),
+      })
+    )
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "synchronized",
+        result: expect.objectContaining({ outcome: "no-peers" }),
+      })
+    )
     const pending = iterator.next()
     await iterator.return!()
     expect((await pending).done).toBe(true)

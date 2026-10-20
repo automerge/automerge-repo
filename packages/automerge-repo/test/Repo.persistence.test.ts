@@ -81,44 +81,36 @@ describe("Repo persistence", () => {
       await write
     })
 
-    it("does not acknowledge an edit made during the second store until a store includes it", async () => {
+    it("stores each edit at once, without waiting for an earlier store", async () => {
       const backend = new MemoryBackend()
-      const second = gate()
+      const blocked = gate()
       const store = backend.store.bind(backend)
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
-      let count = 0
       const spy = vi
         .spyOn(backend, "store")
-        .mockImplementation(async (id, batch) => {
-          if (++count === 2) await second.promise
+        .mockImplementationOnce(async (id, batch) => {
+          await blocked.promise
           return store(id, batch)
         })
-      const first = handle.change(d => {
-        d.count = 1
-      })
-      const queued = handle.change(d => {
-        d.count = 2
-      })
-      await first
-      await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
-      let settled = false
-      const third = handle
+      let firstDone = false
+      const first = handle
         .change(d => {
-          d.count = 3
+          d.count = 1
         })
         .then(() => {
-          settled = true
+          firstDone = true
         })
-      second.resolve()
-      await queued
-      await Promise.resolve()
-      expect(settled).toBe(false)
-      await third
-      expect(spy).toHaveBeenCalledTimes(3)
-      const stored = spy.mock.calls[2][1]
-      expect(stored).toHaveLength(1)
-      expect(await backendDoc(backend, handle)).toEqual({ count: 3 })
+      const second = handle.change(d => {
+        d.count = 2
+      })
+      expect(spy).toHaveBeenCalledTimes(2)
+      expect(spy.mock.calls[1][1]).toHaveLength(1)
+      await second
+      expect(firstDone).toBe(false)
+      blocked.resolve()
+      await first
+      expect(await backendDoc(backend, handle)).toEqual({ count: 2 })
     })
 
     it("writes only the new change and does not resubmit an unchanged document", async () => {
@@ -187,7 +179,7 @@ describe("Repo persistence", () => {
       expect(store).toHaveBeenCalledTimes(2)
     })
 
-    it("coalesces edits made during a store and retries their failed predecessor", async () => {
+    it("does not batch edits made during a store; flush retries a failed one", async () => {
       const backend = new MemoryBackend()
       const blocked = gate()
       const r = repo(backend)
@@ -204,7 +196,6 @@ describe("Repo persistence", () => {
           d.count = 1
         })
       ).rejects.toThrow("disk full")
-      await vi.waitFor(() => expect(store).toHaveBeenCalledOnce())
       const second = handle.change(d => {
         d.count = 2
       })
@@ -214,19 +205,22 @@ describe("Repo persistence", () => {
       await other.change(d => {
         d.count = 4
       })
-      expect(store.mock.calls.map(([id]) => id)).toEqual([
-        treeId(handle),
-        treeId(other),
-      ])
-      blocked.resolve()
-      await first
       await Promise.all([second, third])
       expect(store.mock.calls.map(([id]) => id)).toEqual([
         treeId(handle),
-        treeId(other),
         treeId(handle),
+        treeId(handle),
+        treeId(other),
       ])
-      expect(store.mock.calls[2][1]).toHaveLength(3)
+      expect(store.mock.calls.map(([, batch]) => batch.length)).toEqual([
+        1, 1, 1, 1,
+      ])
+      blocked.resolve()
+      await first
+      await r.flush()
+      expect(store).toHaveBeenCalledTimes(5)
+      expect(store.mock.calls[4][1]).toEqual(store.mock.calls[0][1])
+      expect(await backendDoc(backend, handle)).toEqual({ count: 3 })
     })
 
     it("retries a boundary batch with its original fragment bytes", async () => {
@@ -625,7 +619,7 @@ describe("Repo persistence", () => {
       expect(await backendDoc(backend, handle)).toBeUndefined()
     })
 
-    it("lets the store in flight finish, rejects the queued edit, then deletes", async () => {
+    it("lets the stores in flight finish, then deletes", async () => {
       const backend = new MemoryBackend()
       const blocked = gate()
       const store = backend.store.bind(backend)
@@ -642,20 +636,20 @@ describe("Repo persistence", () => {
         d.count = 1
       })
       expect(spy).toHaveBeenCalledOnce()
-      const queued = handle.change(d => {
+      const second = handle.change(d => {
         d.count = 2
       })
+      expect(spy).toHaveBeenCalledTimes(2)
       const deletion = r.delete(handle.documentId)
       blocked.resolve()
-      await first
-      await expect(queued).rejects.toThrow("deleted")
+      await Promise.all([first, second])
       await deletion
-      expect(spy).toHaveBeenCalledTimes(1)
+      expect(spy).toHaveBeenCalledTimes(2)
       expect(deleted).toHaveBeenCalledOnce()
       expect(await backendDoc(backend, handle)).toBeUndefined()
     })
 
-    it("rejects an edit queued behind a store when the backend observes a deletion", async () => {
+    it("stores nothing more once the backend observes a deletion", async () => {
       const { backend, session } = scriptedBackend()
       const blocked = gate()
       const r = repo(backend)
@@ -667,14 +661,10 @@ describe("Repo persistence", () => {
       const first = handle.change(d => {
         d.count = 1
       })
-      const queued = handle.change(d => {
-        d.count = 2
-      })
       await current.end({ type: "deleted", sequence: 1 })
       expect(handle.isDeleted()).toBe(true)
       blocked.resolve()
       await first
-      await expect(queued).rejects.toThrow("deleted")
       expect(spy).toHaveBeenCalledTimes(1)
       await r.flush()
       expect(spy).toHaveBeenCalledTimes(1)

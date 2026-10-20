@@ -38,8 +38,9 @@ import type { RecordBatch } from "./records.js"
  * - `history-marker`: a position and history heads, ordered after associated record
  *   deliveries. The consumer must process those records and verify history
  *   inclusion using its CRDT; nonempty heads or the first blob are not enough.
- * - `synchronized`: the result of a bounded synchronization round, ordered after
- *   its associated data. Resolving the matching `synchronize()` promise does not
+ * - `synchronized`: the result of a bounded synchronization round. Its marker
+ *   covers history the round ingested; it is not ordered after concurrent
+ *   local stores, and the stream may deliver records after it. Resolving the matching `synchronize()` promise does not
  *   mean the stream has been consumed. Neither `complete` nor `no-peers` proves
  *   global convergence or remote durability; per-peer outcomes retain identity.
  * - `remote-heads`: a peer's advertised history, not proof that we have it or
@@ -158,8 +159,8 @@ export interface SedimentreeSession {
 
   /**
    * Request a bounded round under backend policy, e.g. for an explicit retry.
-   * The result correlates with a `synchronized` event whose marker follows
-   * the associated records. Completion does not imply those records were applied
+   * The result correlates with a `synchronized` event (see its ordering
+   * caveats above). Completion does not imply those records were applied
    * by the consumer, all peers were contacted, or remote durability was obtained.
    * Aborting cancels only this wait, not other sessions or accepted persistence.
    */

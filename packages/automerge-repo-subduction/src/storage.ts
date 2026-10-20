@@ -272,13 +272,10 @@ interface Prepared {
 }
 
 /** Private authoritative signed-metadata/blob bridge; never compacts history.
- * Native networking calls storage independently of the owner's local-work queue.
- * Record transactions are ordered per tree; ID inventory/index work retains its
- * own global queue.
+ * Native may call it concurrently, including for one tree; it does not
+ * sequence calls. Writes rely on idempotent keys and atomic `saveBatch`.
  */
 export class StorageBridge implements N.SedimentreeStorage {
-  private tail: Promise<void> = Promise.resolve()
-  private readonly treeTails = new Map<string, Promise<void>>()
   private readonly attempts = new Set<{
     id: SedimentreeId
     work: Promise<unknown>
@@ -287,41 +284,22 @@ export class StorageBridge implements N.SedimentreeStorage {
 
   constructor(private readonly storage: ByteStore) {}
 
-  private enqueue<T>(run: () => Promise<T>, tree?: string): Promise<T> {
-    const work = (
-      (tree ? this.treeTails.get(tree) : this.tail) ?? Promise.resolve()
-    ).then(run)
-    const tail = work.then(
-      () => {},
-      () => {}
-    )
-    if (tree) {
-      this.treeTails.set(tree, tail)
-      void tail.then(() => {
-        if (this.treeTails.get(tree) === tail) this.treeTails.delete(tree)
-      })
-    } else this.tail = tail
-    return work
-  }
-
-  /** Preparation is synchronous and precedes queue reservation. Only owned JS
-   * snapshots may be captured by the returned transaction, never native inputs.
+  /** Preparation is synchronous, before any await. Only owned JS snapshots
+   * may be captured by the returned transaction, never native inputs.
    * Even preparation failures are accepted, reported and visible to flush.
    */
   private mutate<T>(
     id: N.SedimentreeId,
-    prepare: (tree: string) => () => Promise<T>,
-    index = false // ID index mutations share the inventory queue.
+    prepare: (tree: string) => () => Promise<T>
   ): Promise<T> {
     const sid = logicalId(id)
     const tree = sid.padEnd(64, "0")
-    let run: () => Promise<T>
+    let work: Promise<T>
     try {
-      run = prepare(tree)
+      work = prepare(tree)()
     } catch (cause) {
-      run = () => Promise.reject(cause)
+      work = Promise.reject(cause)
     }
-    const work = this.enqueue(run, index ? undefined : tree)
     const attempt = { id: sid, work, settled: false }
     this.attempts.add(attempt)
     void work.then(
@@ -331,14 +309,6 @@ export class StorageBridge implements N.SedimentreeStorage {
       }
     )
     return work
-  }
-
-  /** Capture all already accepted operations, including reads. Failures still
-   * reject their own operation and remain in the mutation ledger for flush.
-   * The owner must fence late native calls before using this for shutdown.
-   */
-  async drain(): Promise<void> {
-    await Promise.all([this.tail, ...this.treeTails.values()])
   }
 
   /** Capture pending/failed mutations only; later calls belong to a later
@@ -477,36 +447,25 @@ export class StorageBridge implements N.SedimentreeStorage {
     }
   }
 
-  async records(
-    id: N.SedimentreeId,
-    consume?: (records: SedimentreeRecord[]) => void
-  ): Promise<SedimentreeRecord[]> {
-    const tree = treeHex(id)
-    return this.enqueue(async () => {
-      const records = await this.recordsFor(tree)
-      // Install the observation before another transaction can save/notify.
-      consume?.(records)
-      return records
-    }, tree)
+  async records(id: N.SedimentreeId): Promise<SedimentreeRecord[]> {
+    return this.recordsFor(treeHex(id))
   }
 
   /** Stored commits with these IDs (undefined where absent). One paired read
-   * each; never a tree scan. Serialized like other reads. */
-  lookupCommits(
+   * each; never a tree scan. */
+  async lookupCommits(
     id: N.SedimentreeId,
     commits: readonly LooseCommitRecord[]
   ): Promise<(SedimentreeRecord | undefined)[]> {
     const tree = treeHex(id)
     const ids = commits.map(commit => commit.id)
-    return this.enqueue(async () => {
-      const found: (SedimentreeRecord | undefined)[] = []
-      for (const key of ids) {
-        const value = await this.read(tree, { kind: "commit", key })
-        value?.signed.free()
-        found.push(value?.record)
-      }
-      return found
-    }, tree)
+    const found: (SedimentreeRecord | undefined)[] = []
+    for (const key of ids) {
+      const value = await this.read(tree, { kind: "commit", key })
+      value?.signed.free()
+      found.push(value?.record)
+    }
+    return found
   }
 
   private async recordsFor(tree: string): Promise<SedimentreeRecord[]> {
@@ -518,20 +477,16 @@ export class StorageBridge implements N.SedimentreeStorage {
   }
 
   async saveSedimentreeId(id: N.SedimentreeId): Promise<void> {
-    return this.mutate(
-      id,
-      tree => {
-        const value = id.toBytes()
-        return () => this.storage.save(idKey(tree), value)
-      },
-      true
-    )
+    return this.mutate(id, tree => {
+      const value = id.toBytes()
+      return () => this.storage.save(idKey(tree), value)
+    })
   }
   async deleteSedimentreeId(id: N.SedimentreeId): Promise<void> {
-    return this.mutate(id, tree => () => this.storage.remove(idKey(tree)), true)
+    return this.mutate(id, tree => () => this.storage.remove(idKey(tree)))
   }
   async loadAllSedimentreeIds(): Promise<N.SedimentreeId[]> {
-    return this.enqueue(() => this.loadIds())
+    return this.loadIds()
   }
   private async loadIds(): Promise<N.SedimentreeId[]> {
     const ids: N.SedimentreeId[] = []
@@ -546,9 +501,7 @@ export class StorageBridge implements N.SedimentreeStorage {
   }
   async containsSedimentreeId(id: N.SedimentreeId): Promise<boolean> {
     const tree = treeHex(id)
-    return this.enqueue(
-      async () => (await this.storage.load(idKey(tree))) !== undefined
-    )
+    return (await this.storage.load(idKey(tree))) !== undefined
   }
 
   /** No native wrapper or caller-owned buffer survives into asynchronous I/O. */
@@ -642,28 +595,21 @@ export class StorageBridge implements N.SedimentreeStorage {
   ): Promise<N.CommitWithBlob | null> {
     const tree = treeHex(id),
       cid = key.toHexString()
-    return this.enqueue(async () => {
-      const value = await this.read(tree, { kind: "commit", key: cid })
-      // CommitWithBlob consumes signed.
-      return value?.kind === "commit"
-        ? new N.CommitWithBlob(value.signed, value.record.blob)
-        : null
-    }, tree)
+    const value = await this.read(tree, { kind: "commit", key: cid })
+    // CommitWithBlob consumes signed.
+    return value?.kind === "commit"
+      ? new N.CommitWithBlob(value.signed, value.record.blob)
+      : null
   }
   async listCommitIds(id: N.SedimentreeId): Promise<N.CommitId[]> {
     const tree = treeHex(id)
     const p = partPrefix(tree, "commit", "meta")
-    return this.enqueue(
-      async () =>
-        (await this.storage.list(p)).map(key =>
-          N.CommitId.fromHexString(key.slice(p.length))
-        ),
-      tree
+    return (await this.storage.list(p)).map(key =>
+      N.CommitId.fromHexString(key.slice(p.length))
     )
   }
   async loadAllCommits(id: N.SedimentreeId): Promise<N.CommitWithBlob[]> {
-    const tree = treeHex(id)
-    return this.enqueue(() => this.loadCommits(tree), tree)
+    return this.loadCommits(treeHex(id))
   }
   private async loadCommits(tree: string): Promise<N.CommitWithBlob[]> {
     const pairs = this.pairs(
@@ -721,32 +667,25 @@ export class StorageBridge implements N.SedimentreeStorage {
   ): Promise<N.FragmentWithBlob | null> {
     const tree = treeHex(id),
       head = key.toHexString()
-    return this.enqueue(async () => {
-      const value = await this.readFragment(tree, head)
-      // FragmentWithBlob consumes signed too.
-      return value
-        ? new N.FragmentWithBlob(value.signed, value.record.blob)
-        : null
-    }, tree)
+    const value = await this.readFragment(tree, head)
+    // FragmentWithBlob consumes signed too.
+    return value
+      ? new N.FragmentWithBlob(value.signed, value.record.blob)
+      : null
   }
   async listFragmentIds(id: N.SedimentreeId): Promise<N.CommitId[]> {
     const tree = treeHex(id)
     const p = partPrefix(tree, "fragment", "meta")
-    return this.enqueue(
-      async () =>
-        [
-          ...new Set(
-            (await this.storage.list(p)).map(key =>
-              key.slice(p.length, p.length + 64)
-            )
-          ),
-        ].map(head => N.CommitId.fromHexString(head)),
-      tree
-    )
+    return [
+      ...new Set(
+        (await this.storage.list(p)).map(key =>
+          key.slice(p.length, p.length + 64)
+        )
+      ),
+    ].map(head => N.CommitId.fromHexString(head))
   }
   async loadAllFragments(id: N.SedimentreeId): Promise<N.FragmentWithBlob[]> {
-    const tree = treeHex(id)
-    return this.enqueue(() => this.loadFragments(tree), tree)
+    return this.loadFragments(treeHex(id))
   }
   private async loadFragments(tree: string): Promise<N.FragmentWithBlob[]> {
     const pairs = this.pairs(

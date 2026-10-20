@@ -237,13 +237,13 @@ Each `store()`/`create()` submission, and each batch native sync receives, is
 written with one atomic `saveBatch`. Subduction registers tree IDs separately
 under `subduction-v2/ids/<tree>`; records live under
 `subduction-v2/trees/<tree>/`. A registered tree can have no records. A failed
-batch stores none of its records, so a change is never stored without the
-changes it depends on. A save that commits and then rejects is ambiguous:
-native rescans storage and redelivers it to open sessions, and an exact retry
-dedupes. Repo serializes each
-document's writes and retries any unsaved changes together with later edits. A
-write that keeps failing therefore blocks later persistence of that document,
-and `flush()` keeps reporting it. Malformed records fail rather than appearing
+batch stores none of its records. A save that commits and then rejects is
+ambiguous: native rescans storage and redelivers it to open sessions, and an
+exact retry dedupes. Repo neither orders nor batches a document's writes: each
+edit is submitted at once, concurrently with earlier ones, and native does not
+sequence them either. A later edit can therefore be durable while an earlier
+one it depends on failed; Repo retries failed changes with the next edit and
+on `flush()`, which keeps reporting them until stored. Malformed records fail rather than appearing
 absent. Each record uses separate `blob/<id>` and `meta/<id>` keys under
 `commits/` or `fragments/`, read together in one transaction; missing halves
 fail loudly. Metadata decoding detects malformed signed bytes; native hydration
