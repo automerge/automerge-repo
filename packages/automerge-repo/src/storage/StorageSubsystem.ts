@@ -225,7 +225,12 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     // imported after the handle was dropped). Leave them on disk, where the
     // next load merges them in, and track from a fresh snapshot.
     const savedHeads = this.#storedHeads.lastSavedHeads(documentId).value
-    if (savedHeads && !A.hasHeads(doc, savedHeads)) {
+    // getMissingDeps also reports deps of queued changes, so keep only the
+    // stored heads themselves. Unlike hasHeads it does not rebuild changes.
+    if (
+      savedHeads &&
+      A.getMissingDeps(doc, savedHeads).some(h => savedHeads.includes(h))
+    ) {
       this.#chunkGenerations.set(
         documentId,
         (this.#chunkGenerations.get(documentId) ?? 0) + 1
