@@ -15,8 +15,8 @@ describe("SyncStateTracker", () => {
     storageId: "storage-1" as StorageId,
     isEphemeral: false,
   }
-  const fakeHandle = () =>
-    ({ emit: () => true }) as unknown as DocHandle<unknown>
+  const fakeHandle = (isDeleted = () => false) =>
+    ({ emit: () => true, isDeleted }) as unknown as DocHandle<unknown>
   const newDocumentId = () =>
     parseAutomergeUrl(generateAutomergeUrl()).documentId
   const syncWithPeer = (
@@ -100,6 +100,46 @@ describe("SyncStateTracker", () => {
     }
   })
 
+  it("does not save sync state for a document deleted while its save is queued", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      const subsystem = new StorageSubsystem(new DummyStorageAdapter())
+      const release = Promise.withResolvers<void>()
+      const savedDocs: string[] = []
+      vi.spyOn(subsystem, "saveSyncState").mockImplementation(
+        async documentId => {
+          if (savedDocs.length === 0) await release.promise
+          savedDocs.push(documentId)
+        }
+      )
+      const tracker = new SyncStateTracker(subsystem, 10, 1)
+
+      const deleted = new Set<string>()
+      const handleFor = (documentId: string) =>
+        fakeHandle(() => deleted.has(documentId))
+      // The first write holds the only slot, so the second waits behind the
+      // limit and the third waits on its throttle.
+      const [holder, queued, throttled] = Array.from(
+        { length: 3 },
+        newDocumentId
+      )
+      syncWithPeer(tracker, holder, handleFor(holder))
+      syncWithPeer(tracker, queued, handleFor(queued))
+      await vi.advanceTimersByTimeAsync(10)
+      assert.equal(vi.mocked(subsystem.saveSyncState).mock.calls.length, 1)
+      syncWithPeer(tracker, throttled, handleFor(throttled))
+
+      deleted.add(queued)
+      deleted.add(throttled)
+      release.resolve()
+      await vi.advanceTimersByTimeAsync(20)
+
+      assert.deepEqual(savedDocs, [holder])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("logs a failed sync-state save instead of leaking an unhandled rejection", async () => {
     // The throttled sync-state save runs fire-and-forget (its promise is
     // discarded). If the storage write rejects, the rejection must be caught
@@ -117,7 +157,7 @@ describe("SyncStateTracker", () => {
 
       // handleSyncState only touches `handle` to emit "remote-heads" after the
       // save is scheduled, so a minimal stub is enough to exercise the save path.
-      const handle = { emit: () => true } as unknown as DocHandle<unknown>
+      const handle = fakeHandle()
       const message: SyncStatePayload = {
         peerId: "peer-1" as PeerId,
         documentId: parseAutomergeUrl(generateAutomergeUrl()).documentId,

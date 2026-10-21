@@ -179,9 +179,16 @@ export class SyncStateTracker {
       handler = handlers[storageId] = asyncThrottle(
         async ({ documentId, syncState }: SyncStatePayload) => {
           try {
-            await this.#saveSyncStateLimit(() =>
-              this.#storage!.saveSyncState(documentId, storageId, syncState)
-            )
+            await this.#saveSyncStateLimit(async () => {
+              // A save still queued at delete() must not write the sync state
+              // back.
+              if (handle.isDeleted()) return
+              await this.#storage!.saveSyncState(
+                documentId,
+                storageId,
+                syncState
+              )
+            })
           } catch (err) {
             // Fire-and-forget (the result is discarded below): catch and log a
             // failed write instead of letting it surface as an unhandled
