@@ -29,7 +29,6 @@ import {
 import { nativeId, StorageBridge } from "../src/storage.js"
 import {
   applyRecords,
-  extractNewRecords,
   extractRecords,
 } from "@automerge/automerge-repo/sedimentree/automerge"
 import { TestStore, deferred, storedRecords } from "./storage.js"
@@ -126,9 +125,17 @@ describe("local Subduction fragments", () => {
       A.clone(prior),
       changes.slice(boundary, boundary + 2)
     )
+    // The boundary's fragment plus the loose commit after it, in one batch.
+    const added = new Set(
+      A.getChangesSince(after, A.getHeads(prior)).map(
+        blob => A.decodeChange(blob).hash
+      )
+    )
     realBoundary = {
       acknowledged,
-      pending: extractNewRecords(prior, after),
+      pending: extractRecords(after, meta =>
+        added.has(meta.kind === "commit" ? meta.id : meta.head)
+      ),
       prior,
       after,
     }

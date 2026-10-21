@@ -228,6 +228,78 @@ describe("public Repo with native Subduction", () => {
     expect(A.getHeads(reloaded.fullDoc())).toEqual(A.getHeads(fixture))
   }, 60000)
 
+  it("syncs boundary edits stored loose, then their compacted fragments, and reloads from either", async () => {
+    const a = peer(),
+      b = peer()
+    const source = await a.repo.create<State>({ count: 0 })
+    await connect(a, b)
+    const receiver = await b.repo.find<State>(source.url)
+    await ready(receiver, { count: 0 })
+    let boundaries = 0
+    while (boundaries < 2) {
+      await source.change(doc => {
+        doc.count++
+      })
+      if (A.getHeads(source.fullDoc())[0].startsWith("00")) boundaries++
+    }
+    const count = source.doc()!.count
+    // Loose commits sync before any compaction.
+    await ready(receiver, { count })
+    expect(
+      (await a.storage.list("subduction-v2/")).some(key =>
+        key.includes("/fragments/")
+      )
+    ).toBe(false)
+    await Promise.all([a.repo.flush(), b.repo.flush()])
+    for (const p of [a, b])
+      expect(
+        (await p.storage.list("subduction-v2/")).some(key =>
+          key.includes("/fragments/")
+        )
+      ).toBe(true)
+    await wires[0].disconnect()
+    for (const p of [a, b]) {
+      await p.repo.shutdown()
+      const reloaded = await peer(p.storage).repo.find<State>(source.url)
+      expect(reloaded.doc()).toEqual({ count })
+      expect(A.getHeads(reloaded.fullDoc())).toEqual(
+        A.getHeads(source.fullDoc())
+      )
+    }
+  }, 60000)
+
+  it("syncs a boundary left loose by a crash alongside a later compacted fragment", async () => {
+    // A crash before compaction leaves boundary F loose. After reopening,
+    // the next boundary H is compacted into a fragment whose boundary is F.
+    // Native must still send F: it is not part of H's payload.
+    const a = peer()
+    const source = await a.repo.create<State>({ count: 0 })
+    const url = source.url
+    await source.change(doc => {
+      doc.count++
+    })
+    while (!A.getHeads(source.fullDoc())[0].startsWith("00"))
+      await source.change(doc => {
+        doc.count++
+      })
+    // Crash: drop the Repo without flush or shutdown.
+    await a.backend.close()
+    const reopened = peer(a.storage)
+    const again = await reopened.repo.find<State>(url)
+    while (!A.getHeads(again.fullDoc())[0].startsWith("00"))
+      await again.change(doc => {
+        doc.count++
+      })
+    await reopened.repo.flush()
+    const count = again.doc()!.count
+    const b = peer()
+    await connect(reopened, b)
+    const receiver = await b.repo.find<State>(url)
+    await ready(receiver, { count })
+    expect(A.getMissingDeps(receiver.fullDoc())).toEqual([])
+    expect(A.getHeads(receiver.fullDoc())).toEqual(A.getHeads(again.fullDoc()))
+  }, 60000)
+
   it("syncs bidirectional edits and merges genuinely concurrent edits", async () => {
     const a = peer(),
       b = peer()
@@ -477,7 +549,7 @@ describe("public Repo with native Subduction", () => {
     await expect(p.repo.flush()).rejects.toThrow()
   })
 
-  it("reloads acknowledged history after a failed fragmented write", async () => {
+  it("reloads acknowledged history after a failed fragmented merge", async () => {
     const p = peer()
     const handle = await p.repo.create<State>({ count: 0 })
     let fork = A.clone(handle.fullDoc())
@@ -485,7 +557,8 @@ describe("public Repo with native Subduction", () => {
       fork = A.change(fork, { time: 0 }, doc => {
         doc.count = count
       })
-    // Fail the batch at its first fragment, after commits were checked.
+    // The merge stores commits and fragments in one batch; fail it at its
+    // first fragment, after the commits were checked.
     p.storage.beforeSave = async key => {
       if (key.includes("/fragments/")) throw new Error("Disk unavailable")
     }

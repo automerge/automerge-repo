@@ -250,7 +250,8 @@ A different representation of an existing commit ID is rejected, as an opaque
 `io` error (native does not pass the bridge's typed error through). As in native
 Subduction storage, fragments are keyed by head plus payload digest: valid
 same-head variants coexist, and a head lookup returns the one native keeps
-(lowest payload digest). Compaction is not supported.
+(lowest payload digest). Repo stores edits as loose commits and their
+fragments later (deferred compaction); superseded records are never deleted.
 
 Observers must handle duplicate durable deliveries. A session that falls
 behind its replay budget ends with `rescan-required`. `close()` waits for

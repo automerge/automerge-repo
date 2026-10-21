@@ -92,31 +92,64 @@ export function extractRecords(
   }))
 }
 
-/** Extract a local delta without scanning historical fragments on ordinary edits.
- * At a fragment boundary, bundle covering records headed by newly added changes.
- * Automerge may update a previous snapshot's shared fragment cache during merge,
- * so comparing the previous snapshot's metadata after mutation is unreliable.
- * The caller must keep exact returned bytes until persistence succeeds.
+/** Fragment boundary: a commit whose hash starts with a zero byte. */
+export function isBoundary(id: CommitId): boolean {
+  return id.startsWith("00")
+}
+
+/** Extract a local delta as loose commits, without scanning fragments.
+ * Fragments for new boundary commits are bundled later by
+ * {@link extractFragments}. Returned bytes are owned by the caller.
  */
-export function extractNewRecords(
+export function extractNewCommits(
   before: A.Doc<unknown>,
   after: A.Doc<unknown>
-): SedimentreeRecord[] {
-  const changes = A.getChangesSince(after, A.getHeads(before))
-  if (!changes.length) return []
-  const decoded = changes.map(blob => ({ blob, change: A.decodeChange(blob) }))
-  if (decoded.some(({ change }) => change.hash.startsWith("00"))) {
-    const added = new Set(decoded.map(({ change }) => change.hash))
-    return extractRecords(after, meta =>
-      added.has(meta.kind === "commit" ? meta.id : meta.head)
-    )
+): LooseCommitRecord[] {
+  return A.getChangesSince(after, A.getHeads(before)).map(blob => {
+    const change = A.decodeChange(blob)
+    return {
+      kind: "commit" as const,
+      id: commitId(change.hash),
+      parents: canonicalIds(change.deps),
+      blob: new Uint8Array(blob),
+    }
+  })
+}
+
+/**
+ * Bundle the fragments headed by these boundary commits, one
+ * `getFragmentMeta` lookup per head rather than a full metadata scan. Heads
+ * with no fragment of their own (absorbed into a higher one, or unknown to
+ * `doc`) are returned as `absent`. Bundles carry their full member history.
+ */
+export function extractFragments(
+  doc: A.Doc<unknown>,
+  heads: Iterable<CommitId>
+): { records: FragmentRecord[]; absent: CommitId[] } {
+  const found: {
+    native: A.FragmentMeta
+    metadata: Omit<FragmentRecord, "blob">
+  }[] = []
+  const absent: CommitId[] = []
+  for (const head of heads) {
+    const native = A.getFragmentMeta(doc, head)
+    const metadata = native ? project(native) : undefined
+    if (native && metadata?.kind === "fragment")
+      found.push({ native, metadata })
+    else absent.push(head)
   }
-  return decoded.map(({ blob, change }) => ({
-    kind: "commit" as const,
-    id: commitId(change.hash),
-    parents: canonicalIds(change.deps),
-    blob: new Uint8Array(blob),
-  }))
+  if (!found.length) return { records: [], absent }
+  const blobs = A.bundleFragmentMetadata(
+    doc,
+    found.map(({ native }) => native)
+  )
+  return {
+    records: found.map(({ metadata }, index) => ({
+      ...metadata,
+      blob: new Uint8Array(blobs[index]),
+    })),
+    absent,
+  }
 }
 
 /**

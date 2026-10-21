@@ -87,11 +87,26 @@ try {
 - `flush(documentIds?)` is the backend's persistence barrier: it drains accepted
   local history across documents, including `create()`/`import()`, and rejects
   on persistence failures. A failed write is never forgotten: every later
-  `flush()` covering that document rejects with it. For a single edit, awaiting
-  `change()` is equivalent. It is not a remote synchronization barrier.
+  `flush()` covering that document rejects with it. It also compacts any due
+  fragments first (see below). It is not a remote synchronization barrier.
 - `shutdown()` returns `Promise<void>` for idempotent, best-effort teardown.
-  Shutdown logs failures rather than rejecting them; call `flush()` first when
-  persistence errors must be observable.
+  It compacts due fragments, then logs failures rather than rejecting them;
+  call `flush()` first when persistence errors must be observable.
+
+### Deferred compaction
+
+Edits are stored as loose commits, so `change()` never waits on fragment work.
+A commit whose hash starts with a zero byte heads a fragment; once a document
+has one with no fragment stored yet, a per-document timer (10 s plus up to 2 s
+of jitter, so documents due together spread out) waits for an idle moment, then
+bundles every due fragment in one store. `flush()`, `removeFromCache()` and
+`shutdown()` compact at once. A failed compaction fails like any other write.
+Boundaries received from peers are compacted too. `create()`, `import()` and
+`merge()` store their fragments with their commits, since they can bring many
+boundaries at once. Due boundaries are learned only while a
+document is open; boundaries already in storage without a fragment (for example
+after a crash before compaction) are not detected and stay loose.
+Nothing is lost either way: loose commits hold the full history.
 
 ## Loading Observation
 

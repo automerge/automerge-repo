@@ -315,11 +315,10 @@ describe("backend-driven Repo", () => {
     expect(await r.import(A.save(fork), { docId: handle.documentId })).toBe(
       handle
     )
-    expect(
-      store.mock.calls.some(([, batch]) =>
-        batch.some(record => record.kind === "fragment")
-      )
-    ).toBe(true)
+    // A merge stores its commits and their fragments in one batch.
+    expect(store).toHaveBeenCalledOnce()
+    const kinds = new Set(store.mock.calls[0][1].map(record => record.kind))
+    expect(kinds).toEqual(new Set(["commit", "fragment"]))
     const heads = A.getHeads(handle.fullDoc())
     const historyLength = A.getAllChanges(handle.fullDoc()).length
     await r.removeFromCache(handle.documentId)

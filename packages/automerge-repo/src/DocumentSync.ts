@@ -4,9 +4,13 @@ import type { RootQuery } from "./DocumentQuery.js"
 import { decode } from "./helpers/cbor.js"
 import type { PeerId, StorageId } from "./types.js"
 import {
+  checkpointForCommit,
   recordHead,
   type BackendIdentity,
+  type CommitId,
+  type FragmentRecord,
   type HistoryMarker,
+  type RecordBatch,
   type SedimentreeBackend,
   type SedimentreeEvent,
   type SedimentreeId,
@@ -14,23 +18,66 @@ import {
 } from "./sedimentree/index.js"
 import {
   applyRecords,
-  extractNewRecords,
+  extractFragments,
+  extractNewCommits,
+  isBoundary,
   satisfiesMarker,
 } from "./sedimentree/automerge/index.js"
 import { concatBytes } from "./sedimentree/concatBytes.js"
+
+/** Compaction delay after a document first has a boundary due, plus jitter so
+ * documents that become due together do not compact together. */
+const COMPACTION_DELAY_MS = 10_000
+const COMPACTION_JITTER_MS = 2_000
+/** Longest a busy page can defer a due compaction once its timer has fired. */
+const COMPACTION_IDLE_TIMEOUT_MS = 10_000
+
+type IdleGlobal = {
+  requestIdleCallback?: (
+    callback: () => void,
+    options?: { timeout: number }
+  ) => number
+  cancelIdleCallback?: (handle: number) => void
+}
+
+/** Run when the event loop is idle; returns a cancel function. */
+function whenIdle(run: () => void): () => void {
+  const idle = globalThis as IdleGlobal
+  if (typeof idle.requestIdleCallback === "function") {
+    const handle = idle.requestIdleCallback(run, {
+      timeout: COMPACTION_IDLE_TIMEOUT_MS,
+    })
+    return () => idle.cancelIdleCallback?.(handle)
+  }
+  const timer = setTimeout(run, 0)
+  ;(timer as { unref?: () => void }).unref?.()
+  return () => clearTimeout(timer)
+}
 
 /**
  * Per-document backend consumer: owns the session, applies its events to the
  * CRDT and verifies readiness markers. Each edit is stored at once, without
  * ordering or batching; the backend owns those, durability, the flush barrier
  * and deletion fences. A failed store is not retried: the document stops
- * accepting local edits, and the backend reports the failure on every later flush.
+ * accepting local edits, and Repo reports the failure on every later flush.
+ *
+ * Edits are stored as loose commits. Boundary commits (which head a fragment)
+ * are compacted later: once one is due, a jittered timer per document waits for
+ * an idle moment, then the fragments are bundled and stored like any write.
+ * Flush compacts at once. Due boundaries are learned from local edits and live
+ * records only; history loaded from storage is not inspected.
  */
 export class DocumentSync<T> {
   #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
   #session?: SedimentreeSession
   #consumer: Promise<void> = Promise.resolve()
   #deleted = false
+  /** Boundary commits in the document with no covering fragment seen yet. */
+  #due = new Set<CommitId>()
+  #timer?: ReturnType<typeof setTimeout>
+  #cancelIdle?: () => void
+  #compacting: Promise<void> = Promise.resolve()
+  #running = false
 
   constructor(
     readonly id: SedimentreeId,
@@ -40,7 +87,8 @@ export class DocumentSync<T> {
     private origin: BackendIdentity,
     created = false
   ) {
-    document.commit = (before, after) => this.commit(before, after)
+    document.commit = (before, after, options) =>
+      this.commit(before, after, options)
     document.publishEphemeral = payload =>
       this.publishEphemeral(payload).catch(error =>
         this.#log("ephemeral publication failed: %o", error)
@@ -103,15 +151,40 @@ export class DocumentSync<T> {
 
   // -- Writes --
 
-  commit(before: A.Doc<T>, after: A.Doc<T>): Promise<void> {
+  /** Store new changes as loose commits. Boundaries among them are compacted
+   * later, or with `compact` (merges and imports) bundled into this batch. */
+  commit(
+    before: A.Doc<T>,
+    after: A.Doc<T>,
+    options: { compact?: boolean } = {}
+  ): Promise<void> {
     const failure = this.document.writeFailure
     if (failure) return Promise.reject(failure.error)
     if (this.#deleted) return Promise.reject(new Error("Document deleted"))
-    const records = extractNewRecords(before, after)
-    if (!records.length) return Promise.resolve()
+    // The document has already adopted `after`: a failure to prepare its
+    // records is a failed write, so it fail-stops like one.
+    return this.#store(() => {
+      const commits = extractNewCommits(before, after)
+      if (!commits.length) return []
+      const boundaries = commits.flatMap(c => (isBoundary(c.id) ? [c.id] : []))
+      if (!options.compact) {
+        for (const head of boundaries) this.#markDue(head)
+        return commits
+      }
+      // Local changes are all in `after`, so an absent head was absorbed into
+      // a higher fragment in the same batch.
+      return [...commits, ...extractFragments(after, boundaries).records]
+    })
+  }
+
+  /** Prepare and submit one batch; any failure fail-stops the document. */
+  #store(prepare: () => RecordBatch): Promise<void> {
     let stored: Promise<void>
     try {
-      stored = this.backend.store(this.id, records)
+      const records = prepare()
+      stored = records.length
+        ? this.backend.store(this.id, records)
+        : Promise.resolve()
     } catch (error) {
       stored = Promise.reject(error)
     }
@@ -119,6 +192,89 @@ export class DocumentSync<T> {
       if (!this.#deleted) this.document.writeFailure ??= { error }
       throw error
     })
+  }
+
+  // -- Compaction --
+
+  /** Bundle and store fragments for every due boundary now, after any run in
+   * progress. When none is running, the store is submitted synchronously, so
+   * a backend barrier taken right after includes it. Runs after close too, so
+   * flush and shutdown can compact. */
+  compactNow(): Promise<void> {
+    this.#cancelScheduled()
+    const run = this.#running
+      ? this.#compacting.then(() => this.#compact())
+      : this.#compact()
+    this.#running = true
+    const settled = run.catch(() => {})
+    this.#compacting = settled
+    void settled.then(() => {
+      if (this.#compacting === settled) this.#running = false
+    })
+    return run
+  }
+
+  async #compact(): Promise<void> {
+    if (!this.#due.size || this.#stopped) return
+    const doc = this.document.peekDoc()
+    if (!doc) return
+    let fragments: FragmentRecord[] = []
+    await this.#store(() => {
+      const { records, absent } = extractFragments(doc, this.#due)
+      // Absorbed into a higher fragment, unless the head is still pending.
+      for (const head of absent)
+        if (A.hasHeads(doc, [head])) this.#due.delete(head)
+      fragments = records
+      return records
+    })
+    for (const record of fragments) this.#due.delete(record.head)
+  }
+
+  /** Deleted (through Repo or a handle) or fail-stopped: no more stores. */
+  get #stopped(): boolean {
+    return (
+      this.#deleted || this.document.deleted || !!this.document.writeFailure
+    )
+  }
+
+  #markDue(head: CommitId): void {
+    this.#due.add(head)
+    this.#schedule()
+  }
+
+  /** Throttle per document: the first due boundary starts the timer. */
+  #schedule(): void {
+    if (this.#timer || this.#cancelIdle || !this.#due.size) return
+    if (this.#stopped || this.document.closed) return
+    const delay = COMPACTION_DELAY_MS + Math.random() * COMPACTION_JITTER_MS
+    this.#timer = setTimeout(() => {
+      this.#timer = undefined
+      this.#cancelIdle = whenIdle(() => {
+        this.#cancelIdle = undefined
+        // Heads left due are pending dependencies; later records re-arm.
+        this.compactNow().catch(error =>
+          this.#log("compaction failed: %o", error)
+        )
+      })
+    }, delay)
+    // Never keep a Node process alive just to compact.
+    ;(this.#timer as { unref?: () => void }).unref?.()
+  }
+
+  #cancelScheduled(): void {
+    if (this.#timer) clearTimeout(this.#timer)
+    this.#timer = undefined
+    this.#cancelIdle?.()
+    this.#cancelIdle = undefined
+  }
+
+  /** A fragment in storage covers its head and its checkpoint commits. */
+  #covered(fragment: FragmentRecord): void {
+    this.#due.delete(fragment.head)
+    if (!fragment.checkpoints.length || !this.#due.size) return
+    const checkpoints = new Set<string>(fragment.checkpoints)
+    for (const head of this.#due)
+      if (checkpoints.has(checkpointForCommit(head))) this.#due.delete(head)
   }
 
   // -- Lifecycle --
@@ -144,6 +300,7 @@ export class DocumentSync<T> {
 
   /** Stop edits; stores in flight can still be awaited with the backend's flush. */
   close(): void {
+    this.#cancelScheduled()
     this.document.close()
   }
 
@@ -151,11 +308,14 @@ export class DocumentSync<T> {
   markDeleted(): void {
     this.close()
     this.#deleted = true
+    this.#due.clear()
     this.document.delete()
   }
 
-  /** Close the session, keeping it for a retry if closing fails. */
+  /** Close the session, keeping it for a retry if closing fails. Interest
+   * has ended, so nothing further is compacted. */
   async release(): Promise<void> {
+    this.#cancelScheduled()
     const session = this.#session
     if (!session) return
     this.#session = undefined
@@ -207,7 +367,17 @@ export class DocumentSync<T> {
             incoming: true,
             initial: this.query.pending,
           })
+          // Only commits new to the document can become due.
+          for (const record of unknown)
+            if (record.kind === "commit" && isBoundary(record.id))
+              this.#due.add(record.id)
         }
+        // Every stored fragment, including echoes of our own and those in
+        // this same batch, covers its head and checkpoints.
+        for (const record of event.records)
+          if (record.kind === "fragment") this.#covered(record)
+        // New records may also complete a due head's pending dependencies.
+        if (unknown.length) this.#schedule()
         this.#checkTargets()
         break
       }

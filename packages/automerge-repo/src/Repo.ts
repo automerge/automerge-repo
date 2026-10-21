@@ -142,8 +142,9 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#checkDeleting(id)
     const existing = this.#entries.get(id)
     if (existing?.query.state().state === "ready") {
-      await existing.document.applyMutation(current =>
-        A.merge(current, A.clone(doc))
+      await existing.document.applyMutation(
+        current => A.merge(current, A.clone(doc)),
+        { compact: true }
       )
       this.#checkOpen()
       return existing.handle
@@ -157,7 +158,9 @@ export class Repo extends EventEmitter<RepoEvents> {
       const handle = await this.find<T>(id)
       await this.#entries
         .get(id)!
-        .document.applyMutation(current => A.merge(current, A.clone(doc)))
+        .document.applyMutation(current => A.merge(current, A.clone(doc)), {
+          compact: true,
+        })
       this.#checkOpen()
       return handle
     }
@@ -328,6 +331,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   /**
    * The backend's persistence barrier: drain accepted local history and reject
    * after it settles whenever a targeted document has ever failed to store.
+   * Due compactions run first, so their fragments are inside the barrier.
    * The backend reports failures of the stores it drained; each document keeps
    * its own first failure. Failed writes are not retried. Does not wait for
    * in-progress deletions or for network delivery.
@@ -342,11 +346,15 @@ export class Repo extends EventEmitter<RepoEvents> {
         : [...this.#entries.values()]
       return this.#track(
         (async () => {
-          const [result] = await Promise.allSettled([
-            backend.flush(documents?.map(id => this.#backendId(id))),
-          ])
+          // Compactions submit their stores synchronously, so the barrier
+          // captured next covers them; a queued rerun is awaited directly.
+          const compactions = targets.map(entry => entry.sync?.compactNow())
+          const barrier = backend.flush(
+            documents?.map(id => this.#backendId(id))
+          )
+          const results = await Promise.allSettled([...compactions, barrier])
           const errors = new Set(
-            collectErrors([result]).flatMap(error =>
+            collectErrors(results).flatMap(error =>
               error instanceof AggregateError ? error.errors : [error]
             )
           )
@@ -398,6 +406,11 @@ export class Repo extends EventEmitter<RepoEvents> {
         entry.query.fail(new Error("Repo is shut down"))
       const results = await Promise.allSettled(operations)
       if (backend) {
+        results.push(
+          ...(await Promise.allSettled(
+            entries.map(entry => entry.sync?.compactNow())
+          ))
+        )
         results.push(...(await Promise.allSettled([backend.flush()])))
         results.push(...(await Promise.allSettled([backend.close()])))
         await Promise.allSettled(entries.map(entry => entry.sync?.settled()))

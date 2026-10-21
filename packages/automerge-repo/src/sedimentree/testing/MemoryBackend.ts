@@ -47,9 +47,11 @@ interface Tree {
 /**
  * Deterministic test double, not Repo's default or a production store.
  *
- * Stores exact representations, without compaction or network simulation. Same
- * logical key/different representation rejects; this deliberately does not model
- * Subduction's variant tiebreaking or prove generic history equivalence.
+ * Stores exact representations, without compaction or network simulation. A
+ * different representation of a stored commit rejects. Like Subduction, valid
+ * same-head fragment variants coexist (Automerge's fragments depend on arrival
+ * order, so two Repos compacting one tree can produce different ones); this
+ * does not prove generic history equivalence.
  * Persistence is synchronous and process-local unless `beforeStore` holds a
  * store open. Stores to one ID are acknowledged in submission order, through the
  * same self-clearing acknowledgement chain the Subduction backend uses; flush
@@ -197,7 +199,16 @@ export class MemoryBackend implements SedimentreeBackend {
           throw new TypeError("Record exceeds maxRecordBytes")
         }
         const record = copyRecord(input)
-        const key = recordKey(record)
+        // Fragments: one key per representation (like native's digest keys),
+        // so same-head variants coexist. Commits: one representation per ID.
+        let key = recordKey(record)
+        if (record.kind === "fragment") {
+          for (let variant = 0; ; variant++) {
+            key = `${recordKey(record)}#${variant}`
+            const held = staged.get(key) ?? existing?.records.get(key)
+            if (!held || equalRecords(held, record)) break
+          }
+        }
         const previous = staged.get(key) ?? existing?.records.get(key)
         if (previous) {
           if (!equalRecords(previous, record)) {

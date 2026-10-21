@@ -16,7 +16,7 @@ import type { BinaryDocumentId, PeerId } from "../src/types.js"
 import { MemoryBackend } from "../src/sedimentree/testing/MemoryBackend.js"
 import { BackendError, commitId, recordKey } from "../src/sedimentree/index.js"
 import {
-  extractNewRecords,
+  extractNewCommits,
   extractRecords,
 } from "../src/sedimentree/automerge/index.js"
 import { noPeers, scriptedBackend } from "./helpers/scriptedBackend.js"
@@ -545,7 +545,7 @@ describe("Repo loading", () => {
       })
       await session.push({
         type: "records",
-        records: extractNewRecords(initial, remote),
+        records: extractNewCommits(initial, remote),
         phase: "initial",
         sequence: 1,
       })

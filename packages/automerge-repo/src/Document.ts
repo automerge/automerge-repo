@@ -33,8 +33,13 @@ export class Document<T = unknown> {
 
   #syncInfo = new Map<StorageId, SyncInfo>()
 
-  /** Capture local history synchronously, before reentrant listeners run. */
-  commit?: (before: A.Doc<any>, after: A.Doc<any>) => Promise<void>
+  /** Capture local history synchronously, before reentrant listeners run.
+   * `compact` stores the fragments of new boundary commits in the same batch. */
+  commit?: (
+    before: A.Doc<any>,
+    after: A.Doc<any>,
+    options?: { compact?: boolean }
+  ) => Promise<void>
   /** Best-effort outbound ephemeral publication; unset without a backend. */
   publishEphemeral?: (payload: Uint8Array) => Promise<void>
   #events: (() => void)[] = []
@@ -128,7 +133,7 @@ export class Document<T = unknown> {
    */
   applyMutation(
     mutator: (doc: A.Doc<any>) => A.Doc<any>,
-    options: { incoming?: boolean; initial?: boolean } = {}
+    options: { incoming?: boolean; initial?: boolean; compact?: boolean } = {}
   ): Promise<void> {
     if (this.deleted) throw new Error("Document is deleted")
     if (this.closed) throw new Error("Document is closed")
@@ -151,7 +156,7 @@ export class Document<T = unknown> {
   #adopt(
     before: A.Doc<T> | undefined,
     after: A.Doc<T>,
-    options: { incoming?: boolean; initial?: boolean }
+    options: { incoming?: boolean; initial?: boolean; compact?: boolean }
   ): Promise<void> {
     // Always adopt the new snapshot even when heads are unchanged -
     // `A.change` can hand back a fresh snapshot whose `before` is now
@@ -162,7 +167,8 @@ export class Document<T = unknown> {
     const stored =
       options.incoming || !before
         ? Promise.resolve()
-        : (this.commit?.(before, after) ?? Promise.resolve())
+        : (this.commit?.(before, after, { compact: options.compact }) ??
+          Promise.resolve())
     void stored.catch(() => {})
     if (arrayEqual(beforeHeads, afterHeads)) return stored
     const initial =

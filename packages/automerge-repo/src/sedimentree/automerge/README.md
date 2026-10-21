@@ -14,7 +14,9 @@ point to compiled `dist`; tests exercise `src`.
 getRecordMetadata(doc: Doc<unknown>): RecordMetadata[]
 recordMetadataKey(metadata: RecordMetadata): string
 extractRecords(doc: Doc<unknown>, select?: RecordPredicate): SedimentreeRecord[]
-extractNewRecords(before: Doc<unknown>, after: Doc<unknown>): SedimentreeRecord[]
+extractNewCommits(before: Doc<unknown>, after: Doc<unknown>): LooseCommitRecord[]
+extractFragments(doc: Doc<unknown>, heads: Iterable<CommitId>): { records: FragmentRecord[]; absent: CommitId[] }
+isBoundary(id: CommitId): boolean
 applyRecords<T>(doc: Doc<T>, records: RecordBatch): Doc<T>
 satisfiesMarker(doc: Doc<unknown>, heads: readonly CommitId[]): boolean
 ```
@@ -33,11 +35,15 @@ remains in its members. Regression tests cover metadata and bundled APIs.
 No fragments are decoded or serialized to make the selection. Metadata passed to
 the predicate is frozen; output bytes belong to the caller.
 
-`extractNewRecords` calls `getChangesSince(after, getHeads(before))` for ordinary
-edits, without enumerating historical fragment metadata. At a boundary, it
-bundles covering records headed by newly added changes. It does not compare
-historical fragment metadata: Automerge may update a previous snapshot's shared
-fragment cache during merge. Deletion/compaction is not performed.
+`extractNewCommits` returns every change added since `before` as a loose commit,
+via `getChangesSince(after, getHeads(before))`, boundaries included; it never
+enumerates fragment metadata. `isBoundary` identifies commits that head a
+fragment (hash starting with a zero byte). `extractFragments` bundles the
+fragments headed by given boundary commits with one `getFragmentMeta` lookup per
+head, not a full metadata scan; heads with no fragment of their own (absorbed
+into a higher fragment, or unknown to the document) are returned as `absent`.
+Repo uses these to store edits loose and compact boundaries later. Deletion of
+superseded records is not performed.
 
 `recordMetadataKey` includes the complete canonical metadata, not just a head.
 It is **not** a blob fingerprint, representation equality, or coverage proof.

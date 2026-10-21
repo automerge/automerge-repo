@@ -15,8 +15,9 @@ import {
 } from "../../src/sedimentree/index.js"
 import {
   applyRecords,
+  extractFragments,
   extractRecords,
-  extractNewRecords,
+  extractNewCommits,
   getRecordMetadata,
   recordMetadataKey,
   satisfiesMarker,
@@ -107,14 +108,14 @@ describe("metadata-first extraction", () => {
     }
   })
 
-  it("extracts ordinary changes directly without re-bundling history", () => {
+  it("extracts ordinary changes as loose commits without re-bundling history", () => {
     expect(commits[1].id.startsWith("00")).toBe(false)
     const [before] = A.applyChanges(empty("abcdef"), [changes[0]])
     const [after] = A.applyChanges(A.clone(before), [changes[1]])
     const changesSince = vi.spyOn(A, "getChangesSince")
     const metadata = vi.spyOn(A, "getFragmentMetadata")
     const bundle = vi.spyOn(A, "bundleFragmentMetadata")
-    const delta = extractNewRecords(before, after)
+    const delta = extractNewCommits(before, after)
     expect(changesSince).toHaveBeenCalledWith(after, A.getHeads(before))
     expect(metadata).not.toHaveBeenCalled()
     expect(bundle).not.toHaveBeenCalled()
@@ -123,46 +124,49 @@ describe("metadata-first extraction", () => {
       A.getChanges(before, after)
     )
     expect(applyRecords(A.clone(before), delta)).toEqual(after)
-    expect(extractNewRecords(after, after)).toEqual([])
+    expect(extractNewCommits(after, after)).toEqual([])
   })
 
-  it("writes new fragment representations at boundaries", () => {
+  it("extracts boundary changes as loose commits too, without scanning fragments", () => {
     const boundary = commits.findIndex(commit => commit.id.startsWith("00"))
     expect(boundary).toBeGreaterThan(0)
-    const [prior] = A.applyChanges(empty("abcdef"), changes.slice(0, boundary))
-    const [after] = A.applyChanges(A.clone(prior), [changes[boundary]])
-    const delta = extractNewRecords(prior, after)
-    expect(delta.some(record => record.kind === "fragment")).toBe(true)
-    expect(delta.some(record => record.kind === "commit")).toBe(false)
-    expect(applyRecords(A.clone(prior), delta)).toEqual(after)
-    // Previously persisted history and the boundary delta suffice after restart.
-    expect(applyRecords(empty(), [...extractRecords(prior), ...delta])).toEqual(
-      after
-    )
-  })
-
-  it("writes a boundary and subsequent loose changes from one update", () => {
-    const boundary = commits.findIndex(commit => commit.id.startsWith("00"))
-    expect(boundary).toBeGreaterThan(0)
-    expect(
-      commits
-        .slice(boundary + 1, boundary + 3)
-        .every(commit => !commit.id.startsWith("00"))
-    ).toBe(true)
     const [prior] = A.applyChanges(empty("abcdef"), changes.slice(0, boundary))
     const [after] = A.applyChanges(
       A.clone(prior),
       changes.slice(boundary, boundary + 3)
     )
-    const delta = extractNewRecords(prior, after)
-    expect(delta.map(record => record.kind)).toEqual([
-      "fragment",
-      "commit",
-      "commit",
-    ])
-    expect(applyRecords(empty(), [...extractRecords(prior), ...delta])).toEqual(
-      after
+    const metadata = vi.spyOn(A, "getFragmentMetadata")
+    const delta = extractNewCommits(prior, after)
+    expect(metadata).not.toHaveBeenCalled()
+    expect(delta.map(record => record.id)).toEqual(
+      commits.slice(boundary, boundary + 3).map(commit => commit.id)
     )
+    expect(applyRecords(A.clone(prior), delta)).toEqual(after)
+  })
+
+  it("bundles fragments by head with one lookup each, reporting heads without one", () => {
+    const boundary = commits.findIndex(commit => commit.id.startsWith("00"))
+    const [after] = A.applyChanges(
+      empty("abcdef"),
+      changes.slice(0, boundary + 1)
+    )
+    const head = commits[boundary].id
+    const loose = commits[boundary - 1].id
+    const scan = vi.spyOn(A, "getFragmentMetadata")
+    const lookup = vi.spyOn(A, "getFragmentMeta")
+    const { records: fragments, absent } = extractFragments(after, [
+      head,
+      loose,
+    ])
+    expect(scan).not.toHaveBeenCalled()
+    expect(lookup).toHaveBeenCalledTimes(2)
+    expect(fragments.map(record => record.head)).toEqual([head])
+    expect(absent).toEqual([loose])
+    // Bundled with the commits stored earlier, the fragment rebuilds the doc.
+    expect(
+      applyRecords(empty(), [...commits.slice(0, boundary + 1), ...fragments])
+    ).toEqual(after)
+    expect(applyRecords(empty(), fragments)).toEqual(after)
   })
 
   it("covers 2000 deterministic changes with fragments and loose commits", () => {

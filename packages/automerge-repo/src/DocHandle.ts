@@ -431,8 +431,10 @@ export class DocHandle<T> {
     otherHandle: DocHandle<T>
   ) {
     this.#throwIfFixedHeads("merge")
-    return this.#document.applyMutation(doc =>
-      A.merge(doc, otherHandle.fullDoc())
+    // A merge can bring many boundaries at once; store their fragments with it.
+    return this.#document.applyMutation(
+      doc => A.merge(doc, otherHandle.fullDoc()),
+      { compact: true }
     )
   }
 

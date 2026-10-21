@@ -143,23 +143,19 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     ).toEqual([commit(5), fragment(5)])
   })
 
-  // Exact conflict rejection is this test double's policy, not a backend-wide
-  // requirement. These tests deliberately make no batch rollback assertions.
-  it.each(["blob", "parents", "boundary", "checkpoints"])(
-    "rejects a conflicting %s representation rather than overwriting the stored copy",
+  // Exact conflict rejection for commits is this test double's policy, not a
+  // backend-wide requirement. These tests deliberately make no batch rollback
+  // assertions.
+  it.each(["blob", "parents"])(
+    "rejects a conflicting commit %s rather than overwriting the stored copy",
     async field => {
       const backend = create()
-      const original =
-        field === "blob" || field === "parents" ? commit(5) : fragment(5)
+      const original = commit(5)
       await backend.store(treeId(), [original])
       const conflict =
         field === "blob"
           ? { ...original, blob: new Uint8Array([99]) }
-          : field === "parents"
-            ? { ...commit(5), parents: [cid(2)] }
-            : field === "boundary"
-              ? { ...fragment(5), boundary: [cid(2)] }
-              : { ...fragment(5), checkpoints: [] }
+          : { ...original, parents: [cid(2)] }
       await expect(backend.store(treeId(), [conflict])).rejects.toMatchObject({
         operation: "store",
         code: "conflict",
@@ -169,6 +165,28 @@ describe("MemoryBackend exact-representation / no-network model", () => {
         (await initial(backend.open(treeId()).events[Symbol.asyncIterator]()))
           .records
       ).toEqual([original])
+    }
+  )
+
+  // Like Subduction: Automerge can form different fragments for one head.
+  it.each(["blob", "boundary", "checkpoints"])(
+    "keeps a same-head fragment variant differing in %s alongside the original",
+    async field => {
+      const backend = create()
+      const original = fragment(5)
+      await backend.store(treeId(), [original])
+      const variant =
+        field === "blob"
+          ? { ...original, blob: new Uint8Array([99]) }
+          : field === "boundary"
+            ? { ...original, boundary: [cid(2)] }
+            : { ...original, checkpoints: [] }
+      await backend.store(treeId(), [variant])
+      await backend.store(treeId(), [variant])
+      expect(
+        (await initial(backend.open(treeId()).events[Symbol.asyncIterator]()))
+          .records
+      ).toEqual([original, variant])
     }
   )
 
