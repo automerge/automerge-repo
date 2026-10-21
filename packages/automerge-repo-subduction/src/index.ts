@@ -54,16 +54,6 @@ export type NativeSigner = N.Signer
 /** Authenticate outside the backend; addConnection borrows this wrapper. */
 export type AuthenticatedTransport = N.AuthenticatedTransport
 
-interface EngineGeneration {
-  /** Accepts new work. */
-  active: boolean
-  /** Storage revoked; set once accepted work has settled. */
-  sealed: boolean
-  stopping?: Promise<void>
-  work: Set<Promise<unknown>>
-  interests: Set<SedimentreeId>
-}
-
 export interface SubductionBackendOptions {
   signer: NativeSigner
   storage: ByteStore
@@ -78,6 +68,10 @@ function error(
   cause: unknown,
   terminal = false
 ): BackendError {
+  if (cause instanceof Error && cause.name === "SubductionClosedError")
+    return new BackendError(operation, "closed", cause.message, false, {
+      cause,
+    })
   if (cause instanceof BackendError)
     return new BackendError(
       operation,
@@ -150,8 +144,7 @@ export class SubductionBackend implements SedimentreeBackend {
     Omit<SubductionBackendOptions, "signer" | "storage">
   >
   private readonly bridge: StorageBridge
-  private engine: N.Subduction
-  private generation!: EngineGeneration
+  private readonly engine: N.Subduction
   private closed = false
   private closing?: Promise<void>
   private sequence = 0
@@ -162,6 +155,8 @@ export class SubductionBackend implements SedimentreeBackend {
   private readonly recovering = new Set<SedimentreeId>()
   /** Sessions whose consumer verified a complete snapshot (markComplete). */
   private readonly completed = new Set<Watch<SedimentreeEvent>>()
+  /** Ephemeral topics last requested from native. */
+  private readonly interests = new Set<SedimentreeId>()
   /**
    * Interim stand-in for native per-tree ordering and flush: the latest store's
    * acknowledgement per document. Each store resolves only after earlier ones
@@ -196,42 +191,14 @@ export class SubductionBackend implements SedimentreeBackend {
     this.engine = this.createEngine()
   }
   private createEngine(): N.Subduction {
-    const generation: EngineGeneration = {
-      active: true,
-      sealed: false,
-      work: new Set(),
-      interests: new Set(),
-    }
-    this.generation = generation
-    // Native listener tasks can outlive disconnectAll/free. Each engine gets a
-    // revocable view; old tasks must never enter a new storage generation.
-    const storage = new Proxy(this.bridge, {
-      get(target, key) {
-        const value = Reflect.get(target, key)
-        if (typeof value !== "function") return value
-        return (...args: unknown[]) => {
-          if (generation.sealed)
-            return Promise.reject(
-              new Error("Retired Subduction storage generation")
-            )
-          return Reflect.apply(value, target, args)
-        }
-      },
-    })
     // opts.signer is a JS Signer reference, NOT a consumed WASM pointer.
     return new N.Subduction({
       signer: this.signer,
-      storage,
+      storage: this.bridge,
       defaultTimeoutMilliseconds: this.limits.syncTimeoutMilliseconds,
       onEphemeral: (topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) => {
         try {
-          if (
-            !generation.active ||
-            generation.stopping ||
-            this.closed ||
-            peer.toString() === this.self
-          )
-            return
+          if (this.closed || peer.toString() === this.self) return
           const key = topicKey(topic.toBytes())
           const tree = sedimentreeId(
             key.endsWith("0".repeat(32)) ? key.slice(0, 32) : key
@@ -269,7 +236,7 @@ export class SubductionBackend implements SedimentreeBackend {
         heads: N.CommitId[]
       ) => {
         try {
-          if (!generation.active || generation.stopping || this.closed) return
+          if (this.closed) return
           const tree = logicalId(id)
           if (this.deleting.has(tree)) return
           const event: SedimentreeEvent = {
@@ -291,40 +258,6 @@ export class SubductionBackend implements SedimentreeBackend {
   private peerIdentity(peer: N.PeerId): BackendIdentity {
     return { kind: "subduction", id: peer.toString(), path: [] }
   }
-  private checkNetwork(
-    generation: EngineGeneration,
-    id?: SedimentreeId,
-    operation: BackendOperation = "synchronize"
-  ): void {
-    this.check(operation, id)
-    if (!generation.active || generation.stopping)
-      throw new BackendError(
-        operation,
-        "io",
-        "Connection generation ended; reconnect explicitly",
-        true
-      )
-  }
-  private stopNetwork(): Promise<void> {
-    return (this.generation.stopping ??= this.engine.disconnectAll())
-  }
-  private async retireEngine(): Promise<void> {
-    const generation = this.generation
-    generation.active = false
-    const stopped = await Promise.allSettled([
-      this.stopNetwork(),
-      ...generation.work,
-    ])
-    generation.sealed = true
-    // Ends this engine's stored streams; their sessions restart on the next.
-    await this.engine.close()
-    // Stream handlers may still hold engine calls; free only once they settle.
-    while (generation.work.size) await Promise.allSettled([...generation.work])
-    this.engine.free()
-    // Failed syncs are reported to their callers/streams, not as close errors.
-    if (stopped[0].status === "rejected") throw stopped[0].reason
-  }
-
   /** Borrow the authenticated wrapper until this promise settles. On success,
    * the engine owns a connection clone and disconnects it on close.
    * Keep the underlying JS transport alive until disconnection. Authentication
@@ -334,63 +267,36 @@ export class SubductionBackend implements SedimentreeBackend {
    * requests for any stored tree, so stored-but-unopened documents are not
    * replayed here (matching Repo's historical connect behaviour).
    */
-  addConnection(transport: AuthenticatedTransport): Promise<boolean> {
+  async addConnection(transport: AuthenticatedTransport): Promise<boolean> {
+    this.check("synchronize")
     try {
-      const generation = this.generation
-      const engine = this.engine
-      this.checkNetwork(generation)
-      return this.nativeWork(generation, async () => {
-        const added = await engine.addConnection(transport)
-        if (this.closed || !generation.active || generation.stopping) {
-          await engine.disconnectAll()
-          throw new BackendError(
-            "synchronize",
-            this.closed ? "closed" : "io",
-            "Connection was superseded",
-            !this.closed
-          )
-        }
-        return added
-      }).catch(cause => {
-        throw error("synchronize", cause)
-      })
+      return await this.engine.addConnection(transport)
     } catch (cause) {
-      return Promise.reject(cause)
+      throw error("synchronize", cause)
     }
   }
-  private nativeWork<T>(
-    generation: EngineGeneration,
-    run: () => Promise<T>
-  ): Promise<T> {
-    const work = run()
-    generation.work.add(work)
-    void work.finally(() => generation.work.delete(work)).catch(() => {})
-    return work
-  }
   private reconcileInterest(id: SedimentreeId): void {
-    const generation = this.generation
-    const engine = this.engine
-    if (!generation.active || generation.stopping || this.closed) return
+    if (this.closed) return
     const desired =
       !this.deleting.has(id) &&
       [...this.watches].some(([watch, tree]) => tree === id && watch.active)
-    if (desired === generation.interests.has(id)) return
+    if (desired === this.interests.has(id)) return
     // Native may update its local interest before a control send fails.
     // Record the attempted state so a released observer still cleans up.
-    if (desired) generation.interests.add(id)
-    else generation.interests.delete(id)
-    void this.nativeWork(generation, async () => {
+    if (desired) this.interests.add(id)
+    else this.interests.delete(id)
+    void (async () => {
       const native = nativeId(id)
       const topic = N.Topic.fromBytes(native.toBytes())
       native.free()
       try {
-        if (desired) await engine.subscribeEphemeral([topic])
-        else await engine.unsubscribeEphemeral([topic])
+        if (desired) await this.engine.subscribeEphemeral([topic])
+        else await this.engine.unsubscribeEphemeral([topic])
       } finally {
         topic.free()
       }
-    }).catch(cause => {
-      if (!generation.active || this.closed) return
+    })().catch(cause => {
+      if (this.closed) return
       for (const [watch, tree] of this.watches)
         if (tree === id && watch.active)
           watch.push(
@@ -404,32 +310,11 @@ export class SubductionBackend implements SedimentreeBackend {
           )
     })
   }
-  private network<T>(
-    id: SedimentreeId,
-    run: (engine: N.Subduction, generation: EngineGeneration) => Promise<T>
-  ): Promise<T> {
-    const generation = this.generation
-    const engine = this.engine
-    try {
-      this.checkNetwork(generation, id)
-    } catch (cause) {
-      return Promise.reject(cause)
-    }
-    return this.nativeWork(generation, () => run(engine, generation))
-  }
   /** Propagate a store without an open session; one round per store. */
-  private scheduleSync(id: SedimentreeId, generation: EngineGeneration): void {
-    if (
-      this.closed ||
-      this.deleting.has(id) ||
-      generation !== this.generation ||
-      generation.stopping
-    )
-      return
-    void this.network(id, (engine, generation) =>
-      this.syncRound(id, engine, generation)
-    ).catch(cause => {
-      if (!this.closed && generation.active && !this.deleting.has(id))
+  private scheduleSync(id: SedimentreeId): void {
+    if (this.closed || this.deleting.has(id)) return
+    void this.syncRound(id).catch(cause => {
+      if (!this.closed && !this.deleting.has(id))
         for (const [watch, tree] of this.watches)
           if (tree === id)
             watch.push({
@@ -441,11 +326,10 @@ export class SubductionBackend implements SedimentreeBackend {
   }
   private async syncRound(
     id: SedimentreeId,
-    engine: N.Subduction,
-    generation: EngineGeneration,
     recipient?: Watch<SedimentreeEvent>
   ): Promise<SyncRoundResult> {
     this.check("synchronize", id)
+    const engine = this.engine
     const roundId = `subduction-${++this.round}`
     const native = nativeId(id)
     let peers: N.PeerId[] = []
@@ -506,7 +390,7 @@ export class SubductionBackend implements SedimentreeBackend {
           })
         }
       }
-      this.checkNetwork(generation, id)
+      this.check("synchronize", id)
       let result!: SyncRoundResult
       const publish = (marker: HistoryMarker) => {
         result = {
@@ -527,7 +411,7 @@ export class SubductionBackend implements SedimentreeBackend {
                 64 + result.marker.heads.length * 32 + outcomes.length * 128
               )
       }
-      publish(await this.headsMarker(engine, native))
+      publish(await this.headsMarker(native))
       return result
     } finally {
       peers.forEach(peer => peer.free())
@@ -543,22 +427,18 @@ export class SubductionBackend implements SedimentreeBackend {
   /** Stream items follow native's cache update, so native heads include them. */
   private async liveMarker(
     watch: Watch<SedimentreeEvent>,
-    engine: N.Subduction,
     native: N.SedimentreeId
   ): Promise<void> {
     // Markers only establish readiness; completed sessions no longer need them.
     if (this.completed.has(watch)) return
-    const target = await this.headsMarker(engine, native)
+    const target = await this.headsMarker(native)
     watch.push(
       { type: "history-marker", marker: target },
       32 + target.heads.length * 32
     )
   }
-  private async headsMarker(
-    engine: N.Subduction,
-    native: N.SedimentreeId
-  ): Promise<HistoryMarker> {
-    const heads = (await engine.getHeads(native)) ?? []
+  private async headsMarker(native: N.SedimentreeId): Promise<HistoryMarker> {
+    const heads = (await this.engine.getHeads(native)) ?? []
     try {
       return {
         sequence: ++this.sequence,
@@ -593,19 +473,14 @@ export class SubductionBackend implements SedimentreeBackend {
     // Keep sync and peer events that arrive while a first load waits on peers.
     watch.bufferBeforeInitialize()
     this.watches.set(watch, id)
-    // Each engine owns one stream that keeps syncing across connections.
+    // One native stream per session keeps syncing across connections.
     const observe = async (): Promise<void> => {
       this.check("open", id)
       if (released) return
-      const { engine, generation } = this
       const native = nativeId(id)
-      const updates = engine.loadAndWatch(native)
+      const updates = this.engine.loadAndWatch(native)
       stream = updates
-      // Engine calls from this loop must settle before retirement frees it.
-      const marker = () =>
-        this.nativeWork(generation, () =>
-          this.liveMarker(watch, engine, native)
-        )
+      const marker = () => this.liveMarker(watch, native)
       // Only storage scans are batched; peer and local updates flow live.
       let snapshot: Uint8Array[] | undefined = []
       const deliver = async (noPeers = false) => {
@@ -659,9 +534,7 @@ export class SubductionBackend implements SedimentreeBackend {
           } else if (update.type === "storageChecked") {
             if (!snapshot) continue
             if (!initialized && !snapshot.length) {
-              const peers = await this.nativeWork(generation, () =>
-                engine.getConnectedPeerIds()
-              )
+              const peers = await this.engine.getConnectedPeerIds()
               try {
                 await deliver(!peers.length)
               } finally {
@@ -674,7 +547,6 @@ export class SubductionBackend implements SedimentreeBackend {
         }
       } catch (cause) {
         if (released || this.closed) return
-        if (!generation.active) return observe()
         if (initialized && !this.recovering.has(id)) {
           this.recovering.add(id)
           resuming = true
@@ -686,7 +558,6 @@ export class SubductionBackend implements SedimentreeBackend {
         updates.close()
         native.free()
       }
-      if (!released && !this.closed && !generation.active) return observe()
     }
     void observe().catch(cause =>
       watch.finish({
@@ -704,9 +575,7 @@ export class SubductionBackend implements SedimentreeBackend {
       synchronize: (options = {}) => {
         try {
           sessionCheck("synchronize")
-          const work = this.network(id, (engine, generation) =>
-            this.syncRound(id, engine, generation, watch)
-          )
+          const work = this.syncRound(id, watch)
           void work.catch(cause =>
             watch.push({
               type: "failure",
@@ -733,15 +602,11 @@ export class SubductionBackend implements SedimentreeBackend {
             { cause }
           )
         }
-        const generation = this.generation
-        const engine = this.engine
         const messageId = message.messageId
-        this.checkNetwork(generation, id, "ephemeral")
-        await this.nativeWork(generation, async () => {
-          const peers = await engine.getConnectedPeerIds()
+        try {
+          const peers = await this.engine.getConnectedPeerIds()
           try {
             sessionCheck("ephemeral")
-            this.checkNetwork(generation, id, "ephemeral")
             if (!peers.length) return
             const native = nativeId(id)
             const topic = N.Topic.fromBytes(native.toBytes())
@@ -751,16 +616,16 @@ export class SubductionBackend implements SedimentreeBackend {
                 this.seenEphemerals,
                 `${topicKey(topic.toBytes())}:${messageId}`
               )
-              await engine.publishEphemeral(topic, bytes)
+              await this.engine.publishEphemeral(topic, bytes)
             } finally {
               topic.free()
             }
           } finally {
             peers.forEach(peer => peer.free())
           }
-        }).catch(cause => {
+        } catch (cause) {
           throw error("ephemeral", cause)
-        })
+        }
       },
       markComplete: () => {
         if (!released) this.completed.add(watch)
@@ -819,10 +684,8 @@ export class SubductionBackend implements SedimentreeBackend {
         )
       }
       const operation = creating ? "create" : "store"
-      const run = async (
-        engine: N.Subduction,
-        generation: EngineGeneration
-      ) => {
+      const engine = this.engine
+      const write = (async () => {
         const native = nativeId(id)
         let submitted = false
         try {
@@ -870,15 +733,10 @@ export class SubductionBackend implements SedimentreeBackend {
           // without a document session. A failed write may still have made
           // some records durable; they must propagate too, and a retry of the
           // whole batch dedupes them.
-          if (submitted) this.scheduleSync(id, generation)
+          if (submitted) this.scheduleSync(id)
           native.free()
         }
-      }
-      const generation = this.generation
-      // Register with the engine at once so its retirement waits for this store.
-      const write = this.nativeWork(generation, () =>
-        run(this.engine, generation)
-      ).catch(cause => {
+      })().catch(cause => {
         throw error(operation, cause)
       })
       // Saves run concurrently; acknowledgement follows submission order.
@@ -933,9 +791,8 @@ export class SubductionBackend implements SedimentreeBackend {
         if (tree === id) watch.finish({ type: "deleted", sequence })
       // Local stores accepted earlier land first. Native owns removal and
       // should fence ingested writes and peer sync for this tree.
-      const generation = this.generation
       const earlier = this.acks.get(id)
-      const work = this.nativeWork(generation, async () => {
+      const work = (async () => {
         await Promise.allSettled([earlier])
         const native = nativeId(id)
         try {
@@ -944,7 +801,7 @@ export class SubductionBackend implements SedimentreeBackend {
           native.free()
         }
         if (this.acks.get(id) === earlier) this.acks.delete(id)
-      })
+      })()
         .catch(cause => {
           throw error("delete", cause)
         })
@@ -962,21 +819,24 @@ export class SubductionBackend implements SedimentreeBackend {
     this.closed = true
     this.recovering.clear()
     this.seenEphemerals.clear()
-    this.closing = Promise.resolve().then(async () => {
-      // Retirement waits for accepted stores and deletions before freeing.
-      const outcomes = await Promise.allSettled([this.retireEngine()])
-      const errors = outcomes.flatMap(r =>
+    // Disconnect at once so stalled peer waits end. Native close would cancel
+    // accepted local stores, so let those and deletions settle first; their
+    // failures belong to flush, not close. Native close drains its own tasks.
+    const accepted = [...this.acks.values(), ...this.deleting.values()]
+    const disconnected = this.engine.disconnectAll()
+    this.closing = (async () => {
+      const stopped = await Promise.allSettled([disconnected, ...accepted])
+      const closed = await Promise.allSettled([this.engine.close()])
+      this.engine.free()
+      const errors = [stopped[0], closed[0]].flatMap(r =>
         r.status === "rejected" ? [r.reason] : []
       )
       if (errors.length)
         throw new AggregateError(errors, "Backend close failed")
-    })
+    })()
     // Install the close guard before observers or transports can re-enter.
     notifyBackendClosed(this)
     for (const watch of this.watches.keys()) watch.finish()
-    // Cancel stalled peer waits immediately, but leave storage enabled until
-    // already accepted local operations have finished. Then seal and drain.
-    void this.stopNetwork().catch(() => {})
     return this.closing
   }
 }

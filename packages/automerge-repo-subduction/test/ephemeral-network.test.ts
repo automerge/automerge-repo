@@ -389,7 +389,7 @@ describe("real native ephemerals", () => {
     )
   })
 
-  it("drops malformed, inactive, and retired callbacks synchronously and frees wrappers", async () => {
+  it("drops malformed, inactive, and post-close callbacks synchronously and frees wrappers", async () => {
     const a = peer(),
       b = peer()
     const observed = await observe(b)
@@ -477,65 +477,6 @@ describe("real native ephemerals", () => {
       () => expect(ephemerals(observed.events)).toHaveLength(1),
       wait
     )
-  })
-
-  it("retirement waits for started publications before freeing their topic and engine", async () => {
-    const a = peer(),
-      b = peer()
-    const left = await observe(a)
-    await observe(b)
-    await connect(a, b)
-    const native = engine(a)
-    const entered = deferred(),
-      release = deferred()
-    releases.push(release.resolve)
-    let freeTopic: ReturnType<typeof vi.spyOn> | undefined
-    vi.spyOn(native, "publishEphemeral").mockImplementation(async topic => {
-      freeTopic = vi.spyOn(topic, "free")
-      entered.resolve()
-      await release.promise
-    })
-    const freeEngine = vi.spyOn(native, "free")
-    const publishing = left.session.publishEphemeral(message())
-    await entered.promise
-    const closing = a.backend.close()
-    await new Promise(resolve => setTimeout(resolve, 20))
-    expect(freeTopic).not.toHaveBeenCalled()
-    expect(freeEngine).not.toHaveBeenCalled()
-    release.resolve()
-    await Promise.all([publishing, closing])
-    expect(freeTopic).toHaveBeenCalledOnce()
-    expect(freeEngine).toHaveBeenCalledOnce()
-  })
-
-  it("retirement waits for started onboarding outside the persistence queue", async () => {
-    const a = peer(),
-      b = peer()
-    await observe(a)
-    await observe(b)
-    const native = engine(a)
-    const entered = deferred(),
-      release = deferred()
-    releases.push(release.resolve)
-    vi.spyOn(native, "addConnection").mockImplementation(async () => {
-      entered.resolve()
-      await release.promise
-      return true
-    })
-    const freeEngine = vi.spyOn(native, "free")
-    const connecting = connect(a, b)
-    void connecting.catch(() => {})
-    await entered.promise
-    const closing = a.backend.close()
-    await new Promise(resolve => setTimeout(resolve, 20))
-    expect(freeEngine).not.toHaveBeenCalled()
-    release.resolve()
-    await expect(connecting).rejects.toMatchObject({
-      operation: "synchronize",
-      code: "closed",
-    })
-    await closing
-    expect(freeEngine).toHaveBeenCalledOnce()
   })
 
   it("drops oversized buffered ephemerals but releases interests on durable overflow", async () => {

@@ -254,8 +254,10 @@ same-head variants coexist, and a head lookup returns the one native keeps
 fragments later (deferred compaction); superseded records are never deleted.
 
 Observers must handle duplicate durable deliveries. A session that falls
-behind its replay budget ends with `rescan-required`. `close()` waits for
-accepted native work, local and ingested, before freeing the engine.
+behind its replay budget ends with `rescan-required`. `close()` disconnects
+peers at once, waits for accepted local stores and deletions, then closes the
+native engine (which cancels remaining calls and drains its own tasks,
+including ingested writes) and frees it.
 
 Storage is accessed only through Subduction: the bridge implements native's
 storage callbacks and nothing else, and the backend keeps no record of write
@@ -266,7 +268,8 @@ an interim, self-clearing acknowledgement chain per document over its own
 stores: saves run concurrently, but each `store()` resolves only after earlier
 stores to that document (and rejects if any of them failed). `flush()` waits for
 the stores accepted before the call and reports their failures; `deleteLocal`
-waits for them before removing the tree. No failure is retained: Repo keeps each
+waits for them before removing the tree, and `close()` before closing the
+engine. No failure is retained: Repo keeps each
 document's first failure and reports it from `repo.flush()`.
 
 ### Known gaps
