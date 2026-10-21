@@ -142,7 +142,6 @@ export class SubductionBackend implements SedimentreeBackend {
   private readonly limits: Required<
     Omit<SubductionBackendOptions, "signer" | "storage">
   >
-  private readonly bridge: StorageBridge
   private readonly engine: N.Subduction
   private closed = false
   private closing?: Promise<void>
@@ -165,10 +164,8 @@ export class SubductionBackend implements SedimentreeBackend {
    * flush barrier.
    */
   private readonly acks = new Map<SedimentreeId, Promise<void>>()
-  private readonly signer: NativeSigner
 
   constructor(options: SubductionBackendOptions) {
-    this.signer = options.signer
     this.limits = {
       syncTimeoutMilliseconds: options.syncTimeoutMilliseconds ?? 5000,
       replayEvents: options.replayEvents ?? 128,
@@ -179,66 +176,68 @@ export class SubductionBackend implements SedimentreeBackend {
         throw new TypeError("Limits must be positive safe integers")
     if (this.limits.syncTimeoutMilliseconds > 0xffffffff)
       throw new TypeError("Sync timeout exceeds native u32 range")
-    this.bridge = new StorageBridge(options.storage)
-    this.engine = this.createEngine()
-  }
-  private createEngine(): N.Subduction {
-    // opts.signer is a JS Signer reference, NOT a consumed WASM pointer.
-    return new N.Subduction({
-      signer: this.signer,
-      storage: this.bridge,
+    // signer is a JS Signer reference, NOT a consumed WASM pointer.
+    this.engine = new N.Subduction({
+      signer: options.signer,
+      storage: new StorageBridge(options.storage),
       defaultTimeoutMilliseconds: this.limits.syncTimeoutMilliseconds,
-      onEphemeral: (topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) => {
-        try {
-          if (this.closed) return
-          const key = topicKey(topic.toBytes())
-          const tree = sedimentreeId(
-            key.endsWith("0".repeat(32)) ? key.slice(0, 32) : key
-          )
-          if (this.deleting.has(tree)) return
-          const watches = [...this.watches].filter(
-            ([watch, id]) => id === tree && watch.active
-          )
-          if (!watches.length) return
-          const message = decodeEphemeral(bytes)
-          if (!message) return
-          const event: SedimentreeEvent = {
-            type: "ephemeral",
-            sequence: ++this.sequence,
-            message,
-            sender: this.peerIdentity(peer),
-          }
-          for (const [watch] of watches)
-            watch.push(event, bytes.byteLength, true)
-        } finally {
-          peer.free()
-          topic.free()
-        }
-      },
+      onEphemeral: (topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) =>
+        this.onEphemeral(topic, peer, bytes),
       onRemoteHeads: (
         id: N.SedimentreeId,
         peer: N.PeerId,
         heads: N.CommitId[]
-      ) => {
-        try {
-          if (this.closed) return
-          const tree = logicalId(id)
-          if (this.deleting.has(tree)) return
-          const event: SedimentreeEvent = {
-            type: "remote-heads",
-            sequence: ++this.sequence,
-            remote: this.peerIdentity(peer),
-            heads: heads.map(h => commitId(h.toHexString())),
-          }
-          for (const [watch, watched] of this.watches)
-            if (watched === tree) watch.push(event, 96 + heads.length * 32)
-        } finally {
-          heads.forEach(h => h.free())
-          peer.free()
-          id.free()
-        }
-      },
+      ) => this.onRemoteHeads(id, peer, heads),
     })
+  }
+  private onEphemeral(topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) {
+    try {
+      if (this.closed) return
+      const key = topicKey(topic.toBytes())
+      const tree = sedimentreeId(
+        key.endsWith("0".repeat(32)) ? key.slice(0, 32) : key
+      )
+      if (this.deleting.has(tree)) return
+      const watches = [...this.watches].filter(
+        ([watch, id]) => id === tree && watch.active
+      )
+      if (!watches.length) return
+      const message = decodeEphemeral(bytes)
+      if (!message) return
+      const event: SedimentreeEvent = {
+        type: "ephemeral",
+        sequence: ++this.sequence,
+        message,
+        sender: this.peerIdentity(peer),
+      }
+      for (const [watch] of watches) watch.push(event, bytes.byteLength, true)
+    } finally {
+      peer.free()
+      topic.free()
+    }
+  }
+  private onRemoteHeads(
+    id: N.SedimentreeId,
+    peer: N.PeerId,
+    heads: N.CommitId[]
+  ) {
+    try {
+      if (this.closed) return
+      const tree = logicalId(id)
+      if (this.deleting.has(tree)) return
+      const event: SedimentreeEvent = {
+        type: "remote-heads",
+        sequence: ++this.sequence,
+        remote: this.peerIdentity(peer),
+        heads: heads.map(h => commitId(h.toHexString())),
+      }
+      for (const [watch, watched] of this.watches)
+        if (watched === tree) watch.push(event, 96 + heads.length * 32)
+    } finally {
+      heads.forEach(h => h.free())
+      peer.free()
+      id.free()
+    }
   }
   private peerIdentity(peer: N.PeerId): BackendIdentity {
     return { kind: "subduction", id: peer.toString(), path: [] }

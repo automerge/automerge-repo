@@ -245,10 +245,8 @@ describe("local Subduction fragments", () => {
       const loaded = await initial(reopened)
       expect(loaded.records).toHaveLength(2)
       expect(loaded.records).toEqual(expect.arrayContaining(ordered))
-      const { engine, bridge } = reopened as unknown as {
-        engine: N.Subduction
-        bridge: StorageBridge
-      }
+      const { engine } = reopened as unknown as { engine: N.Subduction }
+      const bridge = new StorageBridge(storage)
       const native = nativeId(tree)
       const head = N.CommitId.fromHexString(ordered[0].head)
       try {
@@ -301,7 +299,7 @@ describe("local Subduction fragments", () => {
     const backend = create()
     const variants = sameHeadVariants()
     await backend.store(tree, [...variants, loose(1)])
-    const { bridge } = backend as unknown as { bridge: StorageBridge }
+    const bridge = new StorageBridge(storage)
     const native = nativeId(tree)
     const head = N.CommitId.fromHexString(variants[0].head)
     try {
