@@ -1,11 +1,6 @@
 import { Encoder } from "cbor-x"
 import { describe, expect, it } from "vitest"
-import {
-  decodeEphemeral,
-  encodeEphemeral,
-  rememberEphemeral,
-  topicKey,
-} from "../src/ephemeral.js"
+import { decodeEphemeral, encodeEphemeral } from "../src/ephemeral.js"
 
 const message = {
   messageId: "message",
@@ -13,7 +8,7 @@ const message = {
   payload: new Uint8Array([1, 2, 3]),
 }
 
-describe("private ephemeral codec and cache", () => {
+describe("private ephemeral codec", () => {
   it("copies inputs and outputs and uses a versioned tuple", () => {
     const bytes = encodeEphemeral(message)
     const decoded = decodeEphemeral(bytes)!
@@ -67,21 +62,5 @@ describe("private ephemeral codec and cache", () => {
     expect(decodeEphemeral(new Uint8Array([255]))).toBeUndefined()
     const bytes = encodeEphemeral(message)
     expect(decodeEphemeral(new Uint8Array([...bytes, 1]))).toBeUndefined()
-  })
-
-  it("keys by the full topic and ID, evicting the oldest of 4096", () => {
-    const seen = new Set<string>()
-    const a = topicKey(new Uint8Array(32))
-    const bytes = new Uint8Array(32)
-    bytes[31] = 1
-    const b = topicKey(bytes)
-    expect(a).not.toBe(b)
-    expect(rememberEphemeral(seen, `${a}:same`)).toBe(true)
-    expect(rememberEphemeral(seen, `${b}:same`)).toBe(true)
-    expect(rememberEphemeral(seen, `${a}:same`)).toBe(false)
-    for (let i = 0; i < 4095; i++) rememberEphemeral(seen, `${a}:${i}`)
-    expect(seen.size).toBe(4096)
-    expect(seen.has(`${a}:same`)).toBe(false)
-    expect(seen.has(`${b}:same`)).toBe(true)
   })
 })

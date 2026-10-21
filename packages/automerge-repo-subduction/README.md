@@ -225,9 +225,10 @@ through native `removeSedimentree`; connections stay open.
 
 `handle.broadcast(message)` uses best-effort, nonpersistent native pubsub. The
 event's `sender` is the signature-verified originator, not the immediate relay;
-`message.origin` is untrusted. Encoded envelopes are limited to 64 KiB. Message
-IDs must be unique across publishers on a topic; reused IDs can drop messages.
-Sending with no connected peers is a no-op. Resolution is not a delivery
+`message.origin` is untrusted. Encoded envelopes are limited to 64 KiB. Native
+Subduction suppresses echoes and relay loops by signed originator and a
+per-publish nonce; message IDs cross the wire unchanged and are not used for
+deduplication, so publishing one envelope twice delivers it twice. Sending with no connected peers is a no-op. Resolution is not a delivery
 acknowledgment; messages have no receipts, retries, or replay after reconnection.
 
 ## Persistence and integrity

@@ -61,10 +61,3 @@ export function decodeEphemeral(
 export function topicKey(bytes: Uint8Array): string {
   return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("")
 }
-/** One bounded insertion-order cache, retained across engine replacements. */
-export function rememberEphemeral(seen: Set<string>, key: string): boolean {
-  if (seen.has(key)) return false
-  seen.add(key)
-  if (seen.size > 4096) seen.delete(seen.values().next().value!)
-  return true
-}

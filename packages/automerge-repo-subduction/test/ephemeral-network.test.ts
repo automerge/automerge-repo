@@ -87,6 +87,8 @@ describe("real native ephemerals", () => {
     )
     return { session, events }
   }
+  /** Give stray duplicates or echoes time to arrive before asserting counts. */
+  const settle = () => new Promise(resolve => setTimeout(resolve, 200))
   function ephemerals(events: SedimentreeEvent[]) {
     return events.filter(e => e.type === "ephemeral")
   }
@@ -154,7 +156,7 @@ describe("real native ephemerals", () => {
     vi.restoreAllMocks()
   })
 
-  it("isolates documents, preserves signed identity, suppresses echo/duplicates, and never persists", async () => {
+  it("delivers once to the peer, never back to the publisher, isolates documents, and never persists", async () => {
     const a = peer(),
       b = peer()
     const left = await observe(a),
@@ -178,14 +180,17 @@ describe("real native ephemerals", () => {
     } finally {
       sender.free()
     }
-    await left.session.publishEphemeral(outgoing)
+    await settle()
+    expect(ephemerals(right.events)).toHaveLength(1)
+    expect(ephemerals(twin.events)).toHaveLength(1)
+    expect(ephemerals(left.events)).toHaveLength(0)
     await left.session.publishEphemeral(message("distinct"))
     await vi.waitFor(
       () => expect(ephemerals(right.events)).toHaveLength(2),
       wait
     )
-    expect(ephemerals(left.events)).toHaveLength(0)
-    deliver(callbacks[0], b, outgoing)
+    await settle()
+    expect(ephemerals(right.events)).toHaveLength(2)
     expect(ephemerals(left.events)).toHaveLength(0)
     expect(ephemerals(isolated.events)).toHaveLength(0)
     await vi.waitFor(
@@ -234,9 +239,7 @@ describe("real native ephemerals", () => {
       () => expect(ephemerals(fresh.events)).toHaveLength(2),
       wait
     )
-    deliver(callbacks.at(-1)!, a, message("online"))
-    deliver(callbacks.at(-1)!, b, message("self"))
-    await b.backend.flush()
+    await settle()
     expect(ephemerals(fresh.events)).toHaveLength(2)
     expect(ephemerals(fresh.events).map(e => e.message.messageId)).toEqual([
       "reconnected",
@@ -280,12 +283,18 @@ describe("real native ephemerals", () => {
           () => expect(ephemerals(middle.events)).toHaveLength(1),
           wait
         )
-        await left.session.publishEphemeral(outgoing)
+        // With a cycle, b hears from a directly and via relay; native drops one.
+        await settle()
+        expect(ephemerals(right.events)).toHaveLength(1)
+        expect(ephemerals(middle.events)).toHaveLength(1)
         await left.session.publishEphemeral(message())
         await vi.waitFor(() => {
           expect(ephemerals(right.events)).toHaveLength(2)
           expect(ephemerals(middle.events)).toHaveLength(2)
         }, wait)
+        await settle()
+        expect(ephemerals(right.events)).toHaveLength(2)
+        expect(ephemerals(middle.events)).toHaveLength(2)
         expect(ephemerals(left.events)).toHaveLength(0)
       } finally {
         signed.free()

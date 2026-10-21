@@ -31,7 +31,6 @@ import {
   copyEphemeral,
   decodeEphemeral,
   encodeEphemeral,
-  rememberEphemeral,
   topicKey,
 } from "./ephemeral.js"
 
@@ -167,17 +166,9 @@ export class SubductionBackend implements SedimentreeBackend {
    */
   private readonly acks = new Map<SedimentreeId, Promise<void>>()
   private readonly signer: NativeSigner
-  private readonly seenEphemerals = new Set<string>()
-  private readonly self: string
 
   constructor(options: SubductionBackendOptions) {
     this.signer = options.signer
-    const self = new N.PeerId(options.signer.verifyingKey())
-    try {
-      this.self = self.toString()
-    } finally {
-      self.free()
-    }
     this.limits = {
       syncTimeoutMilliseconds: options.syncTimeoutMilliseconds ?? 5000,
       replayEvents: options.replayEvents ?? 128,
@@ -199,7 +190,7 @@ export class SubductionBackend implements SedimentreeBackend {
       defaultTimeoutMilliseconds: this.limits.syncTimeoutMilliseconds,
       onEphemeral: (topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) => {
         try {
-          if (this.closed || peer.toString() === this.self) return
+          if (this.closed) return
           const key = topicKey(topic.toBytes())
           const tree = sedimentreeId(
             key.endsWith("0".repeat(32)) ? key.slice(0, 32) : key
@@ -210,14 +201,7 @@ export class SubductionBackend implements SedimentreeBackend {
           )
           if (!watches.length) return
           const message = decodeEphemeral(bytes)
-          if (
-            !message ||
-            !rememberEphemeral(
-              this.seenEphemerals,
-              `${key}:${message.messageId}`
-            )
-          )
-            return
+          if (!message) return
           const event: SedimentreeEvent = {
             type: "ephemeral",
             sequence: ++this.sequence,
@@ -603,29 +587,15 @@ export class SubductionBackend implements SedimentreeBackend {
             { cause }
           )
         }
-        const messageId = message.messageId
+        const native = nativeId(id)
+        const topic = N.Topic.fromBytes(native.toBytes())
+        native.free()
         try {
-          const peers = await this.engine.getConnectedPeerIds()
-          try {
-            sessionCheck("ephemeral")
-            if (!peers.length) return
-            const native = nativeId(id)
-            const topic = N.Topic.fromBytes(native.toBytes())
-            native.free()
-            try {
-              rememberEphemeral(
-                this.seenEphemerals,
-                `${topicKey(topic.toBytes())}:${messageId}`
-              )
-              await this.engine.publishEphemeral(topic, bytes)
-            } finally {
-              topic.free()
-            }
-          } finally {
-            peers.forEach(peer => peer.free())
-          }
+          await this.engine.publishEphemeral(topic, bytes)
         } catch (cause) {
           throw error("ephemeral", cause)
+        } finally {
+          topic.free()
         }
       },
       markComplete: () => {
@@ -821,7 +791,6 @@ export class SubductionBackend implements SedimentreeBackend {
     if (this.closing) return this.closing
     this.closed = true
     this.recovering.clear()
-    this.seenEphemerals.clear()
     // Disconnect at once so stalled peer waits end. Native close would cancel
     // accepted local stores and deletions, so let them settle first; their
     // failures belong to flush, not close. Native close drains its own tasks.
