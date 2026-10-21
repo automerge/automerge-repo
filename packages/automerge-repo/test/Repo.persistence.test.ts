@@ -533,7 +533,9 @@ describe("Repo persistence", () => {
           d.count = 2
         })
       ).toThrow("deleted")
-      await expect(r.find(handle.url)).rejects.toThrow("deletion in progress")
+      await expect(r.find(handle.url)).rejects.toMatchObject({
+        code: "deleted",
+      })
       await expect(r.create()).resolves.toBeDefined()
       let settled = false
       void deletion.then(() => {
@@ -571,17 +573,19 @@ describe("Repo persistence", () => {
     })
 
     it("lets the stores in flight finish, then deletes", async () => {
-      const backend = new MemoryBackend()
       const blocked = gate()
-      const store = backend.store.bind(backend)
+      let hold = false
+      const backend = new MemoryBackend({
+        beforeStore: () => {
+          if (!hold) return
+          hold = false
+          return blocked.promise
+        },
+      })
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
-      const spy = vi
-        .spyOn(backend, "store")
-        .mockImplementationOnce(async (id, batch) => {
-          await blocked.promise
-          return store(id, batch)
-        })
+      hold = true
+      const spy = vi.spyOn(backend, "store")
       const deleted = vi.spyOn(backend, "deleteLocal")
       const first = handle.change(d => {
         d.count = 1
@@ -637,7 +641,7 @@ describe("Repo persistence", () => {
       expect(handle.isDeleted()).toBe(true)
     })
 
-    it("fences lookups from reentrant delete listeners and deletes once", async () => {
+    it("fences lookups from reentrant delete listeners; repeated deletes resolve", async () => {
       const backend = new MemoryBackend()
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
@@ -647,10 +651,11 @@ describe("Repo persistence", () => {
         reentrant = r.find(handle.url)
       })
       const deletion = r.delete(handle.documentId)
-      expect(r.delete(handle.documentId)).toBe(deletion)
-      await expect(reentrant).rejects.toThrow("deletion in progress")
-      await deletion
-      expect(deleted).toHaveBeenCalledOnce()
+      const again = r.delete(handle.documentId)
+      await expect(reentrant).rejects.toMatchObject({ code: "deleted" })
+      await Promise.all([deletion, again])
+      expect(deleted).toHaveBeenCalledTimes(2)
+      expect(await backendDoc(backend, handle)).toBeUndefined()
     })
 
     it("deletes an ID that is not open without opening a session", async () => {

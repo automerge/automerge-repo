@@ -53,16 +53,18 @@ interface Tree {
  * order, so two Repos compacting one tree can produce different ones); this
  * does not prove generic history equivalence.
  * Persistence is synchronous and process-local unless `beforeStore` holds a
- * store open. Stores to one ID are acknowledged in submission order, through the
- * same self-clearing acknowledgement chain the Subduction backend uses; flush
- * reports failures of the stores it drained and retains none.
+ * store open. Stores and deletions of one ID are acknowledged in submission
+ * order, through the same self-clearing acknowledgement chain the Subduction
+ * backend uses; flush reports failures of the work it drained and retains none.
  */
 export class MemoryBackend implements SedimentreeBackend {
   readonly #options: Required<Omit<MemoryBackendOptions, "beforeStore">>
   readonly #beforeStore?: MemoryBackendOptions["beforeStore"]
   readonly #trees = new Map<SedimentreeId, Tree>()
-  /** The latest store's acknowledgement per ID; flush and delete wait on it. */
+  /** The latest store or deletion per ID; flush and delete wait on it. */
   readonly #acks = new Map<SedimentreeId, Promise<void>>()
+  /** Deletion barriers: open, create and store reject until removal settles. */
+  readonly #deleting = new Map<SedimentreeId, Promise<void>>()
   #closed = false
   #round = 0
 
@@ -97,6 +99,7 @@ export class MemoryBackend implements SedimentreeBackend {
     const id = sedimentreeId(
       options.documentId ?? crypto.getRandomValues(new Uint8Array(32))
     )
+    this.#assertNotDeleting("create", id)
     if (this.#trees.get(id)?.records.size)
       throw new BackendError("create", "conflict", "Document already exists")
     await this.store(id, initialRecords)
@@ -106,6 +109,7 @@ export class MemoryBackend implements SedimentreeBackend {
   open(rawId: SedimentreeId): SedimentreeSession {
     this.#assertOpen("open")
     const id = sedimentreeId(rawId)
+    this.#assertNotDeleting("open", id)
     const tree = this.#tree(id)
     // Immutable private record references pin a finite initial cut without
     // cloning every blob. Blobs are copied only as batches are pulled.
@@ -161,6 +165,7 @@ export class MemoryBackend implements SedimentreeBackend {
     try {
       this.#assertOpen("store")
       id = sedimentreeId(rawId)
+      this.#assertNotDeleting("store", id)
     } catch (error) {
       return Promise.reject(error)
     }
@@ -262,20 +267,36 @@ export class MemoryBackend implements SedimentreeBackend {
       throw new AggregateError(errors, "Accepted persistence attempts failed")
   }
 
-  async deleteLocal(rawId: SedimentreeId): Promise<void> {
-    this.#assertOpen("delete")
-    const id = sedimentreeId(rawId)
-    const earlier = this.#acks.get(id)
-    await Promise.allSettled([earlier])
-    if (this.#acks.get(id) === earlier) this.#acks.delete(id)
-    const tree = this.#trees.get(id)
-    if (!tree) return
-    this.#trees.delete(id)
-    for (const session of [...tree.sessions]) {
-      session.end({ type: "deleted", sequence: tree.log.sequence + 1 })
+  deleteLocal(rawId: SedimentreeId): Promise<void> {
+    let id: SedimentreeId
+    try {
+      this.#assertOpen("delete")
+      id = sedimentreeId(rawId)
+    } catch (error) {
+      return Promise.reject(error)
     }
-    tree.records.clear()
-    tree.log.clear()
+    const pending = this.#deleting.get(id)
+    if (pending) return pending
+    // Joins the acknowledgement chain: earlier stores land first, and flush
+    // covers the removal. The barrier keeps later work off the chain.
+    const earlier = this.#acks.get(id)
+    const removal = (async () => {
+      await Promise.allSettled([earlier])
+      const tree = this.#trees.get(id)
+      if (!tree) return
+      this.#trees.delete(id)
+      for (const session of [...tree.sessions]) {
+        session.end({ type: "deleted", sequence: tree.log.sequence + 1 })
+      }
+      tree.records.clear()
+      tree.log.clear()
+    })().finally(() => {
+      if (this.#acks.get(id) === removal) this.#acks.delete(id)
+      this.#deleting.delete(id)
+    })
+    this.#acks.set(id, removal)
+    this.#deleting.set(id, removal)
+    return removal
   }
 
   async close(): Promise<void> {
@@ -292,6 +313,11 @@ export class MemoryBackend implements SedimentreeBackend {
   #assertOpen(operation: BackendOperation): void {
     if (this.#closed)
       throw new BackendError(operation, "closed", "Backend is closed")
+  }
+
+  #assertNotDeleting(operation: BackendOperation, id: SedimentreeId): void {
+    if (this.#deleting.has(id))
+      throw new BackendError(operation, "deleted", "Deletion barrier is active")
   }
 
   #log(): ReplayLog<SedimentreeEvent> {

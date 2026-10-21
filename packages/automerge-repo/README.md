@@ -80,12 +80,14 @@ try {
 - `clone(handle)` returns `Promise<DocHandle<T>>`, preserving the source history.
 - `export(id)` serializes document history as an Automerge binary.
 - `delete(id)` returns `Promise<void>` for local deletion, not deletion on peers.
-  Existing handles become deleted; a later lookup can reacquire the ID.
+  Existing handles become deleted; lookups reject until removal settles, after
+  which a lookup can reacquire the ID.
 - `removeFromCache(id)` drains writes and releases a backend-backed document
   without deleting its history. Without a backend, or after a failed write, it
   rejects, since the handle holds the only copy.
 - `flush(documentIds?)` is the backend's persistence barrier: it drains accepted
-  local history across documents, including `create()`/`import()`, and rejects
+  local history across documents, including `create()`/`import()` and pending
+  deletions (with the bundled backends), and rejects
   on persistence failures. A failed write is never forgotten: every later
   `flush()` covering that document rejects with it. It also compacts any due
   fragments first (see below). It is not a remote synchronization barrier.

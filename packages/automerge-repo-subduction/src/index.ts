@@ -159,10 +159,11 @@ export class SubductionBackend implements SedimentreeBackend {
   private readonly interests = new Set<SedimentreeId>()
   /**
    * Interim stand-in for native per-tree ordering and flush: the latest store's
-   * acknowledgement per document. Each store resolves only after earlier ones
-   * (rejecting if any did); flush and deleteLocal wait on it. Self-clearing; no
-   * failures are retained. Remove once Subduction acknowledges stores to a tree
-   * in submission order and exposes a flush barrier.
+   * or deletion's acknowledgement per document. Each store resolves only after
+   * earlier ones (rejecting if any did); deletions wait for earlier stores;
+   * flush and close wait on it. Self-clearing; no failures are retained.
+   * Remove once Subduction orders a tree's stores and removals and exposes a
+   * flush barrier.
    */
   private readonly acks = new Map<SedimentreeId, Promise<void>>()
   private readonly signer: NativeSigner
@@ -765,8 +766,8 @@ export class SubductionBackend implements SedimentreeBackend {
     }
   }
   /**
-   * Waits for local stores accepted before the call and reports their
-   * failures. Ingested writes are not covered: native has no barrier yet.
+   * Waits for local stores and deletions accepted before the call and reports
+   * their failures. Ingested writes are not covered: native has no barrier yet.
    */
   async flush(ids?: readonly SedimentreeId[]): Promise<void> {
     this.check("flush")
@@ -789,10 +790,11 @@ export class SubductionBackend implements SedimentreeBackend {
       const sequence = ++this.sequence
       for (const [watch, tree] of this.watches)
         if (tree === id) watch.finish({ type: "deleted", sequence })
-      // Local stores accepted earlier land first. Native owns removal and
-      // should fence ingested writes and peer sync for this tree.
+      // Local stores accepted earlier land first, and flush covers the
+      // removal. Native owns removal and should fence ingested writes and
+      // peer sync for this tree.
       const earlier = this.acks.get(id)
-      const work = (async () => {
+      const work: Promise<void> = (async () => {
         await Promise.allSettled([earlier])
         const native = nativeId(id)
         try {
@@ -800,14 +802,15 @@ export class SubductionBackend implements SedimentreeBackend {
         } finally {
           native.free()
         }
-        if (this.acks.get(id) === earlier) this.acks.delete(id)
       })()
         .catch(cause => {
           throw error("delete", cause)
         })
         .finally(() => {
+          if (this.acks.get(id) === work) this.acks.delete(id)
           this.deleting.delete(id)
         })
+      this.acks.set(id, work)
       this.deleting.set(id, work)
       return work
     } catch (cause) {
@@ -820,9 +823,9 @@ export class SubductionBackend implements SedimentreeBackend {
     this.recovering.clear()
     this.seenEphemerals.clear()
     // Disconnect at once so stalled peer waits end. Native close would cancel
-    // accepted local stores, so let those and deletions settle first; their
+    // accepted local stores and deletions, so let them settle first; their
     // failures belong to flush, not close. Native close drains its own tasks.
-    const accepted = [...this.acks.values(), ...this.deleting.values()]
+    const accepted = [...this.acks.values()]
     const disconnected = this.engine.disconnectAll()
     this.closing = (async () => {
       const stopped = await Promise.allSettled([disconnected, ...accepted])

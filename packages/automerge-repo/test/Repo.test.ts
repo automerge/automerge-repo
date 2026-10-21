@@ -384,10 +384,10 @@ describe("backend-driven Repo", () => {
     const deleted = vi.fn()
     r.on("delete-document", deleted)
     const deleting = r.delete(documentId)
-    expect(() => r.query(documentId)).toThrow("deletion")
+    expect(open).not.toHaveBeenCalled()
+    await expect(r.find(documentId)).rejects.toMatchObject({ code: "deleted" })
     expect(r.handles[documentId]).toBeUndefined()
     await deleting
-    expect(open).not.toHaveBeenCalled()
     expect(remove).toHaveBeenCalledOnce()
     expect(deleted).toHaveBeenCalledWith({ documentId })
     expect(r.handles[documentId]).toBeUndefined()
@@ -460,10 +460,8 @@ describe("backend-driven Repo", () => {
     let finding: Promise<unknown> | undefined
     let rejected: Promise<unknown> | undefined
     handle.on("delete", () => {
-      const controller = new AbortController()
-      finding = r.find(handle.documentId, { signal: controller.signal })
-      rejected = expect(finding).rejects.toBe("cancelled")
-      controller.abort("cancelled")
+      finding = r.find(handle.documentId)
+      rejected = expect(finding).rejects.toMatchObject({ code: "deleted" })
     })
     await backend.deleteLocal(
       sedimentreeId(documentIdToBinary(handle.documentId)!)

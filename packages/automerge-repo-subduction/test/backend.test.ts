@@ -949,6 +949,48 @@ describe("real local Subduction", () => {
     expect(await storage.list("subduction-v2/")).toEqual([])
   })
 
+  it("flush waits for an accepted deletion, but not another document's", async () => {
+    const backend = create()
+    const otherTree = sedimentreeId("cd".repeat(16))
+    await backend.store(tree, [record(1)])
+    const gate = deferred()
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const remove = engine.removeSedimentree.bind(engine)
+    vi.spyOn(engine, "removeSedimentree").mockImplementationOnce(async id => {
+      await gate.promise
+      return remove(id)
+    })
+    const deleting = backend.deleteLocal(tree)
+    await backend.flush([otherTree])
+    let flushed = false
+    const flushing = backend.flush([tree]).then(() => {
+      flushed = true
+    })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(flushed).toBe(false)
+    gate.resolve()
+    await flushing
+    expect(await storage.list("subduction-v2/")).toEqual([])
+    await deleting
+  })
+
+  it("flush reports a failed deletion once; later stores start fresh", async () => {
+    const backend = create()
+    await backend.store(tree, [record(1)])
+    const internals = backend as unknown as { engine: N.Subduction }
+    vi.spyOn(internals.engine, "removeSedimentree").mockRejectedValueOnce(
+      new Error("removal failed")
+    )
+    const deleting = backend.deleteLocal(tree)
+    const flushing = backend.flush([tree])
+    await expect(deleting).rejects.toMatchObject({ operation: "delete" })
+    await expect(flushing).rejects.toMatchObject({
+      errors: [expect.objectContaining({ operation: "delete" })],
+    })
+    await backend.flush([tree])
+    await expect(backend.store(tree, [record(2)])).resolves.toBeUndefined()
+  })
+
   it("close ends watches immediately but waits for accepted persistence and leaves borrowed disk intact", async () => {
     const backend = create()
     const { iterator } = await initial(backend.open(tree))

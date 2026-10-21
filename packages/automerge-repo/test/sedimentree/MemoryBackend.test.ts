@@ -75,6 +75,39 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     ).toEqual([commit(2)])
   })
 
+  it("fences a pending deletion and covers it with flush", async () => {
+    let release!: () => void
+    const held = new Promise<void>(resolve => (release = resolve))
+    let hold = false
+    const backend = create({ beforeStore: () => (hold ? held : undefined) })
+    await backend.store(treeId(), [commit(1)])
+    hold = true
+    const write = backend.store(treeId(), [commit(2)])
+    const deletion = backend.deleteLocal(treeId())
+    expect(backend.deleteLocal(treeId())).toBe(deletion)
+    expect(() => backend.open(treeId())).toThrow(
+      expect.objectContaining({ code: "deleted" })
+    )
+    await expect(backend.store(treeId(), [commit(3)])).rejects.toMatchObject({
+      code: "deleted",
+    })
+    await expect(
+      backend.create([commit(3)], { documentId: treeId() })
+    ).rejects.toMatchObject({ code: "deleted" })
+    await settled(backend.flush([treeId(2)]))
+    const flushed = backend.flush([treeId()])
+    const all = backend.flush()
+    await expectPending(flushed)
+    await expectPending(all)
+    hold = false
+    release()
+    await settled(Promise.all([write, deletion, flushed, all]))
+    expect(
+      (await initial(backend.open(treeId()).events[Symbol.asyncIterator]()))
+        .complete.found
+    ).toBe(false)
+  })
+
   it("delivers finite bounded initial batches despite live writes during enumeration", async () => {
     const backend = create({ batchRecords: 1 })
     await backend.store(treeId(), [commit(1), commit(2), commit(3)])

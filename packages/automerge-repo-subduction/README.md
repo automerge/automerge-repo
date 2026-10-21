@@ -266,11 +266,12 @@ outcomes.
 Until native provides per-tree ordering and a flush barrier, the backend keeps
 an interim, self-clearing acknowledgement chain per document over its own
 stores: saves run concurrently, but each `store()` resolves only after earlier
-stores to that document (and rejects if any of them failed). `flush()` waits for
-the stores accepted before the call and reports their failures; `deleteLocal`
-waits for them before removing the tree, and `close()` before closing the
-engine. No failure is retained: Repo keeps each
-document's first failure and reports it from `repo.flush()`.
+stores to that document (and rejects if any of them failed). `deleteLocal`
+joins the same chain: it waits for earlier stores before removing the tree, and
+stores are rejected until removal settles. `flush()` waits for the stores and
+deletions accepted before the call and reports their failures; `close()` waits
+for them before closing the engine. No failure is retained: Repo keeps each
+document's first write failure and reports it from `repo.flush()`.
 
 ### Known gaps
 

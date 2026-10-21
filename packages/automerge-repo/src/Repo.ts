@@ -44,7 +44,6 @@ export class Repo extends EventEmitter<RepoEvents> {
   #entries = new Map<DocumentId, Entry>()
   #backend?: SedimentreeBackend
   #operations = new Set<Promise<unknown>>()
-  #deleting = new Map<DocumentId, Promise<void>>()
   #closed = false
   #shutdown?: Promise<void>
   #origin: BackendIdentity = {
@@ -114,7 +113,6 @@ export class Repo extends EventEmitter<RepoEvents> {
           segments: undefined,
         }
     const { documentId, heads, segments } = parsed
-    this.#checkDeleting(documentId)
     const entry: Entry<T> =
       this.#entries.get(documentId) ?? this.#register<T>(documentId)
     let query: DocumentQuery<T> = entry.query
@@ -139,7 +137,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     id?: DocumentId
   ): Promise<DocHandle<T>> {
     if (!id) return this.#createDocument(doc)
-    this.#checkDeleting(id)
     const existing = this.#entries.get(id)
     if (existing?.query.state().state === "ready") {
       await existing.document.applyMutation(
@@ -173,7 +170,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (!A.getHeads(doc).length) doc = A.emptyChange(doc)
     let id: DocumentId
     if (this.#backend) {
-      if (requested) this.#checkDeleting(requested)
       const allocated = await this.#backend.create(
         extractRecords(doc),
         requested ? { documentId: this.#backendId(requested) } : undefined
@@ -183,7 +179,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       id = requested ?? this.#localId()
     }
     this.#checkOpen()
-    this.#checkDeleting(id)
     const existing = this.#entries.get(id)
     if (existing) {
       // Loading can begin while backend creation is pending. Adopt that shared entry.
@@ -257,8 +252,8 @@ export class Repo extends EventEmitter<RepoEvents> {
         return
       // A settled query is final; a later lookup starts a fresh entry.
       this.#entries.delete(id)
-      // Repo.delete and shutdown release sessions themselves.
-      if (this.#closed || this.#deleting.has(id)) return
+      // Shutdown releases sessions itself.
+      if (this.#closed) return
       if (entry.sync)
         void this.#track(entry.sync.release()).catch(error =>
           this.#log.error("failed to release a settled document", error)
@@ -274,58 +269,47 @@ export class Repo extends EventEmitter<RepoEvents> {
     return A.save(handle.fullDoc())
   }
 
+  /** Concurrent calls are not deduplicated; each resolves once history is
+   * removed and emits `delete-document`. */
   delete(id: AnyDocumentId): Promise<void> {
     this.#checkOpen()
     const documentId = interpretAsDocumentId(id)
-    const pending = this.#deleting.get(documentId)
-    if (pending) return pending
     const entry = this.#entries.get(documentId)
-    // Without a backend an unopened ID has no history to delete.
-    if (!entry && !this.#backend) return Promise.resolve()
-    // Install the Repo barrier before handle delete listeners can reenter.
-    const { promise: barrier, resolve, reject } = Promise.withResolvers<void>()
-    const deleting = barrier.then(() => {
-      if (entry && this.#entries.get(documentId) === entry)
-        this.#entries.delete(documentId)
+    // A settled entry's subscriber ignores it once it leaves the map, so it
+    // neither releases the session nor emits; this call does both.
+    this.#entries.delete(documentId)
+    if (!this.#backend) {
+      // Without a backend an unopened ID has no history to delete.
+      if (!entry) return Promise.resolve()
+      entry.document.close()
+      entry.document.delete()
       this.emit("delete-document", { documentId })
-    })
-    this.#deleting.set(documentId, deleting)
-    void deleting.then(
-      () => this.#deleting.delete(documentId),
-      () => this.#deleting.delete(documentId)
-    )
-    void this.#track(deleting)
-    try {
-      if (this.#backend) {
-        // Stop our own producers first; the backend fences everything else.
-        entry?.sync?.markDeleted()
-        void this.#deleteLocal(documentId, entry?.sync).then(resolve, reject)
-      } else {
-        if (entry) {
-          entry.document.close()
-          entry.document.delete()
-        }
-        resolve()
-      }
-    } catch (error) {
-      reject(error)
+      return Promise.resolve()
     }
-    return deleting
-  }
-
-  /** Release the session, then remove local history; the backend drains
-   * stores in flight. Cleanup always proceeds to deleteLocal; every failure
-   * is reported. */
-  async #deleteLocal(id: DocumentId, sync?: DocumentSync<any>): Promise<void> {
-    const results = await Promise.allSettled([sync?.release()])
-    results.push(
-      ...(await Promise.allSettled([
-        this.#backend!.deleteLocal(this.#backendId(id)),
-      ]))
+    // The backend fences the ID synchronously, so reentrant delete listeners
+    // cannot reacquire it; it drains earlier stores before removal. Then stop
+    // our own producer and release the session.
+    let removal: Promise<void>
+    try {
+      removal = this.#backend.deleteLocal(this.#backendId(documentId))
+    } catch (error) {
+      removal = Promise.reject(error)
+    }
+    const sync = entry?.sync
+    const release = (async () => {
+      sync?.markDeleted()
+      await sync?.release()
+    })()
+    return this.#track(
+      (async () => {
+        const errors = collectErrors(
+          await Promise.allSettled([release, removal])
+        )
+        if (errors.length)
+          throw new AggregateError(errors, "Document deletion failed")
+        this.emit("delete-document", { documentId })
+      })()
     )
-    const errors = collectErrors(results)
-    if (errors.length)
-      throw new AggregateError(errors, "Document deletion failed")
   }
 
   /**
@@ -334,7 +318,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Due compactions run first, so their fragments are inside the barrier.
    * The backend reports failures of the stores it drained; each document keeps
    * its own first failure. Failed writes are not retried. Does not wait for
-   * in-progress deletions or for network delivery.
+   * network delivery.
    */
   flush(documents?: DocumentId[]): Promise<void> {
     try {
@@ -442,10 +426,6 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   #checkOpen(): void {
     if (this.#closed) throw new Error("Repo is shut down")
-  }
-
-  #checkDeleting(id: DocumentId): void {
-    if (this.#deleting.has(id)) throw new Error("Document deletion in progress")
   }
 }
 
