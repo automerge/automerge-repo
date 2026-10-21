@@ -131,7 +131,7 @@ change the query. `findWithProgress()` is deprecated in favour of `query()`.
 ## Ephemeral State
 
 `DocHandle` ephemeral APIs and `Presence` remain available. Ephemeral messages are
-best-effort, not persisted, and not recovered by rescanning document history.
+best-effort and not persisted.
 Delivery depends on backend support and connected peers.
 
 ## Bindings

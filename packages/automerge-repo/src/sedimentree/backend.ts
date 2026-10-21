@@ -17,11 +17,10 @@ import type { RecordBatch } from "./records.js"
  * expresses interest, not a network connection, and does not by itself create
  * stored history or a public document handle.
  *
- * Each stream is single-consumer, with at most one outstanding `next()`. Batches
- * and live replay are bounded. Overlap, duplicate records and self-echoes are
- * permitted; consumers must merge history idempotently rather than treating
- * each delivery as a new local edit. A slow consumer gets an explicit rescan
- * requirement instead of silent history loss or an unbounded queue.
+ * Each stream is single-consumer, with at most one outstanding `next()`.
+ * Batches are bounded; live events queue until pulled. Overlap, duplicate
+ * records and self-echoes are permitted; consumers must merge history
+ * idempotently rather than treating each delivery as a new local edit.
  *
  * Session events report backend facts, not CRDT document readiness:
  *
@@ -52,10 +51,6 @@ import type { RecordBatch } from "./records.js"
  * - `failure`: an operation-scoped error, not an empty lookup. Retryable failures
  *   leave the watch usable; nonretryable failures may end it. Neither proves
  *   global absence. Explicit operations can also reject their promises.
- * - `rescan-required`: the replay window no longer covers this consumer. It is
- *   the final event on that stream. Reopen for a fresh cut and merge into the
- *   existing state, preserving local edits. Stored history remains recoverable;
- *   transient ephemerals are not recovered by a rescan.
  * - `deleted`: invalidates the old local generation and ends its stream,
  *   superseding queued old-generation data. This is not a replicated tombstone.
  *
@@ -301,5 +296,4 @@ export type SedimentreeEvent =
       readonly sequence: number
       readonly error: BackendError
     }
-  | { readonly type: "rescan-required"; readonly sequence: number }
   | { readonly type: "deleted"; readonly sequence: number }

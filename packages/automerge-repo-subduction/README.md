@@ -254,8 +254,9 @@ same-head variants coexist, and a head lookup returns the one native keeps
 (lowest payload digest). Repo stores edits as loose commits and their
 fragments later (deferred compaction); superseded records are never deleted.
 
-Observers must handle duplicate durable deliveries. A session that falls
-behind its replay budget ends with `rescan-required`. `close()` disconnects
+Observers must handle duplicate durable deliveries. Live events queue per
+session until pulled. A native stream error after the initial load ends the
+session with a terminal `failure`. `close()` disconnects
 peers at once, waits for accepted local stores and deletions, then closes the
 native engine (which cancels remaining calls and drains its own tasks,
 including ingested writes) and frees it.
@@ -286,6 +287,8 @@ These are tracked upstream rather than emulated here:
   the tree.
 - **Typed write errors.** Native wraps storage rejections in opaque errors, so a
   conflicting representation surfaces as `io`, not `conflict`.
+- **Stream recovery.** A local storage error during a native peer round can end
+  a session's stored-data stream; the session then fails rather than resuming.
 
 ## Limits
 
@@ -294,8 +297,6 @@ Default limits:
 | Option                    |                                               Default |
 | ------------------------- | ----------------------------------------------------: |
 | `syncTimeoutMilliseconds` | 5,000 ms per explicit or store-triggered sync request |
-| `replayEvents`            |                                         128 per watch |
-| `replayBytes`             |                                       4 MiB per watch |
 
 A write reads only the keys it writes (to detect a conflicting representation
 and duplicate notifications); it does not rescan the tree. A
@@ -310,10 +311,9 @@ delivered as a single blob event, so very large trees cost time and heap
 proportional to their size rather than being refused. This does not supply a
 source-head marker: Repo accepts nonempty document heads after the entire blob
 batch has been applied. Later stored items, local or from peers, follow as live
-records; recovery scans arrive as further blob events. The replay limits bound
-live delivery, not initial blob size, total heap use, session count, or queued
-operations. This is not a streaming or production large-history
-write path.
+records; recovery scans arrive as further blob events. Live delivery, initial
+blob size, total heap use, session count and queued operations are not bounded.
+This is not a streaming or production large-history write path.
 
 ## Dependency and tests
 

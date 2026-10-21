@@ -104,35 +104,6 @@ describe("Automerge through the plain backend boundary", () => {
     }
   })
 
-  it("reconstructs a fresh cut after overflow while preserving a concurrent local edit", async () => {
-    const memory = backend({ replayEvents: 2 })
-    let remote = fixture()
-    await memory.store(id, extractRecords(remote))
-    const slow = memory.open(id)
-    let { doc, iterator } = await load(slow)
-    doc = A.change(doc, { time: 0 }, draft => {
-      draft.local = true
-    })
-    for (let i = 8; i < 12; i++) {
-      remote = A.change(remote, { time: 0 }, draft => {
-        draft.count = i
-      })
-      await memory.store(id, extractRecords(remote))
-    }
-    expect((await next(iterator)).type).toBe("rescan-required")
-    expect((await iterator.next()).done).toBe(true)
-    const reopened = await load(memory.open(id), doc)
-    expect(reopened.doc.count).toBe(11)
-    expect(reopened.doc.local).toBe(true)
-    expect(satisfiesMarker(reopened.doc, reopened.event.marker.heads)).toBe(
-      true
-    )
-    // The local branch also survives persistence through the same contract.
-    await memory.store(id, extractRecords(reopened.doc))
-    await memory.flush()
-    expect((await load(memory.open(id))).doc).toEqual(reopened.doc)
-  })
-
   it("orders data before synchronization markers, independently of promise resolution", async () => {
     const memory = backend()
     const session = memory.open(id)

@@ -644,45 +644,16 @@ describe("public Repo with native Subduction", () => {
     expect(rounds).not.toHaveBeenCalled()
   }, 10000)
 
-  it("reopens an established session after one native stream error", async () => {
-    const a = peer(),
-      b = peer()
-    const source = await a.repo.create<State>({ count: 0 })
-    const { documentId } = parseAutomergeUrl(source.url)
-    await b.repo.import<State>(A.save(source.fullDoc()), { docId: documentId })
-    await b.repo.flush()
-    await b.repo.shutdown()
-    const reader = peer(b.storage)
-    const openings = failAfterLocalScan(reader, 1)
-    const handle = await reader.repo.find<State>(source.url)
-    expect(handle.doc()).toEqual({ count: 0 })
-    await vi.waitFor(() => expect(openings()).toBe(2), {
-      timeout: 500,
-      interval: 5,
-    })
-    await source.change(doc => {
-      doc.count = 1
-    })
-    await connect(a, reader)
-    await ready(handle, { count: 1 })
-    expect(openings()).toBe(2)
-  }, 15000)
-
-  it("stops reopening when the replacement native stream also fails", async () => {
+  it("fails the handle when the native stream errors after loading", async () => {
     const original = peer()
     const source = await original.repo.create<State>({ count: 0 })
     await original.repo.flush()
     await original.repo.shutdown()
     const reader = peer(original.storage)
-    const openings = failAfterLocalScan(reader, 2)
-    const handle = await reader.repo.find<State>(source.url)
-    await vi.waitFor(() => expect(openings()).toBe(2), {
-      timeout: 500,
-      interval: 5,
-    })
-    await new Promise(resolve => setTimeout(resolve, 40))
-    expect(openings()).toBe(2)
-    expect(handle.doc()).toEqual({ count: 0 })
+    const openings = failAfterLocalScan(reader, 1)
+    const progress = reader.repo.query<State>(source.url)
+    await vi.waitFor(() => expect(progress.state().state).toBe("failed"), wait)
+    expect(openings()).toBe(1)
   }, 15000)
 
   it("finds a document whose only peer connects after the lookup started", async () => {

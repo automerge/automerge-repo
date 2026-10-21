@@ -123,17 +123,6 @@ export class DocumentSync<T> {
   async #consume(session: SedimentreeSession): Promise<void> {
     for await (const event of session.events) {
       if (this.#session !== session) return
-      if (event.type === "rescan-required") {
-        this.onEvent(event)
-        this.#session = undefined
-        try {
-          await session.close()
-        } catch (error) {
-          this.#log("failed to close a rescanned session: %o", error)
-        }
-        this.start()
-        return
-      }
       if (event.type === "deleted") {
         this.#session = undefined
         try {
@@ -431,10 +420,6 @@ export class DocumentSync<T> {
         } catch (error) {
           this.#log("invalid ephemeral message: %o", error)
         }
-        break
-      case "rescan-required":
-        this.#targets.clear()
-        this.query.loading()
         break
     }
   }

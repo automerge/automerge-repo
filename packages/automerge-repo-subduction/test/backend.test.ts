@@ -223,15 +223,21 @@ describe("real local Subduction", () => {
     await backend.close()
   })
 
-  it("requires a rescan when live delivery overflows the session buffer", async () => {
-    const backend = create({ replayEvents: 1 })
+  it("delivers every live update to a consumer that reads late", async () => {
+    const backend = create()
     const { iterator } = await initial(backend.open(tree))
-    await backend.store(tree, [record(1), record(2, [1]), record(3, [2])])
+    const records = [record(1), record(2, [1]), record(3, [2])]
+    await backend.store(tree, records)
     // Native delivers one item per pull; let it outrun this consumer.
     await new Promise(resolve => setTimeout(resolve, 50))
-    let event = await next(iterator)
-    while (event.type !== "rescan-required") event = await next(iterator)
-    expect((await iterator.next()).done).toBe(true)
+    const blobs: Uint8Array[] = []
+    while (blobs.length < 3) {
+      const event = await next(iterator)
+      if (event.type === "records")
+        blobs.push(...event.records.map(r => r.blob))
+      else if (event.type === "blobs") blobs.push(...event.blobs)
+    }
+    expect(blobs).toEqual(expect.arrayContaining(records.map(r => r.blob)))
     await backend.close()
   })
 
@@ -391,14 +397,13 @@ describe("real local Subduction", () => {
     }
   )
 
-  it("bounds repeated durable duplicate notifications with rescan-required", async () => {
-    const backend = create({ replayEvents: 2 })
+  it("does not rewrite repeated duplicate stores", async () => {
+    const backend = create()
     await backend.store(tree, [record(1)])
     const { iterator } = await initial(backend.open(tree))
     const save = vi.spyOn(storage, "saveBatch")
     for (let i = 0; i < 3; i++) await backend.store(tree, [record(1)])
-    expect(await next(iterator)).toMatchObject({ type: "rescan-required" })
-    expect((await iterator.next()).done).toBe(true)
+    await iterator.return!()
     expect(savedKeys(save).filter(key => key.includes("/commits/"))).toEqual([])
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])
   })
@@ -721,17 +726,6 @@ describe("real local Subduction", () => {
     })
   })
 
-  it("bounded live overflow explicitly ends with rescan-required", async () => {
-    const backend = create({ replayEvents: 1 })
-    const session = backend.open(tree)
-    const { iterator } = await initial(session)
-    await backend.store(tree, [record(1)])
-    await backend.store(tree, [record(2)])
-    expect(await next(iterator)).toMatchObject({ type: "rescan-required" })
-    expect((await iterator.next()).done).toBe(true)
-    expect((await initial(backend.open(tree))).records).toHaveLength(2)
-  })
-
   it("reports malformed persisted fragments rather than treating them as absent", async () => {
     const backend = create()
     await storage.save(
@@ -1023,8 +1017,8 @@ describe("real local Subduction", () => {
     expect((await initial(create().open(tree))).records).toEqual([record(1)])
   })
 
-  it("pins bounded initial batches independently of replay and allows immediate return during blocked acquisition", async () => {
-    const backend = create({ replayEvents: 1 })
+  it("pins initial batches and allows immediate return during blocked acquisition", async () => {
+    const backend = create()
     await backend.store(tree, [record(1)])
     await backend.store(tree, [record(2)])
     const session = backend.open(tree)

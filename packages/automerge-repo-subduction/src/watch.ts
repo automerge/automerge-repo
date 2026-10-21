@@ -1,10 +1,9 @@
-/** Single-consumer observation buffer, not a history store. Initial blob
- * delivery is one batch; only live replay uses this cap. */
+/** Single-consumer observation queue, not a history store. Initial blob
+ * delivery is one batch; live events queue until pulled. */
 export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
   private initial: T[] = []
   private initialIndex = 0
-  private live: { value: T; bytes: number; droppable: boolean }[] = []
-  private liveBytes = 0
+  private live: T[] = []
   private ready = false
   private buffering = false
   private ended = false
@@ -14,10 +13,7 @@ export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
   active = false
 
   constructor(
-    private readonly maxEvents: number,
-    private readonly maxBytes: number,
     private readonly copy: (value: T) => T,
-    private readonly overflow: () => T,
     private readonly released: () => void
   ) {}
 
@@ -38,23 +34,9 @@ export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
     this.buffering = false
     this.wake?.()
   }
-  push(value: T, bytes = 64, droppable = false): void {
+  push(value: T): void {
     if (this.ended || (!this.active && !this.buffering)) return
-    while (
-      this.live.length >= this.maxEvents ||
-      this.liveBytes + bytes > this.maxBytes
-    ) {
-      if (droppable) return
-      // Lossy traffic must not displace durable observations or force a rescan.
-      const index = this.live.findIndex(entry => entry.droppable)
-      if (index < 0) {
-        this.finish(this.overflow())
-        return
-      }
-      this.liveBytes -= this.live.splice(index, 1)[0].bytes
-    }
-    this.live.push({ value, bytes, droppable })
-    this.liveBytes += bytes
+    this.live.push(value)
     this.wake?.()
   }
   finish(final?: T): void {
@@ -65,7 +47,6 @@ export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
     this.initial = final === undefined ? [] : [final]
     this.initialIndex = 0
     this.live = []
-    this.liveBytes = 0
     this.ready = true
     this.released()
     this.wake?.()
@@ -84,11 +65,8 @@ export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
             }
             return { done: false, value: this.copy(value) }
           }
-          const entry = this.live.shift()
-          if (entry) {
-            this.liveBytes -= entry.bytes
-            return { done: false, value: this.copy(entry.value) }
-          }
+          if (this.live.length)
+            return { done: false, value: this.copy(this.live.shift()!) }
           if (this.ended) return { done: true, value: undefined }
         }
         await new Promise<void>(resolve => {

@@ -43,9 +43,8 @@ with nonempty document heads as ready. An empty load is not a readiness proof.
 
 Streams have one consumer and allow only one outstanding `next()`. Closing a
 session, ending iteration, or closing the backend wakes a pending pull. Multiple
-sessions have independent lifetimes. A stream that exceeds the bounded replay
-window emits `rescan-required`, ends, and releases interest. Reopen for a fresh
-cut, merging history without clearing the application's state or pending edits.
+sessions have independent lifetimes. Live events queue per session until
+pulled.
 
 Deletion invalidates existing sessions and supersedes queued old-generation
 records with a final `deleted` event. A later explicit open/store can reacquire
@@ -54,8 +53,7 @@ the ID. Deletion is not a replicated tombstone. A closed backend rejects new wor
 Ephemeral envelopes carry untrusted claimed `origin` for loop suppression.
 The event's `sender` identifies the authenticated signed originator, not the
 immediate relay/transport peer. Application sender identity comes from `sender`,
-never from the envelope's claimed origin. Ephemeral data is not persisted or
-recovered by rescan.
+never from the envelope's claimed origin. Ephemeral data is not persisted.
 
 ## Deterministic memory test double
 
@@ -74,11 +72,10 @@ A rejected store may have partially persisted; callers must be able to retry val
 records without duplicate effects, rather than relying on rollback.
 
 Initial snapshots retain private references to immutable records and copy blob
-bytes on pull. Live replay is bounded by event count and encoded payload/metadata
-bytes; batching is bounded by record count and target bytes. A single record may
-exceed the batch target but never the configured hard record-size limit. These
-are transport-buffer budgets, not a bound on the entire JS heap. The authoritative
-in-memory store retains history; overflow only drops replay, not stored records.
+bytes on pull. Live events queue per session until pulled. Batching is bounded
+by record count and target bytes. A single record may exceed the batch target but
+never the configured hard record-size limit. These are transport-buffer budgets,
+not a bound on the entire JS heap.
 Snapshot metadata is proportional to stored records, and marker computation
 is a simple metadata scan. This is a test double, not a production large-store
 implementation.
@@ -95,7 +92,7 @@ The initial shared observation/lifecycle suite is in
 `packages/automerge-repo/test/sedimentree/backend.contract.ts`.
 Its opaque fixtures and deterministic scheduler should be parameterized when real
 backends are added. Memory-specific tests separately cover exact conflicts and
-replay limits. The public contract does **not yet freeze** inbound-demand
+batch limits. The public contract does **not yet freeze** inbound-demand
 resolution, generic coverage operations, composite child observations, or remote
 transport behavior; those require phase 1b with real backends.
 

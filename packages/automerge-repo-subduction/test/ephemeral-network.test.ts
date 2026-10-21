@@ -52,15 +52,10 @@ describe("real native ephemerals", () => {
   const iterators: AsyncIterator<unknown>[] = []
   const repos: Repo[] = []
   const releases: (() => void)[] = []
-  function peer(replayEvents = 128, replayBytes = 4 * 1024 * 1024): Peer {
+  function peer(): Peer {
     const signer = N.MemorySigner.generate()
     const storage = new MemoryByteStore()
-    const backend = new SubductionBackend({
-      signer,
-      storage,
-      replayEvents,
-      replayBytes,
-    })
+    const backend = new SubductionBackend({ signer, storage })
     const result = { signer, storage, backend }
     peers.push(result)
     return result
@@ -486,36 +481,6 @@ describe("real native ephemerals", () => {
       () => expect(ephemerals(observed.events)).toHaveLength(1),
       wait
     )
-  })
-
-  it("drops oversized buffered ephemerals but releases interests on durable overflow", async () => {
-    const a = peer(1, 128),
-      b = peer()
-    const unsubscribe = vi.spyOn(engine(a), "unsubscribeEphemeral")
-    const session = a.backend.open(tree)
-    const iterator = session.events[Symbol.asyncIterator]()
-    iterators.push(iterator)
-    expect((await iterator.next()).value).toMatchObject({
-      type: "local-load-complete",
-    })
-    deliver(callbacks[0], b, { ...message(), payload: new Uint8Array(300) })
-    await expect(session.publishEphemeral(message())).resolves.toBeUndefined()
-    expect(unsubscribe).not.toHaveBeenCalled()
-    const doc = A.change(
-      A.init<{ count: number }>({ actor: "aabbcc" }),
-      { time: 0 },
-      d => {
-        d.count = 1
-      }
-    )
-    await a.backend.store(tree, extractRecords(doc))
-    await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledOnce(), wait)
-    expect((await iterator.next()).value).toMatchObject({
-      type: "rescan-required",
-    })
-    await expect(session.publishEphemeral(message())).rejects.toMatchObject({
-      code: "closed",
-    })
   })
 
   it("delivers Repo broadcasts end-to-end without changing document history", async () => {

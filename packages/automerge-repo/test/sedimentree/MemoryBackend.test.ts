@@ -364,33 +364,20 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     })
   })
 
-  it.each([
-    { replayEvents: 1, replayBytes: 10000 },
-    { replayEvents: 100, replayBytes: 64 },
-  ])(
-    "tree replay overflow is bounded by events AND bytes: %j",
-    async options => {
-      const backend = create(options)
-      const slow = backend.open(treeId())
-      const iterator = slow.events[Symbol.asyncIterator]()
-      await initial(iterator)
-      await backend.store(treeId(), [commit(1)]) // Records plus marker overflow either limit.
-      const overflow = await event(iterator, "rescan-required")
-      expect(overflow.sequence).toBeGreaterThan(0)
-      expect((await settled(iterator.next())).done).toBe(true)
-      await expect(slow.synchronize()).rejects.toMatchObject({
-        code: "closed",
-      })
-      const recovered = await initial(
-        backend.open(treeId()).events[Symbol.asyncIterator]()
-      )
-      expect(recovered.records).toEqual([commit(1)])
-      expect(recovered.complete.marker.sequence).toBe(overflow.sequence)
+  it("delivers every live event to a consumer that reads late", async () => {
+    const backend = create({ batchRecords: 1 })
+    const iterator = backend.open(treeId()).events[Symbol.asyncIterator]()
+    await initial(iterator)
+    for (let n = 1; n <= 20; n++) await backend.store(treeId(), [commit(n)])
+    for (let n = 1; n <= 20; n++) {
+      expect((await event(iterator, "records")).records).toEqual([commit(n)])
+      await event(iterator, "history-marker")
     }
-  )
+    await expectPending(iterator.next())
+  })
 
-  it("finishes the pinned initial cut then explicitly rescans if live replay overflowed while loading", async () => {
-    const backend = create({ batchRecords: 1, replayEvents: 1 })
+  it("finishes the pinned initial cut before live stores made while loading", async () => {
+    const backend = create({ batchRecords: 1 })
     await backend.store(treeId(), [commit(1), commit(2)])
     const iterator = backend.open(treeId()).events[Symbol.asyncIterator]()
     expect((await event(iterator, "records")).records).toEqual([commit(1)])
@@ -399,28 +386,9 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     expect((await event(iterator, "local-load-complete")).marker.heads).toEqual(
       [cid(1), cid(2)]
     )
-    await event(iterator, "rescan-required")
-    expect((await settled(iterator.next())).done).toBe(true)
-    expect(
-      (
-        await initial(backend.open(treeId()).events[Symbol.asyncIterator]())
-      ).records.map(recordHead)
-    ).toEqual([cid(1), cid(2), cid(3)])
-  })
-
-  it("a live event larger than the replay byte budget wakes a pending next with rescan", async () => {
-    const backend = create({ replayBytes: 32 })
-    const iterator = backend.open(treeId()).events[Symbol.asyncIterator]()
-    await initial(iterator)
-    const pending = iterator.next()
-    await expectPending(pending)
-    await backend.store(treeId(), [commit(1)])
-    expect((await settled(pending)).value.type).toBe("rescan-required")
-    expect((await settled(iterator.next())).done).toBe(true)
-    expect(
-      (await initial(backend.open(treeId()).events[Symbol.asyncIterator]()))
-        .records
-    ).toEqual([commit(1)])
+    const live = await event(iterator, "records")
+    expect(live.phase).toBe("live")
+    expect(live.records).toEqual([commit(3)])
   })
 
   it("batchBytes bounds batches but allows one record over the target below maxRecordBytes", async () => {
@@ -464,8 +432,6 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     "batchRecords",
     "batchBytes",
     "maxRecordBytes",
-    "replayEvents",
-    "replayBytes",
   ]
   for (const option of optionNames) {
     it.each([0, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(

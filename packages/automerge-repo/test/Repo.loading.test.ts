@@ -497,21 +497,6 @@ describe("Repo loading", () => {
       expect(() => handle.change(d => void (d.count = 2))).toThrow("closed")
     })
 
-    it("rescan reopens without leaving ready, and returns unavailable to loading", async () => {
-      const ready = await created()
-      const query = ready.r.query<Doc>(ready.handle.documentId)
-      await ready.session.push({ type: "rescan-required", sequence: 1 })
-      await vi.waitFor(() => expect(ready.scripted.sessions).toHaveLength(2))
-      expect(query.state().state).toBe("ready")
-
-      const { session, progress, scripted } = await lookup()
-      await session.push({ type: "synchronized", result: noPeers() })
-      expect(progress.state().state).toBe("unavailable")
-      await session.push({ type: "rescan-required", sequence: 1 })
-      expect(progress.state().state).toBe("loading")
-      await vi.waitFor(() => expect(scripted.sessions).toHaveLength(2))
-    })
-
     it("fails the lookup when the backend cannot open a session", async () => {
       const backend = new MemoryBackend()
       vi.spyOn(backend, "open").mockImplementation(() => {
@@ -750,89 +735,6 @@ describe("Repo loading", () => {
       expect(handle.getSyncInfo("peer" as StorageId)?.lastHeads).toEqual(
         encodeHeads([...advertised])
       )
-    })
-  })
-
-  describe("rescan", () => {
-    it("reopens into the same document without losing edits", async () => {
-      const { handle, session, scripted } = await created()
-      await handle.change(d => {
-        d.count = 7
-      })
-      await session.end({ type: "rescan-required", sequence: 1 })
-      const reopened = await scripted.session(1)
-      expect(reopened).not.toBe(session)
-      expect(session.close).toHaveBeenCalledOnce()
-      expect(handle.doc()?.count).toBe(7)
-      await handle.change(d => {
-        d.count = 8
-      })
-      expect(handle.doc()?.count).toBe(8)
-    })
-
-    it("reopens even when closing the rescanned session fails", async () => {
-      const { handle, session, scripted } = await created()
-      session.close.mockRejectedValueOnce(new Error("close failed"))
-      await session.end({ type: "rescan-required", sequence: 1 })
-      const reopened = await scripted.session(1)
-      expect(reopened).not.toBe(session)
-      await handle.change(d => {
-        d.count = 1
-      })
-      expect(handle.doc()?.count).toBe(1)
-    })
-
-    it("loads storage after a rescan when no document was materialized", async () => {
-      const { handle, session, scripted } = await lookup()
-      await session.end({ type: "rescan-required", sequence: 1 })
-      const reopened = await scripted.session(1)
-      const load = vi.spyOn(SlimA, "load")
-      await reopened.push({
-        type: "blobs",
-        sequence: 2,
-        blobs: A.getAllChanges(A.from({ count: 1 })),
-      })
-      expect(load).toHaveBeenCalledOnce()
-      expect(handle.doc()).toEqual({ count: 1 })
-    })
-
-    it("replaces stale initial targets and keeps a write failure across a rescan", async () => {
-      const { handle, session, scripted, progress } = await lookup()
-      const store = vi
-        .spyOn(scripted.backend, "store")
-        .mockRejectedValueOnce(new Error("disk full"))
-      const base = A.from({ count: 0 })
-      await session.push({
-        type: "records",
-        records: extractRecords(base),
-        phase: "initial",
-        sequence: 1,
-      })
-      await session.push({
-        type: "local-load-complete",
-        found: true,
-        marker: { sequence: 1, heads: heads(base) },
-      })
-      expect(progress.state().state).toBe("ready")
-      await expect(
-        handle.change(d => {
-          d.count = 1
-        })
-      ).rejects.toThrow("disk full")
-      await session.end({ type: "rescan-required", sequence: 2 })
-      const reopened = await scripted.session(1)
-      await reopened.push({
-        type: "local-load-complete",
-        found: true,
-        marker: { sequence: 1, heads: heads(handle.fullDoc()) },
-      })
-      expect(progress.state().state).toBe("ready")
-      await expect(
-        handle.change(d => {
-          d.count = 2
-        })
-      ).rejects.toThrow("disk full")
-      expect(store).toHaveBeenCalledOnce()
     })
   })
 

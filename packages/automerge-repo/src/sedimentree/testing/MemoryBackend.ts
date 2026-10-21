@@ -17,7 +17,7 @@ import {
   type RecordBatch,
   type SedimentreeRecord,
 } from "../index.js"
-import { Observation, ReplayLog } from "./ReplayLog.js"
+import { Observation } from "./Observation.js"
 
 export interface MemoryBackendOptions {
   /** Maximum records per delivered batch (a single oversized record is allowed). */
@@ -26,10 +26,6 @@ export interface MemoryBackendOptions {
   batchBytes?: number
   /** Hard limit on an individual record including metadata. */
   maxRecordBytes?: number
-  /** Maximum retained live events per tree. */
-  replayEvents?: number
-  /** Maximum retained encoded record/metadata bytes in each replay window. */
-  replayBytes?: number
   /**
    * Test seam run inside `store()` after the batch is copied and validated:
    * await to hold the store in flight, throw to fail it. Either way the
@@ -40,7 +36,7 @@ export interface MemoryBackendOptions {
 
 interface Tree {
   records: Map<string, SedimentreeRecord>
-  log: ReplayLog<SedimentreeEvent>
+  sequence: number
   sessions: Set<MemorySession>
 }
 
@@ -74,8 +70,6 @@ export class MemoryBackend implements SedimentreeBackend {
       batchRecords: options.batchRecords ?? 128,
       batchBytes: options.batchBytes ?? 1024 * 1024,
       maxRecordBytes: options.maxRecordBytes ?? 16 * 1024 * 1024,
-      replayEvents: options.replayEvents ?? 128,
-      replayBytes: options.replayBytes ?? 4 * 1024 * 1024,
     }
     for (const [name, value] of Object.entries(this.#options)) {
       if (!Number.isSafeInteger(value) || value <= 0) {
@@ -115,7 +109,7 @@ export class MemoryBackend implements SedimentreeBackend {
     // cloning every blob. Blobs are copied only as batches are pulled.
     const snapshot = [...tree.records.values()]
     const heads = headsOf(snapshot)
-    const sequence = tree.log.sequence
+    const sequence = tree.sequence
     const batches = this.#batches(snapshot)
     function* initial(): Generator<SedimentreeEvent> {
       for (const records of batches)
@@ -128,9 +122,7 @@ export class MemoryBackend implements SedimentreeBackend {
     }
     const watch = new Observation<SedimentreeEvent>(
       initial(),
-      tree.log,
       copyEvent,
-      sequence => ({ type: "rescan-required", sequence }),
       () => {
         session.invalidate()
         tree.sessions.delete(session)
@@ -142,18 +134,15 @@ export class MemoryBackend implements SedimentreeBackend {
       const roundId = String(++this.#round)
       let result!: SyncRoundResult
       const heads = headsOf([...tree.records.values()])
-      tree.log.append(
-        sequence => {
-          result = {
-            roundId,
-            marker: { sequence, heads },
-            outcome: "no-peers",
-            peers: [],
-          }
-          return { type: "synchronized", result }
-        },
-        heads.length * 32 + 64
-      )
+      this.#append(tree, sequence => {
+        result = {
+          roundId,
+          marker: { sequence, heads },
+          outcome: "no-peers",
+          peers: [],
+        }
+        return { type: "synchronized", result }
+      })
       return copySyncResult(result)
     })
     tree.sessions.add(session)
@@ -241,16 +230,18 @@ export class MemoryBackend implements SedimentreeBackend {
     const tree = this.#trees.get(id) ?? this.#tree(id)
     for (const [key, record] of staged) tree.records.set(key, record)
     for (const records of this.#batches([...staged.values()])) {
-      tree.log.append(
-        sequence => ({ type: "records", phase: "live", records, sequence }),
-        records.reduce((sum, record) => sum + recordBytes(record), 0)
-      )
+      this.#append(tree, sequence => ({
+        type: "records",
+        phase: "live",
+        records,
+        sequence,
+      }))
     }
     const heads = headsOf([...tree.records.values()])
-    tree.log.append(
-      sequence => ({ type: "history-marker", marker: { sequence, heads } }),
-      heads.length * 32 + 32
-    )
+    this.#append(tree, sequence => ({
+      type: "history-marker",
+      marker: { sequence, heads },
+    }))
   }
 
   async flush(ids?: readonly SedimentreeId[]): Promise<void> {
@@ -286,10 +277,9 @@ export class MemoryBackend implements SedimentreeBackend {
       if (!tree) return
       this.#trees.delete(id)
       for (const session of [...tree.sessions]) {
-        session.end({ type: "deleted", sequence: tree.log.sequence + 1 })
+        session.end({ type: "deleted", sequence: tree.sequence + 1 })
       }
       tree.records.clear()
-      tree.log.clear()
     })().finally(() => {
       if (this.#acks.get(id) === removal) this.#acks.delete(id)
       this.#deleting.delete(id)
@@ -305,7 +295,6 @@ export class MemoryBackend implements SedimentreeBackend {
     for (const tree of this.#trees.values()) {
       for (const session of [...tree.sessions]) session.end()
       tree.records.clear()
-      tree.log.clear()
     }
     this.#trees.clear()
   }
@@ -320,14 +309,15 @@ export class MemoryBackend implements SedimentreeBackend {
       throw new BackendError(operation, "deleted", "Deletion barrier is active")
   }
 
-  #log(): ReplayLog<SedimentreeEvent> {
-    return new ReplayLog(this.#options.replayEvents, this.#options.replayBytes)
+  #append(tree: Tree, make: (sequence: number) => SedimentreeEvent): void {
+    const event = make(++tree.sequence)
+    for (const session of tree.sessions) session.events.push(event)
   }
 
   #tree(id: SedimentreeId): Tree {
     let tree = this.#trees.get(id)
     if (!tree) {
-      tree = { records: new Map(), log: this.#log(), sessions: new Set() }
+      tree = { records: new Map(), sequence: 0, sessions: new Set() }
       this.#trees.set(id, tree)
     }
     return tree
