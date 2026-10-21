@@ -48,8 +48,11 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   /**
    * Bumped when {@link StorageSubsystem.saveDoc} stops tracking a document's
    * chunks. Saves begun under an earlier generation leave the chunk list alone.
+   * Values come from one counter for all documents, so they never repeat even
+   * if an entry is removed.
    */
   #chunkGenerations: Map<DocumentId, number> = new Map()
+  #lastChunkGeneration = 0
 
   /** Flag to avoid compacting when a compaction is already underway */
   #compacting = false
@@ -231,10 +234,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
       savedHeads &&
       A.getMissingDeps(doc, savedHeads).some(h => savedHeads.includes(h))
     ) {
-      this.#chunkGenerations.set(
-        documentId,
-        (this.#chunkGenerations.get(documentId) ?? 0) + 1
-      )
+      this.#chunkGenerations.set(documentId, ++this.#lastChunkGeneration)
       this.#chunkInfos.delete(documentId)
       await this.#saveTotal(documentId, doc, [])
       return
