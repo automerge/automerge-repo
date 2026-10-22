@@ -843,7 +843,6 @@ describe("Repo", () => {
 
         const repo2 = new Repo({ storage: storageAdapter })
         repo2.findWithProgress<TestDoc>(handle.url)
-        await pause(10)
         assert(repo2.synchronizer.docSynchronizers[handle.documentId])
       })
 
@@ -883,10 +882,8 @@ describe("Repo", () => {
         const { repo } = setup()
         const handle = repo.create<TestDoc>()
         const initialCount = handle.listenerCount("heads-changed")
-        await pause(10) // wait for debounced save to complete
         await repo.find<TestDoc>(handle.url)
         repo.findWithProgress<TestDoc>(handle.url)
-        await pause(10)
         // find/findWithProgress should not add extra listeners
         assert.equal(handle.listenerCount("heads-changed"), initialCount)
       })
@@ -1667,8 +1664,6 @@ describe("Repo", () => {
       // (This behaviour is mostly test-validation, we are already testing load/save elsewhere.)
       assert.deepStrictEqual(bobFoundIt.doc(), { foo: "foundOnFakeDisk" })
 
-      await pause(10)
-
       // We should have a docSynchronizer and its peers should be alice and charlie
       assert.strictEqual(
         bobRepo.synchronizer.docSynchronizers[bobFoundIt.documentId]?.hasPeer(
@@ -1869,8 +1864,6 @@ describe("Repo", () => {
       const { charlieRepo, notForBob, teardown } = await setup()
 
       const handle = await charlieRepo.find<TestDoc>(notForBob)
-
-      await pause(50)
 
       const doc = handle.doc()
       assert.deepStrictEqual(doc, { foo: "bap" })
@@ -2299,9 +2292,6 @@ describe("Repo", () => {
 
     it("can report the connected peers", async () => {
       const { bobRepo, charlieRepo, teardown } = await setup()
-
-      // pause to let the connections happen
-      await pause(1)
 
       assert.deepStrictEqual(bobRepo.peers, ["alice", "charlie"])
       assert.deepStrictEqual(charlieRepo.peers, ["bob"])
@@ -2950,8 +2940,6 @@ describe("Repo.find() abort behavior", () => {
       aliceToBob.peerCandidate("bob" as PeerId)
       bobToAlice.peerCandidate("alice" as PeerId)
 
-      await pause(50)
-
       const handle = await alice.create2({ foo: "bar" })
       const bobHandle = await bob.find(handle.url)
       assert.deepStrictEqual(bobHandle.doc(), { foo: "bar" })
@@ -2968,8 +2956,6 @@ describe("Repo.find() abort behavior", () => {
       const bob = new Repo({ peerId: "bob" as PeerId, network: [bobToAlice] })
       aliceToBob.peerCandidate("bob" as PeerId)
       bobToAlice.peerCandidate("alice" as PeerId)
-
-      await pause(50)
 
       return { alice, bob }
     }
