@@ -149,8 +149,6 @@ describe("DocHandle backend ephemerals", () => {
         message: new Uint8Array([1, 2]),
       })
     }
-    event.message.payload.fill(0)
-    expect(received.mock.calls[0][0].message).toEqual(new Uint8Array([1, 2]))
     expect(removed).not.toHaveBeenCalled()
     expect(backend.sessions[0].publish).toHaveBeenCalledOnce()
   })

@@ -9,15 +9,23 @@ const message = {
 }
 
 describe("private ephemeral codec", () => {
-  it("copies inputs and outputs and uses a versioned tuple", () => {
-    const bytes = encodeEphemeral(message)
-    const decoded = decodeEphemeral(bytes)!
-    expect(decoded).toEqual(message)
-    decoded.payload.fill(9)
-    ;(decoded.origin.path as string[]).push("other")
+  it("uses a versioned tuple with an untagged payload in every environment", () => {
+    const bytes = encodeEphemeral({
+      ...message,
+      origin: { ...message.origin, extra: "dropped" } as typeof message.origin,
+    })
+    expect(Buffer.from(bytes).toString("hex")).toBe(
+      "8401676d657373616765b90003646b696e64647265706f626964666f726967696e" +
+        "647061746881656368696c6443010203"
+    )
     expect(decodeEphemeral(bytes)).toEqual(message)
-    expect(decoded.payload).not.toBe(message.payload)
-    expect(decoded.origin.path).not.toBe(message.origin.path)
+  })
+
+  it("freezes decoded metadata", () => {
+    const decoded = decodeEphemeral(encodeEphemeral(message))!
+    expect(Object.isFrozen(decoded)).toBe(true)
+    expect(Object.isFrozen(decoded.origin)).toBe(true)
+    expect(Object.isFrozen(decoded.origin.path)).toBe(true)
   })
 
   it("limits the complete encoding, not just the payload", () => {

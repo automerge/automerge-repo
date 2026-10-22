@@ -415,7 +415,7 @@ export class DocumentSync<T> {
         try {
           this.document.registry.dispatchEphemeral(
             event.sender.id as PeerId,
-            decode(new Uint8Array(event.message.payload))
+            decode(event.message.payload)
           )
         } catch (error) {
           this.#log("invalid ephemeral message: %o", error)

@@ -160,12 +160,7 @@ describe("real native ephemerals", () => {
       () => expect(ephemerals(twin.events)).toHaveLength(2),
       wait
     )
-    const first = ephemerals(right.events)[0]
-    first.message.payload.fill(9)
-    ;(first.message.origin.path as string[]).push("mutated")
-    ;(first.sender.path as string[]).push("mutated")
     expect(ephemerals(twin.events)[0].message).toEqual(outgoing)
-    expect(ephemerals(twin.events)[0].sender.path).toEqual([])
     await Promise.all([a.backend.flush(), b.backend.flush()])
     expect(await a.storage.list("subduction-v2/")).toEqual([])
     expect(await b.storage.list("subduction-v2/")).toEqual([])
@@ -354,6 +349,32 @@ describe("real native ephemerals", () => {
     expect(ephemerals(right.events)[1].message.payload).toHaveLength(
       exact.payload.length
     )
+  })
+
+  it("gives each session its own payload and shares frozen metadata", async () => {
+    const a = peer(),
+      b = peer()
+    const one = await observe(b),
+      two = await observe(b)
+    const sent = message()
+    deliver(callbacks[1], a, sent)
+    await vi.waitFor(() => {
+      expect(ephemerals(one.events)).toHaveLength(1)
+      expect(ephemerals(two.events)).toHaveLength(1)
+    }, wait)
+    const [first] = ephemerals(one.events)
+    const [second] = ephemerals(two.events)
+    expect(first.message).toEqual(sent)
+    expect(second.message.payload).not.toBe(first.message.payload)
+    expect(second.message.payload.buffer).not.toBe(first.message.payload.buffer)
+    first.message.payload.fill(9)
+    expect(second.message.payload).toEqual(sent.payload)
+    expect(second.message.origin).toBe(first.message.origin)
+    expect(second.sender).toBe(first.sender)
+    expect(() => (first.message.origin.path as string[]).push("x")).toThrow(
+      TypeError
+    )
+    expect(() => (first.sender.path as string[]).push("x")).toThrow(TypeError)
   })
 
   it("drops malformed, inactive, and post-close callbacks synchronously", async () => {

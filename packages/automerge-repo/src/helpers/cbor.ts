@@ -1,10 +1,13 @@
 import { Encoder, decode as cborXdecode } from "cbor-x"
 
-export function encode(obj: unknown): Buffer {
-  const encoder = new Encoder({ tagUint8Array: false, useRecords: false })
-  return encoder.encode(obj)
+const encoder = new Encoder({ tagUint8Array: false, useRecords: false })
+
+/** A plain Uint8Array view (cbor-x returns a Buffer under Node). */
+export function encode(obj: unknown): Uint8Array {
+  const bytes = encoder.encode(obj)
+  return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength)
 }
 
-export function decode<T = unknown>(buf: Buffer | Uint8Array): T {
+export function decode<T = unknown>(buf: Uint8Array): T {
   return cborXdecode(buf)
 }

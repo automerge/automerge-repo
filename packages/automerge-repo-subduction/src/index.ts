@@ -22,7 +22,7 @@ import { StorageBridge, nativeId, logicalId } from "./storage.js"
 import type { ByteStore } from "./ByteStore.js"
 import { Watch } from "./watch.js"
 import { notifyBackendClosed } from "./backendLifecycle.js"
-import { copyEphemeral, decodeEphemeral, encodeEphemeral } from "./ephemeral.js"
+import { decodeEphemeral, encodeEphemeral } from "./ephemeral.js"
 
 export type { ByteStore } from "./ByteStore.js"
 export { MemoryByteStore } from "./MemoryByteStore.js"
@@ -73,10 +73,13 @@ function error(
 }
 function copyEvent(value: SedimentreeEvent): SedimentreeEvent {
   if (value.type === "ephemeral")
+    // Metadata is frozen and shared; each session owns its payload bytes.
     return {
       ...value,
-      message: copyEphemeral(value.message),
-      sender: { ...value.sender, path: [...value.sender.path] },
+      message: {
+        ...value.message,
+        payload: new Uint8Array(value.message.payload),
+      },
     }
   if (value.type === "records" || value.type === "blobs")
     // Each session's native stream yields its own JS copies of stored bytes,
@@ -208,7 +211,10 @@ export class SubductionBackend implements SedimentreeBackend {
       type: "ephemeral",
       sequence: ++this.sequence,
       message,
-      sender: this.peerIdentity(peer),
+      sender: Object.freeze({
+        ...this.peerIdentity(peer),
+        path: Object.freeze([]),
+      }),
     }
     for (const [watch] of watches) watch.push(event)
   }
@@ -500,18 +506,7 @@ export class SubductionBackend implements SedimentreeBackend {
       },
       publishEphemeral: async message => {
         sessionCheck("ephemeral")
-        let bytes: Uint8Array
-        try {
-          bytes = encodeEphemeral(message)
-        } catch (cause) {
-          throw new BackendError(
-            "ephemeral",
-            "invalid-record",
-            String(cause),
-            false,
-            { cause }
-          )
-        }
+        const bytes = encodeEphemeral(message)
         try {
           await this.engine.publishEphemeral(nativeId(id), bytes)
         } catch (cause) {
