@@ -38,6 +38,11 @@ import { repoFragmentFixture } from "./repoFixture.js"
 
 const tree = sedimentreeId("ab".repeat(16))
 const cid = (n: number) => commitId(n.toString(16).padStart(2, "0").repeat(32))
+/** Distinct IDs beyond cid's 0-255 range. */
+const many = (count: number) =>
+  Array.from({ length: count }, (_, i) =>
+    commitId(`e${i.toString(16).padStart(63, "0")}`)
+  )
 const loose = (n: number, parents: number[] = []): LooseCommitRecord => ({
   kind: "commit",
   id: cid(n),
@@ -462,15 +467,25 @@ describe("local Subduction fragments", () => {
     }
   )
 
-  it("rejects wire-unencodable fragment metadata before writing", async () => {
-    const backend = create()
-    const boundary = Array.from({ length: 256 }, (_, i) => cid(i))
-    await expect(
-      backend.store(tree, [{ ...fragment(4), boundary }])
-    ).rejects.toMatchObject({ code: "invalid-record" })
-    expect(await storage.list("subduction-v2/")).toEqual([])
-    await backend.flush()
-  })
+  it.each([
+    ["fragment boundary", () => ({ ...fragment(4), boundary: many(256) })],
+    ["commit parents", () => ({ ...loose(1), parents: many(256) })],
+  ])(
+    "rejects wire-unencodable %s before writing or syncing",
+    async (_, record) => {
+      const backend = create()
+      const engine = (backend as unknown as { engine: N.Subduction }).engine
+      const rounds = vi.spyOn(engine, "syncWithAllPeers")
+      await expect(backend.store(tree, [record()])).rejects.toMatchObject({
+        operation: "store",
+        code: "invalid-record",
+        retryable: false,
+      })
+      expect(await storage.list("subduction-v2/")).toEqual([])
+      expect(rounds).not.toHaveBeenCalled()
+      await backend.flush().catch(() => {})
+    }
+  )
 
   it("retries deletion after removal commits but then rejects", async () => {
     const backend = create()

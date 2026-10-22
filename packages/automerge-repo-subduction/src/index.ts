@@ -570,14 +570,6 @@ export class SubductionBackend implements SedimentreeBackend {
       let records: SedimentreeRecord[]
       try {
         records = batch.map(copyRecord)
-        if (
-          records.some(
-            r =>
-              r.kind === "fragment" &&
-              (r.boundary.length > 255 || r.checkpoints.length > 65535)
-          )
-        )
-          throw new Error("Fragment metadata exceeds native wire count limits")
       } catch (cause) {
         throw new BackendError(
           "store",
@@ -611,7 +603,21 @@ export class SubductionBackend implements SedimentreeBackend {
             if (record.kind === "commit") commits.push(commitInput(record))
             else fragments.push(fragmentInput(record))
           submitted = true
-          await engine.storeBatch(native, { commits, fragments })
+          try {
+            await engine.storeBatch(native, { commits, fragments })
+          } catch (cause) {
+            // Native rejects invalid input (including wire count limits)
+            // with a TypeError before signing or writing anything.
+            if (!(cause instanceof TypeError)) throw cause
+            submitted = false
+            throw new BackendError(
+              operation,
+              "invalid-record",
+              cause.message,
+              false,
+              { cause }
+            )
+          }
         } finally {
           // Durability never waits for a peer; a round propagates stores even
           // without a document session. A failed write may still have made

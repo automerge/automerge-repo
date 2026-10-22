@@ -295,8 +295,10 @@ Default limits:
 | `syncTimeoutMilliseconds` | 5,000 ms per explicit or store-triggered sync request |
 
 A write reads nothing; it does not rescan the tree. A
-`store()`/`create()` submission of any size is accepted: it is validated up
-front (wire counts), then written in one native call. It is not split: a document must already fit
+`store()`/`create()` submission of any size is accepted and written in one
+native call. Native validates it before signing or writing anything; records
+over the wire count limits (255 unique commit parents or fragment boundary IDs,
+65,535 checkpoints) are rejected as `invalid-record`. It is not split: a document must already fit
 in Automerge's WASM memory, which is exhausted long before a submission would
 strain Subduction's. Neither a single record nor a tree's total history is
 capped: whatever was accepted can always be reopened, enumerated, synced and
