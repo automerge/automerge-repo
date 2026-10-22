@@ -602,3 +602,91 @@ describe("StorageSubsystem compaction recovery", () => {
     assert.equal(reloaded?.n, 3, "a reload should see the latest update (n=3)")
   })
 })
+
+describe("StorageSubsystem id", () => {
+  const ID_KEY = ["storage-adapter-id"]
+
+  const storedId = async (adapter: StorageAdapterInterface) => {
+    const bytes = await adapter.load(ID_KEY)
+    return bytes && new TextDecoder().decode(bytes)
+  }
+
+  // Writes the id key immediately but holds each save's completion until the
+  // test releases it.
+  class HeldIdSaveAdapter extends DummyStorageAdapter {
+    #held: Array<() => void> = []
+    #onHeld: Array<() => void> = []
+
+    override async save(key: string[], binary: Uint8Array) {
+      await super.save(key, binary)
+      if (key.join(".") === ID_KEY.join(".")) {
+        const { promise, resolve } = Promise.withResolvers<void>()
+        this.#held.push(resolve)
+        this.#onHeld.splice(0).forEach(notify => notify())
+        await promise
+      }
+    }
+
+    async whenHeld(count: number) {
+      while (this.#held.length < count) {
+        const { promise, resolve } = Promise.withResolvers<void>()
+        this.#onHeld.push(resolve)
+        await promise
+      }
+    }
+
+    releaseNext() {
+      this.#held.shift()?.()
+    }
+  }
+
+  it("concurrent calls on one subsystem return the same id, which is the stored id", async () => {
+    const adapter = new DummyStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+
+    const [id1, id2] = await Promise.all([storage.id(), storage.id()])
+
+    assert.strictEqual(Uuid.validate(id1), true)
+    assert.strictEqual(id1, id2)
+    assert.strictEqual(await storedId(adapter), id1)
+  })
+
+  it("a rejected load does not stop later calls from returning the stored id", async () => {
+    class FailFirstIdLoadAdapter extends DummyStorageAdapter {
+      #failed = false
+      override async load(key: string[]) {
+        if (!this.#failed && key.join(".") === ID_KEY.join(".")) {
+          this.#failed = true
+          throw new Error("load failed")
+        }
+        return super.load(key)
+      }
+    }
+    const adapter = new FailFirstIdLoadAdapter()
+    const storage = new StorageSubsystem(adapter)
+
+    await expect(storage.id()).rejects.toThrow("load failed")
+
+    const id = await storage.id()
+    assert.strictEqual(Uuid.validate(id), true)
+    assert.strictEqual(await storedId(adapter), id)
+  })
+
+  it("two subsystems on one fresh adapter agree when both writes land before either read-back", async () => {
+    const adapter = new HeldIdSaveAdapter()
+    const a = new StorageSubsystem(adapter)
+    const b = new StorageSubsystem(adapter)
+
+    const idA = a.id()
+    const idB = b.id()
+
+    // Both found no stored id and wrote their own before either reads back.
+    await adapter.whenHeld(2)
+    adapter.releaseNext()
+    adapter.releaseNext()
+
+    const [resolvedA, resolvedB] = await Promise.all([idA, idB])
+    assert.strictEqual(resolvedA, resolvedB)
+    assert.strictEqual(await storedId(adapter), resolvedA)
+  })
+})
