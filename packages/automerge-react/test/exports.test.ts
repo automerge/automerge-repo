@@ -32,7 +32,8 @@ describe("@automerge/react built entrypoints", () => {
       const slim = await import('@automerge/react/slim')
       for (const name of Object.keys(api)) assert.ok(name in slim, name)
       assert.equal(typeof slim.initializeWasm, 'function')
-      const peer = api.createSubductionPeer()
+      const { DummySubductionStorageAdapter } = await import('@automerge/automerge-repo-subduction/helpers/DummySubductionStorageAdapter.js')
+      const peer = api.createSubductionPeer({ storage: new DummySubductionStorageAdapter() })
       const repo = new api.Repo({ backend: peer.backend })
       try {
         const handle = await repo.create({ count: 0 })

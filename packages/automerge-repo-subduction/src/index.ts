@@ -183,6 +183,7 @@ export class SubductionBackend implements SedimentreeBackend {
   private readonly acks = new Map<SedimentreeId, Promise<void>>()
 
   constructor(options: SubductionBackendOptions) {
+    if (!options.storage) throw new TypeError("A storage adapter is required")
     this.engine = new N.Subduction({
       signer: options.signer,
       storage: new StorageBridge(options.storage),

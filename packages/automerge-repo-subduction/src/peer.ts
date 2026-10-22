@@ -1,6 +1,5 @@
 import * as N from "@automerge/subduction/slim"
 import { SubductionBackend, type SubductionBackendOptions } from "./index.js"
-import { DummySubductionStorageAdapter } from "./helpers/DummySubductionStorageAdapter.js"
 import {
   connectSubductionServer,
   type SubductionConnection,
@@ -10,10 +9,10 @@ import {
 
 export interface SubductionPeerOptions
   extends
-    Omit<SubductionBackendOptions, "signer" | "storage">,
+    Omit<SubductionBackendOptions, "signer">,
     SubductionConnectionOptions {
+  /** Defaults to a new in-memory identity. */
   signer?: SubductionBackendOptions["signer"]
-  storage?: SubductionBackendOptions["storage"]
   servers?: readonly SubductionServer[]
 }
 
@@ -28,7 +27,7 @@ export interface SubductionPeer {
 
 /** Creates a backend and immediately connects configured servers using its identity. */
 export function createSubductionPeer(
-  options: SubductionPeerOptions = {}
+  options: SubductionPeerOptions
 ): SubductionPeer {
   const signer = options.signer ?? N.createMemorySigner()
   const connections: SubductionConnection[] = []
@@ -38,11 +37,7 @@ export function createSubductionPeer(
     const peerId = Array.from(signer.verifyingKey(), b =>
       b.toString(16).padStart(2, "0")
     ).join("")
-    backend = new SubductionBackend({
-      ...options,
-      signer,
-      storage: options.storage ?? new DummySubductionStorageAdapter(),
-    })
+    backend = new SubductionBackend({ ...options, signer })
     const peer: SubductionPeer = {
       backend,
       peerId,

@@ -5,16 +5,21 @@ import {
   createSubductionPeer,
   SubductionBackend,
   type SubductionPeer,
+  type SubductionPeerOptions,
   type SubductionServer,
 } from "../src/index.js"
+import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
 
 const { openTransport } = vi.hoisted(() => ({ openTransport: vi.fn() }))
 vi.mock("../src/websocket.js", () => ({ openTransport }))
 
 describe("Subduction peer factory", () => {
   const peers: SubductionPeer[] = []
-  function create(options = {}) {
-    const peer = createSubductionPeer(options)
+  function create(options: Partial<SubductionPeerOptions> = {}) {
+    const peer = createSubductionPeer({
+      storage: new DummySubductionStorageAdapter(),
+      ...options,
+    })
     peers.push(peer)
     return peer
   }
@@ -41,6 +46,12 @@ describe("Subduction peer factory", () => {
     expect(peer.close()).toBe(closing)
     await closing
     expect(() => peer.connect("ws://localhost")).toThrow("closed")
+  })
+
+  it("requires a storage adapter", () => {
+    expect(() =>
+      createSubductionPeer({} as unknown as SubductionPeerOptions)
+    ).toThrow("storage adapter is required")
   })
 
   it("derives the peer ID from a supplied signer", async () => {
@@ -105,7 +116,12 @@ describe("Subduction peer factory", () => {
       "ws://localhost",
       { url: "https://localhost" },
     ]
-    expect(() => createSubductionPeer({ servers })).toThrow("ws:")
+    expect(() =>
+      createSubductionPeer({
+        storage: new DummySubductionStorageAdapter(),
+        servers,
+      })
+    ).toThrow("ws:")
     await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
     expect(openTransport).not.toHaveBeenCalled()
   })

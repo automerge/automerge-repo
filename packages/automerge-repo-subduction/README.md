@@ -12,8 +12,12 @@ unreleased).
 import "@automerge/subduction"
 import { Repo } from "@automerge/automerge-repo"
 import { createSubductionPeer } from "@automerge/automerge-repo-subduction"
+import { DummySubductionStorageAdapter } from "@automerge/automerge-repo-subduction/helpers/DummySubductionStorageAdapter.js"
 
-const peer = createSubductionPeer({ servers: ["ws://127.0.0.1:8080"] })
+const peer = createSubductionPeer({
+  storage: new DummySubductionStorageAdapter(),
+  servers: ["ws://127.0.0.1:8080"],
+})
 const repo = new Repo({ backend: peer.backend })
 try {
   const handle = await repo.create({ message: "Hello" })
@@ -30,10 +34,13 @@ try {
 
 The package imports `@automerge/subduction/slim` and does not initialize WASM.
 Browser apps must await the matching native initializer before creating a peer.
-By default `createSubductionPeer()` uses an in-memory signer and storage adapter:
-identity and history do not survive restart. Injected signers and stores are
-borrowed; keep them alive until after `peer.close()`. Use valid Ed25519 signer
-keys, as native code can panic on invalid keys.
+`storage` is required: pass a `SubductionStorageAdapterInterface`. The
+in-memory `DummySubductionStorageAdapter` (from the `helpers/` subpath) is for
+tests and throwaway peers; nothing survives restart. Without a `signer`,
+`createSubductionPeer()` generates an in-memory identity, which also does not
+survive restart. Injected signers and storage adapters are borrowed; keep them
+alive until after `peer.close()`. Use valid Ed25519 signer keys, as native code
+can panic on invalid keys.
 
 ### IndexedDB storage adapter
 

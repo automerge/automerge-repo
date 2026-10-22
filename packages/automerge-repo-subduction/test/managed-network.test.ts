@@ -40,6 +40,7 @@ it("syncs through real native handshakes and keeps the connection across deleteL
   })
   const wires = connectTo(remoteBackend)
   const peer = createSubductionPeer({
+    storage: new DummySubductionStorageAdapter(),
     servers: ["ws://localhost:8080"],
     retry: { initialMs: 10, maxMs: 50 },
   })
