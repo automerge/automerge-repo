@@ -477,6 +477,27 @@ describe("real local Subduction", () => {
     })
   })
 
+  it("rejects a round on a local sync failure and reports it as retryable", async () => {
+    const backend = create()
+    const session = backend.open(tree)
+    const { iterator } = await initial(session)
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    vi.spyOn(engine, "syncWithAllPeers").mockRejectedValueOnce(
+      new Error("ingest storage failed")
+    )
+    await expect(session.synchronize()).rejects.toMatchObject({
+      operation: "synchronize",
+      code: "io",
+      retryable: true,
+    })
+    expect(await next(iterator)).toMatchObject({
+      type: "failure",
+      error: { code: "io", retryable: true },
+    })
+    // The session keeps working after the failed round.
+    expect(await session.synchronize()).toMatchObject({ outcome: "no-peers" })
+  })
+
   it("writes a submission of any size in one native call, in order", async () => {
     const backend = create()
     const records = Array.from({ length: 200 }, (_, i) =>

@@ -320,27 +320,28 @@ export class SubductionBackend implements SedimentreeBackend {
     const engine = this.engine
     const roundId = `subduction-${++this.round}`
     const native = nativeId(id)
-    const peers = await engine.getConnectedPeerIds()
+    // Peer failures are reported per peer; a rejection is local (storage or
+    // closed) and rejects the round.
+    const results = Object.entries(
+      await engine.syncWithAllPeers(native, {
+        subscribe: true,
+        timeoutMilliseconds: this.limits.syncTimeoutMilliseconds,
+      })
+    )
     // Store-triggered rounds only propagate; with no peers there is nothing
-    // to do or report. Explicit rounds always answer their session.
-    if (!peers.length && !recipient)
+    // to report. Explicit rounds always answer their session.
+    if (!results.length && !recipient)
       return {
         roundId,
         marker: { sequence: ++this.sequence, heads: [] },
         outcome: "no-peers",
         peers: [],
       }
-    const outcomes: SyncRoundResult["peers"][number][] = []
-    for (const peer of peers) {
-      const identity = this.peerIdentity(peer)
-      try {
-        const response = await engine.syncWithPeer(peer, native, {
-          subscribe: true,
-          timeoutMilliseconds: this.limits.syncTimeoutMilliseconds,
-        })
+    const outcomes: SyncRoundResult["peers"][number][] = results.map(
+      ([peer, response]) => {
         const failures = response.transportErrors
-        outcomes.push({
-          peer: identity,
+        return {
+          peer: this.peerIdentity(peer),
           outcome: response.success ? "complete" : "failed",
           ...(failures.length
             ? {
@@ -358,20 +359,14 @@ export class SubductionBackend implements SedimentreeBackend {
                   ),
                 }
               : {}),
-        })
-      } catch (cause) {
-        outcomes.push({
-          peer: identity,
-          outcome: "failed",
-          error: error("synchronize", cause),
-        })
+        }
       }
-    }
+    )
     this.check("synchronize", id)
     const result: SyncRoundResult = {
       roundId,
       marker: await this.headsMarker(native),
-      outcome: !peers.length
+      outcome: !outcomes.length
         ? "no-peers"
         : outcomes.every(p => p.outcome === "complete")
           ? "complete"
@@ -500,14 +495,17 @@ export class SubductionBackend implements SedimentreeBackend {
       synchronize: (options = {}) => {
         try {
           sessionCheck("synchronize")
-          const work = this.syncRound(id, watch)
-          void work.catch(cause =>
+          const work = this.syncRound(id, watch).catch(cause => {
+            const failure = error("synchronize", cause)
             watch.push({
               type: "failure",
               sequence: ++this.sequence,
-              error: error("synchronize", cause),
+              error: failure,
             })
-          )
+            throw failure
+          })
+          // An aborted wait leaves the round's own rejection unobserved.
+          void work.catch(() => {})
           return waitOnly(work, options.signal)
         } catch (cause) {
           return Promise.reject(cause)

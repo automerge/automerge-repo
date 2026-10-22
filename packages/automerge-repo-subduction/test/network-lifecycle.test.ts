@@ -208,7 +208,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
   it("keeps observing an empty peer without a redundant JS sync round, then persists pushes", async () => {
     const a = peer(),
       b = peer()
-    const rounds = vi.spyOn(N.Subduction.prototype, "syncWithPeer")
+    const rounds = vi.spyOn(N.Subduction.prototype, "syncWithAllPeers")
     const observed = await observe(b)
     await connect(a, b)
     expect(rounds).not.toHaveBeenCalled()

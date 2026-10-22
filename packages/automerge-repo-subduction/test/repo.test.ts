@@ -571,7 +571,7 @@ describe("public Repo with native Subduction", () => {
     await a.repo.flush()
     await connect(a, b)
     const engine = (b.backend as unknown as { engine: N.Subduction }).engine
-    const rounds = vi.spyOn(engine, "syncWithPeer")
+    const rounds = vi.spyOn(engine, "syncWithAllPeers")
     const receiver = await b.repo.find<State>(source.url)
     expect(receiver.doc()).toEqual({ count: 3 })
     // loadAndWatch fetched and subscribed; later edits still arrive.
@@ -599,7 +599,7 @@ describe("public Repo with native Subduction", () => {
     await connect(a, reader)
     const engine = (reader.backend as unknown as { engine: N.Subduction })
       .engine
-    const rounds = vi.spyOn(engine, "syncWithPeer")
+    const rounds = vi.spyOn(engine, "syncWithAllPeers")
     const loaded = await reader.repo.find<State>(source.url)
     expect(loaded.doc()?.count).toBeGreaterThanOrEqual(1)
     await ready(loaded, { count: 2 })
