@@ -19,7 +19,11 @@ import {
   extractNewCommits,
   extractRecords,
 } from "../src/sedimentree/automerge/index.js"
-import { noPeers, scriptedBackend } from "./helpers/scriptedBackend.js"
+import {
+  noPeers,
+  scriptedBackend,
+  type ScriptedSession,
+} from "./helpers/scriptedBackend.js"
 
 // Native ESM exports are sealed; forward through a configurable namespace for spies.
 vi.mock("@automerge/automerge/slim", async importOriginal => {
@@ -61,25 +65,28 @@ describe("Repo loading", () => {
     return { r, handle, session, scripted }
   }
 
+  /** One storage scan: each blob in its own event, then the scan's completion. */
+  async function scan(session: ScriptedSession, blobs: Uint8Array[]) {
+    for (const blob of blobs)
+      await session.push({ type: "blobs", sequence: 1, blobs: [blob] })
+    await session.push({
+      type: "local-load-complete",
+      found: blobs.length > 0,
+      backendSyncs: true,
+    })
+  }
+
   describe("initial blobs", () => {
     it("loads first storage blobs without creating an empty document", async () => {
       const { handle, session } = await lookup()
       const load = vi.spyOn(SlimA, "load")
       const incremental = vi.spyOn(SlimA, "loadIncremental")
-      await session.push({
-        type: "blobs",
-        sequence: 1,
-        blobs: A.getAllChanges(A.from({ count: 1 })),
-      })
+      await scan(session, A.getAllChanges(A.from({ count: 1 })))
       expect(load).toHaveBeenCalledOnce()
       expect(incremental).not.toHaveBeenCalled()
       expect(load.mock.calls[0][1]).toEqual({ allowMissingChanges: true })
       expect(handle.doc()).toEqual({ count: 1 })
-      await session.push({
-        type: "blobs",
-        sequence: 2,
-        blobs: A.getAllChanges(A.from({ nested: { value: 2 } })),
-      })
+      await scan(session, A.getAllChanges(A.from({ nested: { value: 2 } })))
       expect(load).toHaveBeenCalledOnce()
       expect(incremental).toHaveBeenCalledOnce()
       expect(handle.doc()).toEqual({ count: 1, nested: { value: 2 } })
@@ -91,11 +98,7 @@ describe("Repo loading", () => {
         throw new Error("invalid bytes")
       })
       const incremental = vi.spyOn(SlimA, "loadIncremental")
-      await session.push({
-        type: "blobs",
-        sequence: 1,
-        blobs: A.getAllChanges(A.from({ count: 1 })),
-      })
+      await scan(session, A.getAllChanges(A.from({ count: 1 })))
       expect(incremental).not.toHaveBeenCalled()
       expect(handle.heads()).toEqual([])
       await vi.waitFor(() =>
@@ -112,11 +115,7 @@ describe("Repo loading", () => {
         doc.count = 2
       })
       const { handle, session } = await lookup()
-      await session.push({
-        type: "blobs",
-        sequence: 1,
-        blobs: A.getChanges(first, second),
-      })
+      await scan(session, A.getChanges(first, second))
       expect(handle.doc()?.count).toBeUndefined()
       await session.push({
         type: "records",
@@ -135,11 +134,7 @@ describe("Repo loading", () => {
         })
       ).toThrow("Document is not ready")
       const load = vi.spyOn(SlimA, "load")
-      await session.push({
-        type: "blobs",
-        sequence: 1,
-        blobs: A.getAllChanges(A.from({ nested: { value: 2 } })),
-      })
+      await scan(session, A.getAllChanges(A.from({ nested: { value: 2 } })))
       expect(load).toHaveBeenCalledOnce()
       expect(handle.doc()).toEqual({ nested: { value: 2 } })
     })
@@ -161,11 +156,7 @@ describe("Repo loading", () => {
       })
       expect(handle.heads()).toEqual([])
       const load = vi.spyOn(SlimA, "load")
-      await session.push({
-        type: "blobs",
-        sequence: 2,
-        blobs: A.getAllChanges(remote),
-      })
+      await scan(session, A.getAllChanges(remote))
       expect(load).not.toHaveBeenCalled()
       expect(handle.doc()).toEqual({ count: 2 })
     })
@@ -176,11 +167,7 @@ describe("Repo loading", () => {
       const actor = A.getActorId(before)
       const load = vi.spyOn(SlimA, "load")
       const incremental = vi.spyOn(SlimA, "loadIncremental")
-      await session.push({
-        type: "blobs",
-        sequence: 1,
-        blobs: A.getAllChanges(A.from({ count: 1 })),
-      })
+      await scan(session, A.getAllChanges(A.from({ count: 1 })))
       expect(load).not.toHaveBeenCalled()
       expect(incremental).toHaveBeenCalledOnce()
       expect(A.getActorId(handle.fullDoc())).toBe(actor)
@@ -190,28 +177,32 @@ describe("Repo loading", () => {
     it("applies one initial blob without retaining its input bytes", async () => {
       const blob = A.getAllChanges(A.from({ count: 1 }))[0]
       const { handle, session } = await lookup()
-      await session.push({ type: "blobs", sequence: 1, blobs: [blob] })
+      await scan(session, [blob])
       expect(handle.doc()).toEqual({ count: 1 })
       blob.fill(0)
       expect(handle.doc()).toEqual({ count: 1 })
     })
 
-    it("applies initial blobs in one update and becomes ready only on completion", async () => {
+    it("buffers a scan's blobs and applies them in one load on completion", async () => {
       const source = A.change(A.from({ count: 1 }), doc => {
         doc.count = 2
       })
+      const blobs = A.getAllChanges(source)
+      expect(blobs.length).toBeGreaterThan(1)
       const { handle, session, progress } = await lookup()
+      const load = vi.spyOn(SlimA, "load")
       const changed = vi.fn()
       handle.on("change", changed)
-      await session.push({
-        type: "blobs",
-        sequence: 1,
-        blobs: A.getAllChanges(source),
-      })
+      for (const blob of blobs)
+        await session.push({ type: "blobs", sequence: 1, blobs: [blob] })
+      expect(load).not.toHaveBeenCalled()
+      expect(handle.heads()).toEqual([])
+      expect(changed).not.toHaveBeenCalled()
       expect(progress.state().state).toBe("loading")
+      await session.push({ type: "local-load-complete", found: true })
+      expect(load).toHaveBeenCalledOnce()
       expect(handle.doc()).toEqual({ count: 2 })
       expect(changed).toHaveBeenCalledOnce()
-      await session.push({ type: "local-load-complete", found: true })
       expect(progress.state().state).toBe("ready")
       expect(session.synchronize).not.toHaveBeenCalled()
       expect(session.markComplete).toHaveBeenCalledOnce()
@@ -224,11 +215,7 @@ describe("Repo loading", () => {
       const scoped = vi.fn()
       handle.on("change", root)
       handle.sub("nested").on("change", scoped)
-      await session.push({
-        type: "blobs",
-        sequence: 1,
-        blobs: A.getAllChanges(source),
-      })
+      await scan(session, A.getAllChanges(source))
       expect(root).toHaveBeenCalledOnce()
       expect(root.mock.calls[0][0].patches.length).toBeGreaterThan(0)
       expect(scoped).toHaveBeenCalledOnce()
@@ -239,11 +226,7 @@ describe("Repo loading", () => {
       const { handle, session } = await lookup()
       const changed = vi.fn()
       handle.once("heads-changed", () => handle.on("change", changed))
-      await session.push({
-        type: "blobs",
-        sequence: 1,
-        blobs: A.getAllChanges(A.from({ count: 1 })),
-      })
+      await scan(session, A.getAllChanges(A.from({ count: 1 })))
       expect(changed).toHaveBeenCalledOnce()
       expect(changed.mock.calls[0][0].doc).toEqual({ count: 1 })
     })
@@ -253,11 +236,7 @@ describe("Repo loading", () => {
       const diff = vi.spyOn(SlimA, "diff")
       const headsChanged = vi.fn()
       handle.on("heads-changed", headsChanged)
-      await session.push({
-        type: "blobs",
-        sequence: 1,
-        blobs: A.getAllChanges(A.from({ count: 1 })),
-      })
+      await scan(session, A.getAllChanges(A.from({ count: 1 })))
       expect(handle.doc()).toEqual({ count: 1 })
       expect(headsChanged).toHaveBeenCalledOnce()
       expect(diff).not.toHaveBeenCalled()

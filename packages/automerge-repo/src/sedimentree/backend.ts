@@ -11,7 +11,7 @@ import type { RecordBatch } from "./records.js"
  *
  * `open()` establishes initial local loading and live observation together,
  * before the first pull. Initial records reconstruct a pinned cut; a backend
- * may instead deliver a blob batch without a verified history marker. Live
+ * may instead deliver blobs without a verified history marker. Live
  * updates follow initial loading without a gap (duplicates are permitted).
  * Concurrent writes must not indefinitely extend initial loading. Opening
  * expresses interest, not a network connection, and does not by itself create
@@ -27,9 +27,12 @@ import type { RecordBatch } from "./records.js"
  * - `records`: history to merge. `phase: "initial"` belongs to the pinned cut;
  *   `phase: "live"` follows it. Delivery is not a local-durability receipt:
  *   events may race a store promise or expose remote data before it is persisted.
- * - `blobs`: one initial batch of unlabelled local bytes. Apply the whole batch
- *   before interpreting `local-load-complete`; it has no source-head marker.
- * - `local-load-complete`: local enumeration finished. With record delivery its
+ * - `blobs`: unlabelled local bytes from a storage scan, without a source-head
+ *   marker, possibly over many events as they are read. The scan's
+ *   `local-load-complete` follows them; the consumer buffers them and applies
+ *   the whole scan before interpreting that completion.
+ * - `local-load-complete`: local enumeration finished. A backend that rescans
+ *   storage (blobs only) ends each rescan with another. With record delivery its
  *   marker identifies history to verify; blob delivery has no marker. `found`
  *   says whether that load contained data, not whether dependencies are
  *   materialized or any peer has data. Empty local storage is not global

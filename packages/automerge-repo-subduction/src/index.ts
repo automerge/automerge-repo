@@ -415,38 +415,23 @@ export class SubductionBackend implements SedimentreeBackend {
       const updates = this.engine.loadAndWatch(native)
       stream = updates
       const marker = () => this.liveMarker(watch, native)
-      // Only storage scans are batched; peer and local updates flow live.
-      let snapshot: Uint8Array[] | undefined = []
-      const deliver = async (noPeers = false) => {
-        const blobs = snapshot!
-        snapshot = undefined
-        if (!initialized) {
-          initialized = true
-          const sequence = ++this.sequence
-          watch.initialize([
-            ...(blobs.length
-              ? [{ type: "blobs" as const, sequence, blobs }]
-              : []),
-            {
-              type: "local-load-complete",
-              found: blobs.length > 0,
-              backendSyncs: true,
-              ...(noPeers ? { noPeers: true } : {}),
-            },
-          ])
-          this.reconcileInterest(id)
-        } else {
-          if (blobs.length)
-            watch.push({ type: "blobs", sequence: ++this.sequence, blobs })
-          await marker()
-        }
-      }
+      // Storage-scan items pass on as blobs, each as it arrives; every scan
+      // ends with local-load-complete. Peer and local updates flow as records.
+      let scanning = true
+      let found = false
       try {
         for await (const update of updates) {
           if (released) break
           if (update.type === "commit" || update.type === "fragment") {
-            if (snapshot) {
-              snapshot.push(update.blob)
+            if (scanning) {
+              found = true
+              const event: SedimentreeEvent = {
+                type: "blobs",
+                sequence: ++this.sequence,
+                blobs: [update.blob],
+              }
+              if (initialized) watch.push(event)
+              else watch.pushInitial(event)
               continue
             }
             const record = storedRecord(update)
@@ -458,12 +443,26 @@ export class SubductionBackend implements SedimentreeBackend {
             })
             await marker()
           } else if (update.type === "storageChecked") {
-            if (!snapshot) continue
-            if (!initialized && !snapshot.length) {
-              const peers = await this.engine.getConnectedPeerIds()
-              await deliver(!peers.length)
-            } else await deliver()
-          } else if (update.type === "rescanRequired") snapshot = []
+            if (!scanning) continue
+            scanning = false
+            const complete = {
+              type: "local-load-complete",
+              found,
+              backendSyncs: true,
+            } as const
+            if (initialized) {
+              watch.push(complete)
+              continue
+            }
+            initialized = true
+            const noPeers =
+              !found && !(await this.engine.getConnectedPeerIds()).length
+            watch.initialize([noPeers ? { ...complete, noPeers } : complete])
+            this.reconcileInterest(id)
+          } else if (update.type === "rescanRequired") {
+            scanning = true
+            found = false
+          }
         }
       } catch (cause) {
         if (!released && !this.closed) throw cause

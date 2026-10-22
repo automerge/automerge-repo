@@ -1,5 +1,5 @@
-/** Single-consumer observation queue, not a history store. Initial blob
- * delivery is one batch; live events queue until pulled. */
+/** Single-consumer observation queue, not a history store. Initial-load
+ * events are readable as they arrive; live events queue until pulled. */
 export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
   private initial: T[] = []
   private initialIndex = 0
@@ -26,9 +26,16 @@ export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
   bufferBeforeInitialize(): void {
     if (!this.ended) this.buffering = true
   }
+  /** Deliver an initial-load event ahead of buffered live notifications. */
+  pushInitial(value: T): void {
+    if (this.ended || this.ready) return
+    this.initial.push(value)
+    this.wake?.()
+  }
+  /** End the initial load with `values`, then release live notifications. */
   initialize(values: T[]): void {
     if (this.ended) return
-    this.initial = values
+    this.initial.push(...values)
     this.ready = true
     this.active = true
     this.buffering = false
@@ -56,15 +63,15 @@ export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
     this.pulling = true
     try {
       for (;;) {
-        if (this.ready) {
-          if (this.initialIndex < this.initial.length) {
-            const value = this.initial[this.initialIndex++]
-            if (this.initialIndex === this.initial.length) {
-              this.initial = []
-              this.initialIndex = 0
-            }
-            return { done: false, value: this.copy(value) }
+        if (this.initialIndex < this.initial.length) {
+          const value = this.initial[this.initialIndex++]
+          if (this.initialIndex === this.initial.length) {
+            this.initial = []
+            this.initialIndex = 0
           }
+          return { done: false, value: this.copy(value) }
+        }
+        if (this.ready) {
           if (this.live.length)
             return { done: false, value: this.copy(this.live.shift()!) }
           if (this.ended) return { done: true, value: undefined }

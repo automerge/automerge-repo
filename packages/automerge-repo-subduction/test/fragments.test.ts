@@ -273,8 +273,8 @@ describe("local Subduction fragments", () => {
     await expect(backend.store(tree, records)).rejects.toThrow()
     // Native's recovery scan finds nothing to expose.
     expect(await next(watching.iterator)).toMatchObject({
-      type: "history-marker",
-      marker: { heads: [] },
+      type: "local-load-complete",
+      found: false,
     })
     expect((await initial(backend)).records).toEqual([])
     // Native may register the tree first; no record is stored.

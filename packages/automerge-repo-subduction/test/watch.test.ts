@@ -21,6 +21,22 @@ describe("observation queue", () => {
     await watch.return()
   })
 
+  it("delivers initial-load events as they arrive, ahead of held live updates", async () => {
+    const watch = new Watch<string>(value => value, vi.fn())
+    watch.bufferBeforeInitialize()
+    watch.push("live")
+    const pending = watch.next()
+    watch.pushInitial("blob 1")
+    expect((await pending).value).toBe("blob 1")
+    watch.pushInitial("blob 2")
+    expect((await watch.next()).value).toBe("blob 2")
+    const held = watch.next()
+    watch.initialize(["complete"])
+    expect((await held).value).toBe("complete")
+    expect((await watch.next()).value).toBe("live")
+    await watch.return()
+  })
+
   it("queues every live update until pulled", async () => {
     const { watch, released } = queue()
     for (let i = 0; i < 1000; i++) watch.push(String(i))

@@ -69,6 +69,8 @@ function whenIdle(run: () => void): () => void {
  */
 export class DocumentSync<T> {
   #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
+  /** Storage-scan bytes, applied together at the scan's local-load-complete. */
+  #blobs: Uint8Array[] = []
   #session?: SedimentreeSession
   #consumer: Promise<void> = Promise.resolve()
   #deleted = false
@@ -107,6 +109,7 @@ export class DocumentSync<T> {
       return
     }
     this.#session = session
+    this.#blobs = []
     if (!this.query.pending) session.markComplete?.()
     this.#consumer = this.#consume(session).catch(error => {
       if (this.#session !== session) return
@@ -298,6 +301,7 @@ export class DocumentSync<T> {
     this.close()
     this.#deleted = true
     this.#due.clear()
+    this.#blobs = []
     this.document.delete()
   }
 
@@ -321,25 +325,9 @@ export class DocumentSync<T> {
   onEvent(event: SedimentreeEvent): void {
     if (this.document.closed || this.query.terminal) return
     switch (event.type) {
-      case "blobs": {
-        const input = concatBytes(event.blobs)
-        if (!input.byteLength) break
-        const current = this.document.peekDoc()
-        if (!current) {
-          // The initial storage batch can become the document directly. A
-          // crash mid-flush or an interrupted sync can leave a record on disk
-          // without its parents; load the complete prefix and keep the rest pending.
-          const next = A.load<T>(input, { allowMissingChanges: true })
-          void this.document.applyLoaded(next, this.query.pending)
-        } else {
-          const next = A.loadIncremental(current, input)
-          void this.document.applyMutation(() => next, {
-            incoming: true,
-            initial: this.query.pending,
-          })
-        }
+      case "blobs":
+        this.#blobs.push(...event.blobs)
         break
-      }
       case "records": {
         // An applied head includes all its dependencies, even when delivered
         // through a fragment. Pending heads are not reported by hasHeads.
@@ -371,6 +359,7 @@ export class DocumentSync<T> {
         break
       }
       case "local-load-complete":
+        this.#applyBlobs()
         if (event.marker) this.#marker("local", event.marker)
         else if (event.found && this.document.heads().length) this.#complete()
         if (event.noPeers) this.query.unavailable()
@@ -439,6 +428,27 @@ export class DocumentSync<T> {
     try {
       this.document.log.error(message, detail)
     } catch {}
+  }
+
+  /** Apply a completed storage scan's blobs in one update. */
+  #applyBlobs(): void {
+    const input = concatBytes(this.#blobs)
+    this.#blobs = []
+    if (!input.byteLength) return
+    const current = this.document.peekDoc()
+    if (!current) {
+      // The first scan can become the document directly. A crash mid-flush
+      // or an interrupted sync can leave a record on disk without its
+      // parents; load the complete prefix and keep the rest pending.
+      const next = A.load<T>(input, { allowMissingChanges: true })
+      void this.document.applyLoaded(next, this.query.pending)
+    } else {
+      const next = A.loadIncremental(current, input)
+      void this.document.applyMutation(() => next, {
+        incoming: true,
+        initial: this.query.pending,
+      })
+    }
   }
 
   #marker(source: "local" | "live" | "sync", marker: HistoryMarker): void {

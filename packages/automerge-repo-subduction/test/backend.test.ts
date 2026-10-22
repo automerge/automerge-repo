@@ -154,6 +154,26 @@ describe("real local Subduction", () => {
     expect(loaded.complete.marker).toBeUndefined()
   })
 
+  it("passes each scanned item on as its own blobs event, unbatched", async () => {
+    const backend = create()
+    await backend.store(tree, [record(1), record(2, [1]), record(3, [2])])
+    const iterator = backend.open(tree).events[Symbol.asyncIterator]()
+    const events: SedimentreeEvent[] = []
+    for (;;) {
+      const event = await next(iterator)
+      events.push(event)
+      if (event.type === "local-load-complete") break
+    }
+    expect(events.map(event => event.type)).toEqual([
+      "blobs",
+      "blobs",
+      "blobs",
+      "local-load-complete",
+    ])
+    for (const event of events.slice(0, 3))
+      expect(event).toMatchObject({ blobs: [expect.any(Uint8Array)] })
+  })
+
   it("delivers blobs isolated between sessions", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
@@ -541,8 +561,8 @@ describe("real local Subduction", () => {
     await expect(backend.store(tree, records)).rejects.toThrow()
     // Native recovers by rescanning: nothing of the failed batch surfaces.
     expect(await next(iterator)).toMatchObject({
-      type: "history-marker",
-      marker: { heads: [] },
+      type: "local-load-complete",
+      found: false,
     })
     expect((await initial(backend.open(tree))).records).toEqual([])
     storage.beforeSave = undefined
@@ -761,8 +781,8 @@ describe("real local Subduction", () => {
     }
     await expect(backend.store(tree, [record(1), record(2)])).rejects.toThrow()
     expect(await next(iterator)).toMatchObject({
-      type: "history-marker",
-      marker: { heads: [] },
+      type: "local-load-complete",
+      found: false,
     })
     expect((await initial(backend.open(tree))).records).toEqual([])
     storage.beforeSave = undefined
