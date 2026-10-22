@@ -12,7 +12,11 @@ import {
 import { extractRecords } from "@automerge/automerge-repo/sedimentree/automerge"
 import { SubductionBackend } from "../src/index.js"
 import { TestStore, deferred } from "./storage.js"
-import { PairedTransport } from "./transport.js"
+import {
+  PairedTransport,
+  connectBackends,
+  type TestSigner,
+} from "./transport.js"
 
 const tree = sedimentreeId("71".repeat(16))
 const wait = { timeout: 8000, interval: 10 }
@@ -32,17 +36,12 @@ const persistedRecords = [...baseline, ...records].sort((a, b) =>
 )
 type Peer = {
   storage: TestStore
-  signer: N.MemorySigner
+  signer: TestSigner
   backend: SubductionBackend
 }
 
-function identity(signer: N.MemorySigner) {
-  const id = signer.peerId()
-  try {
-    return { kind: "subduction", id: id.toString(), path: [] }
-  } finally {
-    id.free()
-  }
+function identity(signer: TestSigner) {
+  return { kind: "subduction", id: signer.peerId(), path: [] }
 }
 
 /** Bound assertions without abandoning the underlying promise in cleanup. */
@@ -81,6 +80,9 @@ function errorText(value: unknown): string {
       ...(value instanceof AggregateError ? value.errors.map(errorText) : []),
     ].join(" ")
   }
+  // Native transport errors are plain `{ name, message }` records.
+  if (value && typeof value === "object" && "message" in value)
+    return String(value.message)
   return String(value)
 }
 
@@ -99,7 +101,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     return promise
   }
   function peer(storage?: TestStore): Peer {
-    const signer = N.MemorySigner.fromBytes(
+    const signer = N.createMemorySigner(
       new Uint8Array(32).fill(peers.length + 21)
     )
     const disk = storage ?? new TestStore()
@@ -165,45 +167,8 @@ describe("authenticated network failure and lifecycle barriers", () => {
   async function connect(a: Peer, b: Peer) {
     const pair = PairedTransport.pair()
     transports.push(...pair)
-    const expected = b.signer.peerId()
-    const wrappers: N.AuthenticatedTransport[] = []
-    const authenticate = async (promise: Promise<N.AuthenticatedTransport>) => {
-      try {
-        const wrapper = await promise
-        wrappers.push(wrapper)
-        return wrapper
-      } catch (error) {
-        await pair[0].disconnect()
-        throw error
-      }
-    }
-    try {
-      const results = await Promise.allSettled([
-        authenticate(
-          N.AuthenticatedTransport.setup(pair[0], a.signer, expected)
-        ),
-        authenticate(N.AuthenticatedTransport.accept(pair[1], b.signer)),
-      ])
-      const [left, right] = results.map(result => {
-        if (result.status === "rejected") throw result.reason
-        return result.value
-      })
-      const added = await Promise.allSettled([
-        a.backend.addConnection(left),
-        b.backend.addConnection(right),
-      ])
-      for (const result of added) {
-        if (result.status === "rejected") throw result.reason
-        expect(result.value).toBe(true)
-      }
-      return pair
-    } catch (error) {
-      await pair[0].disconnect()
-      throw error
-    } finally {
-      wrappers.forEach(wrapper => wrapper.free())
-      expected.free()
-    }
+    await connectBackends(a, b, pair)
+    return pair
   }
   async function settledConnection(a: Peer, b: Peer) {
     // Lifecycle tests need supported, nonempty interests, not ambiguous lookups.
@@ -233,11 +198,10 @@ describe("authenticated network failure and lifecycle barriers", () => {
     )
     await Promise.allSettled(observations.splice(0).map(o => o.return?.()))
     await bounded(
-      Promise.allSettled(peers.map(p => p.backend.close())),
+      Promise.allSettled(peers.splice(0).map(p => p.backend.close())),
       "backend cleanup"
     )
     await bounded(Promise.allSettled(work.splice(0)), "pending work cleanup")
-    peers.splice(0).forEach(p => p.signer.free())
     vi.restoreAllMocks()
   }, 30000)
 
@@ -584,14 +548,16 @@ describe("authenticated network failure and lifecycle barriers", () => {
     })
     expect(await b.storage.list("subduction-v2/ids/")).toHaveLength(1)
     // A retry can repair the optional inventory marker omitted by the failed
-    // transaction. The signed record itself must remain byte-for-byte stable.
+    // transaction. Re-storing held records rewrites them under the same keys
+    // (native re-signs them locally); blobs stay identical.
     const recordKeys = async () =>
       (await b.storage.list("subduction-v2/")).filter(key =>
         key.includes("/commits/")
       )
     const keys = await recordKeys()
     expect(keys).toHaveLength(persistedRecords.length * 2)
-    const bytes = await Promise.all(keys.map(key => b.storage.load(key)))
+    const blobKeys = keys.filter(key => key.includes("/blob/"))
+    const blobs = await Promise.all(blobKeys.map(key => b.storage.load(key)))
     await connect(a, b)
     for (let i = 0; i < 2; i++) {
       const result = await bounded(
@@ -602,8 +568,8 @@ describe("authenticated network failure and lifecycle barriers", () => {
       await b.backend.store(tree, records)
     }
     expect(await recordKeys()).toEqual(keys)
-    expect(await Promise.all(keys.map(key => b.storage.load(key)))).toEqual(
-      bytes
+    expect(await Promise.all(blobKeys.map(key => b.storage.load(key)))).toEqual(
+      blobs
     )
     await b.backend.close()
     expect(initialRecords((await observe(peer(b.storage))).events)).toEqual(

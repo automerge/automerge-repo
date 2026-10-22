@@ -1,6 +1,7 @@
 import * as N from "@automerge/subduction/slim"
 import {
   BackendError,
+  checkpointId,
   commitId,
   copyRecord,
   sedimentreeId,
@@ -8,6 +9,8 @@ import {
   type BackendOperation,
   type HistoryMarker,
   type SedimentreeRecord,
+  type FragmentRecord,
+  type LooseCommitRecord,
   type RecordBatch,
   type SedimentreeBackend,
   type SedimentreeEvent,
@@ -15,23 +18,11 @@ import {
   type SedimentreeSession,
   type SyncRoundResult,
 } from "@automerge/automerge-repo/sedimentree"
-import {
-  StorageBridge,
-  nativeId,
-  logicalId,
-  storedRecord,
-  unsigned,
-  unsignedFragment,
-} from "./storage.js"
+import { StorageBridge, nativeId, logicalId } from "./storage.js"
 import type { ByteStore } from "./ByteStore.js"
 import { Watch } from "./watch.js"
 import { notifyBackendClosed } from "./backendLifecycle.js"
-import {
-  copyEphemeral,
-  decodeEphemeral,
-  encodeEphemeral,
-  topicKey,
-} from "./ephemeral.js"
+import { copyEphemeral, decodeEphemeral, encodeEphemeral } from "./ephemeral.js"
 
 export type { ByteStore } from "./ByteStore.js"
 export { MemoryByteStore } from "./MemoryByteStore.js"
@@ -45,12 +36,13 @@ export type {
 } from "./connect.js"
 export { createSubductionPeer } from "./peer.js"
 export type { SubductionPeer, SubductionPeerOptions } from "./peer.js"
-/** Borrowed: keep alive through backend.close(). Requires a valid Ed25519
- * verifying key and matching signatures; native does not validate providers safely.
+/** Keep alive through backend.close(). Requires a valid Ed25519 verifying
+ * key and matching signatures; native does not validate providers safely.
  */
 export type NativeSigner = N.Signer
-/** Authenticate outside the backend; addConnection borrows this wrapper. */
-export type AuthenticatedTransport = N.AuthenticatedTransport
+/** Framed byte transport; the backend authenticates it with its signer. */
+export type Transport = N.Transport
+export type TransportAudience = N.TransportAudience
 
 export interface SubductionBackendOptions {
   signer: NativeSigner
@@ -119,6 +111,36 @@ function copyEvent(value: SedimentreeEvent): SedimentreeEvent {
     }
   return { ...value }
 }
+/** Record for an item on a native stored stream. */
+function storedRecord(
+  item: Extract<N.StoredUpdate, { type: "commit" | "fragment" }>
+): SedimentreeRecord {
+  if (item.type === "commit")
+    return {
+      kind: "commit",
+      id: commitId(item.metadata.head),
+      parents: item.metadata.parents.map(commitId),
+      blob: item.blob,
+    }
+  return {
+    kind: "fragment",
+    head: commitId(item.metadata.head),
+    boundary: item.metadata.boundary.map(commitId),
+    checkpoints: item.metadata.checkpoints.map(checkpointId),
+    blob: item.blob,
+  }
+}
+function commitInput(record: LooseCommitRecord): N.CommitInput {
+  return { head: record.id, parents: record.parents, blob: record.blob }
+}
+function fragmentInput(record: FragmentRecord): N.FragmentInput {
+  return {
+    head: record.head,
+    boundary: record.boundary,
+    checkpoints: record.checkpoints,
+    blob: record.blob,
+  }
+}
 function waitOnly<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return promise
   return new Promise<T>((resolve, reject) => {
@@ -169,7 +191,6 @@ export class SubductionBackend implements SedimentreeBackend {
         throw new TypeError("Limits must be positive safe integers")
     if (this.limits.syncTimeoutMilliseconds > 0xffffffff)
       throw new TypeError("Sync timeout exceeds native u32 range")
-    // signer is a JS Signer reference, NOT a consumed WASM pointer.
     this.engine = new N.Subduction({
       signer: options.signer,
       storage: new StorageBridge(options.storage),
@@ -184,70 +205,70 @@ export class SubductionBackend implements SedimentreeBackend {
     })
   }
   private onEphemeral(topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) {
-    try {
-      if (this.closed) return
-      const key = topicKey(topic.toBytes())
-      const tree = sedimentreeId(
-        key.endsWith("0".repeat(32)) ? key.slice(0, 32) : key
-      )
-      if (this.deleting.has(tree)) return
-      const watches = [...this.watches].filter(
-        ([watch, id]) => id === tree && watch.active
-      )
-      if (!watches.length) return
-      const message = decodeEphemeral(bytes)
-      if (!message) return
-      const event: SedimentreeEvent = {
-        type: "ephemeral",
-        sequence: ++this.sequence,
-        message,
-        sender: this.peerIdentity(peer),
-      }
-      for (const [watch] of watches) watch.push(event)
-    } finally {
-      peer.free()
-      topic.free()
+    if (this.closed) return
+    const tree = logicalId(topic)
+    if (this.deleting.has(tree)) return
+    const watches = [...this.watches].filter(
+      ([watch, id]) => id === tree && watch.active
+    )
+    if (!watches.length) return
+    const message = decodeEphemeral(bytes)
+    if (!message) return
+    const event: SedimentreeEvent = {
+      type: "ephemeral",
+      sequence: ++this.sequence,
+      message,
+      sender: this.peerIdentity(peer),
     }
+    for (const [watch] of watches) watch.push(event)
   }
   private onRemoteHeads(
     id: N.SedimentreeId,
     peer: N.PeerId,
     heads: N.CommitId[]
   ) {
-    try {
-      if (this.closed) return
-      const tree = logicalId(id)
-      if (this.deleting.has(tree)) return
-      const event: SedimentreeEvent = {
-        type: "remote-heads",
-        sequence: ++this.sequence,
-        remote: this.peerIdentity(peer),
-        heads: heads.map(h => commitId(h.toHexString())),
-      }
-      for (const [watch, watched] of this.watches)
-        if (watched === tree) watch.push(event)
-    } finally {
-      heads.forEach(h => h.free())
-      peer.free()
-      id.free()
+    if (this.closed) return
+    const tree = logicalId(id)
+    if (this.deleting.has(tree)) return
+    const event: SedimentreeEvent = {
+      type: "remote-heads",
+      sequence: ++this.sequence,
+      remote: this.peerIdentity(peer),
+      heads: heads.map(commitId),
     }
+    for (const [watch, watched] of this.watches)
+      if (watched === tree) watch.push(event)
   }
   private peerIdentity(peer: N.PeerId): BackendIdentity {
-    return { kind: "subduction", id: peer.toString(), path: [] }
+    return { kind: "subduction", id: peer, path: [] }
   }
-  /** Borrow the authenticated wrapper until this promise settles. On success,
-   * the engine owns a connection clone and disconnects it on close.
-   * Keep the underlying JS transport alive until disconnection. Authentication
-   * is the caller's responsibility; no document handle is materialized here.
+  /** Authenticate an outgoing transport with this backend's signer and add
+   * the connection; resolves to the remote peer ID. The engine disconnects it
+   * on close. Keep the JS transport alive until disconnection.
    *
    * Open streams sync the new connection themselves, and native serves peer
    * requests for any stored tree, so stored-but-unopened documents are not
    * replayed here (matching Repo's historical connect behaviour).
    */
-  async addConnection(transport: AuthenticatedTransport): Promise<boolean> {
+  async addConnection(
+    transport: Transport,
+    audience: TransportAudience
+  ): Promise<string> {
     this.check("synchronize")
     try {
-      return await this.engine.addConnection(transport)
+      return await this.engine.connectTransport(transport, audience)
+    } catch (cause) {
+      throw error("synchronize", cause)
+    }
+  }
+  /** Accepting side of addConnection. */
+  async acceptConnection(
+    transport: Transport,
+    audience: TransportAudience
+  ): Promise<string> {
+    this.check("synchronize")
+    try {
+      return await this.engine.acceptTransport(transport, audience)
     } catch (cause) {
       throw error("synchronize", cause)
     }
@@ -262,16 +283,10 @@ export class SubductionBackend implements SedimentreeBackend {
     // Record the attempted state so a released observer still cleans up.
     if (desired) this.interests.add(id)
     else this.interests.delete(id)
+    const topic = nativeId(id)
     void (async () => {
-      const native = nativeId(id)
-      const topic = N.Topic.fromBytes(native.toBytes())
-      native.free()
-      try {
-        if (desired) await this.engine.subscribeEphemeral([topic])
-        else await this.engine.unsubscribeEphemeral([topic])
-      } finally {
-        topic.free()
-      }
+      if (desired) await this.engine.subscribeEphemeral([topic])
+      else await this.engine.unsubscribeEphemeral([topic])
     })().catch(cause => {
       if (this.closed) return
       for (const [watch, tree] of this.watches)
@@ -305,88 +320,69 @@ export class SubductionBackend implements SedimentreeBackend {
     const engine = this.engine
     const roundId = `subduction-${++this.round}`
     const native = nativeId(id)
-    let peers: N.PeerId[] = []
-    try {
-      peers = await engine.getConnectedPeerIds()
-      // Store-triggered rounds only propagate; with no peers there is nothing
-      // to do or report. Explicit rounds always answer their session.
-      if (!peers.length && !recipient)
-        return {
-          roundId,
-          marker: { sequence: ++this.sequence, heads: [] },
-          outcome: "no-peers",
-          peers: [],
-        }
-      const outcomes: SyncRoundResult["peers"][number][] = []
-      for (const peer of peers) {
-        const identity = this.peerIdentity(peer)
-        try {
-          const response = await engine.syncWithPeer(
-            peer,
-            native,
-            true,
-            this.limits.syncTimeoutMilliseconds
-          )
-          try {
-            const failures = response.transportErrors
-            outcomes.push({
-              peer: identity,
-              outcome: response.success ? "complete" : "failed",
-              ...(failures.length
-                ? {
-                    error: error(
-                      "synchronize",
-                      new AggregateError(
-                        failures,
-                        "Peer synchronization failed"
-                      )
-                    ),
-                  }
-                : !response.success
-                  ? {
-                      error: new BackendError(
-                        "synchronize",
-                        "unsupported",
-                        "Native sync does not distinguish absent, unauthorized, and disconnected peers"
-                      ),
-                    }
-                  : {}),
-            })
-          } finally {
-            response.free()
-          }
-        } catch (cause) {
-          outcomes.push({
-            peer: identity,
-            outcome: "failed",
-            error: error("synchronize", cause),
-          })
-        }
+    const peers = await engine.getConnectedPeerIds()
+    // Store-triggered rounds only propagate; with no peers there is nothing
+    // to do or report. Explicit rounds always answer their session.
+    if (!peers.length && !recipient)
+      return {
+        roundId,
+        marker: { sequence: ++this.sequence, heads: [] },
+        outcome: "no-peers",
+        peers: [],
       }
-      this.check("synchronize", id)
-      let result!: SyncRoundResult
-      const publish = (marker: HistoryMarker) => {
-        result = {
-          roundId,
-          marker,
-          outcome: !peers.length
-            ? "no-peers"
-            : outcomes.every(p => p.outcome === "complete")
-              ? "complete"
-              : "failed",
-          peers: outcomes,
-        }
-        if (!this.closed && !this.deleting.has(id))
-          for (const [watch, tree] of this.watches)
-            if (tree === id && (!recipient || watch === recipient))
-              watch.push({ type: "synchronized", result })
+    const outcomes: SyncRoundResult["peers"][number][] = []
+    for (const peer of peers) {
+      const identity = this.peerIdentity(peer)
+      try {
+        const response = await engine.syncWithPeer(peer, native, {
+          subscribe: true,
+          timeoutMilliseconds: this.limits.syncTimeoutMilliseconds,
+        })
+        const failures = response.transportErrors
+        outcomes.push({
+          peer: identity,
+          outcome: response.success ? "complete" : "failed",
+          ...(failures.length
+            ? {
+                error: error(
+                  "synchronize",
+                  new AggregateError(failures, "Peer synchronization failed")
+                ),
+              }
+            : !response.success
+              ? {
+                  error: new BackendError(
+                    "synchronize",
+                    "unsupported",
+                    "Native sync does not distinguish absent, unauthorized, and disconnected peers"
+                  ),
+                }
+              : {}),
+        })
+      } catch (cause) {
+        outcomes.push({
+          peer: identity,
+          outcome: "failed",
+          error: error("synchronize", cause),
+        })
       }
-      publish(await this.headsMarker(native))
-      return result
-    } finally {
-      peers.forEach(peer => peer.free())
-      native.free()
     }
+    this.check("synchronize", id)
+    const result: SyncRoundResult = {
+      roundId,
+      marker: await this.headsMarker(native),
+      outcome: !peers.length
+        ? "no-peers"
+        : outcomes.every(p => p.outcome === "complete")
+          ? "complete"
+          : "failed",
+      peers: outcomes,
+    }
+    if (!this.closed && !this.deleting.has(id))
+      for (const [watch, tree] of this.watches)
+        if (tree === id && (!recipient || watch === recipient))
+          watch.push({ type: "synchronized", result })
+    return result
   }
   private check(operation: BackendOperation, id?: SedimentreeId): void {
     if (this.closed)
@@ -406,14 +402,7 @@ export class SubductionBackend implements SedimentreeBackend {
   }
   private async headsMarker(native: N.SedimentreeId): Promise<HistoryMarker> {
     const heads = (await this.engine.getHeads(native)) ?? []
-    try {
-      return {
-        sequence: ++this.sequence,
-        heads: heads.map(head => commitId(head.toHexString())).sort(),
-      }
-    } finally {
-      heads.forEach(head => head.free())
-    }
+    return { sequence: ++this.sequence, heads: heads.map(commitId).sort() }
   }
   open(input: SedimentreeId): SedimentreeSession {
     const id = sedimentreeId(input)
@@ -471,7 +460,6 @@ export class SubductionBackend implements SedimentreeBackend {
           if (update.type === "commit" || update.type === "fragment") {
             if (snapshot) {
               snapshot.push(update.blob)
-              update.metadata.free()
               continue
             }
             const record = storedRecord(update)
@@ -486,21 +474,14 @@ export class SubductionBackend implements SedimentreeBackend {
             if (!snapshot) continue
             if (!initialized && !snapshot.length) {
               const peers = await this.engine.getConnectedPeerIds()
-              try {
-                await deliver(!peers.length)
-              } finally {
-                peers.forEach(peer => peer.free())
-              }
+              await deliver(!peers.length)
             } else await deliver()
-          } else if (update.type === "peerSynced") {
-            update.peerId.free()
-          } else snapshot = []
+          } else if (update.type === "rescanRequired") snapshot = []
         }
       } catch (cause) {
         if (!released && !this.closed) throw cause
       } finally {
         updates.close()
-        native.free()
       }
     }
     void observe().catch(cause =>
@@ -546,15 +527,10 @@ export class SubductionBackend implements SedimentreeBackend {
             { cause }
           )
         }
-        const native = nativeId(id)
-        const topic = N.Topic.fromBytes(native.toBytes())
-        native.free()
         try {
-          await this.engine.publishEphemeral(topic, bytes)
+          await this.engine.publishEphemeral(nativeId(id), bytes)
         } catch (cause) {
           throw error("ephemeral", cause)
-        } finally {
-          topic.free()
         }
       },
       markComplete: () => {
@@ -621,7 +597,6 @@ export class SubductionBackend implements SedimentreeBackend {
         try {
           if (creating) {
             const heads = (await engine.getHeads(native)) ?? []
-            heads.forEach(head => head.free())
             if (heads.length)
               throw new BackendError(
                 "create",
@@ -632,39 +607,19 @@ export class SubductionBackend implements SedimentreeBackend {
           // One native call: it signs everything, saves through the bridge
           // once and minimizes once. Automerge's own memory limit is reached
           // long before a batch is large enough to need splitting here.
-          const inputs: N.CommitInput[] = []
+          const commits: N.CommitInput[] = []
           const fragments: N.FragmentInput[] = []
-          try {
-            for (const record of records) {
-              // Input constructors consume their native payloads.
-              if (record.kind === "commit")
-                inputs.push(
-                  new N.CommitInput(unsigned(native, record), record.blob)
-                )
-              else
-                fragments.push(
-                  new N.FragmentInput(
-                    unsignedFragment(native, record),
-                    record.blob
-                  )
-                )
-            }
-            // storeBuiltBatch consumes both kinds of input wrappers.
-            submitted = true
-            await engine.storeBuiltBatch(native, inputs, fragments)
-          } finally {
-            if (!submitted) {
-              inputs.forEach(c => c.free())
-              fragments.forEach(f => f.free())
-            }
-          }
+          for (const record of records)
+            if (record.kind === "commit") commits.push(commitInput(record))
+            else fragments.push(fragmentInput(record))
+          submitted = true
+          await engine.storeBatch(native, { commits, fragments })
         } finally {
           // Durability never waits for a peer; a round propagates stores even
           // without a document session. A failed write may still have made
           // some records durable; they must propagate too, and a retry of the
           // whole batch dedupes them.
           if (submitted) this.scheduleSync(id)
-          native.free()
         }
       })().catch(cause => {
         throw error(operation, cause)
@@ -724,12 +679,7 @@ export class SubductionBackend implements SedimentreeBackend {
       const earlier = this.acks.get(id)
       const work: Promise<void> = (async () => {
         await Promise.allSettled([earlier])
-        const native = nativeId(id)
-        try {
-          await this.engine.removeSedimentree(native)
-        } finally {
-          native.free()
-        }
+        await this.engine.removeSedimentree(nativeId(id))
       })()
         .catch(cause => {
           throw error("delete", cause)

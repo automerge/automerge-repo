@@ -13,13 +13,14 @@ import { TestStore, deferred } from "./storage.js"
 import { corruptFrame } from "./frame.js"
 import { repoFragmentFixture } from "./repoFixture.js"
 import { RepoTransport } from "./repoTransport.js"
+import { connectBackends, type TestSigner } from "./transport.js"
 
 type State = { count: number; left?: number; right?: number }
 type Peer = {
   repo: Repo
   backend: SubductionBackend
   storage: TestStore
-  signer: N.MemorySigner
+  signer: TestSigner
 }
 const wait = { timeout: 8000, interval: 20 }
 
@@ -33,7 +34,7 @@ describe("public Repo with native Subduction", () => {
   const gates: ReturnType<typeof deferred>[] = []
 
   function peer(storage?: TestStore): Peer {
-    const signer = N.MemorySigner.fromBytes(
+    const signer = N.createMemorySigner(
       new Uint8Array(32).fill(peers.length + 1)
     )
     const disk = storage ?? new TestStore()
@@ -55,45 +56,8 @@ describe("public Repo with native Subduction", () => {
   async function connect(a: Peer, b: Peer) {
     const pair = RepoTransport.pair()
     wires.push(...pair)
-    const expected = b.signer.peerId()
-    const wrappers: N.AuthenticatedTransport[] = []
-    const authenticate = async (promise: Promise<N.AuthenticatedTransport>) => {
-      try {
-        const wrapper = await promise
-        wrappers.push(wrapper)
-        return wrapper
-      } catch (error) {
-        await pair[0].disconnect()
-        throw error
-      }
-    }
-    try {
-      const results = await Promise.allSettled([
-        authenticate(
-          N.AuthenticatedTransport.setup(pair[0], a.signer, expected)
-        ),
-        authenticate(N.AuthenticatedTransport.accept(pair[1], b.signer)),
-      ])
-      const [left, right] = results.map(result => {
-        if (result.status === "rejected") throw result.reason
-        return result.value
-      })
-      const added = await Promise.allSettled([
-        a.backend.addConnection(left),
-        b.backend.addConnection(right),
-      ])
-      for (const result of added) {
-        if (result.status === "rejected") throw result.reason
-        expect(result.value).toBe(true)
-      }
-      return pair
-    } catch (error) {
-      await pair[0].disconnect()
-      throw error
-    } finally {
-      wrappers.forEach(wrapper => wrapper.free())
-      expected.free()
-    }
+    await connectBackends(a, b, pair)
+    return pair
   }
 
   function failAfterLocalScan(p: Peer, failures: number): () => number {
@@ -126,8 +90,7 @@ describe("public Repo with native Subduction", () => {
     gates.splice(0).forEach(gate => gate.resolve())
     await Promise.allSettled(wires.splice(0).map(wire => wire.disconnect()))
     await Promise.allSettled(peers.map(p => p.repo.shutdown()))
-    await Promise.allSettled(peers.map(p => p.backend.close()))
-    peers.splice(0).forEach(p => p.signer.free())
+    await Promise.allSettled(peers.splice(0).map(p => p.backend.close()))
   }, 20000)
 
   it("changes state and emits events immediately, but awaits recoverable storage", async () => {
@@ -296,7 +259,7 @@ describe("public Repo with native Subduction", () => {
     await connect(reopened, b)
     const receiver = await b.repo.find<State>(url)
     await ready(receiver, { count })
-    expect(A.getMissingDeps(receiver.fullDoc())).toEqual([])
+    expect(A.getMissingDeps(receiver.fullDoc(), [])).toEqual([])
     expect(A.getHeads(receiver.fullDoc())).toEqual(A.getHeads(again.fullDoc()))
   }, 60000)
 

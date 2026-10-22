@@ -1,54 +1,56 @@
-import type { SedimentreeRecord } from "@automerge/automerge-repo/sedimentree"
+import * as N from "@automerge/subduction"
+import {
+  checkpointId,
+  commitId,
+  type SedimentreeId,
+  type SedimentreeRecord,
+} from "@automerge/automerge-repo/sedimentree"
 import { MemoryByteStore } from "../src/index.js"
-import { StorageBridge, nativeId, storedRecord } from "../src/storage.js"
+import { StorageBridge, nativeId } from "../src/storage.js"
 import type { ByteStore } from "../src/ByteStore.js"
 
-/** Test inspection: stored records via the bridge's native load callbacks,
- * commits then fragments. */
+/** Test inspection: stored records, commits then fragments, decoded by a
+ * scratch node over the same storage. */
 export async function storedRecords(
   storage: ByteStore | StorageBridge,
-  id: Parameters<typeof nativeId>[0] | ReturnType<typeof nativeId>
+  id: SedimentreeId
 ): Promise<SedimentreeRecord[]> {
   const bridge =
     storage instanceof StorageBridge ? storage : new StorageBridge(storage)
-  const native = typeof id === "string" ? nativeId(id) : id
+  const node = new N.Subduction({
+    signer: N.createMemorySigner(),
+    storage: bridge,
+  })
+  const native = nativeId(id)
   try {
-    const commits = await bridge.loadAllCommits(native)
-    const fragments = await bridge.loadAllFragments(native)
+    const blob = async (digest: string) => {
+      const value = await node.getBlob(native, digest)
+      if (!value) throw new Error("Missing stored blob")
+      return value
+    }
     const records: SedimentreeRecord[] = []
-    for (const commit of commits) {
-      const signed = commit.signed
-      try {
-        records.push(
-          storedRecord({
-            type: "commit",
-            metadata: signed.payload,
-            blob: commit.blob,
-          })
-        )
-      } finally {
-        signed.free()
-        commit.free()
-      }
-    }
-    for (const fragment of fragments) {
-      const signed = fragment.signed
-      try {
-        records.push(
-          storedRecord({
-            type: "fragment",
-            metadata: signed.payload,
-            blob: fragment.blob,
-          })
-        )
-      } finally {
-        signed.free()
-        fragment.free()
-      }
-    }
+    for (const c of (await node.getCommits(native)) ?? [])
+      records.push({
+        kind: "commit",
+        id: commitId(c.head),
+        parents: c.parents.map(commitId),
+        blob: await blob(c.blobMeta.digest),
+      })
+    for (const f of (await node.getFragments(native)) ?? [])
+      records.push({
+        kind: "fragment",
+        head: commitId(f.head),
+        boundary: f.boundary.map(commitId),
+        checkpoints: f.checkpoints.map(checkpointId),
+        blob: await blob(f.blobMeta.digest),
+      })
     return records
   } finally {
-    if (typeof id === "string") native.free()
+    try {
+      await node.close()
+    } finally {
+      node.free()
+    }
   }
 }
 

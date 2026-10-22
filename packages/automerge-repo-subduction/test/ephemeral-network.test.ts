@@ -10,7 +10,11 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { MemoryByteStore, SubductionBackend } from "../src/index.js"
 import { encodeEphemeral } from "../src/ephemeral.js"
 import { nativeId } from "../src/storage.js"
-import { PairedTransport } from "./transport.js"
+import {
+  PairedTransport,
+  connectBackends,
+  type TestSigner,
+} from "./transport.js"
 import { deferred } from "./storage.js"
 import { extractRecords } from "@automerge/automerge-repo/sedimentree/automerge"
 
@@ -41,7 +45,7 @@ const message = (
 })
 
 type Peer = {
-  signer: N.MemorySigner
+  signer: TestSigner
   storage: MemoryByteStore
   backend: SubductionBackend
 }
@@ -53,7 +57,7 @@ describe("real native ephemerals", () => {
   const repos: Repo[] = []
   const releases: (() => void)[] = []
   function peer(): Peer {
-    const signer = N.MemorySigner.generate()
+    const signer = N.createMemorySigner()
     const storage = new MemoryByteStore()
     const backend = new SubductionBackend({ signer, storage })
     const result = { signer, storage, backend }
@@ -93,35 +97,13 @@ describe("real native ephemerals", () => {
   ) {
     const pair = PairedTransport.pair()
     wires.push(...pair)
-    const expected = b.signer.peerId()
-    const wrappers: N.AuthenticatedTransport[] = []
-    try {
-      const results = await Promise.allSettled([
-        N.AuthenticatedTransport.setup(pair[0], a.signer, expected),
-        N.AuthenticatedTransport.accept(pair[1], b.signer),
-      ])
-      for (const result of results)
-        if (result.status === "fulfilled") wrappers.push(result.value)
-      for (const result of results)
-        if (result.status === "rejected") throw result.reason
-      await Promise.all([
-        a.backend.addConnection(wrappers[0]),
-        b.backend.addConnection(wrappers[1]),
-      ])
-      // Ordered sends ensure native interest announcements have arrived.
-      await Promise.all([
-        engine(a)
-          .getConnectedPeerIds()
-          .then(ids => ids.forEach(id => id.free())),
-        engine(b)
-          .getConnectedPeerIds()
-          .then(ids => ids.forEach(id => id.free())),
-      ])
-      return pair
-    } finally {
-      wrappers.forEach(wrapper => wrapper.free())
-      expected.free()
-    }
+    await connectBackends(a, b, pair)
+    // Ordered sends ensure native interest announcements have arrived.
+    await Promise.all([
+      engine(a).getConnectedPeerIds(),
+      engine(b).getConnectedPeerIds(),
+    ])
+    return pair
   }
   function deliver(
     callback: Function,
@@ -130,23 +112,14 @@ describe("real native ephemerals", () => {
     id = tree,
     bytes = encodeEphemeral(envelope)
   ) {
-    const native = nativeId(id)
-    const topic = N.Topic.fromBytes(native.toBytes())
-    native.free()
-    const sender = p.signer.peerId()
-    const topicFree = vi.spyOn(topic, "free")
-    const peerFree = vi.spyOn(sender, "free")
-    callback(topic, sender, bytes)
-    expect(topicFree).toHaveBeenCalledOnce()
-    expect(peerFree).toHaveBeenCalledOnce()
+    callback(nativeId(id), p.signer.peerId(), bytes)
   }
   afterEach(async () => {
     releases.splice(0).forEach(release => release())
     await Promise.allSettled(wires.splice(0).map(w => w.disconnect()))
     await Promise.allSettled(iterators.splice(0).map(i => i.return?.()))
     await Promise.allSettled(repos.splice(0).map(r => r.shutdown()))
-    await Promise.allSettled(peers.map(p => p.backend.close()))
-    peers.splice(0).forEach(p => p.signer.free())
+    await Promise.allSettled(peers.splice(0).map(p => p.backend.close()))
     callbacks.length = 0
     vi.restoreAllMocks()
   })
@@ -166,15 +139,10 @@ describe("real native ephemerals", () => {
       () => expect(ephemerals(right.events)).toHaveLength(1),
       wait
     )
-    const sender = a.signer.peerId()
-    try {
-      expect(ephemerals(right.events)[0]).toMatchObject({
-        message: outgoing,
-        sender: { kind: "subduction", id: sender.toString(), path: [] },
-      })
-    } finally {
-      sender.free()
-    }
+    expect(ephemerals(right.events)[0]).toMatchObject({
+      message: outgoing,
+      sender: { kind: "subduction", id: a.signer.peerId(), path: [] },
+    })
     await settle()
     expect(ephemerals(right.events)).toHaveLength(1)
     expect(ephemerals(twin.events)).toHaveLength(1)
@@ -265,36 +233,29 @@ describe("real native ephemerals", () => {
         () => expect(ephemerals(right.events)).toHaveLength(1),
         wait
       )
-      const signed = a.signer.peerId(),
-        forwarded = relay.signer.peerId()
-      try {
-        expect(ephemerals(right.events)[0].sender.id).toBe(signed.toString())
-        expect(ephemerals(right.events)[0].sender.id).not.toBe(
-          forwarded.toString()
-        )
-        expect(ephemerals(right.events)[0].message).toEqual(outgoing)
-        expect(ephemerals(left.events)).toHaveLength(0)
-        await vi.waitFor(
-          () => expect(ephemerals(middle.events)).toHaveLength(1),
-          wait
-        )
-        // With a cycle, b hears from a directly and via relay; native drops one.
-        await settle()
-        expect(ephemerals(right.events)).toHaveLength(1)
-        expect(ephemerals(middle.events)).toHaveLength(1)
-        await left.session.publishEphemeral(message())
-        await vi.waitFor(() => {
-          expect(ephemerals(right.events)).toHaveLength(2)
-          expect(ephemerals(middle.events)).toHaveLength(2)
-        }, wait)
-        await settle()
+      expect(ephemerals(right.events)[0].sender.id).toBe(a.signer.peerId())
+      expect(ephemerals(right.events)[0].sender.id).not.toBe(
+        relay.signer.peerId()
+      )
+      expect(ephemerals(right.events)[0].message).toEqual(outgoing)
+      expect(ephemerals(left.events)).toHaveLength(0)
+      await vi.waitFor(
+        () => expect(ephemerals(middle.events)).toHaveLength(1),
+        wait
+      )
+      // With a cycle, b hears from a directly and via relay; native drops one.
+      await settle()
+      expect(ephemerals(right.events)).toHaveLength(1)
+      expect(ephemerals(middle.events)).toHaveLength(1)
+      await left.session.publishEphemeral(message())
+      await vi.waitFor(() => {
         expect(ephemerals(right.events)).toHaveLength(2)
         expect(ephemerals(middle.events)).toHaveLength(2)
-        expect(ephemerals(left.events)).toHaveLength(0)
-      } finally {
-        signed.free()
-        forwarded.free()
-      }
+      }, wait)
+      await settle()
+      expect(ephemerals(right.events)).toHaveLength(2)
+      expect(ephemerals(middle.events)).toHaveLength(2)
+      expect(ephemerals(left.events)).toHaveLength(0)
     }
   )
 
@@ -334,16 +295,18 @@ describe("real native ephemerals", () => {
     wire.resume()
     await publishing
     await wire.disconnect()
-    // Native addConnection replays topics before resolving; gate only that phase.
+    // Native connectTransport replays topics before resolving; gate only that phase.
     const entered = deferred(),
       replayRelease = deferred()
     releases.push(replayRelease.resolve)
-    const add = native.addConnection.bind(native)
-    vi.spyOn(native, "addConnection").mockImplementation(async transport => {
-      entered.resolve()
-      await replayRelease.promise
-      return add(transport)
-    })
+    const add = native.connectTransport.bind(native)
+    vi.spyOn(native, "connectTransport").mockImplementation(
+      async (transport, audience) => {
+        entered.resolve()
+        await replayRelease.promise
+        return add(transport, audience)
+      }
+    )
     const reconnecting = connect(a, b)
     await entered.promise
     await a.backend.store(tree, [])
@@ -393,7 +356,7 @@ describe("real native ephemerals", () => {
     )
   })
 
-  it("drops malformed, inactive, and post-close callbacks synchronously and frees wrappers", async () => {
+  it("drops malformed, inactive, and post-close callbacks synchronously", async () => {
     const a = peer(),
       b = peer()
     const observed = await observe(b)
@@ -498,16 +461,11 @@ describe("real native ephemerals", () => {
     local.on("ephemeral-message", echo)
     local.broadcast({ cursor: [2, 3] })
     await vi.waitFor(() => expect(received).toHaveBeenCalledOnce(), wait)
-    const signed = a.signer.peerId()
-    try {
-      expect(received.mock.calls[0][0]).toMatchObject({
-        handle: remote,
-        senderId: signed.toString(),
-        message: { cursor: [2, 3] },
-      })
-    } finally {
-      signed.free()
-    }
+    expect(received.mock.calls[0][0]).toMatchObject({
+      handle: remote,
+      senderId: a.signer.peerId(),
+      message: { cursor: [2, 3] },
+    })
     expect(echo).not.toHaveBeenCalled()
     expect(remote.doc()).toEqual({ count: 1 })
   })

@@ -1,9 +1,9 @@
 # Automerge Repo Subduction backend (experimental)
 
 **Experimental, not production-ready.** Requires exclusively owned storage and
-explicitly trusted peers. Requires `@automerge/subduction` with stored-data
-streams (`loadAndWatch`; currently the unreleased
-`api-review-integration` branch).
+explicitly trusted peers. Requires `@automerge/subduction` 0.25.0 with
+stored-data streams (`loadAndWatch`) and the plain-object API (currently
+unreleased).
 
 ## Quick start
 
@@ -92,12 +92,12 @@ defaults to 10 seconds for opening, authentication and backend onboarding.
 `connection.close()` closes only its socket. Call `repo.shutdown()` before
 `peer.close()`; call `repo.flush()` first to observe persistence failures.
 
-For an existing backend and signer, use `connectSubductionServer` directly:
+For an existing backend, use `connectSubductionServer` directly:
 
 ```ts
 import { connectSubductionServer } from "@automerge/automerge-repo-subduction"
 
-const connection = connectSubductionServer(backend, signer, serverUrl, {
+const connection = connectSubductionServer(backend, serverUrl, {
   retry: false,
   connectTimeoutMilliseconds: 10_000,
 })
@@ -109,27 +109,28 @@ try {
 }
 ```
 
-This borrows both backend and signer; it closes neither.
+This borrows the backend and does not close it. The handshake is signed with
+the backend's signer.
 
 ## Construction and ownership
 
 ```ts
 // Node: initialize fullfat BEFORE constructing the slim-backed implementation.
-import { MemorySigner } from "@automerge/subduction"
+import { createMemorySigner } from "@automerge/subduction"
 import { SubductionBackend } from "@automerge/automerge-repo-subduction"
 
-const signer = MemorySigner.generate()
 const backend = new SubductionBackend({
-  signer,
+  signer: createMemorySigner(),
   storage: byteStore,
 })
 // ... use the plain SedimentreeBackend contract ...
 await backend.close()
-signer.free()
 ```
 
 Browser apps must initialize native WASM first. The signer is **borrowed**: keep
-it alive until close completes, then free it yourself.
+it alive until close completes. It signs records and connection handshakes; a
+signer that rejects or returns a malformed signature panics native code, and a
+stalled one stalls the handshake past cancellation.
 
 The injected `ByteStore` has exactly:
 
@@ -146,7 +147,7 @@ loadPrefix(prefix: string): Promise<[key: string, data: Uint8Array][]>
 ```
 
 `loadMany` returns requested values in input order from one consistent read;
-paired metadata and blob point lookups must not straddle transactions.
+paired signed and blob point lookups must not straddle transactions.
 `loadPrefix` returns every entry whose key starts with `prefix`,
 as full keys sorted by key, from **one consistent read**: a concurrent `save` or
 `remove` must appear entirely before or entirely after it, so `list` followed by
@@ -169,41 +170,30 @@ the earlier `subduction-v1/` format is not migrated or read.
 Storage is borrowed and is not closed or erased by backend close. Concurrent
 multi-owner access and hostile storage are unsupported.
 
-## Low-level authenticated peer connections
+## Low-level peer connections
 
-Pass an already authenticated native transport to `backend.addConnection()`.
-For example, on the dialing side (the remote side must concurrently call native
-`AuthenticatedTransport.accept()` and add its result to its own backend):
+Pass a framed byte transport (`sendBytes`/`recvBytes`/`disconnect`/`onDisconnect`)
+to `backend.addConnection(transport, audience)` on the dialing side and
+`backend.acceptConnection(transport, audience)` on the accepting side. Native
+authenticates it with the backend's signer; `audience` is either
+`{ expectedPeerId }` (the remote peer's hex ID) or `{ serviceName }` for
+discovery. Both resolve to the remote peer ID.
 
 ```ts
-import { AuthenticatedTransport, PeerId } from "@automerge/subduction"
-
-const expectedPeer = new PeerId(remotePublicKeyBytes)
 try {
-  const authenticated = await AuthenticatedTransport.setup(
-    transport, // native Transport: sendBytes/recvBytes/disconnect/onDisconnect
-    signer,
-    expectedPeer
-  )
-  try {
-    await backend.addConnection(authenticated)
-  } finally {
-    authenticated.free()
-  }
+  await backend.addConnection(transport, { expectedPeerId: remotePeerId })
 } catch (error) {
   await transport.disconnect()
   throw error
-} finally {
-  expectedPeer.free()
 }
 ```
 
-`addConnection` borrows the authenticated wrapper until its promise settles;
-keep the underlying JS transport alive until disconnect. Callers own dialing,
-handshake cleanup, and reconnection. Native uses **allow-all authorization**;
-authenticated identity is not an application sharing policy. Connect only
-explicitly trusted peers. A successful synchronization round does **not** prove
-remote durability, document readiness, or global convergence.
+Keep the JS transport alive until disconnect; disconnecting it cancels a pending
+handshake. Callers own dialing, cleanup on failure, and reconnection. Native
+uses **allow-all authorization**; authenticated identity is not an application
+sharing policy. Connect only explicitly trusted peers. A successful
+synchronization round does **not** prove remote durability, document
+readiness, or global convergence.
 
 Only open documents sync a new connection (through their native stream). Stored
 but unopened documents are not replayed on connect; native still serves them to
@@ -233,26 +223,28 @@ acknowledgment; messages have no receipts, retries, or replay after reconnection
 
 ## Persistence and integrity
 
+The storage bridge stores exactly what Subduction sends and trusts it: it does
+not decode, validate or read before writing. Subduction verifies records on
+admission and, on load, checks each blob against its signed metadata.
+
 Each `store()`/`create()` submission, and each batch native sync receives, is
 written with one atomic `saveBatch`. Subduction registers tree IDs separately
-under `subduction-v2/ids/<tree>`; records live under
-`subduction-v2/trees/<tree>/`. A registered tree can have no records. A failed
-batch stores none of its records. A save that commits and then rejects is
-ambiguous: native rescans storage and redelivers it to open sessions, and an
-exact retry dedupes. Repo neither orders nor batches a document's writes: each
-edit is submitted at once, concurrently with earlier ones. Failed writes are not
+under `subduction-v2/ids/<tree>` (empty values); records live under
+`subduction-v2/trees/<tree>/{commits|fragments}/{signed|blob}/<head>`, one
+signed/blob key pair per record, read together in one transaction; a missing
+half fails loudly. A registered tree can have no records. A failed batch stores
+none of its records. A save that commits and then rejects is ambiguous: native
+rescans storage and redelivers it to open sessions, and an exact retry rewrites
+the same keys. Repo neither orders nor batches a document's writes: each edit
+is submitted at once, concurrently with earlier ones. Failed writes are not
 retried: after one, Repo rejects further local edits to that document.
-Malformed records fail
-rather than appearing absent. Each record uses separate `blob/<id>` and `meta/<id>` keys under
-`commits/` or `fragments/`, read together in one transaction; missing halves
-fail loudly. Metadata decoding detects malformed signed bytes; native hydration
-checks blob digests. Storage is not protected against malicious tampering.
-A different representation of an existing commit ID is rejected, as an opaque
-`io` error (native does not pass the bridge's typed error through). As in native
-Subduction storage, fragments are keyed by head plus payload digest: valid
-same-head variants coexist, and a head lookup returns the one native keeps
-(lowest payload digest). Repo stores edits as loose commits and their
-fragments later (deferred compaction); superseded records are never deleted.
+Malformed records fail rather than appearing absent. Storage is not protected
+against malicious tampering.
+
+A record saved under an existing key overwrites it. Fragments are keyed by head
+only, as in Subduction's built-in storage: of two valid same-head variants, the
+last written is kept. Repo stores edits as loose commits and their fragments
+later (deferred compaction); superseded records are never deleted.
 
 Observers must handle duplicate durable deliveries. Live events queue per
 session until pulled. A native stream error after the initial load ends the
@@ -285,8 +277,12 @@ These are tracked upstream rather than emulated here:
 - **Deletion fencing.** Deletion waits for local stores, but not for ingested
   writes in flight, and does not stop peer sync: a subscribed peer can resend
   the tree.
-- **Typed write errors.** Native wraps storage rejections in opaque errors, so a
-  conflicting representation surfaces as `io`, not `conflict`.
+- **Typed write errors.** Native wraps storage rejections in opaque errors, so
+  they surface as `io`.
+- **Ingress tree check.** Native does not check that a peer's signed record
+  names the tree it is delivered for; the bridge stores it as sent.
+- **Same-key conflicts.** Nothing detects a different record arriving under an
+  existing commit ID or fragment head; the later one overwrites.
 - **Stream recovery.** A local storage error during a native peer round can end
   a session's stored-data stream; the session then fails rather than resuming.
 
@@ -298,11 +294,9 @@ Default limits:
 | ------------------------- | ----------------------------------------------------: |
 | `syncTimeoutMilliseconds` | 5,000 ms per explicit or store-triggered sync request |
 
-A write reads only the keys it writes (to detect a conflicting representation
-and duplicate notifications); it does not rescan the tree. A
+A write reads nothing; it does not rescan the tree. A
 `store()`/`create()` submission of any size is accepted: it is validated up
-front (wire counts), then written in one native call; the bridge checks each
-record against its own stored key. It is not split: a document must already fit
+front (wire counts), then written in one native call. It is not split: a document must already fit
 in Automerge's WASM memory, which is exhausted long before a submission would
 strain Subduction's. Neither a single record nor a tree's total history is
 capped: whatever was accepted can always be reopened, enumerated, synced and

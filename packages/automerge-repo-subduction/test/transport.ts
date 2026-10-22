@@ -1,4 +1,5 @@
 import type * as N from "@automerge/subduction"
+import type { SubductionBackend } from "../src/index.js"
 
 interface Pending<T> {
   resolve(value: T): void
@@ -101,5 +102,30 @@ export class PairedTransport implements N.Transport {
     }
     if (errors.length)
       throw new AggregateError(errors, "Disconnect callbacks failed")
+  }
+}
+
+export type TestSigner = ReturnType<typeof N.createMemorySigner>
+
+interface Endpoint {
+  backend: SubductionBackend
+  signer: TestSigner
+}
+
+/** Authenticate and add both ends of `pair` (a dials b). Disconnects the
+ * pair if either side fails. */
+export async function connectBackends(
+  a: Endpoint,
+  b: Endpoint,
+  pair: readonly [N.Transport, N.Transport]
+): Promise<void> {
+  const added = await Promise.allSettled([
+    a.backend.addConnection(pair[0], { expectedPeerId: b.signer.peerId() }),
+    b.backend.acceptConnection(pair[1], { expectedPeerId: a.signer.peerId() }),
+  ])
+  const failure = added.find(result => result.status === "rejected")
+  if (failure) {
+    await pair[0].disconnect()
+    throw failure.reason
   }
 }

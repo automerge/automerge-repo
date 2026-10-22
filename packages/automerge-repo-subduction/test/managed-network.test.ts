@@ -12,14 +12,11 @@ import { PairedTransport } from "./transport.js"
 const { openTransport } = vi.hoisted(() => ({ openTransport: vi.fn() }))
 vi.mock("../src/websocket.js", () => ({ openTransport }))
 
-function connectTo(
-  remoteSigner: N.MemorySigner,
-  remoteBackend: SubductionBackend
-) {
+function connectTo(remoteBackend: SubductionBackend) {
   const wires: PairedTransport[] = []
   openTransport
     .mockReset()
-    .mockImplementation(async (_url, signer, service, signal, disconnect) => {
+    .mockImplementation(async (url: URL, signal, disconnect) => {
       const [a, b] = PairedTransport.pair()
       wires.push(a)
       const abort = () => {
@@ -30,28 +27,21 @@ function connectTo(
         signal.removeEventListener("abort", abort)
         disconnect(new Error("Test wire disconnected"))
       })
-      // Subduction supports simultaneous initiation, including discovery mode.
-      const [local, remote] = await Promise.all([
-        N.AuthenticatedTransport.setupDiscover(a, signer, service),
-        N.AuthenticatedTransport.setupDiscover(b, remoteSigner, service),
-      ])
-      try {
-        await remoteBackend.addConnection(remote)
-      } finally {
-        remote.free()
-      }
-      return local
+      // The local peer discovers the remote by the server's service name.
+      void remoteBackend
+        .acceptConnection(b, { serviceName: url.host })
+        .catch(() => {})
+      return a
     })
   return wires
 }
 
 it("syncs through real native handshakes and keeps the connection across deleteLocal", async () => {
-  const remoteSigner = N.MemorySigner.generate()
   const remoteBackend = new SubductionBackend({
-    signer: remoteSigner,
+    signer: N.createMemorySigner(),
     storage: new MemoryByteStore(),
   })
-  const wires = connectTo(remoteSigner, remoteBackend)
+  const wires = connectTo(remoteBackend)
   const peer = createSubductionPeer({
     servers: ["ws://localhost:8080"],
     retry: { initialMs: 10, maxMs: 50 },
@@ -84,17 +74,15 @@ it("syncs through real native handshakes and keeps the connection across deleteL
     await peer.close()
     await remoteBackend.close()
     await Promise.all(wires.map(wire => wire.disconnect()))
-    remoteSigner.free()
   }
 }, 30_000)
 
 it("completes onboarding while an unrelated deletion runs", async () => {
-  const remoteSigner = N.MemorySigner.generate()
   const remoteBackend = new SubductionBackend({
-    signer: remoteSigner,
+    signer: N.createMemorySigner(),
     storage: new MemoryByteStore(),
   })
-  const wires = connectTo(remoteSigner, remoteBackend)
+  const wires = connectTo(remoteBackend)
   const storage = new MemoryByteStore()
   let release!: () => void
   let enter!: () => void
@@ -110,12 +98,14 @@ it("completes onboarding while an unrelated deletion runs", async () => {
     retry: { initialMs: 10, maxMs: 50 },
   })
   const engine = (peer.backend as unknown as { engine: N.Subduction }).engine
-  const add = engine.addConnection.bind(engine)
-  vi.spyOn(engine, "addConnection").mockImplementationOnce(async transport => {
-    enter()
-    await paused
-    return add(transport)
-  })
+  const add = engine.connectTransport.bind(engine)
+  vi.spyOn(engine, "connectTransport").mockImplementationOnce(
+    async (transport, audience) => {
+      enter()
+      await paused
+      return add(transport, audience)
+    }
+  )
   try {
     const ready = peer.connections[0].connected()
     await entered
@@ -131,6 +121,5 @@ it("completes onboarding while an unrelated deletion runs", async () => {
     await peer.close()
     await remoteBackend.close()
     await Promise.all(wires.map(wire => wire.disconnect()))
-    remoteSigner.free()
   }
 }, 30_000)

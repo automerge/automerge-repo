@@ -1,13 +1,12 @@
-import * as N from "@automerge/subduction/slim"
+import type * as N from "@automerge/subduction/slim"
 
-/** Own the socket so cancellation also interrupts the native handshake. */
+/** Own the socket so cancellation also interrupts the native handshake:
+ * aborting closes it, failing any pending receive. */
 export async function openTransport(
   url: URL,
-  signer: N.Signer,
-  serviceName: string,
   signal: AbortSignal,
   onDisconnect: (cause: unknown) => void
-): Promise<N.AuthenticatedTransport> {
+): Promise<N.Transport> {
   signal.throwIfAborted()
   const socket = new WebSocket(url)
   socket.binaryType = "arraybuffer"
@@ -77,57 +76,7 @@ export async function openTransport(
   }
   try {
     await opened
-    const verifyingKey = signer.verifyingKey()
-    if (!(verifyingKey instanceof Uint8Array) || verifyingKey.length !== 32)
-      throw new TypeError("Signer public key must contain 32 bytes")
-    // Native's signer is infallible (a rejected sign promise panics WASM). After
-    // closing the socket, an inert signature lets it reach the transport error.
-    // No such signature can be sent; the provider's pending I/O may continue.
-    const cancellableSigner: N.Signer = {
-      verifyingKey() {
-        return verifyingKey
-      },
-      sign(message) {
-        if (ended) return new Uint8Array(64)
-        return new Promise<Uint8Array>(resolve => {
-          const settle = (signature: Uint8Array) => {
-            signal.removeEventListener("abort", cancel)
-            callbacks.delete(cancel)
-            resolve(signature)
-          }
-          const cancel = () => settle(new Uint8Array(64))
-          signal.addEventListener("abort", cancel, { once: true })
-          callbacks.add(cancel)
-          Promise.resolve()
-            .then(() => {
-              if (ended) return new Uint8Array(64)
-              return signer.sign(message)
-            })
-            .then(
-              signature => {
-                if (
-                  !(signature instanceof Uint8Array) ||
-                  signature.length !== 64
-                ) {
-                  finish(
-                    new TypeError("Signer signature must contain 64 bytes")
-                  )
-                  settle(new Uint8Array(64))
-                } else settle(signature)
-              },
-              cause => {
-                finish(cause)
-                settle(new Uint8Array(64))
-              }
-            )
-        })
-      },
-    }
-    return await N.AuthenticatedTransport.setupDiscover(
-      transport,
-      cancellableSigner,
-      serviceName
-    )
+    return transport
   } catch (cause) {
     finish(cause)
     throw cause

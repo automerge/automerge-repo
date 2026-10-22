@@ -30,19 +30,14 @@ export interface SubductionPeer {
 export function createSubductionPeer(
   options: SubductionPeerOptions = {}
 ): SubductionPeer {
-  const ownedSigner = options.signer ? undefined : N.MemorySigner.generate()
-  const signer = options.signer ?? ownedSigner!
+  const signer = options.signer ?? N.createMemorySigner()
   const connections: SubductionConnection[] = []
   let backend: SubductionBackend | undefined
   let closing: Promise<void> | undefined
   try {
-    const id = new N.PeerId(signer.verifyingKey())
-    let peerId: string
-    try {
-      peerId = id.toString()
-    } finally {
-      id.free()
-    }
+    const peerId = Array.from(signer.verifyingKey(), b =>
+      b.toString(16).padStart(2, "0")
+    ).join("")
     backend = new SubductionBackend({
       ...options,
       signer,
@@ -54,12 +49,7 @@ export function createSubductionPeer(
       connections,
       connect(server) {
         if (closing) throw new Error("Subduction peer closed")
-        const connection = connectSubductionServer(
-          backend!,
-          signer,
-          server,
-          options
-        )
+        const connection = connectSubductionServer(backend!, server, options)
         connections.push(connection)
         return connection
       },
@@ -73,8 +63,6 @@ export function createSubductionPeer(
             await backend!.close()
           } catch (reason) {
             outcomes.push({ status: "rejected", reason })
-          } finally {
-            ownedSigner?.free()
           }
           const errors = outcomes.flatMap(o =>
             o.status === "rejected" ? [o.reason] : []
@@ -90,15 +78,10 @@ export function createSubductionPeer(
     for (const server of options.servers ?? []) peer.connect(server)
     return peer
   } catch (cause) {
-    // Validation can fail after some servers have started; keep the signer alive
-    // until those attempts and the partially constructed backend have stopped.
+    // Validation can fail after some servers have started.
     void (async () => {
       await Promise.allSettled(connections.map(c => c.close()))
-      try {
-        await backend?.close()
-      } finally {
-        ownedSigner?.free()
-      }
+      await backend?.close()
     })().catch(() => {})
     throw cause
   }

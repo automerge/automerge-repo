@@ -1,5 +1,5 @@
 import { BackendError } from "@automerge/automerge-repo/sedimentree"
-import type { NativeSigner, SubductionBackend } from "./index.js"
+import type { SubductionBackend } from "./index.js"
 import { openTransport } from "./websocket.js"
 import { observeBackendClose } from "./backendLifecycle.js"
 
@@ -32,10 +32,9 @@ export interface SubductionConnection {
   close(): Promise<void>
 }
 
-/** Starts immediately. Borrows backend and signer; closes only its own socket. */
+/** Starts immediately. Borrows backend; closes only its own socket. */
 export function connectSubductionServer(
   backend: SubductionBackend,
-  signer: NativeSigner,
   server: SubductionServer,
   options: SubductionConnectionOptions = {}
 ): SubductionConnection {
@@ -138,28 +137,18 @@ export function connectSubductionServer(
           attempt.abort(new Error("Subduction connection timed out"))
         }, timeoutMs)
         try {
-          const transport = await openTransport(
-            url,
-            signer,
-            serviceName,
-            attempt.signal,
-            cause => {
-              if (controller !== attempt || status === "closed") return
-              attempt.abort(cause)
-              if (controller !== attempt || isClosed()) return
-              if (!immediate) update("disconnected", cause)
-              if (!running) schedule()
-            }
-          )
-          try {
-            attempt.signal.throwIfAborted()
-            await backend.addConnection(transport)
-            attempt.signal.throwIfAborted()
-            delay = initialMs
-            update("connected")
-          } finally {
-            transport.free()
-          }
+          const transport = await openTransport(url, attempt.signal, cause => {
+            if (controller !== attempt || status === "closed") return
+            attempt.abort(cause)
+            if (controller !== attempt || isClosed()) return
+            if (!immediate) update("disconnected", cause)
+            if (!running) schedule()
+          })
+          attempt.signal.throwIfAborted()
+          await backend.addConnection(transport, { serviceName })
+          attempt.signal.throwIfAborted()
+          delay = initialMs
+          update("connected")
         } catch (cause) {
           if (isClosed()) return
           if (cause instanceof BackendError && cause.code === "closed") {

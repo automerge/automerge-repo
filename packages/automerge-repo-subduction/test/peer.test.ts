@@ -1,8 +1,9 @@
-import { MemorySigner } from "@automerge/subduction"
+import * as N from "@automerge/subduction"
 import { Repo } from "@automerge/automerge-repo"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   createSubductionPeer,
+  SubductionBackend,
   type SubductionPeer,
   type SubductionServer,
 } from "../src/index.js"
@@ -23,17 +24,9 @@ describe("Subduction peer factory", () => {
     openTransport.mockReset()
   })
 
-  it("creates an immediately usable local Repo and owns its generated signer", async () => {
-    const generated = vi.spyOn(MemorySigner, "generate")
+  it("creates an immediately usable local Repo with a generated signer", async () => {
     const peer = create()
-    const signer = generated.mock.results[0].value as MemorySigner
-    const free = vi.spyOn(signer, "free")
-    const id = signer.peerId()
-    try {
-      expect(peer.peerId).toBe(id.toString())
-    } finally {
-      id.free()
-    }
+    expect(peer.peerId).toMatch(/^[0-9a-f]{64}$/)
     const repo = new Repo({ backend: peer.backend })
     try {
       const handle = await repo.create({ count: 0 })
@@ -44,25 +37,17 @@ describe("Subduction peer factory", () => {
     } finally {
       await repo.shutdown()
     }
-    expect(free).not.toHaveBeenCalled()
     const closing = peer.close()
     expect(peer.close()).toBe(closing)
     await closing
-    expect(free).toHaveBeenCalledOnce()
     expect(() => peer.connect("ws://localhost")).toThrow("closed")
   })
 
-  it("borrows a supplied signer without freeing it", async () => {
-    const signer = MemorySigner.generate()
-    const free = vi.spyOn(signer, "free")
+  it("derives the peer ID from a supplied signer", async () => {
+    const signer = N.createMemorySigner()
     const peer = create({ signer })
-    try {
-      await peer.close()
-      expect(free).not.toHaveBeenCalled()
-      expect(await signer.sign(new Uint8Array([1]))).toHaveLength(64)
-    } finally {
-      signer.free()
-    }
+    expect(peer.peerId).toBe(signer.peerId())
+    await peer.close()
   })
 
   it("starts configured servers immediately and allows duplicate URLs", async () => {
@@ -80,9 +65,8 @@ describe("Subduction peer factory", () => {
     expect(openTransport).toHaveBeenCalledTimes(3)
   })
 
-  it("closes connections before the backend, then releases the owned signer", async () => {
+  it("closes connections before the backend", async () => {
     openTransport.mockRejectedValue(new Error("offline"))
-    const generated = vi.spyOn(MemorySigner, "generate")
     const peer = create({ servers: ["ws://localhost"], retry: false })
     await expect(peer.connections[0].connected()).rejects.toThrow("offline")
     const order: string[] = []
@@ -97,18 +81,11 @@ describe("Subduction peer factory", () => {
       order.push("backend")
       await closeBackend()
     })
-    const signer = generated.mock.results[0].value as MemorySigner
-    const freeSigner = signer.free.bind(signer)
-    vi.spyOn(signer, "free").mockImplementation(() => {
-      order.push("signer")
-      freeSigner()
-    })
     await peer[Symbol.asyncDispose]()
-    expect(order).toEqual(["connection", "backend", "signer"])
+    expect(order).toEqual(["connection", "backend"])
   })
 
-  it("still closes the backend and frees its signer after a connection close failure", async () => {
-    const generated = vi.spyOn(MemorySigner, "generate")
+  it("still closes the backend after a connection close failure", async () => {
     const peer = create()
     const connection = peer.connect("ws://localhost")
     openTransport.mockRejectedValue(new Error("offline"))
@@ -118,32 +95,18 @@ describe("Subduction peer factory", () => {
       throw new Error("cleanup failure")
     })
     const closeBackend = vi.spyOn(peer.backend, "close")
-    const free = vi.spyOn(
-      generated.mock.results[0].value as MemorySigner,
-      "free"
-    )
     await expect(peer.close()).rejects.toThrow("close failed")
     expect(closeBackend).toHaveBeenCalledOnce()
-    expect(free).toHaveBeenCalledOnce()
   })
 
   it("cleans up a partially constructed peer after server validation fails", async () => {
-    const generated = vi.spyOn(MemorySigner, "generate")
-    let free: ReturnType<typeof vi.spyOn> | undefined
+    const close = vi.spyOn(SubductionBackend.prototype, "close")
     const servers: SubductionServer[] = [
       "ws://localhost",
-      {
-        get url() {
-          free = vi.spyOn(
-            generated.mock.results[0].value as MemorySigner,
-            "free"
-          )
-          return "https://localhost"
-        },
-      },
+      { url: "https://localhost" },
     ]
     expect(() => createSubductionPeer({ servers })).toThrow("ws:")
-    await vi.waitFor(() => expect(free).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(close).toHaveBeenCalledOnce())
     expect(openTransport).not.toHaveBeenCalled()
   })
 })

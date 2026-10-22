@@ -14,7 +14,7 @@
     "@automerge/automerge": "catalog:",
     "@automerge/automerge-repo": "workspace:*",
     "@automerge/automerge-repo-subduction": "workspace:*",
-    "@automerge/subduction": "0.24.0"
+    "@automerge/subduction": "0.25.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",

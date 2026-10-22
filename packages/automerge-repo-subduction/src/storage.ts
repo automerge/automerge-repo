@@ -1,658 +1,190 @@
-import * as N from "@automerge/subduction/slim"
+import type * as N from "@automerge/subduction/slim"
 import type { ByteStore } from "./ByteStore.js"
 import {
-  BackendError,
-  checkpointId,
-  commitId,
-  copyRecord,
-  equalRecords,
-  idBytes,
   sedimentreeId,
-  type FragmentRecord,
-  type LooseCommitRecord,
   type SedimentreeId,
-  type SedimentreeRecord,
 } from "@automerge/automerge-repo/sedimentree"
 
 const ROOT = "subduction-v2/"
-export const hex = (bytes: Uint8Array): string =>
-  Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("")
+const IDS = `${ROOT}ids/`
 
-// Automerge can produce different fragments for the same head when changes
-// arrive in different orders (see ../test/fragments.test.ts, sameHeadVariants).
-// Hash the unsigned metadata—not the blob—so both get distinct storage keys.
-function fragmentPayloadDigest(signed: Uint8Array): Uint8Array {
-  if (signed.length < 100) throw new Error("Signed fragment is too short")
-  const payload = new Uint8Array(signed.length - 96)
-  payload.set(signed.subarray(0, 4))
-  payload.set(signed.subarray(36, signed.length - 64), 4)
-  const meta = new N.BlobMeta(payload)
-  const hash = meta.digest()
-  try {
-    return hash.toBytes()
-  } finally {
-    hash.free()
-    meta.free()
-  }
-}
-
+/** Repo IDs may be 16 bytes; native IDs are always 32, zero-padded. */
 export function nativeId(id: SedimentreeId): N.SedimentreeId {
-  return N.SedimentreeId.fromBytes(
-    idBytes(sedimentreeId(id).padEnd(64, "0") as SedimentreeId)
-  )
+  return sedimentreeId(id).padEnd(64, "0")
 }
 export function logicalId(id: N.SedimentreeId): SedimentreeId {
-  const value = hex(id.toBytes())
-  return sedimentreeId(
-    value.endsWith("0".repeat(32)) ? value.slice(0, 32) : value
-  )
+  return sedimentreeId(id.endsWith("0".repeat(32)) ? id.slice(0, 32) : id)
 }
-const treeHex = (id: N.SedimentreeId) => hex(id.toBytes())
-const IDS = `${ROOT}ids/`
-const idKey = (tree: string) => `${IDS}${tree}`
-const prefix = (tree: string) => `${ROOT}trees/${tree}/`
-type Kind = SedimentreeRecord["kind"]
 
-/** Commits are keyed by ID. Fragments are keyed by head plus the digest of
- * their unsigned payload, like native storage, so valid same-head variants
- * coexist and sort in native's tie-break order. */
-type RecordKey =
-  | { kind: "commit"; key: string }
-  | { kind: "fragment"; key: string; variant: string }
-
-const kindPrefix = (tree: string, kind: Kind) =>
-  `${prefix(tree)}${kind === "commit" ? "commits" : "fragments"}/`
-type Part = "blob" | "meta"
+type Kind = "commits" | "fragments"
+type Part = "signed" | "blob"
+const kindPrefix = (tree: string, kind: Kind) => `${ROOT}trees/${tree}/${kind}/`
 const partPrefix = (tree: string, kind: Kind, part: Part) =>
   `${kindPrefix(tree, kind)}${part}/`
-const recordPath = (tree: string, ref: RecordKey, part: Part) =>
-  `${partPrefix(tree, ref.kind, part)}${ref.key}${ref.kind === "fragment" ? `.${ref.variant}` : ""}`
-
-/** Parse a key relative to its tree prefix. */
-function parseRecordKey(relative: string): RecordKey & { part: Part } {
-  const match =
-    /^(?:commits\/(blob|meta)\/([0-9a-f]{64})|fragments\/(blob|meta)\/([0-9a-f]{64})\.([0-9a-f]{64}))$/.exec(
-      relative
-    )
-  if (!match) throw new Error("Malformed storage key")
-  return match[2]
-    ? {
-        kind: "commit",
-        part: match[1] as Part,
-        key: match[2],
-      }
-    : {
-        kind: "fragment",
-        part: match[3] as Part,
-        key: match[4],
-        variant: match[5],
-      }
+const recordKeys = (tree: string, kind: Kind, head: string) => [
+  `${partPrefix(tree, kind, "signed")}${head}`,
+  `${partPrefix(tree, kind, "blob")}${head}`,
+]
+type Entry = [key: string, data: Uint8Array]
+const recordEntries = (
+  tree: string,
+  kind: Kind,
+  head: string,
+  signed: Uint8Array,
+  blob: Uint8Array
+): Entry[] => {
+  const [signedKey, blobKey] = recordKeys(tree, kind, head)
+  return [
+    [signedKey, signed],
+    [blobKey, blob],
+  ]
 }
+const EMPTY = new Uint8Array(0)
 
-/** Native unsigned commit for a local write, from a Repo record. */
-export function unsigned(
-  id: N.SedimentreeId,
-  record: LooseCommitRecord
-): N.LooseCommit {
-  const head = N.CommitId.fromHexString(record.id)
-  const parents = record.parents.map(p => N.CommitId.fromHexString(p))
-  const meta = new N.BlobMeta(record.blob)
-  try {
-    return new N.LooseCommit(id, head, parents, meta)
-  } finally {
-    head.free()
-    parents.forEach(p => p.free())
-    meta.free()
-  }
-}
-
-/** Preserve the actual 12-byte prefixes, including head/boundary prefixes.
- * The original Fragment constructor requires full IDs rather than prefixes. */
-export function unsignedFragment(
-  id: N.SedimentreeId,
-  record: FragmentRecord
-): N.Fragment {
-  const head = N.CommitId.fromHexString(record.head)
-  const boundary: N.CommitId[] = []
-  const checkpoints: N.Checkpoint[] = []
-  const meta = new N.BlobMeta(record.blob)
-  try {
-    for (const b of record.boundary) boundary.push(N.CommitId.fromHexString(b))
-    for (const c of record.checkpoints)
-      checkpoints.push(N.Checkpoint.fromBytes(idBytes(checkpointId(c))))
-    return N.Fragment.fromCheckpointPrefixes(
-      id,
-      head,
-      boundary,
-      checkpoints,
-      meta
-    )
-  } finally {
-    head.free()
-    boundary.forEach(b => b.free())
-    checkpoints.forEach(c => c.free())
-    meta.free()
-  }
-}
-
-/** Record fields from a signed commit's payload. On write, native has already
- * verified the blob and derived the key; Repo validates records on delivery. */
-function plain(
-  signed: N.SignedLooseCommit,
-  blob: Uint8Array,
-  tree?: N.SedimentreeId
-): LooseCommitRecord {
-  const payload = signed.payload
-  try {
-    return copyRecord(commitRecord(payload, blob, tree)) as LooseCommitRecord
-  } finally {
-    payload.free()
-  }
-}
-
-function commitRecord(
-  payload: N.LooseCommit,
-  blob: Uint8Array,
-  tree?: N.SedimentreeId
-): LooseCommitRecord {
-  const head = payload.commitId
-  const parents = payload.parents
-  try {
-    if (tree) assertCommitTree(tree, head, parents, payload)
-    return {
-      kind: "commit",
-      id: commitId(head.toHexString()),
-      parents: parents.map(p => commitId(p.toHexString())),
-      blob,
-    }
-  } finally {
-    head.free()
-    parents.forEach(p => p.free())
-  }
-}
-
-/** Record for an item on a native stored stream; consumes its metadata. */
-export function storedRecord(
-  item: Extract<N.StoredUpdate, { type: "commit" | "fragment" }>
-): SedimentreeRecord {
-  try {
-    return item.type === "commit"
-      ? commitRecord(item.metadata, item.blob)
-      : fragmentRecord(item.metadata, item.blob)
-  } finally {
-    item.metadata.free()
-  }
-}
-
-/** Incoming records are signed by remote peers, and native saves them under
- * the requested tree without checking that the signed payload names that tree.
- * The JS commit payload has no tree accessor, so rebuild it with ours (every
- * other field taken from the payload) and compare digests.
- * This would be better handled natively, as a payload `sedimentree_id` check
- * after `try_verify` in subduction_core's `recv_commit`/`recv_fragment`
- * (handler/sync.rs) and `recv_batch_sync_response` (subduction/ingest.rs),
- * dropping the record there. It could then be removed here. */
-function assertCommitTree(
-  tree: N.SedimentreeId,
-  head: N.CommitId,
-  parents: N.CommitId[],
-  payload: N.LooseCommit
-): void {
-  const meta = payload.blobMeta
-  const rebuilt = new N.LooseCommit(tree, head, parents, meta)
-  const expected = rebuilt.digest
-  const actual = payload.digest
-  try {
-    if (expected.toHexString() !== actual.toHexString())
-      throw new Error("Signed commit is for a different tree")
-  } finally {
-    expected.free()
-    actual.free()
-    rebuilt.free()
-    meta.free()
-  }
-}
-
-/** Record fields from a signed fragment's payload; checks only the tree when
- * given (see assertCommitTree for why, and where it belongs natively). */
-function plainFragment(
-  signed: N.SignedFragment,
-  blob: Uint8Array,
-  tree?: string
-): FragmentRecord {
-  const payload = signed.payload
-  try {
-    return copyRecord(fragmentRecord(payload, blob, tree)) as FragmentRecord
-  } finally {
-    payload.free()
-  }
-}
-
-function fragmentRecord(
-  payload: N.Fragment,
-  blob: Uint8Array,
-  tree?: string
-): FragmentRecord {
-  const id = payload.sedimentreeId
-  const head = payload.head
-  const boundary = payload.boundary
-  const checkpoints = payload.checkpoints
-  try {
-    if (tree !== undefined && treeHex(id) !== tree)
-      throw new Error("Signed fragment is for a different tree")
-    return {
-      kind: "fragment",
-      head: commitId(head.toHexString()),
-      boundary: boundary.map(b => commitId(b.toHexString())),
-      checkpoints: checkpoints.map(c => checkpointId(hex(c.toBytes()))),
-      blob,
-    }
-  } finally {
-    checkpoints.forEach(c => c.free())
-    boundary.forEach(b => b.free())
-    head.free()
-    id.free()
-  }
-}
-
-type Stored =
-  | { kind: "commit"; signed: N.SignedLooseCommit; record: LooseCommitRecord }
-  | {
-      kind: "fragment"
-      signed: N.SignedFragment
-      record: FragmentRecord
-      variant: string
-    }
-
-interface Prepared {
-  tree: string
-  ref: RecordKey
-  record: SedimentreeRecord
-  encoded: Uint8Array
-}
-
-/** Private authoritative signed-metadata/blob bridge; never compacts history.
- * Native may call it concurrently, including for one tree; it does not
- * sequence calls. Writes rely on idempotent keys and atomic `saveBatch`.
+/** Subduction's storage callbacks over a ByteStore. Stores exactly what
+ * Subduction sends, keyed by tree and head; Subduction verifies on admission
+ * and checks blob agreement on load. Each record is a signed/blob key pair,
+ * written atomically by `saveBatch`.
  */
 export class StorageBridge implements N.SedimentreeStorage {
   constructor(private readonly storage: ByteStore) {}
 
-  /** Preparation is synchronous, before any await. Only owned JS snapshots
-   * may be captured by the returned transaction, never native inputs.
-   * Failures, including preparation failures, reject to native.
-   */
-  private mutate<T>(
-    id: N.SedimentreeId,
-    prepare: (tree: string) => () => Promise<T>
-  ): Promise<T> {
-    try {
-      return prepare(treeHex(id))()
-    } catch (cause) {
-      return Promise.reject(cause)
-    }
-  }
-
-  private async read(
+  private async loadRecord(
     tree: string,
-    ref: RecordKey
-  ): Promise<Stored | undefined> {
-    const [encoded, blob] = await this.storage.loadMany([
-      recordPath(tree, ref, "meta"),
-      recordPath(tree, ref, "blob"),
-    ])
-    if (encoded === undefined && blob === undefined) return undefined
-    if (encoded === undefined || blob === undefined)
-      throw new Error("Incomplete stored record")
-    return this.decode(ref, encoded, blob)
-  }
-
-  /** The variant native would keep for this head: keys sort by payload
-   * digest, so take the first rather than relying on store enumeration. */
-  private async readFragment(
-    tree: string,
+    kind: Kind,
     head: string
-  ): Promise<Extract<Stored, { kind: "fragment" }> | undefined> {
-    const variants = await this.storage.list(
-      `${partPrefix(tree, "fragment", "meta")}${head}.`
+  ): Promise<N.StoredCommit | null> {
+    const [signed, blob] = await this.storage.loadMany(
+      recordKeys(tree, kind, head)
     )
-    if (!variants.length) return undefined
-    const variant = variants[0].slice(variants[0].lastIndexOf(".") + 1)
-    const value = await this.read(tree, {
-      kind: "fragment",
-      key: head,
-      variant,
-    })
-    if (!value || value.kind !== "fragment")
-      throw new Error("Incomplete stored fragment")
-    return value
+    if (signed === undefined && blob === undefined) return null
+    if (signed === undefined || blob === undefined)
+      throw new Error("Incomplete stored record")
+    return { signed, blob }
   }
 
-  /** Decode one stored record, for both single-key and bulk reads. */
-  private decode(
-    ref: RecordKey,
-    encoded: Uint8Array,
-    blob: Uint8Array
-  ): Stored {
-    if (ref.kind === "fragment") {
-      const signed = N.SignedFragment.tryDecode(encoded)
-      try {
-        return {
-          kind: "fragment",
-          signed,
-          record: plainFragment(signed, blob),
-          variant: ref.variant,
-        }
-      } catch (error) {
-        signed.free()
-        throw error
-      }
-    }
-    const signed = N.SignedLooseCommit.tryDecode(encoded)
-    try {
-      return { kind: "commit", signed, record: plain(signed, blob) }
-    } catch (error) {
-      signed.free()
-      throw error
-    }
+  private async listHeads(tree: string, kind: Kind): Promise<string[]> {
+    const prefix = partPrefix(tree, kind, "signed")
+    return (await this.storage.list(prefix)).map(key =>
+      key.slice(prefix.length)
+    )
   }
 
-  /** Pair the two stored values for each key without interpreting record data. */
-  private pairs(tree: string, entries: [string, Uint8Array][]) {
-    const p = prefix(tree)
-    const parts = new Map<
-      string,
-      { ref: RecordKey; meta?: Uint8Array; blob?: Uint8Array }
-    >()
-    for (const [fullKey, value] of entries) {
-      if (!fullKey.startsWith(p))
-        throw new Error("Storage returned an out-of-prefix key")
-      const ref = parseRecordKey(fullKey.slice(p.length))
-      const path = recordPath(tree, ref, "meta")
-      const pair = parts.get(path) ?? { ref }
-      pair[ref.part] = value
-      parts.set(path, pair)
+  private async loadAll(tree: string, kind: Kind): Promise<N.StoredCommit[]> {
+    const signedPrefix = partPrefix(tree, kind, "signed")
+    const blobPrefix = partPrefix(tree, kind, "blob")
+    const records = new Map<string, Partial<N.StoredCommit>>()
+    for (const [key, value] of await this.storage.loadPrefix(
+      kindPrefix(tree, kind)
+    )) {
+      const part = key.startsWith(signedPrefix)
+        ? "signed"
+        : key.startsWith(blobPrefix)
+          ? "blob"
+          : undefined
+      if (!part) throw new Error("Malformed storage key")
+      const head = key.slice(
+        (part === "signed" ? signedPrefix : blobPrefix).length
+      )
+      const record = records.get(head) ?? {}
+      record[part] = value
+      records.set(head, record)
     }
-    const paired: { ref: RecordKey; meta: Uint8Array; blob: Uint8Array }[] = []
-    for (const { ref, meta, blob } of parts.values()) {
-      if (meta === undefined || blob === undefined)
+    return [...records.values()].map(({ signed, blob }) => {
+      if (signed === undefined || blob === undefined)
         throw new Error("Incomplete stored record")
-      paired.push({ ref, meta, blob })
-    }
-    return paired
-  }
-
-  async saveSedimentreeId(id: N.SedimentreeId): Promise<void> {
-    return this.mutate(id, tree => {
-      const value = id.toBytes()
-      return () => this.storage.save(idKey(tree), value)
+      return { signed, blob }
     })
   }
-  async deleteSedimentreeId(id: N.SedimentreeId): Promise<void> {
-    return this.mutate(id, tree => () => this.storage.remove(idKey(tree)))
+
+  private removeRecord(tree: string, kind: Kind, head: string) {
+    return this.storage.removeBatch(recordKeys(tree, kind, head))
+  }
+
+  async saveSedimentreeId(tree: N.SedimentreeId): Promise<void> {
+    await this.storage.save(`${IDS}${tree}`, EMPTY)
+  }
+  async deleteSedimentreeId(tree: N.SedimentreeId): Promise<void> {
+    await this.storage.remove(`${IDS}${tree}`)
   }
   async loadAllSedimentreeIds(): Promise<N.SedimentreeId[]> {
-    return this.loadIds()
+    return (await this.storage.list(IDS)).map(key => key.slice(IDS.length))
   }
-  private async loadIds(): Promise<N.SedimentreeId[]> {
-    const ids: N.SedimentreeId[] = []
-    try {
-      for (const [, value] of await this.storage.loadPrefix(IDS))
-        ids.push(N.SedimentreeId.fromBytes(value))
-      return ids
-    } catch (error) {
-      ids.forEach(id => id.free())
-      throw error
-    }
-  }
-  async containsSedimentreeId(id: N.SedimentreeId): Promise<boolean> {
-    const tree = treeHex(id)
-    return (await this.storage.load(idKey(tree))) !== undefined
-  }
-
-  /** No native wrapper or caller-owned buffer survives into asynchronous I/O. */
-  private prepareCommit(
-    id: N.SedimentreeId,
-    key: N.CommitId,
-    signed: N.SignedLooseCommit,
-    blob: Uint8Array
-  ): Prepared {
-    const cid = key.toHexString()
-    const record = plain(signed, blob, id)
-    return this.prepare(id, cid, record, signed.encode())
-  }
-  private prepareFragment(
-    id: N.SedimentreeId,
-    key: N.CommitId,
-    signed: N.SignedFragment,
-    blob: Uint8Array
-  ): Prepared {
-    const head = key.toHexString()
-    const record = plainFragment(signed, blob, treeHex(id))
-    return this.prepare(id, head, record, signed.encode())
-  }
-  private prepare(
-    id: N.SedimentreeId,
-    key: string,
-    record: SedimentreeRecord,
-    encoded: Uint8Array
-  ): Prepared {
-    if ((record.kind === "commit" ? record.id : record.head) !== key)
-      throw new Error("Signed record key does not match storage key")
-    const ref: RecordKey =
-      record.kind === "commit"
-        ? { kind: "commit", key }
-        : {
-            kind: "fragment",
-            key,
-            variant: hex(fragmentPayloadDigest(encoded)),
-          }
-    return {
-      tree: treeHex(id),
-      ref,
-      record,
-      encoded,
-    }
-  }
-  /** Check each record against its own key only, then write the new ones in one atomic batch. */
-  private async savePrepared(values: readonly Prepared[]): Promise<void> {
-    const writes = new Map<string, Uint8Array>()
-    const batch = new Map<string, SedimentreeRecord>()
-    const conflict = (record: SedimentreeRecord) =>
-      new BackendError(
-        "store",
-        "conflict",
-        `Different representation for an existing ${record.kind} key`
-      )
-    for (const { tree, ref, record, encoded } of values) {
-      const path = recordPath(tree, ref, "meta")
-      const earlier = batch.get(path)
-      if (earlier) {
-        if (!equalRecords(earlier, record)) throw conflict(record)
-        continue
-      }
-      batch.set(path, record)
-      const existing = await this.read(tree, ref)
-      if (existing) {
-        existing.signed.free()
-        if (!equalRecords(existing.record, record)) throw conflict(record)
-        continue
-      }
-      writes.set(path, encoded)
-      writes.set(recordPath(tree, ref, "blob"), record.blob)
-    }
-    if (writes.size) await this.storage.saveBatch([...writes])
+  async containsSedimentreeId(tree: N.SedimentreeId): Promise<boolean> {
+    return (await this.storage.load(`${IDS}${tree}`)) !== undefined
   }
 
   async saveCommit(
-    id: N.SedimentreeId,
-    key: N.CommitId,
-    signed: N.SignedLooseCommit,
+    tree: N.SedimentreeId,
+    head: N.CommitId,
+    signed: Uint8Array,
     blob: Uint8Array
   ): Promise<void> {
-    return this.mutate(id, () => {
-      const value = this.prepareCommit(id, key, signed, blob)
-      return () => this.savePrepared([value])
-    })
-  }
-  async loadCommit(
-    id: N.SedimentreeId,
-    key: N.CommitId
-  ): Promise<N.CommitWithBlob | null> {
-    const tree = treeHex(id),
-      cid = key.toHexString()
-    const value = await this.read(tree, { kind: "commit", key: cid })
-    // CommitWithBlob consumes signed.
-    return value?.kind === "commit"
-      ? new N.CommitWithBlob(value.signed, value.record.blob)
-      : null
-  }
-  async listCommitIds(id: N.SedimentreeId): Promise<N.CommitId[]> {
-    const tree = treeHex(id)
-    const p = partPrefix(tree, "commit", "meta")
-    return (await this.storage.list(p)).map(key =>
-      N.CommitId.fromHexString(key.slice(p.length))
+    await this.storage.saveBatch(
+      recordEntries(tree, "commits", head, signed, blob)
     )
   }
-  async loadAllCommits(id: N.SedimentreeId): Promise<N.CommitWithBlob[]> {
-    return this.loadCommits(treeHex(id))
+  loadCommit(tree: N.SedimentreeId, head: N.CommitId) {
+    return this.loadRecord(tree, "commits", head)
   }
-  private async loadCommits(tree: string): Promise<N.CommitWithBlob[]> {
-    const pairs = this.pairs(
-      tree,
-      await this.storage.loadPrefix(kindPrefix(tree, "commit"))
-    )
-    const result: N.CommitWithBlob[] = []
-    try {
-      for (const { meta, blob } of pairs) {
-        const signed = N.SignedLooseCommit.tryDecode(meta)
-        try {
-          result.push(new N.CommitWithBlob(signed, blob))
-        } catch (error) {
-          signed.free()
-          throw error
-        }
-      }
-      return result
-    } catch (error) {
-      result.forEach(c => c.free())
-      throw error
-    }
+  listCommitIds(tree: N.SedimentreeId) {
+    return this.listHeads(tree, "commits")
   }
-  async deleteCommit(id: N.SedimentreeId, key: N.CommitId): Promise<void> {
-    return this.mutate(id, tree => {
-      const ref: RecordKey = { kind: "commit", key: key.toHexString() }
-      return () =>
-        this.storage.removeBatch([
-          recordPath(tree, ref, "meta"),
-          recordPath(tree, ref, "blob"),
-        ])
-    })
+  loadAllCommits(tree: N.SedimentreeId) {
+    return this.loadAll(tree, "commits")
   }
-  async deleteAllCommits(id: N.SedimentreeId): Promise<void> {
-    return this.mutate(
-      id,
-      tree => () => this.storage.removeRange(kindPrefix(tree, "commit"))
-    )
+  deleteCommit(tree: N.SedimentreeId, head: N.CommitId) {
+    return this.removeRecord(tree, "commits", head)
+  }
+  deleteAllCommits(tree: N.SedimentreeId) {
+    return this.storage.removeRange(kindPrefix(tree, "commits"))
   }
 
   async saveFragment(
-    id: N.SedimentreeId,
-    key: N.CommitId,
-    signed: N.SignedFragment,
+    tree: N.SedimentreeId,
+    head: N.CommitId,
+    signed: Uint8Array,
     blob: Uint8Array
   ): Promise<void> {
-    return this.mutate(id, () => {
-      const value = this.prepareFragment(id, key, signed, blob)
-      return () => this.savePrepared([value])
-    })
-  }
-  async loadFragment(
-    id: N.SedimentreeId,
-    key: N.CommitId
-  ): Promise<N.FragmentWithBlob | null> {
-    const tree = treeHex(id),
-      head = key.toHexString()
-    const value = await this.readFragment(tree, head)
-    // FragmentWithBlob consumes signed too.
-    return value
-      ? new N.FragmentWithBlob(value.signed, value.record.blob)
-      : null
-  }
-  async listFragmentIds(id: N.SedimentreeId): Promise<N.CommitId[]> {
-    const tree = treeHex(id)
-    const p = partPrefix(tree, "fragment", "meta")
-    return [
-      ...new Set(
-        (await this.storage.list(p)).map(key =>
-          key.slice(p.length, p.length + 64)
-        )
-      ),
-    ].map(head => N.CommitId.fromHexString(head))
-  }
-  async loadAllFragments(id: N.SedimentreeId): Promise<N.FragmentWithBlob[]> {
-    return this.loadFragments(treeHex(id))
-  }
-  private async loadFragments(tree: string): Promise<N.FragmentWithBlob[]> {
-    const pairs = this.pairs(
-      tree,
-      await this.storage.loadPrefix(kindPrefix(tree, "fragment"))
-    )
-    const result: N.FragmentWithBlob[] = []
-    try {
-      for (const { meta, blob } of pairs) {
-        const signed = N.SignedFragment.tryDecode(meta)
-        try {
-          result.push(new N.FragmentWithBlob(signed, blob))
-        } catch (error) {
-          signed.free()
-          throw error
-        }
-      }
-      return result
-    } catch (error) {
-      result.forEach(f => f.free())
-      throw error
-    }
-  }
-  async deleteFragment(id: N.SedimentreeId, key: N.CommitId): Promise<void> {
-    // Like native, a head-only delete removes every variant of that head.
-    return this.mutate(id, tree => {
-      const variants = `${partPrefix(tree, "fragment", "meta")}${key.toHexString()}.`
-      return async () => {
-        const metas = await this.storage.list(variants)
-        await this.storage.removeBatch(
-          metas.flatMap(meta => [meta, meta.replace("/meta/", "/blob/")])
-        )
-      }
-    })
-  }
-  async deleteAllFragments(id: N.SedimentreeId): Promise<void> {
-    return this.mutate(
-      id,
-      tree => () => this.storage.removeRange(kindPrefix(tree, "fragment"))
+    await this.storage.saveBatch(
+      recordEntries(tree, "fragments", head, signed, blob)
     )
   }
+  loadFragment(tree: N.SedimentreeId, head: N.CommitId) {
+    return this.loadRecord(tree, "fragments", head)
+  }
+  listFragmentIds(tree: N.SedimentreeId) {
+    return this.listHeads(tree, "fragments")
+  }
+  loadAllFragments(tree: N.SedimentreeId) {
+    return this.loadAll(tree, "fragments")
+  }
+  deleteFragment(tree: N.SedimentreeId, head: N.CommitId) {
+    return this.removeRecord(tree, "fragments", head)
+  }
+  deleteAllFragments(tree: N.SedimentreeId) {
+    return this.storage.removeRange(kindPrefix(tree, "fragments"))
+  }
+
   async saveBatchAll(
-    id: N.SedimentreeId,
+    tree: N.SedimentreeId,
     commits: Parameters<N.SedimentreeStorage["saveBatchAll"]>[1],
     fragments: Parameters<N.SedimentreeStorage["saveBatchAll"]>[2]
   ): Promise<number> {
-    // Snapshot and validate ALL native metadata and JS bytes before the first
-    // await. Callers may immediately free/reuse inputs.
-    return this.mutate(id, () => {
-      const copies = [
-        ...commits.map(c =>
-          this.prepareCommit(id, c.commitId, c.signedCommit, c.blob)
-        ),
-        ...fragments.map(f =>
-          this.prepareFragment(id, f.fragmentHead, f.signedFragment, f.blob)
-        ),
-      ]
-      return async () => {
-        await this.savePrepared(copies)
-        return copies.length
-      }
-    })
+    await this.storage.saveBatch([
+      ...commits.flatMap(c =>
+        recordEntries(tree, "commits", c.commitId, c.signedCommit, c.blob)
+      ),
+      ...fragments.flatMap(f =>
+        recordEntries(
+          tree,
+          "fragments",
+          f.fragmentHead,
+          f.signedFragment,
+          f.blob
+        )
+      ),
+    ])
+    return commits.length + fragments.length
   }
 }

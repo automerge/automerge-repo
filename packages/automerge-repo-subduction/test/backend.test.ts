@@ -14,7 +14,8 @@ import {
 } from "../src/index.js"
 import { nativeId, logicalId } from "../src/storage.js"
 import { TestStore, deferred, savedKeys, storedRecords } from "./storage.js"
-import { corruptFrame, signedBytes } from "./frame.js"
+import { corruptFrame } from "./frame.js"
+import type { TestSigner } from "./transport.js"
 
 const tree = sedimentreeId("ab".repeat(16))
 const cid = (n: number) => commitId(n.toString(16).padStart(64, "0"))
@@ -58,14 +59,7 @@ async function initial(session: SedimentreeSession, id = tree) {
  * private engine: the backend deliberately exposes no native accessor. */
 async function nativeCommits(backend: SubductionBackend): Promise<number> {
   const engine = (backend as unknown as { engine: N.Subduction }).engine
-  const id = nativeId(tree)
-  try {
-    const commits = (await engine.getCommits(id)) ?? []
-    commits.forEach(c => c.free())
-    return commits.length
-  } finally {
-    id.free()
-  }
+  return ((await engine.getCommits(nativeId(tree))) ?? []).length
 }
 async function next(iterator: AsyncIterator<SedimentreeEvent>) {
   const value = await iterator.next()
@@ -74,7 +68,7 @@ async function next(iterator: AsyncIterator<SedimentreeEvent>) {
 }
 
 describe("real local Subduction", () => {
-  let storage: TestStore, signer: N.MemorySigner
+  let storage: TestStore, signer: TestSigner
   let backends: SubductionBackend[]
   const create = (limits: Partial<SubductionBackendOptions> = {}) => {
     const backend = new SubductionBackend({
@@ -85,25 +79,10 @@ describe("real local Subduction", () => {
     backends.push(backend)
     return backend
   }
-  /** Paired values for `record`, produced by a scratch backend. */
-  async function encodedPair(
-    record: LooseCommitRecord
-  ): Promise<[string, Uint8Array][]> {
-    const scratch = new TestStore()
-    const backend = new SubductionBackend({ storage: scratch, signer })
-    try {
-      await backend.store(tree, [record])
-      return (await scratch.loadPrefix("subduction-v2/")).filter(([key]) =>
-        key.includes("/commits/")
-      )
-    } finally {
-      await backend.close()
-    }
-  }
   beforeEach(async () => {
     storage = new TestStore()
     currentStorage = storage
-    signer = N.MemorySigner.fromBytes(new Uint8Array(32).fill(42))
+    signer = N.createMemorySigner(new Uint8Array(32).fill(42))
     backends = []
   })
   afterEach(async () => {
@@ -111,7 +90,6 @@ describe("real local Subduction", () => {
       await backend.flush().catch(() => {})
       await backend.close().catch(() => {})
     }
-    signer.free()
     vi.restoreAllMocks()
   })
 
@@ -330,21 +308,14 @@ describe("real local Subduction", () => {
     const backend = create()
     await backend.store(tree, [record(2, [1]), record(1)])
     const keys = await storage.list("subduction-v2/")
-    const key = keys.find(k => k.endsWith(`/meta/${cid(2)}`))!
-    const signed = N.SignedLooseCommit.tryDecode(
-      signedBytes((await storage.load(key))!)
-    )
-    const payload = signed.payload
-    const commit = payload.commitId,
-      meta = payload.blobMeta,
-      digest = meta.digest()
-    expect(commit.toHexString()).toBe(cid(2))
-    expect(commit.toHexString()).not.toBe(digest.toHexString())
-    commit.free()
-    digest.free()
-    meta.free()
-    payload.free()
-    signed.free()
+    const key = keys.find(k => k.endsWith(`/signed/${cid(2)}`))!
+    expect((await storage.load(key))!.length).toBeGreaterThan(0)
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const commit = ((await engine.getCommits(nativeId(tree))) ?? []).find(
+      c => c.head === cid(2)
+    )!
+    expect(commit.parents).toEqual([cid(1)])
+    expect(commit.head).not.toBe(commit.blobMeta.digest)
     expect((await initial(backend.open(tree))).records).toEqual([
       record(1),
       record(2, [1]),
@@ -352,14 +323,19 @@ describe("real local Subduction", () => {
     await backend.close()
     // Signer is borrowed and remains usable after native disconnect/free.
     expect((await signer.sign(new Uint8Array([1]))).length).toBe(64)
-    const hydration = vi.spyOn(N.Subduction.prototype, "getCommits")
     const loadPrefix = vi.spyOn(storage, "loadPrefix")
     const reload = create()
+    const hydration = vi.spyOn(
+      (reload as unknown as { engine: N.Subduction }).engine,
+      "getCommits"
+    )
     const loaded = await initial(reload.open(tree))
-    // Native reads commits and fragments separately; the test helper does
-    // the same again to verify metadata.
+    // Native reads commits and fragments once each; the rest are the test
+    // helper's own scratch-node reads.
     expect(hydration).not.toHaveBeenCalled()
-    expect(loadPrefix).toHaveBeenCalledTimes(4)
+    const total = loadPrefix.mock.calls.length
+    await storedRecords(storage, tree)
+    expect(total - (loadPrefix.mock.calls.length - total)).toBe(2)
     expect(loaded.records).toEqual([record(1), record(2, [1])])
     expect(loaded.complete.marker).toBeUndefined()
     // Native hydrates on demand from storage and finds both commits.
@@ -376,7 +352,6 @@ describe("real local Subduction", () => {
       expect(loaded.records).toEqual(timing === "before" ? [record(1)] : [])
       if (timing === "after") await a.store(tree, [record(1)])
       // Sequential external writes test notification recovery, not shared ownership.
-      const save = vi.spyOn(storage, "saveBatch")
       await b.store(tree, [record(1)])
       expect(await next(loaded.iterator)).toMatchObject({
         type: "records",
@@ -387,9 +362,6 @@ describe("real local Subduction", () => {
         type: "history-marker",
         marker: { heads: [cid(1)] },
       })
-      expect(savedKeys(save).filter(key => key.includes("/commits/"))).toEqual(
-        []
-      )
       expect((await initial(b.open(tree))).records).toEqual([record(1)])
       // The local write hydrated native, which holds the one record.
       await expect(nativeCommits(b)).resolves.toBe(1)
@@ -397,26 +369,22 @@ describe("real local Subduction", () => {
     }
   )
 
-  it("does not rewrite repeated duplicate stores", async () => {
+  it("converges on repeated duplicate stores", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
     const { iterator } = await initial(backend.open(tree))
-    const save = vi.spyOn(storage, "saveBatch")
     for (let i = 0; i < 3; i++) await backend.store(tree, [record(1)])
     await iterator.return!()
-    expect(savedKeys(save).filter(key => key.includes("/commits/"))).toEqual([])
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])
+    await expect(nativeCommits(backend)).resolves.toBe(1)
   })
 
   it("maps 16-byte IDs by zero-padding, preserves native 32-byte IDs without truncation", async () => {
     const full = sedimentreeId("ab".repeat(16) + "cd".repeat(16))
     for (const id of [tree, full]) {
       const native = nativeId(id)
-      expect(Buffer.from(native.toBytes()).toString("hex")).toBe(
-        id.padEnd(64, "0")
-      )
+      expect(native).toBe(id.padEnd(64, "0"))
       expect(logicalId(native)).toBe(id)
-      native.free()
     }
     const backend = create()
     await backend.store(tree, [record(1)])
@@ -509,32 +477,16 @@ describe("real local Subduction", () => {
     })
   })
 
-  it("refuses a stored-key conflict without writing or rescanning", async () => {
-    const backend = create()
-    await backend.store(tree, [record(1)])
-    const list = vi.spyOn(storage, "list")
-    const save = vi.spyOn(storage, "saveBatch")
-    const variant = { ...record(1), blob: new Uint8Array([9, 42]) }
-    // Native wraps the bridge's typed conflict in an opaque write error.
-    await expect(backend.store(tree, [variant])).rejects.toMatchObject({
-      operation: "store",
-      code: "io",
-    })
-    expect(savedKeys(save).filter(key => key.includes("/commits/"))).toEqual([])
-    expect(list).not.toHaveBeenCalled()
-    expect((await initial(backend.open(tree))).records).toEqual([record(1)])
-  })
-
   it("writes a submission of any size in one native call, in order", async () => {
     const backend = create()
     const records = Array.from({ length: 200 }, (_, i) =>
       record(i + 1, i ? [i] : [])
     )
-    const native = vi.spyOn(N.Subduction.prototype, "storeBuiltBatch")
+    const native = vi.spyOn(N.Subduction.prototype, "storeBatch")
     await backend.store(tree, records)
-    expect(native.mock.calls.map(([, commits]) => commits.length)).toEqual([
-      200,
-    ])
+    expect(native.mock.calls.map(([, batch]) => batch.commits?.length)).toEqual(
+      [200]
+    )
     const loaded = await initial(backend.open(tree))
     expect(loaded.records).toEqual(records)
     expect(loaded.complete.marker).toBeUndefined()
@@ -612,11 +564,8 @@ describe("real local Subduction", () => {
     })
     expect(list).not.toHaveBeenCalled()
     expect(getHeads).toHaveBeenCalledOnce()
-    // The bridge's own same-key check: per record, independent of how much
-    // history the tree holds.
-    const path = `subduction-v2/trees/${tree.padEnd(64, "0")}/commits/`
-    const pair = [`${path}meta/${cid(2)}`, `${path}blob/${cid(2)}`]
-    expect(load.mock.calls.map(([keys]) => keys)).toEqual([pair])
+    // The bridge does no preflight reads.
+    expect(load).not.toHaveBeenCalled()
     // Readers still validate the authoritative stored history.
     expect((await initial(backend.open(tree))).records).toEqual([
       record(1),
@@ -655,13 +604,8 @@ describe("real local Subduction", () => {
       release = deferred()
     const headsDuringSave: string[][] = []
     storage.afterSave = async keys => {
-      if (!keys.some(key => key.endsWith(`/meta/${cid(2)}`))) return
-      const heads = (await engine.getHeads(native)) ?? []
-      try {
-        headsDuringSave.push(heads.map(head => head.toHexString()))
-      } finally {
-        heads.forEach(head => head.free())
-      }
+      if (!keys.some(key => key.endsWith(`/signed/${cid(2)}`))) return
+      headsDuringSave.push((await engine.getHeads(native)) ?? [])
       entered.resolve()
       await release.promise
     }
@@ -681,7 +625,6 @@ describe("real local Subduction", () => {
       })
     } finally {
       release.resolve()
-      native.free()
       storage.afterSave = undefined
     }
   })
@@ -729,7 +672,7 @@ describe("real local Subduction", () => {
   it("reports malformed persisted fragments rather than treating them as absent", async () => {
     const backend = create()
     await storage.save(
-      `subduction-v2/trees/${tree.padEnd(64, "0")}/fragments/meta/${cid(1)}`,
+      `subduction-v2/trees/${tree.padEnd(64, "0")}/fragments/signed/${cid(1)}`,
       new Uint8Array([1])
     )
     const iterator = backend.open(tree).events[Symbol.asyncIterator]()
@@ -752,13 +695,13 @@ describe("real local Subduction", () => {
       await backend.store(tree, [record(1)])
       await backend.close()
       const key = (await storage.list("subduction-v2/")).find(k =>
-        k.includes("/commits/meta/")
+        k.includes("/commits/signed/")
       )!
       if (kind === "missing-blob")
-        await storage.remove(key.replace("/meta/", "/blob/"))
+        await storage.remove(key.replace("/signed/", "/blob/"))
       else if (kind === "blob")
         await storage.save(
-          key.replace("/meta/", "/blob/"),
+          key.replace("/signed/", "/blob/"),
           new Uint8Array([99])
         )
       else
@@ -810,7 +753,6 @@ describe("real local Subduction", () => {
         throw new Error("ambiguous write outcome")
       }
     }
-    const save = vi.spyOn(storage, "saveBatch")
     await expect(backend.store(tree, [record(1)])).rejects.toThrow()
     // The committed bytes return through native's recovery scan.
     expect(await next(iterator)).toMatchObject({
@@ -819,18 +761,12 @@ describe("real local Subduction", () => {
     })
     const retry = await initial(backend.open(tree))
     expect(retry.records).toEqual([record(1)])
-    const writes = savedKeys(save).filter(key =>
-      key.includes("/commits/")
-    ).length
     await backend.store(tree, [record(1)])
     expect(await next(retry.iterator)).toMatchObject({
       type: "records",
       phase: "live",
       records: [record(1)],
     })
-    expect(
-      savedKeys(save).filter(key => key.includes("/commits/"))
-    ).toHaveLength(writes)
     await retry.iterator.return!()
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])
   })
@@ -880,7 +816,7 @@ describe("real local Subduction", () => {
     const gate = deferred(),
       entered = deferred()
     storage.beforeSave = async key => {
-      if (key.endsWith(`/meta/${cid(1)}`)) {
+      if (key.endsWith(`/signed/${cid(1)}`)) {
         entered.resolve()
         await gate.promise
         throw new Error("disk failed")
@@ -897,7 +833,7 @@ describe("real local Subduction", () => {
     await vi.waitFor(async () =>
       expect(
         (await storage.list("subduction-v2/")).some(key =>
-          key.endsWith(`/meta/${cid(2)}`)
+          key.endsWith(`/signed/${cid(2)}`)
         )
       ).toBe(true)
     )
@@ -1040,14 +976,5 @@ describe("real local Subduction", () => {
     expect((await pending).done).toBe(true)
     gate.resolve()
     await write
-  })
-
-  it("rejects different same-key variants without acknowledging discarded history", async () => {
-    const backend = create()
-    await backend.store(tree, [record(1)])
-    await expect(
-      backend.store(tree, [{ ...record(1), blob: new Uint8Array([8]) }])
-    ).rejects.toMatchObject({ code: "io" })
-    expect((await initial(backend.open(tree))).records).toEqual([record(1)])
   })
 })
