@@ -1,4 +1,4 @@
-import type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
+import type { SubductionStorageAdapterInterface } from "@automerge/automerge-repo-subduction"
 
 /** Browser storage adapter. Use one live Subduction backend per database. */
 export class IndexedDBSubductionStorageAdapter implements SubductionStorageAdapterInterface {

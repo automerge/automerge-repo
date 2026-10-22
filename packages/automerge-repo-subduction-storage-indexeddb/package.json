@@ -1,0 +1,44 @@
+{
+  "name": "@automerge/automerge-repo-subduction-storage-indexeddb",
+  "version": "3.0.0-experimental.2",
+  "description": "IndexedDB storage adapter for the Automerge Repo Subduction backend",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/automerge/automerge-repo.git",
+    "directory": "packages/automerge-repo-subduction-storage-indexeddb"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "vitest"
+  },
+  "peerDependencies": {
+    "@automerge/automerge-repo-subduction": "workspace:^"
+  },
+  "devDependencies": {
+    "@automerge/automerge-repo-subduction": "workspace:*",
+    "fake-indexeddb": "6.2.5",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}

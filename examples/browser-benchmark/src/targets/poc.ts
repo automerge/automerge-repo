@@ -6,9 +6,9 @@ import "@automerge/subduction"
 import { Repo } from "@automerge/automerge-repo"
 import {
   createSubductionPeer,
-  IndexedDBSubductionStorageAdapter,
   type SubductionStorageAdapterInterface,
 } from "@automerge/automerge-repo-subduction"
+import { IndexedDBSubductionStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
 import type { Handle, StorageStats, Target } from "../target.js"
 
 function profile(

@@ -25,7 +25,6 @@ import { notifyBackendClosed } from "./backendLifecycle.js"
 import { decodeEphemeral, encodeEphemeral } from "./ephemeral.js"
 
 export type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
-export { IndexedDBSubductionStorageAdapter } from "./IndexedDBSubductionStorageAdapter.js"
 export { connectSubductionServer } from "./connect.js"
 export type {
   SubductionServer,

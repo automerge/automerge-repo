@@ -42,26 +42,19 @@ survive restart. Injected signers and storage adapters are borrowed; keep them
 alive until after `peer.close()`. Use valid Ed25519 signer keys, as native code
 can panic on invalid keys.
 
-### IndexedDB storage adapter
+### Storage adapters
 
-For persistent local history in a browser, pass `new IndexedDBSubductionStorageAdapter()` as
-`storage`. It uses the `automerge-repo-subduction` database and `bytes` object
-store; pass `{ database, store }` to choose names for another dedicated database.
-The chosen store is created only when the database is new. Each `saveBatch` is one
-readwrite transaction. A completed save does not guarantee fsync or protection
-from browser eviction.
-
-After shutting down Repo and closing the peer, call `await storage.close()` to
-release its database connection.
+Storage adapters live in separate packages. For persistent local history in a
+browser, use `IndexedDBSubductionStorageAdapter` from
+`@automerge/automerge-repo-subduction-storage-indexeddb` (also re-exported by
+`@automerge/react`):
 
 ```ts
 // Node initializer shown; browsers must await their native WASM initializer.
 import "@automerge/subduction"
 import { Repo } from "@automerge/automerge-repo"
-import {
-  createSubductionPeer,
-  IndexedDBSubductionStorageAdapter,
-} from "@automerge/automerge-repo-subduction"
+import { createSubductionPeer } from "@automerge/automerge-repo-subduction"
+import { IndexedDBSubductionStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
 
 const storage = new IndexedDBSubductionStorageAdapter()
 const peer = createSubductionPeer({ storage, servers: ["ws://127.0.0.1:8080"] })
@@ -81,9 +74,13 @@ try {
 }
 ```
 
+An adapter package implements `SubductionStorageAdapterInterface` (below) and
+runs the shared acceptance suite, `runSubductionStorageAdapterTests`, from
+`@automerge/automerge-repo-subduction/helpers/tests/subduction-storage-adapter-tests.js`.
+
 Inject a persistent signer if peer identity must survive reloads. Use one live
-backend per database, including across browser tabs and custom object stores;
-concurrent local deletes and writes are not coordinated across tabs.
+backend per storage, including across browser tabs; concurrent local deletes
+and writes are not coordinated across tabs.
 
 ### Server connections
 
