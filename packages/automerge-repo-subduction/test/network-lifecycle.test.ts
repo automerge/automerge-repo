@@ -510,6 +510,30 @@ describe("authenticated network failure and lifecycle barriers", () => {
     ).toEqual([])
   }, 20000)
 
+  // Contract: a round whose ingest fails locally reports the failure. Native
+  // drops that peer from syncWithAllPeers' results, so the round resolves as
+  // "no-peers" despite a connected peer; see the README's known gaps.
+  it.fails("reports a local ingest failure in an explicit round", async () => {
+    const a = peer(),
+      b = peer()
+    const { right } = await settledConnection(a, b)
+    b.storage.beforeSave = async key => {
+      if (key.includes("/commits/")) throw new Error("disk full")
+    }
+    await a.backend.store(tree, records)
+    const round = await bounded(
+      track(right.session.synchronize()).catch(cause => cause),
+      "round"
+    )
+    // Either surfacing is acceptable: a rejected round or a failed peer.
+    if (round instanceof Error) expect(round).toMatchObject({ code: "io" })
+    else
+      expect(round).toMatchObject({
+        outcome: "failed",
+        peers: [{ peer: identity(a.signer), outcome: "failed" }],
+      })
+  }, 20000)
+
   it("recovers ambiguous incoming saves and reconnects without losing or duplicating the record", async () => {
     const a = peer(),
       b = peer()

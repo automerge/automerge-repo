@@ -285,6 +285,9 @@ These are tracked upstream rather than emulated here:
   existing commit ID or fragment head; the later one overwrites.
 - **Stream recovery.** A local storage error during a native peer round can end
   a session's stored-data stream; the session then fails rather than resuming.
+- **Round failures.** A peer whose sync round hits a local storage error is
+  left out of native's results, so the round can report `no-peers` with that
+  peer still connected.
 
 ## Limits
 
