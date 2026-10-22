@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config"
 import react from "@vitejs/plugin-react"
-import { resolve } from "path"
+import { isAbsolute, resolve } from "path"
 import dts from "vite-plugin-dts"
 import wasm from "vite-plugin-wasm"
 import { visualizer } from "rollup-plugin-visualizer"
@@ -22,7 +22,9 @@ export default defineConfig({
     },
     target: "esnext",
     rollupOptions: {
-      external: [/^@automerge\//, "react", "react/jsx-runtime", "react-dom"],
+      // Bundle this package's own source and nothing else.
+      external: (id: string) =>
+        !id.startsWith("\0") && !id.startsWith(".") && !isAbsolute(id),
       output: {
         globals: {
           react: "React",
