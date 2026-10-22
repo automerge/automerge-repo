@@ -147,4 +147,23 @@ describe("StorageSource", () => {
       errSpy.mockRestore()
     }
   })
+
+  it("does not save a queued change after the handle is deleted", async () => {
+    vi.useFakeTimers()
+    try {
+      const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      const storage = new StorageSubsystem(new DummyStorageAdapter())
+      const save = vi.spyOn(storage, "saveDoc")
+      const query = createTestQuery<TestDoc>(documentId)
+      new StorageSource(storage, 0).attach(query as DocumentQuery<unknown>)
+
+      query.handle.update(() => A.from({ foo: "bar" }))
+      query.handle.delete()
+      await vi.runAllTimersAsync()
+
+      assert.equal(save.mock.calls.length, 0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

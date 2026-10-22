@@ -25,6 +25,12 @@ export class SavedHeads {
   lastSavedHeads(documentId: DocumentId): HeadsHandle {
     return new HeadsHandle(documentId, ++this.#seq, this.#data)
   }
+
+  /** Drop the saved heads for a document. */
+  delete(documentId: DocumentId): void {
+    this.#data.delete(documentId)
+  }
+
 }
 
 // Helpr class to manage applying heads updates in the correct order when there

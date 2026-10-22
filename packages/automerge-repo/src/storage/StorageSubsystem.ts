@@ -167,8 +167,13 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
       binaries.push(chunk.data)
     }
 
-    // Store chunk infos for future reference
-    this.#chunkInfos.set(documentId, chunkInfos)
+    // A missing entry reads as "no chunks", so a document storage doesn't
+    // hold leaves no entry behind; otherwise every id ever looked up would.
+    if (chunkInfos.length > 0) {
+      this.#chunkInfos.set(documentId, chunkInfos)
+    } else {
+      this.#chunkInfos.delete(documentId)
+    }
 
     // If no chunks were found, return null
     if (binaries.length === 0) {
@@ -228,9 +233,22 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
    * Removes the Automerge document with the given ID from storage
    */
   async removeDoc(documentId: DocumentId) {
+    // Forget before the first await: storage is about to hold nothing for the
+    // document, so a save issued meanwhile must not be skipped as unchanged.
+    this.forget(documentId)
     await this.#storageAdapter.removeRange([documentId, "snapshot"])
     await this.#storageAdapter.removeRange([documentId, "incremental"])
     await this.#storageAdapter.removeRange([documentId, "sync-state"])
+  }
+
+  /**
+   * Drop the in-memory bookkeeping (last saved heads and known chunks) for a
+   * document. The next load rebuilds both from storage, and a save without
+   * them writes a full snapshot instead of an incremental.
+   */
+  forget(documentId: DocumentId): void {
+    this.#storedHeads.delete(documentId)
+    this.#chunkInfos.delete(documentId)
   }
 
   /**
