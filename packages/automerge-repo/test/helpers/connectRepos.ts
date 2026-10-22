@@ -1,6 +1,6 @@
 import { DummyNetworkAdapter } from "../../src/helpers/DummyNetworkAdapter.js"
 import { Repo } from "../../src/Repo.js"
-import pause from "./pause.js"
+import { whenPeersConnected } from "./whenPeerConnected.js"
 
 export default async function connectRepos(left: Repo, right: Repo) {
   const [leftToRight, rightToLeft] = DummyNetworkAdapter.createConnectedPair({
@@ -10,9 +10,5 @@ export default async function connectRepos(left: Repo, right: Repo) {
   right.networkSubsystem.addNetworkAdapter(rightToLeft)
   leftToRight.peerCandidate(right.peerId)
   rightToLeft.peerCandidate(left.peerId)
-  await Promise.all([
-    left.networkSubsystem.whenReady(),
-    right.networkSubsystem.whenReady(),
-  ])
-  await pause(10)
+  await whenPeersConnected(left, right)
 }
