@@ -334,7 +334,7 @@ describe("real local Subduction", () => {
       record(2, [1]),
     ])
     await backend.close()
-    // Signer is borrowed and remains usable after native disconnect/free.
+    // Signer is borrowed and remains usable after backend close.
     expect((await signer.sign(new Uint8Array([1]))).length).toBe(64)
     const loadPrefix = vi.spyOn(storage, "loadPrefix")
     const reload = create()

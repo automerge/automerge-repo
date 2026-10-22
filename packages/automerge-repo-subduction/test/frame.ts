@@ -1,7 +1,4 @@
-// Metadata and blob live under separate keys.
-export const signedBytes = (metadata: Uint8Array): Uint8Array =>
-  metadata.slice()
-
+// Flip one byte of a stored signed or blob value.
 export function corruptFrame(
   frame: Uint8Array,
   field: "signed" | "blob"
