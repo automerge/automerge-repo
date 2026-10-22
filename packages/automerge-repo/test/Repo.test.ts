@@ -2506,6 +2506,17 @@ describe("Repo", () => {
       const bobHandle = await bob.find<{ foo: string }>(aliceHandle.url)
       expect(bobHandle.doc()).toEqual({ foo: "v1" })
 
+      // The server's sync-state tracker records bob's acknowledged heads,
+      // readable through any server-side handle's injected lookup.
+      await (async () => {
+        const serverHandle = await server.find<{ foo: string }>(aliceHandle.url)
+        await vi.waitFor(() =>
+          expect(
+            serverHandle.getSyncInfo("bob-storage" as any)?.lastHeads
+          ).toEqual(bobHandle.heads())
+        )
+      })()
+
       // Wait for the server to persist sync state for both peers.
       await vi.waitFor(async () => {
         const chunks = await storage.loadRange([documentId, "sync-state"])
@@ -2519,10 +2530,12 @@ describe("Repo", () => {
       // Alice edits: the server re-creates its synchronizer from the
       // inbound message and must resume pushing to bob, whose engagement
       // is known only from his persisted sync state.
+      const bobSawV2 = eventPromise(bobHandle, "heads-changed")
       aliceHandle.change(d => {
         d.foo = "v2"
       })
-      await vi.waitFor(() => expect(bobHandle.doc()).toEqual({ foo: "v2" }))
+      await bobSawV2
+      expect(bobHandle.doc()).toEqual({ foo: "v2" })
     })
 
     it("does not re-engage a peer whose persisted sync state shares no heads", async () => {

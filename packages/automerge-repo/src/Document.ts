@@ -6,6 +6,13 @@ import type { StorageId } from "./storage/types.js"
 import type { SyncInfo } from "./DocHandle.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
+import {
+  kOnHeadsChanged,
+  kOnRetainChange,
+  kReleaseDocument,
+  kRetainDocument,
+  kSeverRetention,
+} from "./internals.js"
 
 /**
  * Per-document shared state - one per `documentId`, referenced by every
@@ -30,6 +37,46 @@ export class Document<T = unknown> {
   syncInfoLookup?: (storageId: StorageId) => SyncInfo | undefined
 
   /**
+   * External retainers: public `on`/`once` listeners plus external
+   * {@link DocumentQuery} subscribers (including pending `whenReady`
+   * waiters). Repo-internal subscriptions don't count - they exist for
+   * every document.
+   */
+  #externalRetainCount = 0;
+
+  /**
+   * Injected by `Repo`: fired on the 0-to-1 / 1-to-0 transitions so the
+   * Repo can root externally-observed documents.
+   */
+  [kOnRetainChange]?: (retained: boolean) => void;
+
+  /** Injected by `Repo`: fired whenever the heads move. */
+  [kOnHeadsChanged]?: () => void;
+
+  /** Record one external retainer (see `kOnRetainChange`). */
+  [kRetainDocument](): void {
+    if (++this.#externalRetainCount === 1) this[kOnRetainChange]?.(true)
+  }
+
+  /** Release one external retainer. Extra releases are ignored. */
+  [kReleaseDocument](): void {
+    if (this.#externalRetainCount === 0) return
+    if (--this.#externalRetainCount === 0) this[kOnRetainChange]?.(false)
+  }
+
+  /**
+   * Explicit teardown (`Repo.delete` / `removeFromCache`): drop all
+   * external retention and stop reporting, so a detached document can
+   * never re-root itself.
+   */
+  [kSeverRetention](): void {
+    const wasRetained = this.#externalRetainCount > 0
+    this.#externalRetainCount = 0
+    if (wasRetained) this[kOnRetainChange]?.(false)
+    this[kOnRetainChange] = undefined
+  }
+
+  /**
    * Materialized `A.view`s, keyed by heads. Heads precisely specify an
    * immutable state, so a view never changes once computed and the cache
    * never needs invalidating - the live doc only ever grows past these
@@ -40,6 +87,12 @@ export class Document<T = unknown> {
    */
   #viewCache = new WeakValueMap<string, A.Doc<T>>()
 
+  /**
+   * @param syncInfoLookup - accepted here for direct construction (e.g.
+   * tests). `Repo` cannot use it: its lookup closes over the root
+   * `DocHandle`, which is constructed from this `Document` afterwards, so
+   * `Repo` assigns {@link syncInfoLookup} post-construction instead.
+   */
   constructor(
     documentId: DocumentId,
     initialDoc: A.Doc<T>,
@@ -81,6 +134,7 @@ export class Document<T = unknown> {
     const beforeHeads = A.getHeads(before)
     const afterHeads = A.getHeads(after)
     if (arrayEqual(beforeHeads, afterHeads)) return
+    this[kOnHeadsChanged]?.()
     this.registry.dispatchHeadsChanged(after)
     const patches = A.diff(after, beforeHeads, afterHeads)
     if (patches.length > 0) {
