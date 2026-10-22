@@ -4,6 +4,7 @@ import { decodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { Segment } from "./subdoc-handles/types.js"
 import { type FindProgress, queryStateToFindProgress } from "./_compat.js"
+import { kOnInternal } from "./internals.js"
 
 /**
  * The state a {@link DocumentSource} reports for a particular document.
@@ -138,7 +139,7 @@ export class DocumentQuery<T> implements DocumentProgress<T> {
       ])
     )
     this.#state = this.#computeState()
-    this.#handle.on("heads-changed", () => this.#recompute())
+    this.#handle[kOnInternal]("heads-changed", () => this.#recompute())
   }
 
   peek(): QueryState<T> {

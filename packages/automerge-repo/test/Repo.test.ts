@@ -14,6 +14,7 @@ import {
 import { DocMetrics, Repo, ShareConfig } from "../src/Repo.js"
 import { eventPromise } from "../src/helpers/eventPromise.js"
 import { pause } from "../src/helpers/pause.js"
+import { headsAreSame } from "../src/helpers/headsAreSame.js"
 import {
   AnyDocumentId,
   UrlHeads,
@@ -399,6 +400,65 @@ describe("Repo", () => {
 
       const v = bobHandle.doc()
       assert.equal(v?.foo, "bar")
+    })
+
+    it("keeps autosaving a document after a consumer's removeAllListeners", async () => {
+      const { repo, storageAdapter } = setup()
+      // Resolves when storage saves `handle` at its current heads; rejects
+      // if no such save happens within the bound.
+      const savedAtCurrentHeads = (handle: DocHandle<TestDoc>) => {
+        const heads = A.getHeads(handle.doc())
+        const { promise, resolve, reject } = Promise.withResolvers<void>()
+        const onMetrics = (e: DocMetrics) => {
+          if (
+            (e.type === "doc-saved" || e.type === "doc-compacted") &&
+            e.documentId === handle.documentId &&
+            headsAreSame(encodeHeads(e.savedHeads as Heads), encodeHeads(heads))
+          ) {
+            resolve()
+          }
+        }
+        repo.on("doc-metrics", onMetrics)
+        const timer = setTimeout(
+          () => reject(new Error("document was not autosaved at its heads")),
+          2000
+        )
+        return promise.finally(() => {
+          clearTimeout(timer)
+          repo.off("doc-metrics", onMetrics)
+        })
+      }
+
+      const handle = repo.create<TestDoc>()
+      await savedAtCurrentHeads(handle)
+
+      handle.on("change", () => {})
+      handle.removeAllListeners()
+      handle.change(d => {
+        d.foo = "bar"
+      })
+      await savedAtCurrentHeads(handle)
+
+      const repo2 = new Repo({ storage: storageAdapter })
+      const reloaded = await repo2.find<TestDoc>(handle.url)
+      assert.equal(reloaded.doc()?.foo, "bar")
+    })
+
+    it("keeps the repo's own handle listeners after a consumer's removeAllListeners", () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      const events = [
+        "change",
+        "heads-changed",
+        "ephemeral-message-outbound",
+      ] as const
+      const counts = () => events.map(e => handle.listenerCount(e))
+      const before = counts()
+      expect(before.every(n => n > 0)).toBe(true)
+
+      handle.on("change", () => {})
+      handle.removeAllListeners()
+      expect(counts()).toEqual(before)
     })
 
     it("can save several documents in quick succession", async () => {
@@ -881,9 +941,10 @@ describe("Repo", () => {
 
         // Count concurrent sync-state saves by intercepting the adapter's
         // save method and filtering by the sync-state key prefix. The Repo
-        // wraps StorageSubsystem.saveSyncState with asyncThrottle keyed by
-        // storageId, so even across many rapid events the adapter should
-        // never see two sync-state saves in flight for the same storageId.
+        // wraps StorageSubsystem.saveSyncState with asyncThrottle keyed per
+        // document and storageId, so even across many rapid events the
+        // adapter should never see two sync-state saves in flight for the
+        // same document and storageId.
         let concurrent = 0
         let maxConcurrent = 0
         let syncStateSaveCalls = 0

@@ -11,6 +11,135 @@ import type { SyncStatePayload } from "../src/synchronizer/Synchronizer.js"
 import type { PeerId } from "../src/types.js"
 
 describe("SyncStateTracker", () => {
+  const peerMetadata = {
+    storageId: "storage-1" as StorageId,
+    isEphemeral: false,
+  }
+  const fakeHandle = (isDeleted = () => false) =>
+    ({ emit: () => true, isDeleted }) as unknown as DocHandle<unknown>
+  const newDocumentId = () =>
+    parseAutomergeUrl(generateAutomergeUrl()).documentId
+  const syncWithPeer = (
+    tracker: SyncStateTracker,
+    documentId: ReturnType<typeof newDocumentId>,
+    handle: DocHandle<unknown>
+  ) =>
+    tracker.handleSyncState(
+      {
+        peerId: "peer-1" as PeerId,
+        documentId,
+        syncState: A.initSyncState(),
+      },
+      peerMetadata,
+      handle
+    )
+
+  it("persists the sync state of every document that syncs with a peer in one debounce window", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      const subsystem = new StorageSubsystem(new DummyStorageAdapter())
+      const savedDocs: string[] = []
+      vi.spyOn(subsystem, "saveSyncState").mockImplementation(
+        async documentId => {
+          savedDocs.push(documentId)
+        }
+      )
+      const tracker = new SyncStateTracker(subsystem, 10)
+
+      const docA = newDocumentId()
+      const docB = newDocumentId()
+      syncWithPeer(tracker, docA, fakeHandle())
+      syncWithPeer(tracker, docB, fakeHandle())
+
+      await vi.advanceTimersByTimeAsync(20)
+      assert.deepEqual(
+        savedDocs.sort(),
+        [docA, docB].sort(),
+        "both documents' sync states must be persisted"
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("bounds concurrent sync-state writes across documents", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      const subsystem = new StorageSubsystem(new DummyStorageAdapter())
+      const inFlight: Array<{ documentId: string; resolve: () => void }> = []
+      const savedDocs: string[] = []
+      vi.spyOn(subsystem, "saveSyncState").mockImplementation(
+        async documentId => {
+          const { promise, resolve } = Promise.withResolvers<void>()
+          inFlight.push({ documentId, resolve })
+          await promise
+          savedDocs.push(documentId)
+        }
+      )
+      const tracker = new SyncStateTracker(subsystem, 10, 2)
+
+      const docs = Array.from({ length: 5 }, newDocumentId)
+      for (const documentId of docs) {
+        syncWithPeer(tracker, documentId, fakeHandle())
+      }
+      await vi.advanceTimersByTimeAsync(20)
+      assert.equal(inFlight.length, 2, "only two writes may start at once")
+
+      // Each completed write lets exactly one queued write start.
+      for (let started = 2; started < docs.length; started++) {
+        inFlight[started - 2].resolve()
+        await vi.advanceTimersByTimeAsync(0)
+        assert.equal(inFlight.length, started + 1)
+      }
+      inFlight.slice(-2).forEach(({ resolve }) => resolve())
+      await vi.advanceTimersByTimeAsync(0)
+
+      assert.deepEqual(savedDocs.sort(), [...docs].sort())
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not save sync state for a document deleted while its save is queued", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      const subsystem = new StorageSubsystem(new DummyStorageAdapter())
+      const release = Promise.withResolvers<void>()
+      const savedDocs: string[] = []
+      vi.spyOn(subsystem, "saveSyncState").mockImplementation(
+        async documentId => {
+          if (savedDocs.length === 0) await release.promise
+          savedDocs.push(documentId)
+        }
+      )
+      const tracker = new SyncStateTracker(subsystem, 10, 1)
+
+      const deleted = new Set<string>()
+      const handleFor = (documentId: string) =>
+        fakeHandle(() => deleted.has(documentId))
+      // The first write holds the only slot, so the second waits behind the
+      // limit and the third waits on its throttle.
+      const [holder, queued, throttled] = Array.from(
+        { length: 3 },
+        newDocumentId
+      )
+      syncWithPeer(tracker, holder, handleFor(holder))
+      syncWithPeer(tracker, queued, handleFor(queued))
+      await vi.advanceTimersByTimeAsync(10)
+      assert.equal(vi.mocked(subsystem.saveSyncState).mock.calls.length, 1)
+      syncWithPeer(tracker, throttled, handleFor(throttled))
+
+      deleted.add(queued)
+      deleted.add(throttled)
+      release.resolve()
+      await vi.advanceTimersByTimeAsync(20)
+
+      assert.deepEqual(savedDocs, [holder])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("logs a failed sync-state save instead of leaking an unhandled rejection", async () => {
     // The throttled sync-state save runs fire-and-forget (its promise is
     // discarded). If the storage write rejects, the rejection must be caught
@@ -28,7 +157,7 @@ describe("SyncStateTracker", () => {
 
       // handleSyncState only touches `handle` to emit "remote-heads" after the
       // save is scheduled, so a minimal stub is enough to exercise the save path.
-      const handle = { emit: () => true } as unknown as DocHandle<unknown>
+      const handle = fakeHandle()
       const message: SyncStatePayload = {
         peerId: "peer-1" as PeerId,
         documentId: parseAutomergeUrl(generateAutomergeUrl()).documentId,
