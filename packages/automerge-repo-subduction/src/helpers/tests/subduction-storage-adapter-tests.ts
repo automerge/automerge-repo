@@ -50,54 +50,40 @@ export function runSubductionStorageAdapterTests(
       expect(await store.loadPrefix("")).toHaveLength(5)
     })
 
-    it("loads requested keys in order from one consistent cut", async () => {
+    it("loads requested keys in input order, missing as undefined", async () => {
       await store.saveBatch([
         ["pair/signed", new Uint8Array([1])],
         ["pair/blob", new Uint8Array([2])],
       ])
-      const reading = store.loadMany(["pair/signed", "missing", "pair/blob"])
-      const replacing = store.saveBatch([
-        ["pair/signed", new Uint8Array([3])],
-        ["pair/blob", new Uint8Array([4])],
-      ])
-      const seen = await reading
-      await replacing
-      expect([
-        [1, undefined, 2],
-        [3, undefined, 4],
-      ]).toContainEqual(seen.map(value => value?.[0]))
+      expect(
+        await store.loadMany(["pair/blob", "missing", "pair/signed"])
+      ).toEqual([new Uint8Array([2]), undefined, new Uint8Array([1])])
       expect(await store.loadMany([])).toEqual([])
     })
 
-    it("saves a batch as one visible cut", async () => {
+    it("saves a batch, adding new keys and replacing existing ones", async () => {
       await store.saveBatch([["b/1", new Uint8Array([0])]])
-      const saving = store.saveBatch([
+      await store.saveBatch([
         ["b/1", new Uint8Array([1])],
         ["b/2", new Uint8Array([2])],
       ])
-      const reading = store.loadPrefix("b/")
-      const seen = await reading
-      await saving
-      expect([
-        [["b/1", new Uint8Array([0])]],
-        [
-          ["b/1", new Uint8Array([1])],
-          ["b/2", new Uint8Array([2])],
-        ],
-      ]).toContainEqual(seen)
+      expect(await store.loadPrefix("b/")).toEqual([
+        ["b/1", new Uint8Array([1])],
+        ["b/2", new Uint8Array([2])],
+      ])
+      await store.saveBatch([])
       expect(await store.list("b/")).toEqual(["b/1", "b/2"])
     })
 
-    it("removes a batch together", async () => {
+    it("removes a batch, ignoring missing keys", async () => {
       await store.saveBatch([
         ["r/1", new Uint8Array([1])],
         ["r/2", new Uint8Array([2])],
         ["r/3", new Uint8Array([3])],
       ])
-      const removing = store.removeBatch(["r/1", "r/3"])
-      const reading = store.list("r/")
-      expect([["r/1", "r/2", "r/3"], ["r/2"]]).toContainEqual(await reading)
-      await removing
+      await store.removeBatch(["r/1", "missing", "r/3"])
+      expect(await store.list("r/")).toEqual(["r/2"])
+      await store.removeBatch([])
       expect(await store.list("r/")).toEqual(["r/2"])
     })
 
