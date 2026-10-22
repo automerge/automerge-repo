@@ -129,6 +129,19 @@ describe("real local Subduction", () => {
     return { entered: entered.promise, release: release.resolve }
   }
 
+  it("passes the sync timeout to Subduction, which validates it", async () => {
+    expect(() => create({ syncTimeoutMilliseconds: -1 })).toThrow(TypeError)
+    expect(() => create({ syncTimeoutMilliseconds: 1.5 })).toThrow(TypeError)
+    const backend = create({ syncTimeoutMilliseconds: 1234 })
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const rounds = vi.spyOn(engine, "syncWithAllPeers")
+    const session = backend.open(tree)
+    await initial(session)
+    await session.synchronize()
+    // Rounds rely on the node's default deadline.
+    expect(rounds.mock.calls[0][1]).toEqual({ subscribe: true })
+  })
+
   it("opens via a native stored stream", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])

@@ -288,11 +288,10 @@ These are tracked upstream rather than emulated here:
 
 ## Limits
 
-Default limits:
-
-| Option                    |                                               Default |
-| ------------------------- | ----------------------------------------------------: |
-| `syncTimeoutMilliseconds` | 5,000 ms per explicit or store-triggered sync request |
+`syncTimeoutMilliseconds` sets Subduction's default request deadline, used by
+explicit and store-triggered sync rounds. Unset, Subduction's own default
+applies (currently 30 s); Subduction validates the value (a u32 of
+milliseconds) and the constructor throws its `TypeError` otherwise.
 
 A write reads nothing; it does not rescan the tree. A
 `store()`/`create()` submission of any size is accepted and written in one

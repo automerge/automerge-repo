@@ -47,7 +47,8 @@ export type TransportAudience = N.TransportAudience
 export interface SubductionBackendOptions {
   signer: NativeSigner
   storage: ByteStore
-  /** Native request deadline, not a deadline on local storage or handshake. */
+  /** Native default request deadline (Subduction's own default when unset;
+   * validated by Subduction). Not a deadline on local storage or handshake. */
   syncTimeoutMilliseconds?: number
 }
 
@@ -158,9 +159,6 @@ function waitOnly<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
  * Initialize Subduction WASM before construction. Storage is exclusively owned.
  */
 export class SubductionBackend implements SedimentreeBackend {
-  private readonly limits: Required<
-    Omit<SubductionBackendOptions, "signer" | "storage">
-  >
   private readonly engine: N.Subduction
   private closed = false
   private closing?: Promise<void>
@@ -183,18 +181,10 @@ export class SubductionBackend implements SedimentreeBackend {
   private readonly acks = new Map<SedimentreeId, Promise<void>>()
 
   constructor(options: SubductionBackendOptions) {
-    this.limits = {
-      syncTimeoutMilliseconds: options.syncTimeoutMilliseconds ?? 5000,
-    }
-    for (const value of Object.values(this.limits))
-      if (!Number.isSafeInteger(value) || value <= 0)
-        throw new TypeError("Limits must be positive safe integers")
-    if (this.limits.syncTimeoutMilliseconds > 0xffffffff)
-      throw new TypeError("Sync timeout exceeds native u32 range")
     this.engine = new N.Subduction({
       signer: options.signer,
       storage: new StorageBridge(options.storage),
-      defaultTimeoutMilliseconds: this.limits.syncTimeoutMilliseconds,
+      defaultTimeoutMilliseconds: options.syncTimeoutMilliseconds,
       onEphemeral: (topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) =>
         this.onEphemeral(topic, peer, bytes),
       onRemoteHeads: (
@@ -323,10 +313,7 @@ export class SubductionBackend implements SedimentreeBackend {
     // Peer failures are reported per peer; a rejection is local (storage or
     // closed) and rejects the round.
     const results = Object.entries(
-      await engine.syncWithAllPeers(native, {
-        subscribe: true,
-        timeoutMilliseconds: this.limits.syncTimeoutMilliseconds,
-      })
+      await engine.syncWithAllPeers(native, { subscribe: true })
     )
     // Store-triggered rounds only propagate; with no peers there is nothing
     // to report. Explicit rounds always answer their session.
