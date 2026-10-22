@@ -1,5 +1,5 @@
 import type * as N from "@automerge/subduction/slim"
-import type { ByteStore } from "./ByteStore.js"
+import type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
 import {
   sedimentreeId,
   type SedimentreeId,
@@ -41,13 +41,13 @@ const recordEntries = (
 }
 const EMPTY = new Uint8Array(0)
 
-/** Subduction's storage callbacks over a ByteStore. Stores exactly what
+/** Subduction's storage callbacks over a storage adapter. Stores exactly what
  * Subduction sends, keyed by tree and head; Subduction verifies on admission
  * and checks blob agreement on load. Each record is a signed/blob key pair,
  * written atomically by `saveBatch`.
  */
 export class StorageBridge implements N.SedimentreeStorage {
-  constructor(private readonly storage: ByteStore) {}
+  constructor(private readonly storage: SubductionStorageAdapterInterface) {}
 
   private async loadRecord(
     tree: string,
@@ -102,16 +102,17 @@ export class StorageBridge implements N.SedimentreeStorage {
   }
 
   async saveSedimentreeId(tree: N.SedimentreeId): Promise<void> {
-    await this.storage.save(`${IDS}${tree}`, EMPTY)
+    await this.storage.saveBatch([[`${IDS}${tree}`, EMPTY]])
   }
   async deleteSedimentreeId(tree: N.SedimentreeId): Promise<void> {
-    await this.storage.remove(`${IDS}${tree}`)
+    await this.storage.removeBatch([`${IDS}${tree}`])
   }
   async loadAllSedimentreeIds(): Promise<N.SedimentreeId[]> {
     return (await this.storage.list(IDS)).map(key => key.slice(IDS.length))
   }
   async containsSedimentreeId(tree: N.SedimentreeId): Promise<boolean> {
-    return (await this.storage.load(`${IDS}${tree}`)) !== undefined
+    const [marker] = await this.storage.loadMany([`${IDS}${tree}`])
+    return marker !== undefined
   }
 
   async saveCommit(

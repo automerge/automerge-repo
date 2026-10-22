@@ -2,7 +2,7 @@ import {
   Repo,
   RepoContext,
   createSubductionPeer,
-  IndexedDBByteStore,
+  IndexedDBSubductionStorageAdapter,
   isValidAutomergeUrl,
   type DocHandle,
 } from "@automerge/react"
@@ -18,7 +18,9 @@ const server = new URL(
   new URLSearchParams(location.search).get("server") ??
     "wss://subduction.sync.inkandswitch.com"
 )
-const storage = new IndexedDBByteStore({ database: "automerge-repo-demo-todo" })
+const storage = new IndexedDBSubductionStorageAdapter({
+  database: "automerge-repo-demo-todo",
+})
 const peer = createSubductionPeer({
   storage,
   servers: [{ url: server, serviceName: server.host }],

@@ -46,4 +46,4 @@ Results contain fixture hash, exact ref SHA, adapter, browser version, dirty fla
 
 ## Seeding investigation
 
-`pnpm --filter @automerge/automerge-repo-browser-benchmark diagnose` writes `results/seed-diagnosis.json` from a Node `MemoryByteStore` experiment (1 vs 10 documents, 1/10/51/80 changes), counting storage loads and listings per seed. Compare read counts before trying to optimize; a Chrome CPU profile helps distinguish JavaScript decoding, native work, and IndexedDB transaction overhead.
+`pnpm --filter @automerge/automerge-repo-browser-benchmark diagnose` writes `results/seed-diagnosis.json` from a Node `DummySubductionStorageAdapter` experiment (1 vs 10 documents, 1/10/51/80 changes), counting storage loads and listings per seed. Compare read counts before trying to optimize; a Chrome CPU profile helps distinguish JavaScript decoding, native work, and IndexedDB transaction overhead.

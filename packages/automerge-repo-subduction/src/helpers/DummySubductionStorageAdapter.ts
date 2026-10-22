@@ -1,22 +1,14 @@
-import type { ByteStore } from "./ByteStore.js"
+import type { SubductionStorageAdapterInterface } from "../storage/SubductionStorageAdapterInterface.js"
 
-/** Process-local byte store for a standalone, offline Subduction backend. */
-export class MemoryByteStore implements ByteStore {
+/** In-memory adapter for tests and throwaway peers; nothing survives the process. */
+export class DummySubductionStorageAdapter implements SubductionStorageAdapterInterface {
   #data = new Map<string, Uint8Array>()
   // Sorted index of #data's keys, so prefix reads cost the size of the result
   // rather than a scan of the whole store.
   #keys: string[] = []
 
-  async load(key: string): Promise<Uint8Array | undefined> {
-    return this.#data.get(key)?.slice()
-  }
-
   async loadMany(keys: readonly string[]): Promise<(Uint8Array | undefined)[]> {
     return keys.map(key => this.#data.get(key)?.slice())
-  }
-
-  async save(key: string, bytes: Uint8Array): Promise<void> {
-    this.#put(key, bytes.slice())
   }
 
   async saveBatch(entries: readonly [string, Uint8Array][]): Promise<void> {
@@ -29,10 +21,6 @@ export class MemoryByteStore implements ByteStore {
   #put(key: string, bytes: Uint8Array): void {
     if (!this.#data.has(key)) this.#keys.splice(this.#lowerBound(key), 0, key)
     this.#data.set(key, bytes)
-  }
-
-  async remove(key: string): Promise<void> {
-    if (this.#data.delete(key)) this.#keys.splice(this.#lowerBound(key), 1)
   }
 
   async removeBatch(keys: readonly string[]): Promise<void> {

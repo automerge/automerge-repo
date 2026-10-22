@@ -54,10 +54,10 @@ failures.
 import {
   Repo,
   createSubductionPeer,
-  IndexedDBByteStore,
+  IndexedDBSubductionStorageAdapter,
 } from "@automerge/react"
 
-const storage = new IndexedDBByteStore({ database: "my-app" })
+const storage = new IndexedDBSubductionStorageAdapter({ database: "my-app" })
 const peer = createSubductionPeer({ storage, servers: ["ws://127.0.0.1:8080"] })
 const repo = new Repo({ backend: peer.backend })
 const handle = await repo.create({ todos: [] })

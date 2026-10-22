@@ -2,11 +2,8 @@ import * as N from "@automerge/subduction"
 import { Repo } from "@automerge/automerge-repo"
 import { sedimentreeId } from "@automerge/automerge-repo/sedimentree"
 import { expect, it, vi } from "vitest"
-import {
-  createSubductionPeer,
-  MemoryByteStore,
-  SubductionBackend,
-} from "../src/index.js"
+import { createSubductionPeer, SubductionBackend } from "../src/index.js"
+import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
 import { PairedTransport } from "./transport.js"
 
 const { openTransport } = vi.hoisted(() => ({ openTransport: vi.fn() }))
@@ -39,7 +36,7 @@ function connectTo(remoteBackend: SubductionBackend) {
 it("syncs through real native handshakes and keeps the connection across deleteLocal", async () => {
   const remoteBackend = new SubductionBackend({
     signer: N.createMemorySigner(),
-    storage: new MemoryByteStore(),
+    storage: new DummySubductionStorageAdapter(),
   })
   const wires = connectTo(remoteBackend)
   const peer = createSubductionPeer({
@@ -80,10 +77,10 @@ it("syncs through real native handshakes and keeps the connection across deleteL
 it("completes onboarding while an unrelated deletion runs", async () => {
   const remoteBackend = new SubductionBackend({
     signer: N.createMemorySigner(),
-    storage: new MemoryByteStore(),
+    storage: new DummySubductionStorageAdapter(),
   })
   const wires = connectTo(remoteBackend)
-  const storage = new MemoryByteStore()
+  const storage = new DummySubductionStorageAdapter()
   let release!: () => void
   let enter!: () => void
   const paused = new Promise<void>(resolve => {

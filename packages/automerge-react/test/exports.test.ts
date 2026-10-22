@@ -20,12 +20,13 @@ describe("@automerge/react built entrypoints", () => {
         'useDocument', 'useDocuments', 'useDocHandle', 'useDocHandles',
         'useLocalAwareness', 'useRemoteAwareness', 'usePresence',
         'SubductionBackend', 'createSubductionPeer', 'connectSubductionServer',
-        'MemoryByteStore', 'IndexedDBByteStore']) {
+        'IndexedDBSubductionStorageAdapter']) {
         assert.notEqual(api[name], undefined, name)
       }
       for (const name of ['createRepo', 'RepoHandle', 'RepoQuery',
         'BroadcastChannelNetworkAdapter', 'MessageChannelNetworkAdapter',
-        'WebSocketClientAdapter', 'IndexedDBStorageAdapter']) {
+        'WebSocketClientAdapter', 'IndexedDBStorageAdapter',
+        'DummySubductionStorageAdapter']) {
         assert.equal(name in api, false, name)
       }
       const slim = await import('@automerge/react/slim')
@@ -79,7 +80,7 @@ describe("@automerge/react built entrypoints", () => {
       assert.equal(typeof api.Repo, 'function')
       assert.equal(typeof api.createSubductionPeer, 'function')
       assert.equal(typeof api.useDocument, 'function')
-      new api.IndexedDBByteStore()
+      new api.IndexedDBSubductionStorageAdapter()
     `,
       ],
       { cwd }

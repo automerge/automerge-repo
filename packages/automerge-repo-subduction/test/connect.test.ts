@@ -3,11 +3,11 @@ import { BackendError } from "@automerge/automerge-repo/sedimentree"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   connectSubductionServer,
-  MemoryByteStore,
   SubductionBackend,
   type Transport,
   type SubductionConnection,
 } from "../src/index.js"
+import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
 
 const { openTransport } = vi.hoisted(() => ({ openTransport: vi.fn() }))
 vi.mock("../src/websocket.js", () => ({ openTransport }))
@@ -36,7 +36,7 @@ describe("managed server connections", () => {
     vi.spyOn(Math, "random").mockReturnValue(1)
     backend = new SubductionBackend({
       signer: N.createMemorySigner(),
-      storage: new MemoryByteStore(),
+      storage: new DummySubductionStorageAdapter(),
     })
     vi.spyOn(backend, "addConnection").mockResolvedValue("ab".repeat(32))
     connections = []

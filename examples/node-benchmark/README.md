@@ -33,7 +33,7 @@ Node also times imports separately from untimed load seeding. Each fixture impor
 
 All three targets use `memory.mjs`: the same byte-copying backing store and
 tree-indexed prefix lookup, wrapped for the legacy `StorageAdapterInterface`
-or `ByteStore`. Legacy keys are arrays; PoC keys are strings. This avoids
+or `SubductionStorageAdapterInterface`. Legacy keys are arrays; PoC keys are strings. This avoids
 the full-store scan in `main`'s dummy adapter and the shared-first-segment scan
 in `subductionjs`'s dummy adapter. **The adapters have different record layouts
 and request counts**; the benchmark does not normalize those. Reports include

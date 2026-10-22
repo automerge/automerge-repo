@@ -19,14 +19,13 @@ import {
   type SyncRoundResult,
 } from "@automerge/automerge-repo/sedimentree"
 import { StorageBridge, nativeId, logicalId } from "./storage.js"
-import type { ByteStore } from "./ByteStore.js"
+import type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
 import { Watch } from "./watch.js"
 import { notifyBackendClosed } from "./backendLifecycle.js"
 import { decodeEphemeral, encodeEphemeral } from "./ephemeral.js"
 
-export type { ByteStore } from "./ByteStore.js"
-export { MemoryByteStore } from "./MemoryByteStore.js"
-export { IndexedDBByteStore } from "./IndexedDBByteStore.js"
+export type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
+export { IndexedDBSubductionStorageAdapter } from "./IndexedDBSubductionStorageAdapter.js"
 export { connectSubductionServer } from "./connect.js"
 export type {
   SubductionServer,
@@ -46,7 +45,7 @@ export type TransportAudience = N.TransportAudience
 
 export interface SubductionBackendOptions {
   signer: NativeSigner
-  storage: ByteStore
+  storage: SubductionStorageAdapterInterface
   /** Native default request deadline (Subduction's own default when unset;
    * validated by Subduction). Not a deadline on local storage or handshake. */
   syncTimeoutMilliseconds?: number

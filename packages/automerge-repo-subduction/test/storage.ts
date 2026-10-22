@@ -5,14 +5,14 @@ import {
   type SedimentreeId,
   type SedimentreeRecord,
 } from "@automerge/automerge-repo/sedimentree"
-import { MemoryByteStore } from "../src/index.js"
+import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
 import { StorageBridge, nativeId } from "../src/storage.js"
-import type { ByteStore } from "../src/ByteStore.js"
+import type { SubductionStorageAdapterInterface } from "../src/index.js"
 
 /** Test inspection: stored records, commits then fragments, decoded by a
  * scratch node over the same storage. */
 export async function storedRecords(
-  storage: ByteStore | StorageBridge,
+  storage: SubductionStorageAdapterInterface | StorageBridge,
   id: SedimentreeId
 ): Promise<SedimentreeRecord[]> {
   const bridge =
@@ -54,16 +54,25 @@ export async function storedRecords(
   }
 }
 
-/** Test byte store with atomic batches. Persists across backends that share
- * the instance. `beforeSave` sees every key before anything is committed, so
- * a throw aborts the whole batch; `afterSave` runs once it is committed, so a
- * throw reports an ambiguous failure for a durable write. */
-export class TestStore extends MemoryByteStore {
+/** Test storage adapter with atomic batches. Persists across backends that
+ * share the instance. `beforeSave` sees every key before anything is
+ * committed, so a throw aborts the whole batch; `afterSave` runs once it is
+ * committed, so a throw reports an ambiguous failure for a durable write.
+ * `load`/`save`/`remove` are single-key conveniences for tests. */
+export class TestStore extends DummySubductionStorageAdapter {
   beforeSave?: (key: string) => Promise<void> | void
   afterSave?: (keys: string[]) => Promise<void> | void
 
-  override async save(key: string, value: Uint8Array): Promise<void> {
+  async load(key: string): Promise<Uint8Array | undefined> {
+    return (await this.loadMany([key]))[0]
+  }
+
+  async save(key: string, value: Uint8Array): Promise<void> {
     return this.saveBatch([[key, value]])
+  }
+
+  async remove(key: string): Promise<void> {
+    return this.removeBatch([key])
   }
 
   override async saveBatch(

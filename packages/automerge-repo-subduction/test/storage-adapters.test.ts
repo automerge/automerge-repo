@@ -1,10 +1,10 @@
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
-  IndexedDBByteStore,
-  MemoryByteStore,
-  type ByteStore,
+  IndexedDBSubductionStorageAdapter,
+  type SubductionStorageAdapterInterface,
 } from "../src/index.js"
+import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
 
 beforeEach(() => {
   vi.stubGlobal("indexedDB", new IDBFactory())
@@ -16,26 +16,30 @@ afterEach(() => {
 })
 
 for (const [name, create] of [
-  ["memory", () => new MemoryByteStore()],
-  ["indexeddb", () => new IndexedDBByteStore({ database: "contract" })],
+  ["memory", () => new DummySubductionStorageAdapter()],
+  [
+    "indexeddb",
+    () => new IndexedDBSubductionStorageAdapter({ database: "contract" }),
+  ],
 ] as const) {
-  describe(`${name} ByteStore`, () => {
-    let store: ByteStore
+  describe(`${name} storage adapter`, () => {
+    let store: SubductionStorageAdapterInterface
     beforeEach(() => {
       store = create()
     })
     afterEach(async () => {
-      if (store instanceof IndexedDBByteStore) await store.close()
+      if (store instanceof IndexedDBSubductionStorageAdapter)
+        await store.close()
     })
 
     it("saves, replaces, loads, and removes single values", async () => {
-      expect(await store.load("missing")).toBeUndefined()
-      await store.save("key", new Uint8Array([1, 2]))
-      expect(await store.load("key")).toEqual(new Uint8Array([1, 2]))
-      await store.save("key", new Uint8Array([3]))
-      expect(await store.load("key")).toEqual(new Uint8Array([3]))
-      await store.remove("key")
-      expect(await store.load("key")).toBeUndefined()
+      expect(await store.loadMany(["missing"])).toEqual([undefined])
+      await store.saveBatch([["key", new Uint8Array([1, 2])]])
+      expect(await store.loadMany(["key"])).toEqual([new Uint8Array([1, 2])])
+      await store.saveBatch([["key", new Uint8Array([3])]])
+      expect(await store.loadMany(["key"])).toEqual([new Uint8Array([3])])
+      await store.removeBatch(["key"])
+      expect(await store.loadMany(["key"])).toEqual([undefined])
     })
 
     it("lists and loads keys by exact prefix in sorted order", async () => {
@@ -57,12 +61,12 @@ for (const [name, create] of [
 
     it("loads requested keys in order from one consistent cut", async () => {
       await store.saveBatch([
-        ["pair/meta", new Uint8Array([1])],
+        ["pair/signed", new Uint8Array([1])],
         ["pair/blob", new Uint8Array([2])],
       ])
-      const reading = store.loadMany(["pair/meta", "missing", "pair/blob"])
+      const reading = store.loadMany(["pair/signed", "missing", "pair/blob"])
       const replacing = store.saveBatch([
-        ["pair/meta", new Uint8Array([3])],
+        ["pair/signed", new Uint8Array([3])],
         ["pair/blob", new Uint8Array([4])],
       ])
       const seen = await reading
@@ -75,7 +79,7 @@ for (const [name, create] of [
     })
 
     it("saves a batch as one visible cut", async () => {
-      await store.save("b/1", new Uint8Array([0]))
+      await store.saveBatch([["b/1", new Uint8Array([0])]])
       const saving = store.saveBatch([
         ["b/1", new Uint8Array([1])],
         ["b/2", new Uint8Array([2])],
@@ -127,18 +131,18 @@ for (const [name, create] of [
       const [[, loaded]] = await store.loadPrefix("p/")
       expect(loaded).toEqual(new Uint8Array([1]))
       loaded[0] = 3
-      expect(await store.load("p/key")).toEqual(new Uint8Array([1]))
+      expect(await store.loadMany(["p/key"])).toEqual([new Uint8Array([1])])
     })
   })
 }
 
-describe("IndexedDBByteStore", () => {
+describe("IndexedDBSubductionStorageAdapter", () => {
   it("persists in the default database across close and reopen", async () => {
-    const store = new IndexedDBByteStore()
+    const store = new IndexedDBSubductionStorageAdapter()
     try {
-      await store.save("key", new Uint8Array([1]))
+      await store.saveBatch([["key", new Uint8Array([1])]])
       await store.close()
-      expect(await store.load("key")).toEqual(new Uint8Array([1]))
+      expect(await store.loadMany(["key"])).toEqual([new Uint8Array([1])])
       expect(await indexedDB.databases()).toContainEqual(
         expect.objectContaining({ name: "automerge-repo-subduction" })
       )
@@ -149,13 +153,13 @@ describe("IndexedDBByteStore", () => {
 
   it("uses a configured database and object store", async () => {
     const options = { database: "custom", store: "documents" }
-    const store = new IndexedDBByteStore(options)
+    const store = new IndexedDBSubductionStorageAdapter(options)
     try {
-      await store.save("key", new Uint8Array([7]))
+      await store.saveBatch([["key", new Uint8Array([7])]])
       await store.close()
-      const reopened = new IndexedDBByteStore(options)
+      const reopened = new IndexedDBSubductionStorageAdapter(options)
       try {
-        expect(await reopened.load("key")).toEqual(new Uint8Array([7]))
+        expect(await reopened.loadMany(["key"])).toEqual([new Uint8Array([7])])
       } finally {
         await reopened.close()
       }
@@ -166,9 +170,9 @@ describe("IndexedDBByteStore", () => {
 
   it("does not resolve a batch that aborts after a successful put", async () => {
     const open = vi.spyOn(indexedDB, "open")
-    const store = new IndexedDBByteStore({ database: "aborted" })
+    const store = new IndexedDBSubductionStorageAdapter({ database: "aborted" })
     try {
-      await store.save("a", new Uint8Array([1]))
+      await store.saveBatch([["a", new Uint8Array([1])]])
       const db = open.mock.results[0].value.result as IDBDatabase
       const transaction = db.transaction.bind(db)
       vi.spyOn(db, "transaction").mockImplementationOnce((...args) => {

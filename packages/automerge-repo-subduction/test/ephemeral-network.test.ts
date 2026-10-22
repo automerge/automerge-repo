@@ -7,7 +7,8 @@ import {
   type SedimentreeEvent,
 } from "@automerge/automerge-repo/sedimentree"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { MemoryByteStore, SubductionBackend } from "../src/index.js"
+import { SubductionBackend } from "../src/index.js"
+import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
 import { encodeEphemeral } from "../src/ephemeral.js"
 import { nativeId } from "../src/storage.js"
 import {
@@ -46,7 +47,7 @@ const message = (
 
 type Peer = {
   signer: TestSigner
-  storage: MemoryByteStore
+  storage: DummySubductionStorageAdapter
   backend: SubductionBackend
 }
 
@@ -58,7 +59,7 @@ describe("real native ephemerals", () => {
   const releases: (() => void)[] = []
   function peer(): Peer {
     const signer = N.createMemorySigner()
-    const storage = new MemoryByteStore()
+    const storage = new DummySubductionStorageAdapter()
     const backend = new SubductionBackend({ signer, storage })
     const result = { signer, storage, backend }
     peers.push(result)

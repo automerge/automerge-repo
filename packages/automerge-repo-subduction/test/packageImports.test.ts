@@ -34,6 +34,11 @@ describe("lightweight package entrypoints", () => {
       "SubductionBackend",
       ["@automerge/subduction/slim"],
     ],
+    [
+      "@automerge/automerge-repo-subduction/helpers/DummySubductionStorageAdapter.js",
+      "DummySubductionStorageAdapter",
+      [],
+    ],
   ] as const)(
     "imports %s without orchestration or WASM initialization",
     async (specifier, exported, allowed) => {
@@ -67,8 +72,8 @@ describe("lightweight package entrypoints", () => {
       const api = await import(${JSON.stringify(specifier)})
       assert.equal(typeof api[${JSON.stringify(exported)}], 'function')
       if (${JSON.stringify(specifier)} === '@automerge/automerge-repo-subduction') {
-        assert.equal(typeof api.IndexedDBByteStore, 'function')
-        const storage = new api.IndexedDBByteStore()
+        assert.equal(typeof api.IndexedDBSubductionStorageAdapter, 'function')
+        const storage = new api.IndexedDBSubductionStorageAdapter()
         await storage.close()
       }
     `

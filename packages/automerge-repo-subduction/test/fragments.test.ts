@@ -23,7 +23,7 @@ import {
 } from "@automerge/automerge-repo/sedimentree"
 import {
   SubductionBackend,
-  type ByteStore,
+  type SubductionStorageAdapterInterface,
   type SubductionBackendOptions,
 } from "../src/index.js"
 import { nativeId } from "../src/storage.js"
@@ -417,15 +417,12 @@ describe("local Subduction fragments", () => {
     await create().store(tree, [loose(1), loose(4, [1]), fragment(4)])
     // Count top-level calls on a wrapper, not the store's own internals.
     const calls: string[] = []
-    const counted: ByteStore = {
-      load: key => (calls.push("load"), storage.load(key)),
+    const counted: SubductionStorageAdapterInterface = {
       loadMany: keys => (calls.push("loadMany"), storage.loadMany(keys)),
-      save: (key, data) => (calls.push("save"), storage.save(key, data)),
       saveBatch: entries => (
         calls.push("saveBatch"),
         storage.saveBatch(entries)
       ),
-      remove: key => (calls.push("remove"), storage.remove(key)),
       removeBatch: keys => (
         calls.push("removeBatch"),
         storage.removeBatch(keys)
@@ -490,11 +487,11 @@ describe("local Subduction fragments", () => {
   it("retries deletion after removal commits but then rejects", async () => {
     const backend = create()
     await backend.store(tree, [loose(1), fragment(4)])
-    const remove = storage.remove.bind(storage)
+    const remove = storage.removeBatch.bind(storage)
     let fail = true
-    vi.spyOn(storage, "remove").mockImplementation(async key => {
-      await remove(key)
-      if (key.startsWith("subduction-v2/ids/") && fail) {
+    vi.spyOn(storage, "removeBatch").mockImplementation(async keys => {
+      await remove(keys)
+      if (keys.some(key => key.startsWith("subduction-v2/ids/")) && fail) {
         fail = false
         throw new Error("ambiguous removal")
       }

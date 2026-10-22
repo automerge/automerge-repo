@@ -1,7 +1,7 @@
-import type { ByteStore } from "./ByteStore.js"
+import type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
 
-/** Browser byte store. Use one live Subduction backend per database. */
-export class IndexedDBByteStore implements ByteStore {
+/** Browser storage adapter. Use one live Subduction backend per database. */
+export class IndexedDBSubductionStorageAdapter implements SubductionStorageAdapterInterface {
   private db?: Promise<IDBDatabase>
 
   constructor(
@@ -71,11 +71,6 @@ export class IndexedDBByteStore implements ByteStore {
     })
   }
 
-  async load(key: string): Promise<Uint8Array | undefined> {
-    const [value] = await this.loadMany([key])
-    return value
-  }
-
   loadMany(keys: readonly string[]): Promise<(Uint8Array | undefined)[]> {
     if (!keys.length) return Promise.resolve([])
     const owned = [...keys]
@@ -84,10 +79,6 @@ export class IndexedDBByteStore implements ByteStore {
       return () =>
         requests.map(request => request.result as Uint8Array | undefined)
     })
-  }
-
-  save(key: string, bytes: Uint8Array): Promise<void> {
-    return this.saveBatch([[key, bytes]])
   }
 
   /** One readwrite transaction: IndexedDB commits every put or none. */
@@ -100,10 +91,6 @@ export class IndexedDBByteStore implements ByteStore {
       for (const [key, bytes] of copies) store.put(bytes, key)
       return () => {}
     })
-  }
-
-  remove(key: string): Promise<void> {
-    return this.removeBatch([key])
   }
 
   /** One readwrite transaction: IndexedDB commits every delete or none. */

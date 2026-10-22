@@ -1,6 +1,6 @@
 import * as N from "@automerge/subduction/slim"
 import { SubductionBackend, type SubductionBackendOptions } from "./index.js"
-import { MemoryByteStore } from "./MemoryByteStore.js"
+import { DummySubductionStorageAdapter } from "./helpers/DummySubductionStorageAdapter.js"
 import {
   connectSubductionServer,
   type SubductionConnection,
@@ -41,7 +41,7 @@ export function createSubductionPeer(
     backend = new SubductionBackend({
       ...options,
       signer,
-      storage: options.storage ?? new MemoryByteStore(),
+      storage: options.storage ?? new DummySubductionStorageAdapter(),
     })
     const peer: SubductionPeer = {
       backend,

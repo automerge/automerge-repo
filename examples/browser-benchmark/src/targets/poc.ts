@@ -6,22 +6,16 @@ import "@automerge/subduction"
 import { Repo } from "@automerge/automerge-repo"
 import {
   createSubductionPeer,
-  IndexedDBByteStore,
-  type ByteStore,
+  IndexedDBSubductionStorageAdapter,
+  type SubductionStorageAdapterInterface,
 } from "@automerge/automerge-repo-subduction"
 import type { Handle, StorageStats, Target } from "../target.js"
 
-function profile(store: IndexedDBByteStore, stats: StorageStats): ByteStore {
+function profile(
+  store: IndexedDBSubductionStorageAdapter,
+  stats: StorageStats
+): SubductionStorageAdapterInterface {
   return {
-    async load(key) {
-      const start = performance.now()
-      try {
-        return await store.load(key)
-      } finally {
-        stats.load.calls++
-        stats.load.elapsedMs += performance.now() - start
-      }
-    },
     async loadMany(keys) {
       const start = performance.now()
       try {
@@ -31,15 +25,6 @@ function profile(store: IndexedDBByteStore, stats: StorageStats): ByteStore {
       } finally {
         stats.load.calls++
         stats.load.elapsedMs += performance.now() - start
-      }
-    },
-    async save(key, bytes) {
-      const start = performance.now()
-      try {
-        return await store.save(key, bytes)
-      } finally {
-        stats.save.calls++
-        stats.save.elapsedMs += performance.now() - start
       }
     },
     // Each batch is one IndexedDB transaction, counted as one save.
@@ -61,15 +46,6 @@ function profile(store: IndexedDBByteStore, stats: StorageStats): ByteStore {
       } finally {
         stats.list.calls++
         stats.list.elapsedMs += performance.now() - start
-      }
-    },
-    async remove(key) {
-      const start = performance.now()
-      try {
-        return await store.remove(key)
-      } finally {
-        stats.remove.calls++
-        stats.remove.elapsedMs += performance.now() - start
       }
     },
     // Each batch is one IndexedDB transaction, counted as one remove.
@@ -109,7 +85,7 @@ export const target: Target = {
   id: "poc",
   adapter: "backend-poc",
   open(database, stats) {
-    const storage = new IndexedDBByteStore({ database })
+    const storage = new IndexedDBSubductionStorageAdapter({ database })
     const peer = createSubductionPeer({
       storage: stats ? profile(storage, stats) : storage,
     })

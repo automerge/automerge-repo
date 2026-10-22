@@ -30,14 +30,14 @@ try {
 
 The package imports `@automerge/subduction/slim` and does not initialize WASM.
 Browser apps must await the matching native initializer before creating a peer.
-By default `createSubductionPeer()` uses an in-memory signer and byte store:
+By default `createSubductionPeer()` uses an in-memory signer and storage adapter:
 identity and history do not survive restart. Injected signers and stores are
 borrowed; keep them alive until after `peer.close()`. Use valid Ed25519 signer
 keys, as native code can panic on invalid keys.
 
-### IndexedDB byte store
+### IndexedDB storage adapter
 
-For persistent local history in a browser, pass `new IndexedDBByteStore()` as
+For persistent local history in a browser, pass `new IndexedDBSubductionStorageAdapter()` as
 `storage`. It uses the `automerge-repo-subduction` database and `bytes` object
 store; pass `{ database, store }` to choose names for another dedicated database.
 The chosen store is created only when the database is new. Each `saveBatch` is one
@@ -53,10 +53,10 @@ import "@automerge/subduction"
 import { Repo } from "@automerge/automerge-repo"
 import {
   createSubductionPeer,
-  IndexedDBByteStore,
+  IndexedDBSubductionStorageAdapter,
 } from "@automerge/automerge-repo-subduction"
 
-const storage = new IndexedDBByteStore()
+const storage = new IndexedDBSubductionStorageAdapter()
 const peer = createSubductionPeer({ storage, servers: ["ws://127.0.0.1:8080"] })
 const repo = new Repo({ backend: peer.backend })
 try {
@@ -132,40 +132,35 @@ it alive until close completes. It signs records and connection handshakes; a
 signer that rejects or returns a malformed signature panics native code, and a
 stalled one stalls the handshake past cancellation.
 
-The injected `ByteStore` has exactly:
+The injected storage adapter implements `SubductionStorageAdapterInterface`:
 
 ```ts
-load(key: string): Promise<Uint8Array | undefined>
 loadMany(keys: readonly string[]): Promise<(Uint8Array | undefined)[]>
-save(key: string, data: Uint8Array): Promise<void>
-saveBatch(entries: [key: string, data: Uint8Array][]): Promise<void>
-remove(key: string): Promise<void>
-removeBatch(keys: string[]): Promise<void>
-removeRange(prefix: string): Promise<void>
-list(prefix: string): Promise<string[]> // full keys with this prefix
 loadPrefix(prefix: string): Promise<[key: string, data: Uint8Array][]>
+list(prefix: string): Promise<string[]> // full keys with this prefix
+saveBatch(entries: readonly [key: string, data: Uint8Array][]): Promise<void>
+removeBatch(keys: readonly string[]): Promise<void>
+removeRange(prefix: string): Promise<void>
 ```
 
-`loadMany` returns requested values in input order from one consistent read;
-paired signed and blob point lookups must not straddle transactions.
-`loadPrefix` returns every entry whose key starts with `prefix`,
-as full keys sorted by key, from **one consistent read**: a concurrent `save` or
-`remove` must appear entirely before or entirely after it, so `list` followed by
-separate `load`s is not equivalent unless nothing else can write meanwhile.
-Keys and prefixes are backend-owned ASCII strings.
+Single-key operations are one-entry batches. `loadMany` returns requested
+values in input order from one consistent read (missing values are
+`undefined`); paired signed and blob point lookups must not straddle
+transactions. `loadPrefix` returns every entry whose key starts with `prefix`,
+as full keys sorted by key, from **one consistent read**: a concurrent
+`saveBatch` or `removeBatch` must appear entirely before or entirely after it,
+so `list` followed by separate `loadMany`s is not equivalent unless nothing
+else can write meanwhile. Keys and prefixes are backend-owned ASCII strings.
 Returned bytes are owned by the caller. Opening a document is a single
 `loadPrefix` call.
 
-`save` **must atomically replace one entire value**. `saveBatch` (required;
-custom stores written against the earlier interface must add it) **must make
-every entry visible, or none**, including to a concurrent `loadPrefix`. Successful
-resolution must mean recoverable under the store's documented guarantees (not
-necessarily fsync).
-`removeBatch` (required) **must remove every key, or none**, with the same
-visibility and resolution guarantees. Missing values are `undefined`; `remove`
-and `removeBatch` ignore missing keys. `removeRange` atomically removes every
-key with the given prefix, including on an empty prefix. Do not mutate supplied
-bytes. The `subduction-v2/` namespace must be exclusively owned by this backend;
+`saveBatch` **must make every entry visible, or none**, each replacing its key,
+including to a concurrent `loadPrefix`. Successful resolution must mean
+recoverable under the adapter's documented guarantees (not necessarily fsync).
+`removeBatch` **must remove every key, or none**, with the same visibility and
+resolution guarantees, ignoring missing keys. `removeRange` atomically removes
+every key with the given prefix, including on an empty prefix. Do not mutate
+supplied bytes. The `subduction-v2/` namespace must be exclusively owned by this backend;
 the earlier `subduction-v1/` format is not migrated or read.
 Storage is borrowed and is not closed or erased by backend close. Concurrent
 multi-owner access and hostile storage are unsupported.

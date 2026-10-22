@@ -2,7 +2,7 @@ import * as N from "@automerge/subduction"
 import { describe, expect, it } from "vitest"
 import { sedimentreeId } from "@automerge/automerge-repo/sedimentree"
 import { StorageBridge, logicalId, nativeId } from "../src/storage.js"
-import { MemoryByteStore } from "../src/index.js"
+import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
 
 const tree = nativeId(sedimentreeId("ab".repeat(16)))
 const other = nativeId(sedimentreeId("cd".repeat(16)))
@@ -10,12 +10,8 @@ const head = (n: number) => n.toString(16).padStart(64, "0")
 const bytes = (...values: number[]) => new Uint8Array(values)
 const root = `subduction-v2/trees/${tree}`
 
-class CountingStore extends MemoryByteStore {
+class CountingStore extends DummySubductionStorageAdapter {
   readonly calls: string[] = []
-  override async load(key: string) {
-    this.calls.push(`load:${key}`)
-    return super.load(key)
-  }
   override async loadMany(keys: readonly string[]) {
     this.calls.push(`loadMany:${keys.join(",")}`)
     return super.loadMany(keys)
@@ -44,11 +40,13 @@ describe("StorageBridge", () => {
   })
 
   it("registers sedimentree IDs under an empty value", async () => {
-    const store = new MemoryByteStore()
+    const store = new DummySubductionStorageAdapter()
     const bridge = new StorageBridge(store)
     await bridge.saveSedimentreeId(tree)
     await bridge.saveSedimentreeId(other)
-    expect(await store.load(`subduction-v2/ids/${tree}`)).toEqual(bytes())
+    expect(await store.loadMany([`subduction-v2/ids/${tree}`])).toEqual([
+      bytes(),
+    ])
     expect((await bridge.loadAllSedimentreeIds()).sort()).toEqual(
       [tree, other].sort()
     )
@@ -80,7 +78,7 @@ describe("StorageBridge", () => {
     })
 
     it("overwrites a record saved under the same head", async () => {
-      const bridge = new StorageBridge(new MemoryByteStore())
+      const bridge = new StorageBridge(new DummySubductionStorageAdapter())
       await save(bridge, head(1), bytes(1), bytes(1))
       await save(bridge, head(1), bytes(2), bytes(2))
       expect(await bridge[`loadAll${plural}`](tree)).toEqual([
@@ -89,7 +87,7 @@ describe("StorageBridge", () => {
     })
 
     it("lists, loads and deletes per tree", async () => {
-      const bridge = new StorageBridge(new MemoryByteStore())
+      const bridge = new StorageBridge(new DummySubductionStorageAdapter())
       await save(bridge, head(1), bytes(1), bytes(11))
       await save(bridge, head(2), bytes(2), bytes(12))
       await bridge[`save${singular}`](other, head(3), bytes(3), bytes(13))
@@ -111,10 +109,10 @@ describe("StorageBridge", () => {
     it.each(["signed", "blob"] as const)(
       "rejects a record missing its %s half",
       async part => {
-        const store = new MemoryByteStore()
+        const store = new DummySubductionStorageAdapter()
         const bridge = new StorageBridge(store)
         await save(bridge, head(1), bytes(1), bytes(2))
-        await store.remove(`${root}/${kind}/${part}/${head(1)}`)
+        await store.removeBatch([`${root}/${kind}/${part}/${head(1)}`])
         await expect(bridge[`load${singular}`](tree, head(1))).rejects.toThrow(
           "Incomplete stored record"
         )
@@ -147,7 +145,7 @@ describe("StorageBridge", () => {
   })
 
   it("persists and reloads native history across nodes", async () => {
-    const storage = new StorageBridge(new MemoryByteStore())
+    const storage = new StorageBridge(new DummySubductionStorageAdapter())
     const signer = N.createMemorySigner(new Uint8Array(32).fill(42))
     const commits = [
       { head: head(1), parents: [], blob: bytes(1, 42) },

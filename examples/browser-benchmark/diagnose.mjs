@@ -4,10 +4,8 @@ import * as A from "@automerge/automerge"
 import "@automerge/subduction"
 // eslint-disable-next-line no-restricted-imports
 import { Repo } from "@automerge/automerge-repo"
-import {
-  createSubductionPeer,
-  MemoryByteStore,
-} from "@automerge/automerge-repo-subduction"
+import { createSubductionPeer } from "@automerge/automerge-repo-subduction"
+import { DummySubductionStorageAdapter } from "@automerge/automerge-repo-subduction/helpers/DummySubductionStorageAdapter.js"
 import { mkdir, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
@@ -15,15 +13,26 @@ import { join } from "node:path"
 const cases = []
 for (const changes of [1, 10, 51, 80]) {
   for (const documents of [1, 10]) {
-    const store = new MemoryByteStore()
+    const store = new DummySubductionStorageAdapter()
     const counts = Object.fromEntries(
-      ["load", "save", "list", "remove"].map(op => [
-        op,
-        { calls: 0, ms: 0, values: 0 },
-      ])
+      [
+        "loadMany",
+        "loadPrefix",
+        "list",
+        "saveBatch",
+        "removeBatch",
+        "removeRange",
+      ].map(op => [op, { calls: 0, ms: 0, values: 0 }])
     )
     const storage = Object.fromEntries(
-      ["load", "save", "list", "remove"].map(op => [
+      [
+        "loadMany",
+        "loadPrefix",
+        "list",
+        "saveBatch",
+        "removeBatch",
+        "removeRange",
+      ].map(op => [
         op,
         async (...args) => {
           const started = performance.now()
@@ -74,7 +83,7 @@ for (const changes of [1, 10, 51, 80]) {
     }
     cases.push(data)
     console.log(
-      `${documents} docs x ${changes} changes: ${data.totalMs.toFixed(1)}ms, ${counts.load.calls} loads, ${counts.list.calls} lists`
+      `${documents} docs x ${changes} changes: ${data.totalMs.toFixed(1)}ms, ${counts.loadMany.calls + counts.loadPrefix.calls} loads, ${counts.list.calls} lists`
     )
   }
 }
@@ -82,5 +91,9 @@ const directory = fileURLToPath(new URL("./results/", import.meta.url))
 await mkdir(directory, { recursive: true })
 await writeFile(
   join(directory, "seed-diagnosis.json"),
-  JSON.stringify({ schema: 1, store: "MemoryByteStore", cases }, null, 2) + "\n"
+  JSON.stringify(
+    { schema: 1, store: "DummySubductionStorageAdapter", cases },
+    null,
+    2
+  ) + "\n"
 )
