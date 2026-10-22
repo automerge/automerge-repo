@@ -23,6 +23,9 @@ const badPrefixUrl = "yjs😉:4NMNnkMhL8jXrdJ9jamS58PAVdXu" as AutomergeUrl
 
 const goodDocumentId = "4NMNnkMhL8jXrdJ9jamS58PAVdXu" as DocumentId
 const badChecksumDocumentId = "badbadbad" as DocumentId
+// Unused: kept for a case nothing asserts yet, a well-formed base58check
+// payload that is not a valid UUID.
+// oxlint-disable-next-line no-unused-vars
 const badUuidDocumentId = bs58check.encode(
   new Uint8Array([1, 2, 3, 4, 42, -1, 69, 777])
 ) as DocumentId

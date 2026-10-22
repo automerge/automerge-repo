@@ -134,7 +134,7 @@ describe("useDocument", () => {
     // suppress console.error from the error boundary
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
-    const { wrapper, repo } = setup()
+    const { wrapper } = setup()
 
     // Create handle for nonexistent document
     const url = generateAutomergeUrl()
@@ -148,7 +148,7 @@ describe("useDocument", () => {
       { wrapper }
     )
 
-    waitFor(() => {
+    await waitFor(() => {
       expect(screen.getByTestId("error")).toHaveTextContent("Error")
     })
 
