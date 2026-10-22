@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from "vitest"
 import { useDocHandle, wrapperCache } from "../src/useDocHandle"
 import { ErrorBoundary } from "react-error-boundary"
 import { setup, setupPairedRepos } from "./testSetup"
-import { pause } from "../src/helpers/DummyNetworkAdapter"
+import { pause } from "@automerge/automerge-repo/helpers/pause.js"
 
 describe("useDocHandle", () => {
   const Component = ({
