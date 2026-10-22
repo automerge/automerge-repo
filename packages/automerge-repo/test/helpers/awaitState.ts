@@ -1,4 +1,4 @@
-import { DocumentProgress, QueryState } from "../../src/DocumentQuery.js"
+import { DocumentProgress } from "../../src/DocumentQuery.js"
 
 export default async function awaitState(
   progress: DocumentProgress<unknown>,

@@ -1,4 +1,4 @@
-import React, { act, Suspense, useEffect } from "react"
+import React, { act, Suspense } from "react"
 import {
   AutomergeUrl,
   DocHandle,
@@ -75,7 +75,7 @@ describe("useDocHandle", () => {
     // suppress console.error from the error boundary
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
-    const { repo, wrapper } = await setup()
+    const { wrapper } = await setup()
     const url = generateAutomergeUrl()
 
     render(
@@ -223,7 +223,7 @@ describe("useDocHandle", () => {
     })
 
     it("handles unavailable documents by returning undefined", async () => {
-      const { repo, wrapper } = await setup()
+      const { wrapper } = await setup()
       const url = generateAutomergeUrl()
       const onHandle = vi.fn()
 
