@@ -5,7 +5,6 @@ import {
   type SetupFn,
 } from "../../automerge-repo/src/helpers/tests/network-adapter-tests.js"
 import { BroadcastChannelNetworkAdapter } from "../src/index.js"
-import { pause } from "../../automerge-repo/src/helpers/pause.js"
 
 describe("BroadcastChannel", () => {
   const setup: SetupFn = async () => {
@@ -57,12 +56,18 @@ describe("BroadcastChannel", () => {
   })
 
   it("allows a wait time to be specified in the options and is ready after that even if no peers have connected", async () => {
-    const a = new BroadcastChannelNetworkAdapter({
-      channelName: "a",
-      peerWaitMs: 10,
-    })
-    await pause(10)
-    expect(a.isReady()).toBe(true)
+    vi.useFakeTimers()
+    try {
+      const a = new BroadcastChannelNetworkAdapter({
+        channelName: "a",
+        peerWaitMs: 10,
+      })
+      expect(a.isReady()).toBe(false)
+      await vi.advanceTimersByTimeAsync(10)
+      expect(a.isReady()).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("removes its listener and closes its channel on disconnect, and is idempotent", () => {

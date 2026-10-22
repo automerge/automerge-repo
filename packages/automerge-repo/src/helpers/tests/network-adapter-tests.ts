@@ -314,9 +314,12 @@ export function runNetworkAdapterTests(_setup: SetupFn, title?: string): void {
 
       await eventPromise(rightRepo.networkSubsystem, "peer")
 
+      const disconnected = eventPromise(
+        rightRepo.networkSubsystem,
+        "peer-disconnected"
+      )
       left.disconnect()
-
-      await pause(10)
+      await disconnected
 
       left.connect(leftPeerId)
       await eventPromise(left, "peer-candidate")
