@@ -1063,7 +1063,7 @@ export class DocHandle<T> {
     return this
   }
 
-  /** @internal External-retention hook for {@link DocumentQuery.subscribe}. */
+  /** @internal External-retention hook for `DocumentQuery.subscribe`. */
   [kRetainDocument](): void {
     this.#document[kRetainDocument]()
   }
