@@ -29,9 +29,14 @@
  *   C1  every local save runs a full sync round that re-sends a fingerprint
  *       of every item in the sedimentree, so per-change cost grows with
  *       history
- *   C2  a fragment's head is never stored as a loose commit, so nothing is
- *       ever recognised as covered by a fragment: loose commits are served
- *       alongside the fragment that already contains them
+ *   C2  a fragment's head was never stored as a loose commit, so nothing
+ *       was ever recognised as covered by a fragment: loose commits were
+ *       served alongside the fragment that already contains them. Fixed:
+ *       the head and the commits absorbed with it go up loose, the
+ *       fragment a round later. The budgets assume a Subduction that does
+ *       not offer back the range of a fragment the requester sends. Since
+ *       0.21.0 (Subduction #326) a server without that rule sends the
+ *       author each fragment's range once
  *   C3  `#save` re-arms a sync round even when it stored nothing: two
  *       rounds per find, and every subscriber echoes a round per change
  *   C3b `#doSync` flushes the pending save before its round; that save
@@ -39,7 +44,7 @@
  *       a fresh import runs the same round twice (found writing these
  *       tests; the C3 fix does not change it)
  *   C4  client compaction deletes absorbed loose commits the server still
- *       serves, so they are downloaded again on reload
+ *       serves, so they are downloaded again on reload (fixed with C2)
  *   C5  cold fetch ships each loose commit in its own signed envelope
  *       with an uncompressed change blob
  *   C6  the server acks every ingested item with a HeadsUpdate carrying
@@ -63,7 +68,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
-import { existsSync } from "fs"
+import { existsSync, readFileSync } from "fs"
 import path from "path"
 import { next as A } from "@automerge/automerge"
 import { SyncMessage } from "@automerge/automerge-subduction"
@@ -110,6 +115,27 @@ if (!existsSync(BASELINE) && !process.env.UPDATE_SYNC_BASELINES) {
 }
 const budget = new SyncBudget(BASELINE)
 afterAll(() => budget.save())
+
+/**
+ * Before 0.21.0 (Subduction #325), a node holding a fragment and its
+ * boundary commit loose dropped that commit, and the range it heads, from
+ * what it syncs. So when Automerge forms a fragment on top of one this
+ * client is still holding back, the held fragment's head never goes up
+ * loose and the server cannot prune its range: the overlap scenario's C2
+ * check is expected to fail against such a version (the pinned 0.20.1).
+ */
+const SUBDUCTION_BEFORE_0_21 = (() => {
+  const { version } = JSON.parse(
+    readFileSync(
+      path.resolve(
+        "packages/automerge-repo/node_modules/@automerge/automerge-subduction/package.json"
+      ),
+      "utf8"
+    )
+  ) as { version: string }
+  const [major, minor] = version.split(".").map(Number)
+  return major === 0 && minor < 21
+})()
 
 /** The save throttle in `SubductionSource.attach` (source.ts). */
 const SAVE_THROTTLE_MS = 100
@@ -404,6 +430,8 @@ describe("Sync throughput: a 1000-keystroke document", () => {
     const ids = uploadedCommitIds(push)
     const acks = headsUpdates(push)
     m.pushUpBytes = push.bytes("up")
+    m.pushDownBytes = push.bytes("down")
+    m.pushResponseLooseCommits = coveredLooseInResponses(push, typed(N)).loose
     m.pushRounds = push.count("up", "BatchSyncRequest")
     m.pushRequestItems = requestItems(push)
     m.pushLooseCommitFrames = ids.length
@@ -469,6 +497,8 @@ describe("Sync throughput: a 1000-keystroke document", () => {
     budget.check("typed.push.upBytesPerSaveByte", m.pushUpBytes / saveSize(N), {
       tolerance: 0.005,
     })
+    // Mostly HeadsUpdate acks (C6), whose head counts vary by ±4%.
+    budget.check("typed.push.downBytes", m.pushDownBytes, { tolerance: 0.08 })
     budget.check("typed.push.rounds", m.pushRounds)
     // C1: every round re-sends a fingerprint per item of history, so this
     // grows with the square of the number of typing steps.
@@ -502,10 +532,16 @@ describe("Sync throughput: a 1000-keystroke document", () => {
     )
   })
 
-  // Ideal (C2): once a fragment covers a range, the server's minimized
-  // tree drops the loose commits inside it.
-  it.fails("target: server prunes loose commits covered by a fragment (C2)", () => {
+  // Once a fragment covers a range, the server's minimized tree drops the
+  // loose commits inside it (C2).
+  it("the server prunes loose commits covered by a fragment (C2)", () => {
     expect(m.serverCoveredLooseCommits).toBe(0)
+  })
+
+  // The round that delivers a new fragment sends none of the loose
+  // commits it covers back to the author, who no longer lists them.
+  it("the author is sent back no loose commit while typing (C2)", () => {
+    expect(m.pushResponseLooseCommits).toBe(0)
   })
 
   it("budget: cold fetch bytes", () => {
@@ -523,9 +559,9 @@ describe("Sync throughput: a 1000-keystroke document", () => {
     )
   })
 
-  // Ideal (C2): a response never ships a loose commit alongside a
-  // fragment that already contains it.
-  it.fails("target: cold fetch ships no loose commit covered by a fragment (C2)", () => {
+  // A response never ships a loose commit alongside a fragment that
+  // already contains it (C2).
+  it("cold fetch ships no loose commit covered by a fragment (C2)", () => {
     expect(m.fetchCoveredLooseCommits).toBe(0)
   })
 
@@ -569,10 +605,10 @@ describe("Sync throughput: a 1000-keystroke document", () => {
     budget.check("typed.authorReload.looseCommits", m.authorReloadLooseCommits)
   })
 
-  // Ideal (C4): the author already has the whole document, so reopening
-  // it downloads no commits, including the ones compaction removed from
-  // local storage because a fragment now covers them.
-  it.fails("target: author reload downloads no commits (C4)", () => {
+  // The author already has the whole document, so reopening it downloads
+  // no commits, including the ones compaction removed from local storage
+  // because a fragment now covers them (C4).
+  it("author reload downloads no commits (C4)", () => {
     expect(m.authorReloadLooseCommits).toBe(0)
   })
 })
@@ -683,6 +719,8 @@ describe("Sync throughput: typing while a sync round is in flight", () => {
     m.distinctLooseCommits = new Set(ids).size
     m.duplicateUploads = ids.length - new Set(ids).size
     m.rounds = w.count("up", "BatchSyncRequest")
+    m.serverLooseCommits = held.loose
+    m.serverCoveredLooseCommits = held.covered
   }, 30_000)
 
   afterAll(() => {
@@ -695,10 +733,22 @@ describe("Sync throughput: typing while a sync round is in flight", () => {
     budget.check("overlap.duplicateLooseCommitUploads", m.duplicateUploads, {
       slack: 3,
     })
-    // 2–4 rounds across runs: the slower the steps land, the more saves
+    // 2–5 rounds across runs: the slower the steps land, the more saves
     // miss a round that has already read its state, and each needs one.
     budget.check("overlap.rounds", m.rounds, { slack: 2 })
   })
+
+  // However the steps land, every fragment goes up after its commits, so
+  // the server prunes them all (C2). How many of them went up loose
+  // depends on that timing (527–753 over 6 runs), so it is not budgeted.
+  // Here a fragment forms on top of one still held back, which needs
+  // Subduction 0.21.0 (see SUBDUCTION_BEFORE_0_21).
+  ;(SUBDUCTION_BEFORE_0_21 ? it.fails : it)(
+    "the server prunes loose commits covered by a fragment (C2)",
+    () => {
+      expect(m.serverCoveredLooseCommits).toBe(0)
+    }
+  )
 
   // A commit an earlier round already uploaded is not uploaded again (C7).
   it("each loose commit is uploaded once while saves land during rounds (C7)", () => {

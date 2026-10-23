@@ -70,6 +70,45 @@ const SHUTDOWN_IDLE_TIMEOUT_MS = 5_000
  */
 const DEFAULT_COMPACTION_DELETE_CONCURRENCY = 16
 
+/**
+ * The commits of fragment `m` from its head down to the first ones in
+ * `known` (already stored). Automerge absorbs the head, and anything
+ * saved in the same throttle window, into the fragment before a save
+ * sees them at level 0. Returned as level-0 metadata, the shape
+ * `getFragmentMetadata(doc, 0)` uses for a loose commit (its boundary is
+ * its parents).
+ */
+function unstoredRun(
+  doc: Automerge.Doc<unknown>,
+  m: Automerge.FragmentMeta,
+  known: Set<string>
+): Automerge.FragmentMeta[] {
+  const members = new Set(m.members)
+  const parents = new Map<string, string[]>()
+  for (const c of Automerge.getChangesMetaSince(doc, m.boundary)) {
+    if (members.has(c.hash)) parents.set(c.hash, c.deps)
+  }
+  const out: Automerge.FragmentMeta[] = []
+  const seen = new Set<string>()
+  const stack = [m.head]
+  while (stack.length > 0) {
+    const h = stack.pop()!
+    if (seen.has(h) || known.has(h)) continue
+    seen.add(h)
+    const deps = parents.get(h)
+    if (deps === undefined) continue // below the fragment's boundary
+    out.push({
+      head: h,
+      level: 0,
+      boundary: deps,
+      checkpoints: [],
+      members: [h],
+    })
+    stack.push(...deps)
+  }
+  return out
+}
+
 // ── Per-sedimentree state ───────────────────────────────────────────────
 //
 // `initializing`: suppress individual commit-saved events. The handle
@@ -102,6 +141,12 @@ interface SedimentreeEntry {
    * propagation can quiesce before transports are torn down.
    */
   syncSettled: Promise<void>
+  /** Sync rounds that have read state so far (see `pendingFragments`). */
+  syncRounds: number
+  /** The latest of those rounds that succeeded with at least one peer. */
+  syncedRound: number
+  /** `syncRounds` when `#saveNewCommits` last stored a loose commit. */
+  looseStoredRound: number
 
   // Save tracking
   lastSavedHeads: Set<string>
@@ -147,6 +192,22 @@ interface SedimentreeEntry {
    * same way commits do; this set lets us garbage-collect those too.
    */
   persistedFragmentHashes: Set<string>
+  /**
+   * Fragments Automerge has formed that `#saveNewCommits` is holding back,
+   * by head, with the value of `syncRounds` when their loose commits were
+   * last stored. A peer can only drop loose commits a fragment covers if it
+   * holds them, including the fragment's head, before the fragment arrives:
+   * Subduction finds coverage by walking loose commits down from that head.
+   * Automerge absorbs the head (and anything saved in the same throttle
+   * window) straight into the fragment, so those commits are stored loose
+   * first and the fragment waits for a round that read state after that to
+   * succeed. Compaction waits too (see `#compactAbsorbed`).
+   *
+   * Memory only. After a restart the same fragment is found again (formed
+   * but not stored), its loose commits all stored by then, and goes out
+   * after the first round that succeeds.
+   */
+  pendingFragments: Map<string, number>
   /**
    * Promise for the in-flight `#compactAbsorbed` pass, or `null` if
    * none is running. Compaction is fire-and-forget from the save
@@ -527,7 +588,7 @@ export class SubductionSource implements DocumentSource {
     this.#storage.on("fragment-saved", (sid, fragmentHead, blob) => {
       const entry = this.#entries.get(sid.toString())
       if (entry) entry.persistedFragmentHashes.add(fragmentHead.toHexString())
-      this.#handleDataFound(sid, fragmentHead, blob)
+      this.#handleDataFound(sid, fragmentHead, blob, true)
     })
 
     // ── Sync scheduler ────────────────────────────────────────────────
@@ -615,7 +676,12 @@ export class SubductionSource implements DocumentSource {
 
   // ── Storage events ──────────────────────────────────────────────────
 
-  #handleDataFound(id: SedimentreeId, commitId: CommitId, blob: Uint8Array) {
+  #handleDataFound(
+    id: SedimentreeId,
+    commitId: CommitId,
+    blob: Uint8Array,
+    isFragment = false
+  ) {
     const entry = this.#entries.get(id.toString())
     if (!entry) return
 
@@ -642,8 +708,17 @@ export class SubductionSource implements DocumentSource {
     //       re-applying would be O(doc-size) wasted work.
     //   (b) a duplicate delivery (e.g. both sync backends delivered the
     //       same commit). Already buffered or applied.
+    // A fragment shares its id with its head commit, which may have arrived
+    // loose first (see `pendingFragments`) and still be waiting for parents
+    // the fragment carries, so a known fragment is skipped only once its
+    // head is in the doc.
     const hex = commitId.toHexString()
-    if (entry.knownHashes.has(hex)) return
+    if (
+      entry.knownHashes.has(hex) &&
+      (!isFragment || Automerge.hasHeads(entry.handle.fullDoc(), [hex]))
+    ) {
+      return
+    }
 
     // Record the hash synchronously so concurrent saves and duplicate
     // deliveries see it immediately, even before the microtask flush
@@ -779,11 +854,15 @@ export class SubductionSource implements DocumentSource {
       blobRetries: 0,
       needsResync: false,
       syncSettled: Promise.resolve(),
+      syncRounds: 0,
+      syncedRound: 0,
+      looseStoredRound: 0,
       lastSavedHeads: new Set(),
       knownHashes: new Set(),
       persistedCommitHashes: new Set(),
       untransformedHashes: new Set(),
       persistedFragmentHashes: new Set(),
+      pendingFragments: new Map(),
       compactionInFlight: null,
       flushSave: throttledSave,
       saveSettled,
@@ -1107,6 +1186,7 @@ export class SubductionSource implements DocumentSource {
       // `needsResync` because this round was in flight). Only requests
       // made after this point need another round.
       entry.needsResync = false
+      const round = ++entry.syncRounds
 
       this.#log.debug(`doSync ${sid} (state=${entry.syncState})`)
       const peerResultMap = await subduction.syncWithAllPeers(
@@ -1157,6 +1237,7 @@ export class SubductionSource implements DocumentSource {
         this.#scheduler.scheduleHealSync(entry.sedimentreeId)
       } else {
         entry.lastSyncResult = "succeeded"
+        entry.syncedRound = round
         this.#scheduler.resetHealState(sedimentreeId.toString())
       }
     } catch (e) {
@@ -1169,6 +1250,16 @@ export class SubductionSource implements DocumentSource {
       if (entry.retryTransformAfterSync) {
         entry.retryTransformAfterSync = false
         void this.#reloadBlobs(entry)
+      }
+      // A held-back fragment may be ready to store now. Not after a failed
+      // round, which cannot make it ready: with two or more peers the save
+      // would start another round at once, around the heal backoff.
+      if (
+        entry.pendingFragments.size > 0 &&
+        entry.lastSyncResult !== "all-failed" &&
+        !this.#shuttingDown
+      ) {
+        entry.flushSave()
       }
       // If new commits were saved or a new connection was established
       // while this sync was in flight, re-sync immediately.
@@ -1436,8 +1527,10 @@ export class SubductionSource implements DocumentSource {
       const currentHeads = Automerge.getHeads(doc)
       const currentSet = new Set(currentHeads)
 
-      // Fast-path: heads unchanged since the predecessor's save.
+      // Fast-path: heads unchanged since the predecessor's save, and no
+      // fragment held back for a sync round.
       if (
+        entry.pendingFragments.size === 0 &&
         currentSet.size === entry.lastSavedHeads.size &&
         [...currentSet].every(h => entry.lastSavedHeads.has(h))
       ) {
@@ -1581,11 +1674,25 @@ export class SubductionSource implements DocumentSource {
     const newCommitMetas = commitMetas.filter(
       m => !entry.knownHashes.has(m.head)
     )
-    const newFragmentMetas = fragmentMetas.filter(
-      m => !entry.knownHashes.has(m.head)
-    )
+    const {
+      ready: newFragmentMetas,
+      held,
+      looseFirst,
+    } = await this.#fragmentsToStore(entry, doc, subduction, fragmentMetas)
+    const queued = new Set(newCommitMetas.map(m => m.head))
+    for (const c of looseFirst) {
+      if (!queued.has(c.head)) newCommitMetas.push(c)
+    }
+    // Rounds that read state after this save count for the held fragments.
+    // Stamped once the save is done, so a round already in flight does not.
+    const holdBack = () => {
+      for (const head of held) {
+        entry.pendingFragments.set(head, entry.syncRounds)
+      }
+    }
 
     if (newCommitMetas.length === 0 && newFragmentMetas.length === 0) {
+      holdBack()
       return { prepFailures: 0, stored: 0 }
     }
 
@@ -1705,6 +1812,7 @@ export class SubductionSource implements DocumentSource {
     }
 
     if (commitInputs.length === 0 && fragmentInputs.length === 0) {
+      if (prepErrors.length === 0) holdBack()
       return { prepFailures: prepErrors.length, stored: 0 }
     }
 
@@ -1740,12 +1848,77 @@ export class SubductionSource implements DocumentSource {
       throw e
     }
 
+    if (commitInputs.length > 0) entry.looseStoredRound = entry.syncRounds
+    if (prepErrors.length === 0) holdBack()
     this.#scheduleCompaction(entry)
 
     return {
       prepFailures: prepErrors.length,
       stored: commitInputs.length + fragmentInputs.length,
     }
+  }
+
+  /**
+   * Choose which of the fragments Automerge reports `#saveNewCommits`
+   * stores now. Returns the fragments to store, the heads of those to
+   * hold back for a sync round, and the commits that must be stored loose
+   * first (see `pendingFragments`).
+   *
+   * A fragment none of whose commits we stored loose (an import, or one a
+   * peer formed) is stored at once: no peer has loose commits of it to
+   * drop. Offline, everything is stored at once too, rather than holding
+   * fragments back for a round that may be days away. That range then
+   * stays loose upstream, as it did before.
+   */
+  async #fragmentsToStore(
+    entry: SedimentreeEntry,
+    doc: Automerge.Doc<unknown>,
+    subduction: Subduction,
+    fragmentMetas: Automerge.FragmentMeta[]
+  ): Promise<{
+    ready: Automerge.FragmentMeta[]
+    held: string[]
+    looseFirst: Automerge.FragmentMeta[]
+  }> {
+    // Not `knownHashes`: a fragment's head is also stored as a loose
+    // commit, under the same id.
+    const unstored = fragmentMetas.filter(
+      m => !entry.persistedFragmentHashes.has(m.head)
+    )
+    const unstoredHeads = new Set(unstored.map(m => m.head))
+    for (const head of entry.pendingFragments.keys()) {
+      if (!unstoredHeads.has(head)) entry.pendingFragments.delete(head)
+    }
+    if (unstored.length === 0) return { ready: [], held: [], looseFirst: [] }
+
+    const offline = (await subduction.getConnectedPeerIds()).length === 0
+    const ready: Automerge.FragmentMeta[] = []
+    const held: string[] = []
+    const looseFirst = new Map<string, Automerge.FragmentMeta>()
+    for (const m of unstored) {
+      const partlyLoose = m.members.some(
+        h => h !== m.head && entry.knownHashes.has(h)
+      )
+      if (offline || !partlyLoose) {
+        ready.push(m)
+        continue
+      }
+      const run = unstoredRun(doc, m, entry.knownHashes)
+      if (run.length > 0) {
+        for (const c of run) looseFirst.set(c.head, c)
+        held.push(m.head)
+        continue
+      }
+      // Every commit of it is stored loose: it goes once a round that read
+      // state after they were stored has succeeded.
+      const stamp = entry.pendingFragments.get(m.head) ?? entry.looseStoredRound
+      if (entry.syncedRound > stamp) {
+        ready.push(m)
+      } else if (!entry.pendingFragments.has(m.head)) {
+        held.push(m.head)
+      }
+    }
+    return { ready, held, looseFirst: [...looseFirst.values()] }
   }
 
   /**
