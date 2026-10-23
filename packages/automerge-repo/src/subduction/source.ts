@@ -1834,6 +1834,13 @@ export class SubductionSource implements DocumentSource {
     const liveFragments = new Set<string>(
       Automerge.getFragmentMetadata(doc, { start: 1 }).map(m => m.head)
     )
+    // A commit Automerge absorbed into a fragment is only safe to delete
+    // once that fragment is stored. Until then (its input failed to
+    // prepare, the interceptor skipped it, or its batch failed) the loose
+    // records are the only stored copy of the commits it absorbed.
+    for (const hex of liveFragments) {
+      if (!entry.persistedFragmentHashes.has(hex)) return
+    }
 
     const staleCommits: string[] = []
     for (const hex of entry.persistedCommitHashes) {
