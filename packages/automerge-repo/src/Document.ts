@@ -32,6 +32,8 @@ export class Document<T = unknown> {
   writeFailure?: { error: unknown }
 
   #syncInfo = new Map<StorageId, SyncInfo>()
+  /** Peers whose reports arrived before ready; their latest is in `#syncInfo`. */
+  #pendingRemoteHeads = new Set<StorageId>()
 
   /** Capture local history synchronously, before reentrant listeners run.
    * `compact` stores the fragments of new boundary commits in the same batch. */
@@ -74,6 +76,7 @@ export class Document<T = unknown> {
 
   close(): void {
     this.#closed = true
+    this.discardRemoteHeads()
   }
 
   get ready(): boolean {
@@ -109,7 +112,37 @@ export class Document<T = unknown> {
       lastHeads: encoded,
       lastSyncTimestamp: timestamp,
     })
+    if (!this.ready) {
+      this.#pendingRemoteHeads.add(storageId)
+      return
+    }
+    // A later report supersedes one still awaiting the flush.
+    this.#pendingRemoteHeads.delete(storageId)
     this.registry.dispatchRemoteHeads(storageId, encoded, timestamp)
+  }
+
+  /** Deliver pre-ready reports in a later task, after `find()` callers attach. */
+  flushRemoteHeads(): void {
+    if (!this.#pendingRemoteHeads.size) return
+    const timer = setTimeout(() => {
+      const pending = [...this.#pendingRemoteHeads]
+      this.#pendingRemoteHeads.clear()
+      if (this.closed || this.deleted) return
+      for (const storageId of pending) {
+        const info = this.#syncInfo.get(storageId)!
+        this.registry.dispatchRemoteHeads(
+          storageId,
+          info.lastHeads,
+          info.lastSyncTimestamp
+        )
+      }
+    }, 0)
+    ;(timer as { unref?: () => void }).unref?.()
+  }
+
+  /** Drop pre-ready reports; the query settled without becoming ready. */
+  discardRemoteHeads(): void {
+    this.#pendingRemoteHeads.clear()
   }
 
   /**

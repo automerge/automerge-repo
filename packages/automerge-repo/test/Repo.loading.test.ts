@@ -36,6 +36,13 @@ type Doc = { count: number; nested?: { value: number } }
 
 const heads = (doc: A.Doc<unknown>) => A.getHeads(doc).map(commitId)
 
+const remoteHeads = (peer: string, heads: ReturnType<typeof commitId>[]) => ({
+  type: "remote-heads" as const,
+  sequence: 1,
+  remote: { kind: "test", id: peer, path: [] },
+  heads,
+})
+
 describe("Repo loading", () => {
   const repos: Repo[] = []
   afterEach(async () => {
@@ -693,27 +700,99 @@ describe("Repo loading", () => {
       }
     })
 
-    it("forwards remote heads as advertisements without resolving readiness", async () => {
+    it("records remote heads while loading without resolving readiness or dispatching", async () => {
       const { handle, session, progress } = await lookup()
       const advertised = [commitId("01".repeat(32))]
       const listener = vi.fn()
       handle.on("remote-heads", listener)
-      await session.push({
-        type: "remote-heads",
-        sequence: 1,
-        remote: { kind: "test", id: "peer", path: [] },
-        heads: advertised,
-      })
+      await session.push(remoteHeads("peer", advertised))
+      expect(listener).not.toHaveBeenCalled()
+      expect(progress.state().state).toBe("loading")
+      expect(handle.getSyncInfo("peer" as StorageId)?.lastHeads).toEqual(
+        encodeHeads([...advertised])
+      )
+    })
+
+    it("delivers the latest pre-ready report per peer once the handle is ready", async () => {
+      const { r, id, session } = await lookup()
+      const stale = [commitId("01".repeat(32))]
+      const latest = [commitId("02".repeat(32))]
+      const other = [commitId("03".repeat(32))]
+      await session.push(remoteHeads("a", stale))
+      await session.push(remoteHeads("a", latest))
+      await session.push(remoteHeads("b", other))
+      await scan(session, A.getAllChanges(A.from({ count: 1 })))
+      const handle = await r.find<Doc>(id)
+      const listener = vi.fn()
+      handle.on("remote-heads", listener)
+      await vi.waitFor(() => expect(listener).toHaveBeenCalledTimes(2))
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(listener).toHaveBeenCalledTimes(2)
       expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          storageId: "a",
+          heads: encodeHeads([...latest]),
+          timestamp: handle.getSyncInfo("a" as StorageId)?.lastSyncTimestamp,
+        })
+      )
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          storageId: "b",
+          heads: encodeHeads([...other]),
+        })
+      )
+    })
+
+    it("dispatches remote heads immediately once ready", async () => {
+      const { handle, session } = await created()
+      const listener = vi.fn()
+      handle.on("remote-heads", listener)
+      const advertised = [commitId("01".repeat(32))]
+      await session.push(remoteHeads("peer", advertised))
+      expect(listener).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({
           storageId: "peer",
           heads: encodeHeads([...advertised]),
         })
       )
-      expect(progress.state().state).toBe("loading")
-      expect(handle.getSyncInfo("peer" as StorageId)?.lastHeads).toEqual(
-        encodeHeads([...advertised])
-      )
+    })
+
+    it("discards pre-ready reports when the document becomes unavailable", async () => {
+      const { handle, session, progress } = await lookup()
+      const listener = vi.fn()
+      handle.on("remote-heads", listener)
+      await session.push(remoteHeads("peer", [commitId("01".repeat(32))]))
+      await session.push({
+        type: "local-load-complete",
+        found: false,
+        backendSyncs: true,
+        noPeers: true,
+      })
+      expect(progress.state().state).toBe("unavailable")
+      const remote = A.from({ count: 3 })
+      await session.push({
+        type: "records",
+        records: extractRecords(remote),
+        phase: "live",
+        sequence: 1,
+      })
+      await session.push({
+        type: "history-marker",
+        marker: { sequence: 1, heads: heads(remote) },
+      })
+      expect(progress.state().state).toBe("ready")
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(listener).not.toHaveBeenCalled()
+    })
+
+    it("discards pre-ready reports when the document is deleted", async () => {
+      const { r, id, handle, session } = await lookup()
+      const listener = vi.fn()
+      handle.on("remote-heads", listener)
+      await session.push(remoteHeads("peer", [commitId("01".repeat(32))]))
+      await r.delete(id)
+      await new Promise(resolve => setTimeout(resolve, 10))
+      expect(listener).not.toHaveBeenCalled()
     })
   })
 

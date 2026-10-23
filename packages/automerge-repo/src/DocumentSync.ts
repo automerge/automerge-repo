@@ -362,7 +362,7 @@ export class DocumentSync<T> {
         this.#applyBlobs()
         if (event.marker) this.#marker("local", event.marker)
         else if (event.found && this.document.heads().length) this.#complete()
-        if (event.noPeers) this.query.unavailable()
+        if (event.noPeers) this.#unavailable()
         if (this.query.pending && !event.backendSyncs)
           void this.#session?.synchronize().catch(error => this.fail(error))
         break
@@ -383,7 +383,7 @@ export class DocumentSync<T> {
             (peers.length > 0 &&
               peers.every(peer => peer.outcome !== "complete")))
         ) {
-          this.query.unavailable()
+          this.#unavailable()
         }
         break
       }
@@ -473,7 +473,14 @@ export class DocumentSync<T> {
   #complete(): void {
     this.#targets.clear()
     this.query.ready()
+    this.document.flushRemoteHeads()
     // Let the backend skip history-marker work once Repo has a verified snapshot.
     this.#session?.markComplete?.()
+  }
+
+  #unavailable(): void {
+    if (!this.query.pending) return
+    this.document.discardRemoteHeads()
+    this.query.unavailable()
   }
 }

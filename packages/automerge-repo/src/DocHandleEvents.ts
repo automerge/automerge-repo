@@ -8,6 +8,11 @@ export interface DocHandleEvents<T> {
   change: (payload: DocHandleChangePayload<T>) => void
   delete: (payload: DocHandleDeletePayload<T>) => void
   "ephemeral-message": (payload: DocHandleEphemeralMessagePayload<T>) => void
+  /**
+   * A peer reported its heads. Reports received before the handle is ready
+   * are delivered once, per peer with its latest heads, shortly after it
+   * becomes ready; none are delivered if it never does.
+   */
   "remote-heads": (payload: DocHandleRemoteHeadsPayload) => void
 }
 
