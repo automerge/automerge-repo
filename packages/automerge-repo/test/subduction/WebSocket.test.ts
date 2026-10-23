@@ -82,8 +82,8 @@ function createClientRepo(peerId: string, serverUrl: string): Repo {
 }
 
 /**
- * Wraps a {@link WebSocketTransport} so the server can go silent on
- * demand. Once `blackhole` is set, the socket stays OPEN (so the peer
+ * Wraps a {@link WebSocketTransport} so the server can go silent, or slow,
+ * on demand. Once `blackhole` is set, the socket stays OPEN (so the peer
  * is not dropped from the client's peer set) but the server neither
  * reads nor answers: `recvBytes` never resolves and `sendBytes` is
  * discarded. A client sync round against this peer therefore gets no
@@ -93,14 +93,17 @@ function createClientRepo(peerId: string, serverUrl: string): Repo {
  */
 class ControllableTransport implements Transport {
   blackhole = false
+  /** Delay before each send, in ms. */
+  delayMs = 0
   #inner: WebSocketTransport
 
   constructor(inner: WebSocketTransport) {
     this.#inner = inner
   }
 
-  sendBytes(bytes: Uint8Array): Promise<void> {
-    if (this.blackhole) return Promise.resolve()
+  async sendBytes(bytes: Uint8Array): Promise<void> {
+    if (this.blackhole) return
+    if (this.delayMs > 0) await wait(this.delayMs)
     return this.#inner.sendBytes(bytes)
   }
 
@@ -126,13 +129,14 @@ interface BlackholeServer {
   url: string
   subduction: Subduction
   blackholeAll(): void
+  delayAll(ms: number): void
   close(): Promise<void>
 }
 
 /**
  * Like {@link startSubductionServer}, but exposes a `blackholeAll()`
- * switch that makes every accepted transport go silent (see
- * {@link ControllableTransport}). The cryptographic handshake completes
+ * switch that makes every accepted transport go silent, and `delayAll()`
+ * to slow every reply (see {@link ControllableTransport}). The cryptographic handshake completes
  * normally before blackholing, so the peer stays connected and counted.
  */
 async function startBlackholeServer(): Promise<BlackholeServer> {
@@ -165,6 +169,9 @@ async function startBlackholeServer(): Promise<BlackholeServer> {
     subduction,
     blackholeAll() {
       for (const t of transports) t.blackhole = true
+    },
+    delayAll(ms) {
+      for (const t of transports) t.delayMs = ms
     },
     async close() {
       await subduction.disconnectAll()
@@ -444,6 +451,102 @@ describe("Subduction WebSocket sync", () => {
 
     expect(handle2.doc()!.items).toEqual(["first", "second", "third"])
   }, 15_000)
+
+  // A client connected to two servers is the only path between them.
+  // Subduction pushes what it ingests to a peer only once a subscribed
+  // round with that peer has finished, so data the client loads from one
+  // server while its round with the other is still in flight must start
+  // another round, even though it stores nothing new.
+  it("a client connected to two servers relays a document between them", async () => {
+    const server1 = await startSubductionServer()
+    cleanups.push(() => server1.close())
+    const server2 = await startBlackholeServer()
+    cleanups.push(() => server2.close())
+
+    const author = createClientRepo("author", server1.url)
+    cleanups.push(() => author.shutdown())
+    const handle = author.create<{ value: number }>({ value: 0 })
+    const sid = toSedimentreeId(handle.documentId)
+    await waitFor(async () => {
+      const blobs = await server1.subduction.getBlobs(sid)
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
+    }, 8000)
+
+    const relay = new Repo({
+      peerId: "relay" as PeerId,
+      storage: new DummyStorageAdapter(),
+      subductionWebsocketEndpoints: [server1.url, server2.url],
+    })
+    cleanups.push(() => relay.shutdown())
+    // Connected to both first, so no reconnect round can do the relaying.
+    await waitFor(async () => {
+      expect((await server1.subduction.getConnectedPeerIds()).length).toBe(2)
+      expect((await server2.subduction.getConnectedPeerIds()).length).toBe(1)
+    }, 8000)
+    // server2 answers the find's round after server1's data has arrived.
+    server2.delayAll(500)
+    const relayed = await awaitSyncedHandle(
+      relay.findWithProgress<{ value: number }>(handle.url),
+      h => h.doc()?.value === 0,
+      { timeout: 8000 }
+    )
+    expect(relayed.doc()!.value).toBe(0)
+    // Found through server1, passed on to server2.
+    await waitFor(async () => {
+      const blobs = await server2.subduction.getBlobs(sid)
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
+    }, 8000)
+  }, 30_000)
+
+  // A save that lands after a round has read its state is not in that
+  // round, and saves only store locally, so the follow-up round it asks
+  // for is the only way the change leaves this client.
+  it("a change saved while a sync round is in flight still reaches the server", async () => {
+    const server = await startSubductionServer()
+    cleanups.push(() => server.close())
+
+    const client = createClientRepo("client-1", server.url)
+    cleanups.push(() => client.shutdown())
+    const handle = client.create<{ value: number }>({ value: 0 })
+    const sid = toSedimentreeId(handle.documentId)
+    await waitFor(async () => {
+      const blobs = await server.subduction.getBlobs(sid)
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
+    }, 8000)
+
+    // Hold the next round open after it has finished on the wire.
+    const subduction = await client.subduction
+    const syncWithAllPeers = subduction.syncWithAllPeers.bind(subduction)
+    let release!: () => void
+    const released = new Promise<void>(r => (release = r))
+    let entered!: () => void
+    const inRound = new Promise<void>(r => (entered = r))
+    subduction.syncWithAllPeers = async (...args) => {
+      const result = await syncWithAllPeers(...args)
+      entered()
+      await released
+      return result
+    }
+
+    handle.change(d => {
+      d.value = 1
+    })
+    await inRound
+    handle.change(d => {
+      d.value = 2
+    })
+    await client.flush()
+    release()
+
+    const client2 = createClientRepo("client-2", server.url)
+    cleanups.push(() => client2.shutdown())
+    const handle2 = await awaitSyncedHandle(
+      client2.findWithProgress<{ value: number }>(handle.url),
+      h => h.doc()?.value === 2,
+      { timeout: 8000 }
+    )
+    expect(handle2.doc()!.value).toBe(2)
+  }, 20_000)
 
   it("re-subscribes a previously-synced doc after reconnect", async () => {
     // Regression: subscriptions are per-connection, so a successfully-synced

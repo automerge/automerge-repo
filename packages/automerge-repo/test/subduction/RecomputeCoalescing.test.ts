@@ -98,14 +98,14 @@ describe("SubductionSource recompute coalescing", () => {
       await flushFake()
       const delta = counter.scheduledWalks - before
 
-      // Exactly 3 under fake timers: the burst's single coalesced walk,
-      // plus two follow-up walks scheduled as that walk's storage saves
-      // and the save throttle settle. The exact constant may shift by a
-      // small amount if scheduling around saves intentionally changes —
-      // update it then. The regression signals are:
+      // Exactly 2 under fake timers: the burst's single coalesced walk,
+      // which starts each entry's (peerless) sync round, plus one
+      // follow-up walk as those rounds settle. The exact constant may
+      // shift by a small amount if scheduling around saves intentionally
+      // changes — update it then. The regression signals are:
       //   0  → revert to synchronous per-attach recompute
       //   ≈N → broken coalescing flag (one walk per attach)
-      expect(delta).toBe(3)
+      expect(delta).toBe(2)
     } finally {
       vi.useRealTimers()
     }
