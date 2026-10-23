@@ -1421,6 +1421,7 @@ export class SubductionSource implements DocumentSource {
     entry.saveSettled = new Promise<void>(r => {
       resolveSaveSettled = r
     })
+    let stored = 0
 
     try {
       const doc = entry.handle.fullDoc()
@@ -1444,7 +1445,7 @@ export class SubductionSource implements DocumentSource {
           `syncInFlight=${entry.syncInFlight}`
       )
 
-      let result: { prepFailures: number }
+      let result: { prepFailures: number; stored: number }
       try {
         result = await this.#saveNewCommits(entry, doc, subduction)
       } catch (e) {
@@ -1473,6 +1474,7 @@ export class SubductionSource implements DocumentSource {
       // so future mutations to either side stay isolated.
       entry.lastSaveError = null
       entry.lastSavedHeads = new Set(currentSet)
+      stored = result.stored
 
       // Detect a post-save delta the `heads-changed` listener didn't
       // fire on. `getChangeByHash` calls inside `#saveNewCommits` can
@@ -1504,6 +1506,20 @@ export class SubductionSource implements DocumentSource {
       resolveSaveSettled()
     }
 
+    // The heads moved but Subduction already held every commit: they were
+    // loaded from it, so a peer sent them. With one peer there is nobody to
+    // pass them on to. With more, one may lack what another sent:
+    // Subduction pushes what it ingests to a peer only once a subscribed
+    // round with that peer has finished, so data that arrived while that
+    // round was in flight (a find against two servers) reaches it only
+    // through this round.
+    if (
+      stored === 0 &&
+      (await (await this.#subduction).getConnectedPeerIds()).length <= 1
+    ) {
+      return
+    }
+
     // Trigger an immediate sync — the only broadcast path for newly
     // saved commits (`#saveNewCommits` is store-only). If a sync is
     // already in flight, flag a re-sync for when it completes; otherwise
@@ -1527,7 +1543,7 @@ export class SubductionSource implements DocumentSource {
     entry: SedimentreeEntry,
     doc: Automerge.Doc<T>,
     subduction: Subduction
-  ): Promise<{ prepFailures: number }> {
+  ): Promise<{ prepFailures: number; stored: number }> {
     // Ask the doc directly for its level-0 loose commits and its
     // higher-level fragments. Automerge core owns the compaction
     // policy (which commits get absorbed into which fragments); we
@@ -1564,7 +1580,7 @@ export class SubductionSource implements DocumentSource {
     )
 
     if (newCommitMetas.length === 0 && newFragmentMetas.length === 0) {
-      return { prepFailures: 0 }
+      return { prepFailures: 0, stored: 0 }
     }
 
     const newCommitBytes =
@@ -1683,7 +1699,7 @@ export class SubductionSource implements DocumentSource {
     }
 
     if (commitInputs.length === 0 && fragmentInputs.length === 0) {
-      return { prepFailures: prepErrors.length }
+      return { prepFailures: prepErrors.length, stored: 0 }
     }
 
     // Record hashes BEFORE `storeBuiltBatch` so the synchronous
@@ -1720,7 +1736,10 @@ export class SubductionSource implements DocumentSource {
 
     this.#scheduleCompaction(entry)
 
-    return { prepFailures: prepErrors.length }
+    return {
+      prepFailures: prepErrors.length,
+      stored: commitInputs.length + fragmentInputs.length,
+    }
   }
 
   /**

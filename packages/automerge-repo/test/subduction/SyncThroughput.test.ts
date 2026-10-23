@@ -540,13 +540,14 @@ describe("Sync throughput: a 1000-keystroke document", () => {
     budget.check("typed.fetch.rounds", m.fetchRounds)
   })
 
-  // Ideal (C3): opening a document is one round trip.
-  it.fails("target: one sync round per find (C3)", () => {
+  // Opening a document is one round trip: loading what the round fetched
+  // stores nothing new, so it does not arm a second one (C3).
+  it("one sync round per find (C3)", () => {
     expect(m.fetchRounds).toBe(1)
   })
 
-  // Two rounds today: the second is re-armed by C3 and by C3b (fixing
-  // either takes it to one round and halves the bytes).
+  // One round: before the C3 fix, loading the fetched data re-armed a
+  // second, identical one.
   it("budget: reader reload of an unchanged doc", () => {
     budget.check("typed.readerReload.bytes", m.readerReloadBytes, {
       tolerance: 0.005,
@@ -557,7 +558,7 @@ describe("Sync throughput: a 1000-keystroke document", () => {
 
   // Ideal (C1): when nothing changed, confirming that costs O(heads),
   // not a fingerprint per item of history.
-  it.fails("target: reader reload of an unchanged doc costs O(heads) (C1/C3)", () => {
+  it.fails("target: reader reload of an unchanged doc costs O(heads) (C1)", () => {
     expect(m.readerReloadBytes).toBeLessThanOrEqual(512)
   })
 
@@ -862,9 +863,9 @@ describe("Sync throughput: live edits", () => {
     expect(m.subscriberDownLooseCommits).toBe(K)
   })
 
-  // Ideal (C3): receiving a change needs at most an ack, never a full
-  // sync round of the receiver's own.
-  it.fails("target: a subscriber opens no sync round per received change (C3)", () => {
+  // Receiving a change needs at most an ack (a HeadsUpdate), never a full
+  // sync round of the receiver's own (C3).
+  it("a subscriber opens no sync round per received change (C3)", () => {
     expect(m.subscriberRounds).toBe(0)
   })
 
