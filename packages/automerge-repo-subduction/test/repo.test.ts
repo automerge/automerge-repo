@@ -540,31 +540,57 @@ describe("public Repo with native Subduction", () => {
     expect(reloaded.doc()).toEqual({ count: 0 })
   })
 
-  it("keeps an empty connected lookup open for later data", async () => {
+  it("reports an absent document unavailable when the connected peer lacks it, then recovers", async () => {
     const a = peer(),
       b = peer()
     await connect(a, b)
     const url = generateAutomergeUrl()
     const progress = b.repo.query(url)
-    expect(progress.state().state).toBe("loading")
-    // The backend's explicit sync deadline is 1s; native loadAndWatch has none.
-    await new Promise(resolve => setTimeout(resolve, 1100))
-    expect(progress.state().state).toBe("loading")
+    await expect(b.repo.find(url)).rejects.toThrow("unavailable")
+    expect(progress.state().state).toBe("unavailable")
     const { documentId } = parseAutomergeUrl(url)
     await a.repo.import<State>(A.save(A.from<State>({ count: 9 })), {
       docId: documentId,
     })
-    await vi.waitFor(async () => {
-      expect(
-        (await b.storage.list("subduction-v2/")).some(key =>
-          key.includes("/commits/")
-        )
-      ).toBe(true)
-    }, wait)
+    await vi.waitFor(() => expect(progress.state().state).toBe("ready"), wait)
     expect((await b.repo.find<State>(url)).doc()).toEqual({ count: 9 })
   }, 10000)
 
-  it("loads a missing document from a peer without a separate sync round", async () => {
+  it("reports an absent document unavailable when the only peer fails its round", async () => {
+    const a = peer(),
+      b = peer()
+    await connect(a, b)
+    const engine = (b.backend as unknown as { engine: N.Subduction }).engine
+    const sync = engine.syncWithAllPeers.bind(engine)
+    vi.spyOn(engine, "syncWithAllPeers").mockImplementation(async (...args) => {
+      const results = await sync(...args)
+      for (const response of Object.values(results)) response.success = false
+      return results
+    })
+    const url = generateAutomergeUrl()
+    await expect(b.repo.find(url)).rejects.toThrow("unavailable")
+  }, 10000)
+
+  it("still finds a present document after the empty-load round", async () => {
+    const a = peer(),
+      b = peer()
+    const source = await a.repo.create<State>({ count: 2 })
+    await a.repo.flush()
+    await connect(a, b)
+    const progress = b.repo.query<State>(source.url)
+    const states: string[] = [progress.state().state]
+    const unsubscribe = progress.subscribe(state => states.push(state.state))
+    try {
+      expect((await b.repo.find<State>(source.url)).doc()).toEqual({
+        count: 2,
+      })
+      expect(states).not.toContain("unavailable")
+    } finally {
+      unsubscribe()
+    }
+  }, 10000)
+
+  it("loads a missing document from a peer with one explicit round", async () => {
     const a = peer(),
       b = peer()
     const source = await a.repo.create<State>({ count: 3 })
@@ -579,7 +605,8 @@ describe("public Repo with native Subduction", () => {
       doc.count = 4
     })
     await ready(receiver, { count: 4 })
-    expect(rounds).not.toHaveBeenCalled()
+    // Only the empty-load round; loadAndWatch supplies the data and updates.
+    expect(rounds).toHaveBeenCalledOnce()
   }, 10000)
 
   it("returns stale local history immediately, then catches up from a peer", async () => {

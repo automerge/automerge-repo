@@ -372,15 +372,16 @@ export class DocumentSync<T> {
       case "synchronized": {
         this.#marker("sync", event.result.marker)
         const { outcome, peers, marker } = event.result
+        // Still empty and no peer supplied it: none has it, or none could be
+        // reached. Later data can still make the document ready.
         if (
           this.query.pending &&
           this.#targets.size === 0 &&
           marker.heads.length === 0 &&
           this.document.heads().length === 0 &&
           (outcome === "no-peers" ||
-            (outcome === "complete" &&
-              peers.length > 0 &&
-              peers.every(peer => peer.outcome === "unavailable")))
+            (peers.length > 0 &&
+              peers.every(peer => peer.outcome !== "complete")))
         ) {
           this.query.unavailable()
         }

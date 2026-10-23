@@ -248,9 +248,11 @@ export interface HistoryMarker {
 export interface SyncRoundResult {
   readonly roundId: string
   readonly marker: HistoryMarker
+  /** `failed` if any peer failed; `complete` otherwise, even if none had it. */
   readonly outcome: "complete" | "no-peers" | "failed"
   readonly peers: readonly {
     peer: BackendIdentity
+    /** `unavailable`: the round succeeded but the peer had no history for it. */
     outcome: "complete" | "unavailable" | "failed"
     error?: BackendError
   }[]

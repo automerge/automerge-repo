@@ -287,6 +287,10 @@ These are tracked upstream rather than emulated here:
 - **Round failures.** A peer whose sync round hits a local storage error is
   left out of native's results, so the round can report `no-peers` with that
   peer still connected.
+- **Absent documents.** Native's stored stream reports neither failed peer
+  rounds nor an empty settled load. When a session's local load is empty and
+  peers are connected, the backend runs one explicit round to decide whether
+  any of them has the document.
 
 ## Limits
 

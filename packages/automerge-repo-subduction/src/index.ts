@@ -293,6 +293,22 @@ export class SubductionBackend implements SedimentreeBackend {
           })
     })
   }
+  /** One explicit round for a session whose local load was empty. */
+  private async probe(
+    id: SedimentreeId,
+    watch: Watch<SedimentreeEvent>
+  ): Promise<void> {
+    try {
+      await this.syncRound(id, watch)
+    } catch (cause) {
+      if (!this.closed && !this.deleting.has(id))
+        watch.push({
+          type: "failure",
+          sequence: ++this.sequence,
+          error: error("synchronize", cause),
+        })
+    }
+  }
   /** Propagate a store without an open session; one round per store. */
   private scheduleSync(id: SedimentreeId): void {
     if (this.closed || this.deleting.has(id)) return
@@ -329,12 +345,21 @@ export class SubductionBackend implements SedimentreeBackend {
         outcome: "no-peers",
         peers: [],
       }
+    this.check("synchronize", id)
+    // Native updates its tree before the round resolves, so these heads
+    // include whatever the round ingested.
+    const marker = await this.headsMarker(native)
     const outcomes: SyncRoundResult["peers"][number][] = results.map(
       ([peer, response]) => {
         const failures = response.transportErrors
         return {
           peer: this.peerIdentity(peer),
-          outcome: response.success ? "complete" : "failed",
+          // A successful round that leaves the tree empty: the peer lacks it.
+          outcome: !response.success
+            ? "failed"
+            : marker.heads.length
+              ? "complete"
+              : "unavailable",
           ...(failures.length
             ? {
                 error: error(
@@ -354,15 +379,14 @@ export class SubductionBackend implements SedimentreeBackend {
         }
       }
     )
-    this.check("synchronize", id)
     const result: SyncRoundResult = {
       roundId,
-      marker: await this.headsMarker(native),
+      marker,
       outcome: !outcomes.length
         ? "no-peers"
-        : outcomes.every(p => p.outcome === "complete")
-          ? "complete"
-          : "failed",
+        : outcomes.some(p => p.outcome === "failed")
+          ? "failed"
+          : "complete",
       peers: outcomes,
     }
     if (!this.closed && !this.deleting.has(id))
@@ -455,10 +479,19 @@ export class SubductionBackend implements SedimentreeBackend {
               continue
             }
             initialized = true
-            const noPeers =
-              !found && !(await this.engine.getConnectedPeerIds()).length
+            const peers = found
+              ? 0
+              : (await this.engine.getConnectedPeerIds()).length
+            const noPeers = !found && !peers
             watch.initialize([noPeers ? { ...complete, noPeers } : complete])
             this.reconcileInterest(id)
+            // loadAndWatch reports neither failed rounds nor an empty settled
+            // load, so one explicit round decides whether connected peers
+            // have this document. Remove once native reports it.
+            if (peers) void this.probe(id, watch)
+          } else if (update.type === "peerSynced") {
+            // Ordered after the round's items, so native heads include them.
+            await marker()
           } else if (update.type === "rescanRequired") {
             scanning = true
             found = false
