@@ -79,11 +79,11 @@ let open
 if (target === "poc") {
   const { Repo } = await import("@automerge/automerge-repo")
   await import("@automerge/subduction")
-  const { createSubductionPeer } =
+  const { SubductionBackend } =
     await import("@automerge/automerge-repo-subduction")
   open = store => {
-    const peer = createSubductionPeer({ storage: store.bytes() })
-    const repo = new Repo({ backend: peer.backend })
+    const backend = new SubductionBackend({ storage: store.bytes() })
+    const repo = new Repo({ backend })
     return {
       import: bytes => repo.import(bytes),
       create: initial => repo.create(initial),
@@ -93,7 +93,7 @@ if (target === "poc") {
         try {
           await repo.shutdown()
         } finally {
-          await peer.close()
+          await backend.close()
         }
       },
     }

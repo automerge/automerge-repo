@@ -8,39 +8,40 @@ unreleased).
 ## Quick start
 
 ```ts
-// Node: initialize fullfat WASM before constructing the slim-backed peer.
+// Node: initialize fullfat WASM before constructing the slim-backed backend.
 import "@automerge/subduction"
 import { Repo } from "@automerge/automerge-repo"
-import { createSubductionPeer } from "@automerge/automerge-repo-subduction"
+import { SubductionBackend } from "@automerge/automerge-repo-subduction"
+import { WebSocketSubductionNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
 import { DummySubductionStorageAdapter } from "@automerge/automerge-repo-subduction/helpers/DummySubductionStorageAdapter.js"
 
-const peer = createSubductionPeer({
+const backend = new SubductionBackend({
   storage: new DummySubductionStorageAdapter(),
-  servers: ["ws://127.0.0.1:8080"],
+  network: [new WebSocketSubductionNetworkAdapter("ws://127.0.0.1:8080")],
 })
-const repo = new Repo({ backend: peer.backend })
+const repo = new Repo({ backend })
 try {
   const handle = await repo.create({ message: "Hello" })
-  console.log(peer.peerId, handle.documentId)
-  // Keep Repo and peer alive while using this handle.
+  console.log(backend.peerId, handle.documentId)
+  // Keep Repo and backend alive while using this handle.
 } finally {
   try {
     await repo.shutdown()
   } finally {
-    await peer.close()
+    await backend.close()
   }
 }
 ```
 
 The package imports `@automerge/subduction/slim` and does not initialize WASM.
-Browser apps must await the matching native initializer before creating a peer.
-`storage` is required: pass a `SubductionStorageAdapterInterface`. The
+Browser apps must await the matching native initializer before creating a
+backend. `storage` is required: pass a `SubductionStorageAdapterInterface`. The
 in-memory `DummySubductionStorageAdapter` (from the `helpers/` subpath) is for
-tests and throwaway peers; nothing survives restart. Without a `signer`,
-`createSubductionPeer()` generates an in-memory identity, which also does not
-survive restart. Injected signers and storage adapters are borrowed; keep them
-alive until after `peer.close()`. Use valid Ed25519 signer keys, as native code
-can panic on invalid keys.
+tests and throwaway peers; nothing survives restart. Without a `signer`, the
+backend generates an in-memory identity, which also does not survive restart;
+`backend.peerId` is its hex verifying key. Injected signers and storage adapters
+are borrowed; keep them alive until after `backend.close()`. Use valid Ed25519
+signer keys, as native code can panic on invalid keys.
 
 ### Storage adapters
 
@@ -53,12 +54,16 @@ browser, use `IndexedDBSubductionStorageAdapter` from
 // Node initializer shown; browsers must await their native WASM initializer.
 import "@automerge/subduction"
 import { Repo } from "@automerge/automerge-repo"
-import { createSubductionPeer } from "@automerge/automerge-repo-subduction"
+import { SubductionBackend } from "@automerge/automerge-repo-subduction"
+import { WebSocketSubductionNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
 import { IndexedDBSubductionStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
 
 const storage = new IndexedDBSubductionStorageAdapter()
-const peer = createSubductionPeer({ storage, servers: ["ws://127.0.0.1:8080"] })
-const repo = new Repo({ backend: peer.backend })
+const backend = new SubductionBackend({
+  storage,
+  network: [new WebSocketSubductionNetworkAdapter("ws://127.0.0.1:8080")],
+})
+const repo = new Repo({ backend })
 try {
   // ... use repo ...
 } finally {
@@ -66,7 +71,7 @@ try {
     await repo.shutdown()
   } finally {
     try {
-      await peer.close()
+      await backend.close()
     } finally {
       await storage.close()
     }
@@ -82,39 +87,41 @@ Inject a persistent signer if peer identity must survive reloads. Use one live
 backend per storage, including across browser tabs; concurrent local deletes
 and writes are not coordinated across tabs.
 
-### Server connections
+### Network adapters
 
-`servers` accepts WebSocket URL strings, `URL` objects, or `{ url, serviceName? }`.
-Configured servers connect immediately; `peer.connect(server)` adds another
-connection to `peer.connections`.
+Network adapters also live in separate packages; the WebSocket client is
+`WebSocketSubductionNetworkAdapter` from
+`@automerge/automerge-repo-subduction-network-websocket` (also re-exported by
+`@automerge/react`). Pass them as `network`; the backend owns them, starting
+each at construction and stopping it in `close()`.
 
-Use `connection.connected()` to wait for a connection; it retries by default.
-Configure `retry: { initialMs, maxMs }` or `retry: false`, and use
-`connection.reconnect()` to retry immediately. `connectTimeoutMilliseconds`
-defaults to 10 seconds for opening, authentication and backend onboarding.
-
-`connection.close()` closes only its socket. Call `repo.shutdown()` before
-`peer.close()`; call `repo.flush()` first to observe persistence failures.
-
-For an existing backend, use `connectSubductionServer` directly:
+An adapter implements `SubductionNetworkAdapterInterface`:
 
 ```ts
-import { connectSubductionServer } from "@automerge/automerge-repo-subduction"
+type SubductionConnect = (
+  transport: Transport,
+  audience: TransportAudience
+) => Promise<string>
 
-const connection = connectSubductionServer(backend, serverUrl, {
-  retry: false,
-  connectTimeoutMilliseconds: 10_000,
-})
-try {
-  await connection.connected()
-  // Use the existing backend.
-} finally {
-  await connection.close()
-}
+start(connect: SubductionConnect): Promise<void>
+stop(): Promise<void>
 ```
 
-This borrows the backend and does not close it. The handshake is signed with
-the backend's signer.
+Adapters only supply framed byte transports; they never handle messages. Each
+transport is passed to `connect`, which authenticates it with the backend's
+signer and registers it, after which Subduction drives all traffic over it.
+`start` keeps connecting (including reconnection) and settles once the first
+attempt has: it resolves when connected and rejects when that attempt failed.
+`stop` stops retries, cancels attempts and closes the adapter's transports,
+resolving once cleanup is complete. Adapters run the shared acceptance suite,
+`runSubductionNetworkAdapterTests`, from
+`@automerge/automerge-repo-subduction/helpers/tests/subduction-network-adapter-tests.js`.
+
+A lookup that finds nothing locally waits until every adapter's first attempt
+has settled before asking connected peers, so a document is not reported
+unavailable while its server is still connecting. Later reconnections do not
+delay lookups. An adapter whose first attempt stalls holds such lookups until
+it settles or the backend closes.
 
 ## Construction and ownership
 
@@ -124,8 +131,9 @@ import { createMemorySigner } from "@automerge/subduction"
 import { SubductionBackend } from "@automerge/automerge-repo-subduction"
 
 const backend = new SubductionBackend({
-  signer: createMemorySigner(),
+  signer: createMemorySigner(), // optional
   storage: byteStore,
+  network: [], // optional; owned by the backend
 })
 // ... use the plain SedimentreeBackend contract ...
 await backend.close()
@@ -201,11 +209,12 @@ to the currently connected peers.
 
 ### Empty connected lookups
 
-Opening a document with no local history asks connected peers for it (native
+Opening a document with no local history waits for each network adapter's
+first attempt to settle, then asks connected peers for it (native
 `loadAndWatch`). It keeps observing and syncs peers on future connections and
 reconnections, without a peer-loading timeout. An empty local scan with no
-connected peers is provisionally unavailable; if peers are connected but none
-supplies history, the lookup stays loading. Neither proves global absence.
+connected peers is provisionally unavailable, as is one where an explicit round
+with the connected peers supplies no history. Neither proves global absence.
 Local history is returned immediately, then refreshed and subscribed through
 the same stream. Deletion ends the document's sessions and removes its history
 through native `removeSedimentree`; connections stay open.
@@ -248,7 +257,7 @@ later (deferred compaction); superseded records are never deleted.
 Observers must handle duplicate durable deliveries. Live events queue per
 session until pulled. A native stream error after the initial load ends the
 session with a terminal `failure`. `close()` disconnects
-peers at once, waits for accepted local stores and deletions, then closes the
+peers and stops network adapters at once, waits for accepted local stores and deletions, then closes the
 native engine (which cancels remaining calls and drains its own tasks,
 including ingested writes) and frees it.
 

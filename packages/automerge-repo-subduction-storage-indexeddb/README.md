@@ -5,12 +5,12 @@ Browser storage for `@automerge/automerge-repo-subduction`: an
 `SubductionStorageAdapterInterface`.
 
 ```ts
-import { createSubductionPeer } from "@automerge/automerge-repo-subduction"
+import { SubductionBackend } from "@automerge/automerge-repo-subduction"
 import { IndexedDBSubductionStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
 
 const storage = new IndexedDBSubductionStorageAdapter()
-const peer = createSubductionPeer({ storage, servers: ["wss://example.com"] })
-// ... after repo.shutdown() and peer.close():
+const backend = new SubductionBackend({ storage })
+// ... after repo.shutdown() and backend.close():
 await storage.close()
 ```
 

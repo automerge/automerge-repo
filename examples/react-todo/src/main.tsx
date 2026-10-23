@@ -1,8 +1,9 @@
 import {
   Repo,
   RepoContext,
-  createSubductionPeer,
+  SubductionBackend,
   IndexedDBSubductionStorageAdapter,
+  WebSocketSubductionNetworkAdapter,
   isValidAutomergeUrl,
   type DocHandle,
 } from "@automerge/react"
@@ -21,11 +22,11 @@ const server = new URL(
 const storage = new IndexedDBSubductionStorageAdapter({
   database: "automerge-repo-demo-todo",
 })
-const peer = createSubductionPeer({
+const backend = new SubductionBackend({
   storage,
-  servers: [{ url: server, serviceName: server.host }],
+  network: [new WebSocketSubductionNetworkAdapter(server)],
 })
-const repo = new Repo({ backend: peer.backend })
+const repo = new Repo({ backend })
 
 declare global {
   interface Window {
@@ -52,7 +53,7 @@ if (import.meta.hot) {
         await repo.shutdown()
       } finally {
         try {
-          await peer.close()
+          await backend.close()
         } finally {
           await storage.close()
         }

@@ -1,0 +1,48 @@
+{
+  "name": "@automerge/automerge-repo-subduction-network-websocket",
+  "version": "3.0.0-experimental.2",
+  "description": "WebSocket network adapter for the Automerge Repo Subduction backend",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/automerge/automerge-repo.git",
+    "directory": "packages/automerge-repo-subduction-network-websocket"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "vitest"
+  },
+  "peerDependencies": {
+    "@automerge/automerge-repo": "workspace:^",
+    "@automerge/automerge-repo-subduction": "workspace:^"
+  },
+  "devDependencies": {
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo-subduction": "workspace:*",
+    "@automerge/subduction": "0.25.0",
+    "@types/ws": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "ws": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}

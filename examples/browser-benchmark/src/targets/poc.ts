@@ -1,11 +1,11 @@
-// Fullfat entrypoints initialize WASM before the slim-backed Repo and peer.
+// Fullfat entrypoints initialize WASM before the slim-backed Repo and backend.
 // eslint-disable-next-line no-restricted-imports
 import "@automerge/automerge"
 import "@automerge/subduction"
 // eslint-disable-next-line no-restricted-imports
 import { Repo } from "@automerge/automerge-repo"
 import {
-  createSubductionPeer,
+  SubductionBackend,
   type SubductionStorageAdapterInterface,
 } from "@automerge/automerge-repo-subduction"
 import { IndexedDBSubductionStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
@@ -86,10 +86,10 @@ export const target: Target = {
   adapter: "backend-poc",
   open(database, stats) {
     const storage = new IndexedDBSubductionStorageAdapter({ database })
-    const peer = createSubductionPeer({
+    const backend = new SubductionBackend({
       storage: stats ? profile(storage, stats) : storage,
     })
-    const repo = new Repo({ backend: peer.backend })
+    const repo = new Repo({ backend })
     return {
       import: bytes => repo.import(bytes),
       create: async <T>(initial: T) =>
@@ -104,7 +104,7 @@ export const target: Target = {
           await repo.shutdown()
         } finally {
           try {
-            await peer.close()
+            await backend.close()
           } finally {
             await storage.close()
           }

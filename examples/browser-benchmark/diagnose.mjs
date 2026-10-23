@@ -4,7 +4,7 @@ import * as A from "@automerge/automerge"
 import "@automerge/subduction"
 // eslint-disable-next-line no-restricted-imports
 import { Repo } from "@automerge/automerge-repo"
-import { createSubductionPeer } from "@automerge/automerge-repo-subduction"
+import { SubductionBackend } from "@automerge/automerge-repo-subduction"
 import { DummySubductionStorageAdapter } from "@automerge/automerge-repo-subduction/helpers/DummySubductionStorageAdapter.js"
 import { mkdir, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
@@ -47,8 +47,8 @@ for (const changes of [1, 10, 51, 80]) {
         },
       ])
     )
-    const peer = createSubductionPeer({ storage })
-    const repo = new Repo({ backend: peer.backend })
+    const backend = new SubductionBackend({ storage })
+    const repo = new Repo({ backend })
     const started = performance.now()
     try {
       for (let i = 0; i < documents; i++) {
@@ -72,7 +72,7 @@ for (const changes of [1, 10, 51, 80]) {
       try {
         await repo.shutdown()
       } finally {
-        await peer.close()
+        await backend.close()
       }
     }
     const data = {

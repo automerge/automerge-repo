@@ -19,22 +19,23 @@ describe("@automerge/react built entrypoints", () => {
       for (const name of ['Repo', 'DocHandle', 'RepoContext', 'useRepo',
         'useDocument', 'useDocuments', 'useDocHandle', 'useDocHandles',
         'useLocalAwareness', 'useRemoteAwareness', 'usePresence',
-        'SubductionBackend', 'createSubductionPeer', 'connectSubductionServer',
+        'SubductionBackend', 'WebSocketSubductionNetworkAdapter',
         'IndexedDBSubductionStorageAdapter']) {
         assert.notEqual(api[name], undefined, name)
       }
       for (const name of ['createRepo', 'RepoHandle', 'RepoQuery',
         'BroadcastChannelNetworkAdapter', 'MessageChannelNetworkAdapter',
         'WebSocketClientAdapter', 'IndexedDBStorageAdapter',
-        'DummySubductionStorageAdapter']) {
+        'DummySubductionStorageAdapter', 'createSubductionPeer',
+        'connectSubductionServer']) {
         assert.equal(name in api, false, name)
       }
       const slim = await import('@automerge/react/slim')
       for (const name of Object.keys(api)) assert.ok(name in slim, name)
       assert.equal(typeof slim.initializeWasm, 'function')
       const { DummySubductionStorageAdapter } = await import('@automerge/automerge-repo-subduction/helpers/DummySubductionStorageAdapter.js')
-      const peer = api.createSubductionPeer({ storage: new DummySubductionStorageAdapter() })
-      const repo = new api.Repo({ backend: peer.backend })
+      const backend = new api.SubductionBackend({ storage: new DummySubductionStorageAdapter() })
+      const repo = new api.Repo({ backend })
       try {
         const handle = await repo.create({ count: 0 })
         assert.ok(handle instanceof api.DocHandle)
@@ -47,7 +48,7 @@ describe("@automerge/react built entrypoints", () => {
         await repo.flush()
       } finally {
         await repo.shutdown()
-        await peer.close()
+        await backend.close()
       }
     `,
       ],
@@ -79,7 +80,8 @@ describe("@automerge/react built entrypoints", () => {
       })
       const api = await import('@automerge/react/slim')
       assert.equal(typeof api.Repo, 'function')
-      assert.equal(typeof api.createSubductionPeer, 'function')
+      assert.equal(typeof api.SubductionBackend, 'function')
+      assert.equal(typeof api.WebSocketSubductionNetworkAdapter, 'function')
       assert.equal(typeof api.useDocument, 'function')
       new api.IndexedDBSubductionStorageAdapter()
     `,

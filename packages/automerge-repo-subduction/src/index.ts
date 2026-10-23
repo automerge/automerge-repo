@@ -20,20 +20,18 @@ import {
 } from "@automerge/automerge-repo/sedimentree"
 import { StorageBridge, nativeId, logicalId } from "./storage.js"
 import type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
+import type {
+  SubductionConnect,
+  SubductionNetworkAdapterInterface,
+} from "./network/SubductionNetworkAdapterInterface.js"
 import { Watch } from "./watch.js"
-import { notifyBackendClosed } from "./backendLifecycle.js"
 import { decodeEphemeral, encodeEphemeral } from "./ephemeral.js"
 
 export type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
-export { connectSubductionServer } from "./connect.js"
 export type {
-  SubductionServer,
-  SubductionConnection,
-  SubductionConnectionStatus,
-  SubductionConnectionOptions,
-} from "./connect.js"
-export { createSubductionPeer } from "./peer.js"
-export type { SubductionPeer, SubductionPeerOptions } from "./peer.js"
+  SubductionConnect,
+  SubductionNetworkAdapterInterface,
+} from "./network/SubductionNetworkAdapterInterface.js"
 /** Keep alive through backend.close(). Requires a valid Ed25519 verifying
  * key and matching signatures; native does not validate providers safely.
  */
@@ -43,8 +41,11 @@ export type Transport = N.Transport
 export type TransportAudience = N.TransportAudience
 
 export interface SubductionBackendOptions {
-  signer: NativeSigner
+  /** Defaults to a new in-memory identity, which does not survive restart. */
+  signer?: NativeSigner
   storage: SubductionStorageAdapterInterface
+  /** Started at construction and stopped by close(). */
+  network?: readonly SubductionNetworkAdapterInterface[]
   /** Native default request deadline (Subduction's own default when unset;
    * validated by Subduction). Not a deadline on local storage or handshake. */
   syncTimeoutMilliseconds?: number
@@ -180,11 +181,17 @@ export class SubductionBackend implements SedimentreeBackend {
    * flush barrier.
    */
   private readonly acks = new Map<SedimentreeId, Promise<void>>()
+  private readonly signer: NativeSigner
+  private readonly network: readonly SubductionNetworkAdapterInterface[]
+  /** Every adapter's first attempt has settled, or the backend has closed. */
+  private readonly networkSettled: Promise<void>
+  private markClosed!: () => void
 
   constructor(options: SubductionBackendOptions) {
     if (!options.storage) throw new TypeError("A storage adapter is required")
+    this.signer = options.signer ?? N.createMemorySigner()
     this.engine = new N.Subduction({
-      signer: options.signer,
+      signer: this.signer,
       storage: new StorageBridge(options.storage),
       defaultTimeoutMilliseconds: options.syncTimeoutMilliseconds,
       onEphemeral: (topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) =>
@@ -195,6 +202,30 @@ export class SubductionBackend implements SedimentreeBackend {
         heads: N.CommitId[]
       ) => this.onRemoteHeads(id, peer, heads),
     })
+    this.network = [...new Set(options.network ?? [])]
+    const connect: SubductionConnect = (transport, audience) =>
+      this.addConnection(transport, audience)
+    const closed = new Promise<void>(resolve => {
+      this.markClosed = resolve
+    })
+    // A failed first attempt is settled too: waiting longer cannot tell a
+    // document lookup anything more until that adapter reconnects.
+    const started = Promise.allSettled(
+      this.network.map(adapter => {
+        try {
+          return adapter.start(connect)
+        } catch (cause) {
+          return Promise.reject(cause)
+        }
+      })
+    )
+    this.networkSettled = Promise.race([started.then(() => {}), closed])
+  }
+  /** Hex-encoded verifying key of this backend's signer. */
+  get peerId(): string {
+    return Array.from(this.signer.verifyingKey(), b =>
+      b.toString(16).padStart(2, "0")
+    ).join("")
   }
   private onEphemeral(topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) {
     if (this.closed) return
@@ -479,6 +510,9 @@ export class SubductionBackend implements SedimentreeBackend {
               continue
             }
             initialized = true
+            // Peers still connecting may have the document.
+            if (!found) await this.networkSettled
+            if (released || this.closed) break
             const peers = found
               ? 0
               : (await this.engine.getConnectedPeerIds()).length
@@ -720,18 +754,27 @@ export class SubductionBackend implements SedimentreeBackend {
     // failures belong to flush, not close. Native close drains its own tasks.
     const accepted = [...this.acks.values()]
     const disconnected = this.engine.disconnectAll()
+    // Deferred so adapters that re-enter close() see the installed guard.
+    const adapters = this.network.map(adapter =>
+      Promise.resolve().then(() => adapter.stop())
+    )
     this.closing = (async () => {
-      const stopped = await Promise.allSettled([disconnected, ...accepted])
+      const [disconnect, ...rest] = await Promise.allSettled([
+        disconnected,
+        ...adapters,
+        ...accepted,
+      ])
       const closed = await Promise.allSettled([this.engine.close()])
       this.engine.free()
-      const errors = [stopped[0], closed[0]].flatMap(r =>
-        r.status === "rejected" ? [r.reason] : []
-      )
+      const errors = [
+        disconnect,
+        ...rest.slice(0, adapters.length),
+        closed[0],
+      ].flatMap(r => (r.status === "rejected" ? [r.reason] : []))
       if (errors.length)
         throw new AggregateError(errors, "Backend close failed")
     })()
-    // Install the close guard before observers or transports can re-enter.
-    notifyBackendClosed(this)
+    this.markClosed()
     for (const watch of this.watches.keys()) watch.finish()
     return this.closing
   }

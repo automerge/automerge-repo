@@ -1,9 +1,10 @@
 import * as N from "@automerge/subduction"
 import { Repo } from "@automerge/automerge-repo"
 import { sedimentreeId } from "@automerge/automerge-repo/sedimentree"
+import { SubductionBackend } from "@automerge/automerge-repo-subduction"
+import { DummySubductionStorageAdapter } from "@automerge/automerge-repo-subduction/helpers/DummySubductionStorageAdapter.js"
 import { expect, it, vi } from "vitest"
-import { createSubductionPeer, SubductionBackend } from "../src/index.js"
-import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
+import { WebSocketSubductionNetworkAdapter } from "../src/index.js"
 import { PairedTransport } from "./transport.js"
 
 const { openTransport } = vi.hoisted(() => ({ openTransport: vi.fn() }))
@@ -39,22 +40,24 @@ it("syncs through real native handshakes and keeps the connection across deleteL
     storage: new DummySubductionStorageAdapter(),
   })
   const wires = connectTo(remoteBackend)
-  const peer = createSubductionPeer({
-    storage: new DummySubductionStorageAdapter(),
-    servers: ["ws://localhost:8080"],
+  const adapter = new WebSocketSubductionNetworkAdapter("ws://localhost:8080", {
     retry: { initialMs: 10, maxMs: 50 },
   })
-  const localRepo = new Repo({ backend: peer.backend })
+  const local = new SubductionBackend({
+    storage: new DummySubductionStorageAdapter(),
+    network: [adapter],
+  })
+  const localRepo = new Repo({ backend: local })
   const remoteRepo = new Repo({ backend: remoteBackend })
   try {
-    await peer.connections[0].connected()
+    await adapter.connected()
     const handle = await localRepo.create({ count: 0 })
     const remoteHandle = await remoteRepo.find<{ count: number }>(
       handle.documentId
     )
-    await peer.backend.deleteLocal(sedimentreeId("73".repeat(16)))
+    await local.deleteLocal(sedimentreeId("73".repeat(16)))
     expect(openTransport).toHaveBeenCalledOnce()
-    expect(peer.connections[0].status).toBe("connected")
+    expect(adapter.status).toBe("connected")
     await handle.change(doc => {
       doc.count++
     })
@@ -65,11 +68,11 @@ it("syncs through real native handshakes and keeps the connection across deleteL
       { timeout: 10_000 }
     )
     await localRepo.shutdown()
-    await peer.backend.close()
-    expect(peer.connections[0].status).toBe("closed")
+    await local.close()
+    expect(adapter.status).toBe("closed")
   } finally {
     await Promise.all([localRepo.shutdown(), remoteRepo.shutdown()])
-    await peer.close()
+    await local.close()
     await remoteBackend.close()
     await Promise.all(wires.map(wire => wire.disconnect()))
   }
@@ -90,33 +93,32 @@ it("completes onboarding while an unrelated deletion runs", async () => {
   const entered = new Promise<void>(resolve => {
     enter = resolve
   })
-  const peer = createSubductionPeer({
-    storage,
-    servers: ["ws://localhost:8080"],
-    retry: { initialMs: 10, maxMs: 50 },
-  })
-  const engine = (peer.backend as unknown as { engine: N.Subduction }).engine
-  const add = engine.connectTransport.bind(engine)
-  vi.spyOn(engine, "connectTransport").mockImplementationOnce(
-    async (transport, audience) => {
+  // The backend starts its adapter on construction; pause onboarding first.
+  const add = SubductionBackend.prototype.addConnection
+  vi.spyOn(SubductionBackend.prototype, "addConnection").mockImplementationOnce(
+    async function (this: SubductionBackend, transport, audience) {
       enter()
       await paused
-      return add(transport, audience)
+      return add.call(this, transport, audience)
     }
   )
+  const adapter = new WebSocketSubductionNetworkAdapter("ws://localhost:8080", {
+    retry: { initialMs: 10, maxMs: 50 },
+  })
+  const local = new SubductionBackend({ storage, network: [adapter] })
   try {
-    const ready = peer.connections[0].connected()
+    const ready = adapter.connected()
     await entered
-    const deleting = peer.backend.deleteLocal(sedimentreeId("73".repeat(16)))
+    const deleting = local.deleteLocal(sedimentreeId("73".repeat(16)))
     release()
     await deleting
     await ready
     expect(openTransport).toHaveBeenCalledOnce()
-    expect(peer.connections[0].status).toBe("connected")
-    await expect(peer.backend.flush()).resolves.toBeUndefined()
+    expect(adapter.status).toBe("connected")
+    await expect(local.flush()).resolves.toBeUndefined()
   } finally {
     release()
-    await peer.close()
+    await local.close()
     await remoteBackend.close()
     await Promise.all(wires.map(wire => wire.disconnect()))
   }

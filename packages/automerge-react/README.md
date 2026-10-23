@@ -53,15 +53,19 @@ failures.
 ```ts
 import {
   Repo,
-  createSubductionPeer,
+  SubductionBackend,
   IndexedDBSubductionStorageAdapter,
+  WebSocketSubductionNetworkAdapter,
 } from "@automerge/react"
 
 const storage = new IndexedDBSubductionStorageAdapter({ database: "my-app" })
-const peer = createSubductionPeer({ storage, servers: ["ws://127.0.0.1:8080"] })
-const repo = new Repo({ backend: peer.backend })
+const backend = new SubductionBackend({
+  storage,
+  network: [new WebSocketSubductionNetworkAdapter("ws://127.0.0.1:8080")],
+})
+const repo = new Repo({ backend })
 const handle = await repo.create({ todos: [] })
-// Keep the Repo/peer/store alive while the app uses the handle.
+// Keep the Repo/backend/store alive while the app uses the handle.
 
 try {
   await repo.flush()
@@ -70,7 +74,7 @@ try {
     await repo.shutdown()
   } finally {
     try {
-      await peer.close()
+      await backend.close()
     } finally {
       await storage.close()
     }
