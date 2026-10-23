@@ -498,6 +498,56 @@ describe("Subduction WebSocket sync", () => {
     }, 8000)
   }, 30_000)
 
+  // A save that lands after a round has read its state is not in that
+  // round, and saves only store locally, so the follow-up round it asks
+  // for is the only way the change leaves this client.
+  it("a change saved while a sync round is in flight still reaches the server", async () => {
+    const server = await startSubductionServer()
+    cleanups.push(() => server.close())
+
+    const client = createClientRepo("client-1", server.url)
+    cleanups.push(() => client.shutdown())
+    const handle = client.create<{ value: number }>({ value: 0 })
+    const sid = toSedimentreeId(handle.documentId)
+    await waitFor(async () => {
+      const blobs = await server.subduction.getBlobs(sid)
+      expect(blobs?.length ?? 0).toBeGreaterThan(0)
+    }, 8000)
+
+    // Hold the next round open after it has finished on the wire.
+    const subduction = await client.subduction
+    const syncWithAllPeers = subduction.syncWithAllPeers.bind(subduction)
+    let release!: () => void
+    const released = new Promise<void>(r => (release = r))
+    let entered!: () => void
+    const inRound = new Promise<void>(r => (entered = r))
+    subduction.syncWithAllPeers = async (...args) => {
+      const result = await syncWithAllPeers(...args)
+      entered()
+      await released
+      return result
+    }
+
+    handle.change(d => {
+      d.value = 1
+    })
+    await inRound
+    handle.change(d => {
+      d.value = 2
+    })
+    await client.flush()
+    release()
+
+    const client2 = createClientRepo("client-2", server.url)
+    cleanups.push(() => client2.shutdown())
+    const handle2 = await awaitSyncedHandle(
+      client2.findWithProgress<{ value: number }>(handle.url),
+      h => h.doc()?.value === 2,
+      { timeout: 8000 }
+    )
+    expect(handle2.doc()!.value).toBe(2)
+  }, 20_000)
+
   it("re-subscribes a previously-synced doc after reconnect", async () => {
     // Regression: subscriptions are per-connection, so a successfully-synced
     // doc must re-sync (= re-subscribe) on the new connection after a reconnect;

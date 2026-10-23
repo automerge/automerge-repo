@@ -619,10 +619,9 @@ describe("Sync throughput: bulk import of a 1000-change document", () => {
     budget.check("import.push.rounds", m.rounds)
   })
 
-  // Ideal (C3b): one round uploads everything. The second round comes from
-  // the save that `#doSync` itself flushed before the first round, which
-  // re-arms it (the C3 fix leaves this at 2).
-  it.fails("target: a bulk import is one sync round (C3b)", () => {
+  // One round uploads everything. The save `#doSync` flushes before its
+  // round is part of that round, so it must not re-arm it (C3b).
+  it("a bulk import is one sync round (C3b)", () => {
     expect(m.rounds).toBe(1)
   })
 
@@ -669,10 +668,8 @@ describe("Sync throughput: typing while a sync round is in flight", () => {
       docId: nextDocId(),
     })
     // Unlike typeDoc, don't wait for each step to sync: steps land one
-    // macrotask apart, so saves and rounds overlap. Ordered by the event
-    // loop rather than the clock, this reproduces C7 on every run. The
-    // overlapping rounds are C3b's re-arms: with C3b fixed this is 2
-    // rounds and no duplicates.
+    // macrotask apart, so saves land while rounds are in flight. Ordered
+    // by the event loop rather than the clock.
     for (let i = 1; i < N; i += STEP) {
       handle.update(d => A.applyChanges(d, changes.slice(i, i + STEP))[0])
       await wait(0)
@@ -695,17 +692,16 @@ describe("Sync throughput: typing while a sync round is in flight", () => {
 
   it("budget: duplicate uploads and rounds (C7)", () => {
     expect(m.distinctLooseCommits).toBeGreaterThan(0)
-    // 13–15 duplicates (and 943 or 968 distinct commits) across 24 runs,
-    // 3 in parallel: which commits two rounds race on shifts slightly.
     budget.check("overlap.duplicateLooseCommitUploads", m.duplicateUploads, {
       slack: 3,
     })
+    // 2–4 rounds across runs: the slower the steps land, the more saves
+    // miss a round that has already read its state, and each needs one.
     budget.check("overlap.rounds", m.rounds, { slack: 2 })
   })
 
-  // Ideal (C7): a commit already uploaded by an earlier round, or by an
-  // overlapping one, is not uploaded again.
-  it.fails("target: each loose commit is uploaded once across overlapping rounds (C7)", () => {
+  // A commit an earlier round already uploaded is not uploaded again (C7).
+  it("each loose commit is uploaded once while saves land during rounds (C7)", () => {
     expect(m.looseCommitFrames).toBe(m.distinctLooseCommits)
   })
 })
@@ -839,12 +835,10 @@ describe("Sync throughput: live edits", () => {
 
   // Ideal: the 100 ms save throttle coalesces a burst, so a burst costs at
   // most one round per throttle window it spans plus the leading one, not
-  // one per keystroke. Measured over 40 bursts: 39 hit exactly that, one
-  // took one more, because `#doSync` flushes a pending save early and that
-  // save re-arms the round (C3b), which can chain. The bound allows two
-  // more; without the throttle every burst is 10 rounds. It is computed
-  // from the burst's actual duration, so a slow machine loosens it instead
-  // of failing. Not budgeted: how a burst falls into windows is timing.
+  // one per keystroke. The bound allows two more; without the throttle
+  // every burst is 10 rounds. It is computed from the burst's actual
+  // duration, so a slow machine loosens it instead of failing. Not
+  // budgeted: how a burst falls into windows is timing.
   it("a burst of keystrokes is coalesced by the save throttle", () => {
     expect(m.burstRounds).toBeGreaterThan(0)
     expect(m.burstRounds).toBeLessThanOrEqual(

@@ -1102,6 +1102,12 @@ export class SubductionSource implements DocumentSource {
       entry.flushSave.flush()
       await entry.saveSettled
 
+      // The round reads the state from here on, so it carries everything
+      // asked for so far, including the save just flushed (which set
+      // `needsResync` because this round was in flight). Only requests
+      // made after this point need another round.
+      entry.needsResync = false
+
       this.#log.debug(`doSync ${sid} (state=${entry.syncState})`)
       const peerResultMap = await subduction.syncWithAllPeers(
         sedimentreeId,
