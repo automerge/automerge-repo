@@ -38,6 +38,7 @@ export function useDocHandles<T>(
   })
 
   const pendingPromises: PromiseWrapper<DocHandle<T>>[] = []
+  const pendingIds: AutomergeUrl[] = []
   const nextHandleMap = new Map<AutomergeUrl, DocHandle<T> | undefined>()
 
   // Check if we need any new wrappers
@@ -63,6 +64,7 @@ export function useDocHandles<T>(
     } catch (e) {
       if (e instanceof Promise) {
         pendingPromises.push(wrapper as PromiseWrapper<DocHandle<T>>)
+        pendingIds.push(id)
       } else {
         nextHandleMap.set(id, undefined)
       }
@@ -80,11 +82,10 @@ export function useDocHandles<T>(
       void Promise.allSettled(pendingPromises.map(p => p.promise)).then(
         handles => {
           if (!active) return
-          handles.forEach(r => {
-            if (r.status === "fulfilled") {
-              const h = r.value as DocHandle<T>
-              nextHandleMap.set(h.url, h)
-            }
+          // Keyed by the requested URL, which may differ from handle.url.
+          handles.forEach((r, i) => {
+            if (r.status === "fulfilled")
+              nextHandleMap.set(pendingIds[i], r.value as DocHandle<T>)
           })
           setHandleMap(nextHandleMap)
         }

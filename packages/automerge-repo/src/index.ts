@@ -86,6 +86,7 @@ export type {
   RepoEvents,
   RepoFindOptions,
 } from "./Repo.js"
+export type { MintDocumentId } from "./sedimentree/backend.js"
 
 export type { DocumentQuery, QueryState } from "./DocumentQuery.js"
 export type {

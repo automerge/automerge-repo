@@ -5,32 +5,36 @@ import {
   checkpointId,
   commitId,
   idBytes,
+  mintDocumentId,
   sedimentreeId,
 } from "../../src/sedimentree/index.js"
 
 describe("plain logical identifiers", () => {
-  it.each([16, 32])(
-    "canonicalizes %i-byte hex without changing its length",
-    length => {
-      const bytes = new Uint8Array(length).fill(0xab)
-      const id = sedimentreeId("AB".repeat(length))
-      expect(id).toBe("ab".repeat(length))
-      expect(sedimentreeId(bytes)).toBe(id)
-      expect(idBytes(id)).toEqual(bytes)
-      bytes.fill(0)
-      const output = idBytes(id)
-      output.fill(0)
-      expect(idBytes(id)).toEqual(new Uint8Array(length).fill(0xab))
-    }
-  )
+  it("canonicalizes 32-byte hex", () => {
+    const bytes = new Uint8Array(32).fill(0xab)
+    const id = sedimentreeId("AB".repeat(32))
+    expect(id).toBe("ab".repeat(32))
+    expect(sedimentreeId(bytes)).toBe(id)
+    expect(idBytes(id)).toEqual(bytes)
+    bytes.fill(0)
+    const output = idBytes(id)
+    output.fill(0)
+    expect(idBytes(id)).toEqual(new Uint8Array(32).fill(0xab))
+  })
 
-  it("accepts all 16-byte logical IDs, not just UUIDs, without native padding", () => {
-    expect(sedimentreeId(new Uint8Array(16))).toBe("00".repeat(16))
-    expect(idBytes(sedimentreeId("ff".repeat(16)))).toHaveLength(16)
+  // Keyhive-enabled servers accept IDs with a zero second half unauthorized.
+  it("mints distinct IDs: random first half, zero second half", () => {
+    const ids = new Set(Array.from({ length: 8 }, () => mintDocumentId()))
+    expect(ids.size).toBe(8)
+    for (const id of ids) {
+      expect(sedimentreeId(id)).toBe(id)
+      expect(id.slice(32)).toBe("00".repeat(16))
+      expect(id.slice(0, 32)).not.toBe("00".repeat(16))
+    }
   })
 
   it.each(["00".repeat(32), "AB".repeat(16) + "00".repeat(16)])(
-    "accepts zero-padded 32-byte IDs %s",
+    "accepts 32-byte IDs with a zero second half %s",
     value => {
       expect(sedimentreeId(value)).toBe(value.toLowerCase())
       expect(
@@ -41,7 +45,7 @@ describe("plain logical identifiers", () => {
     }
   )
 
-  it.each([0, 1, 12, 15, 17, 31, 33, 64])(
+  it.each([0, 1, 12, 15, 16, 17, 31, 33, 64])(
     "rejects unsupported logical length %i",
     length => {
       expect(() => sedimentreeId("ab".repeat(length))).toThrow(TypeError)

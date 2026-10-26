@@ -11,7 +11,8 @@ import type {
   LooseCommitRecord,
 } from "../../src/sedimentree/index.js"
 
-export const treeId = (n = 1) => sedimentreeId(n.toString(16).padStart(32, "0"))
+export const treeId = (n = 1) =>
+  sedimentreeId(n.toString(16).padStart(32, "0").padEnd(64, "0"))
 export const cid = (n: number) => commitId(n.toString(16).padStart(64, "0"))
 export const commit = (
   n: number,

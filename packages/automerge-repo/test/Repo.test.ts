@@ -1,6 +1,6 @@
 import { next as A } from "@automerge/automerge"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { Repo } from "../src/Repo.js"
+import { Repo, type RepoConfig } from "../src/Repo.js"
 import { DocHandle } from "../src/DocHandle.js"
 import {
   binaryToDocumentId,
@@ -13,7 +13,14 @@ import {
 import { MemoryBackend } from "../src/sedimentree/testing/MemoryBackend.js"
 import { idBytes, sedimentreeId } from "../src/sedimentree/index.js"
 import { extractRecords } from "../src/sedimentree/automerge/index.js"
-import type { AnyDocumentId, BinaryDocumentId } from "../src/types.js"
+import type {
+  AnyDocumentId,
+  AutomergeUrl,
+  BinaryDocumentId,
+  DocumentId,
+} from "../src/types.js"
+
+const backendIdOf = (id: DocumentId) => sedimentreeId(documentIdToBinary(id)!)
 
 function gate() {
   let resolve!: () => void
@@ -26,8 +33,8 @@ function gate() {
 describe("backend-driven Repo", () => {
   const repos: Repo[] = []
   const releases: (() => void)[] = []
-  const repo = (backend?: MemoryBackend) => {
-    const result = new Repo({ backend })
+  const repo = (backend?: MemoryBackend, config: RepoConfig = {}) => {
+    const result = new Repo({ backend, ...config })
     repos.push(result)
     return result
   }
@@ -49,6 +56,66 @@ describe("backend-driven Repo", () => {
     expect(handle.doc()).toEqual({ count: 0 })
     expect((await r.create()).doc()).toEqual({})
     await expect(r.find(generateAutomergeUrl())).rejects.toThrow("unavailable")
+  })
+
+  it("creates documents under the backend's minted 32-byte ID", async () => {
+    const backend = new MemoryBackend()
+    const handle = await repo(backend).create({ count: 0 })
+    const bytes = documentIdToBinary(handle.documentId)!
+    expect(bytes).toHaveLength(32)
+    await expect(
+      backend.create(extractRecords(A.from({ count: 1 })), {
+        documentId: sedimentreeId(bytes),
+      })
+    ).rejects.toMatchObject({ code: "conflict" })
+  })
+
+  it("mints with its own mintDocumentId, overriding the backend's", async () => {
+    const minted = new Uint8Array(32).fill(9)
+    const own = vi.fn(() => minted)
+    const backendMint = vi.fn(() => new Uint8Array(32).fill(1))
+    const backend = new MemoryBackend({ mintDocumentId: backendMint })
+    const handle = await repo(backend, { mintDocumentId: own }).create({
+      count: 0,
+    })
+    expect(documentIdToBinary(handle.documentId)).toEqual(minted)
+    expect(own).toHaveBeenCalledOnce()
+    expect(own.mock.calls[0][0].length).toBeGreaterThan(0)
+    expect(backendMint).not.toHaveBeenCalled()
+
+    const local = await repo(undefined, { mintDocumentId: own }).create()
+    expect(local.documentId).toBe(handle.documentId)
+    await expect(
+      repo(undefined, { mintDocumentId: () => new Uint8Array(16) }).create()
+    ).rejects.toMatchObject({ operation: "create", code: "invalid-id" })
+  })
+
+  it("uses the backend's mintDocumentId when Repo has none", async () => {
+    const minted = new Uint8Array(32).fill(5)
+    const backend = new MemoryBackend({ mintDocumentId: () => minted })
+    const handle = await repo(backend).create({ count: 0 })
+    expect(documentIdToBinary(handle.documentId)).toEqual(minted)
+  })
+
+  it("resolves a legacy 16-byte ID and its 32-byte form to one handle", async () => {
+    const backend = new MemoryBackend()
+    const legacy = new Uint8Array(16).fill(3) as BinaryDocumentId
+    const legacyUrl = `automerge:${binaryToDocumentId(legacy)}` as AutomergeUrl
+    const full = new Uint8Array(32)
+    full.set(legacy)
+    await backend.store(
+      sedimentreeId(full),
+      extractRecords(A.from({ count: 7 }))
+    )
+    const r = repo(backend)
+    const handle = await r.find<{ count: number }>(legacyUrl)
+    expect(handle.doc()).toEqual({ count: 7 })
+    expect(documentIdToBinary(handle.documentId)).toEqual(full)
+    expect(await r.find(binaryToDocumentId(full as BinaryDocumentId))).toBe(
+      handle
+    )
+    expect(await r.find(legacy)).toBe(handle)
+    expect(r.query(legacyUrl)).toBe(r.query(handle.url))
   })
 
   it("imports into a local-only lookup and announces it once", async () => {
@@ -84,10 +151,7 @@ describe("backend-driven Repo", () => {
     expect(() => handle.change(d => (d.count = 2))).toThrow("not ready")
 
     const source = A.from({ count: 1 })
-    await backend.store(
-      sedimentreeId(documentIdToBinary(id)!),
-      extractRecords(source)
-    )
+    await backend.store(backendIdOf(id), extractRecords(source))
     expect(await r.find(id)).toBe(handle)
     expect(query.state()).toEqual({ state: "ready", handle })
     expect(handle.isReady()).toBe(true)
@@ -549,7 +613,7 @@ describe("backend-driven Repo", () => {
     progress.subscribe(state => states.push(state.state))
     await vi.waitFor(() => expect(progress.state().state).toBe("unavailable"))
     await backend.store(
-      sedimentreeId(documentIdToBinary(documentId)!),
+      backendIdOf(documentId),
       extractRecords(A.from({ count: 3 }))
     )
     await vi.waitFor(() => expect(progress.state().state).toBe("ready"))

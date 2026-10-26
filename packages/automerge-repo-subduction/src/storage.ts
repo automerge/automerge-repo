@@ -1,20 +1,8 @@
 import type * as N from "@automerge/subduction/slim"
 import type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
-import {
-  sedimentreeId,
-  type SedimentreeId,
-} from "@automerge/automerge-repo/sedimentree"
 
 const ROOT = "subduction-v2/"
 const IDS = `${ROOT}ids/`
-
-/** Repo IDs may be 16 bytes; native IDs are always 32, zero-padded. */
-export function nativeId(id: SedimentreeId): N.SedimentreeId {
-  return sedimentreeId(id).padEnd(64, "0")
-}
-export function logicalId(id: N.SedimentreeId): SedimentreeId {
-  return sedimentreeId(id.endsWith("0".repeat(32)) ? id.slice(0, 32) : id)
-}
 
 type Kind = "commits" | "fragments"
 type Part = "signed" | "blob"

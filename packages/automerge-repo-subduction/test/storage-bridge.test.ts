@@ -1,11 +1,11 @@
 import * as N from "@automerge/subduction"
 import { describe, expect, it } from "vitest"
 import { sedimentreeId } from "@automerge/automerge-repo/sedimentree"
-import { StorageBridge, logicalId, nativeId } from "../src/storage.js"
+import { StorageBridge } from "../src/storage.js"
 import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
 
-const tree = nativeId(sedimentreeId("ab".repeat(16)))
-const other = nativeId(sedimentreeId("cd".repeat(16)))
+const tree = sedimentreeId("ab".repeat(16) + "00".repeat(16))
+const other = sedimentreeId("cd".repeat(16) + "00".repeat(16))
 const head = (n: number) => n.toString(16).padStart(64, "0")
 const bytes = (...values: number[]) => new Uint8Array(values)
 const root = `subduction-v2/trees/${tree}`
@@ -31,14 +31,6 @@ class CountingStore extends DummySubductionStorageAdapter {
 }
 
 describe("StorageBridge", () => {
-  it("maps 16-byte Repo IDs to zero-padded native IDs and back", () => {
-    const id = sedimentreeId("ab".repeat(16))
-    expect(nativeId(id)).toBe(`${"ab".repeat(16)}${"0".repeat(32)}`)
-    expect(logicalId(nativeId(id))).toBe(id)
-    const full = sedimentreeId("ab".repeat(32))
-    expect(logicalId(nativeId(full))).toBe(full)
-  })
-
   it("registers sedimentree IDs under an empty value", async () => {
     const store = new DummySubductionStorageAdapter()
     const bridge = new StorageBridge(store)

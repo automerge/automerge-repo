@@ -6,7 +6,7 @@ import {
   type SedimentreeRecord,
 } from "@automerge/automerge-repo/sedimentree"
 import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
-import { StorageBridge, nativeId } from "../src/storage.js"
+import { StorageBridge } from "../src/storage.js"
 import type { SubductionStorageAdapterInterface } from "../src/index.js"
 
 /** Test inspection: stored records, commits then fragments, decoded by a
@@ -21,7 +21,7 @@ export async function storedRecords(
     signer: N.createMemorySigner(),
     storage: bridge,
   })
-  const native = nativeId(id)
+  const native = id
   try {
     const blob = async (digest: string) => {
       const value = await node.getBlob(native, digest)

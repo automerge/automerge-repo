@@ -1,11 +1,13 @@
 import * as N from "@automerge/subduction/slim"
 import {
   BackendError,
+  backendId,
   checkpointId,
   commitId,
   copyRecord,
-  sedimentreeId,
+  mintBackendId,
   type BackendIdentity,
+  type MintDocumentId,
   type BackendOperation,
   type HistoryMarker,
   type SedimentreeRecord,
@@ -18,7 +20,7 @@ import {
   type SedimentreeSession,
   type SyncRoundResult,
 } from "@automerge/automerge-repo/sedimentree"
-import { StorageBridge, nativeId, logicalId } from "./storage.js"
+import { StorageBridge } from "./storage.js"
 import type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
 import type {
   SubductionConnect,
@@ -49,6 +51,13 @@ export interface SubductionBackendOptions {
   /** Native default request deadline (Subduction's own default when unset;
    * validated by Subduction). Not a deadline on local storage or handshake. */
   syncTimeoutMilliseconds?: number
+  /**
+   * Mints the 32-byte ID for `create()` without a supplied ID; defaults to
+   * {@link mintDocumentId}. On a keyhive-enabled server, a minted ID must be
+   * the verifying key of a keyhive document that server knows (e.g. from
+   * keyhive's `generate_doc`, given the initial heads).
+   */
+  mintDocumentId?: MintDocumentId
 }
 
 function error(
@@ -182,6 +191,7 @@ export class SubductionBackend implements SedimentreeBackend {
    */
   private readonly acks = new Map<SedimentreeId, Promise<void>>()
   private readonly signer: NativeSigner
+  private readonly mintDocumentId?: MintDocumentId
   private readonly network: readonly SubductionNetworkAdapterInterface[]
   /** Every adapter's first attempt has settled, or the backend has closed. */
   private readonly networkSettled: Promise<void>
@@ -190,6 +200,7 @@ export class SubductionBackend implements SedimentreeBackend {
   constructor(options: SubductionBackendOptions) {
     if (!options.storage) throw new TypeError("A storage adapter is required")
     this.signer = options.signer ?? N.createMemorySigner()
+    this.mintDocumentId = options.mintDocumentId
     this.engine = new N.Subduction({
       signer: this.signer,
       storage: new StorageBridge(options.storage),
@@ -229,7 +240,7 @@ export class SubductionBackend implements SedimentreeBackend {
   }
   private onEphemeral(topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) {
     if (this.closed) return
-    const tree = logicalId(topic)
+    const tree = topic as SedimentreeId
     if (this.deleting.has(tree)) return
     const watches = [...this.watches].filter(
       ([watch, id]) => id === tree && watch.active
@@ -254,7 +265,7 @@ export class SubductionBackend implements SedimentreeBackend {
     heads: N.CommitId[]
   ) {
     if (this.closed) return
-    const tree = logicalId(id)
+    const tree = id as SedimentreeId
     if (this.deleting.has(tree)) return
     const event: SedimentreeEvent = {
       type: "remote-heads",
@@ -309,10 +320,9 @@ export class SubductionBackend implements SedimentreeBackend {
     // Record the attempted state so a released observer still cleans up.
     if (desired) this.interests.add(id)
     else this.interests.delete(id)
-    const topic = nativeId(id)
     void (async () => {
-      if (desired) await this.engine.subscribeEphemeral([topic])
-      else await this.engine.unsubscribeEphemeral([topic])
+      if (desired) await this.engine.subscribeEphemeral([id])
+      else await this.engine.unsubscribeEphemeral([id])
     })().catch(cause => {
       if (this.closed) return
       for (const [watch, tree] of this.watches)
@@ -361,11 +371,10 @@ export class SubductionBackend implements SedimentreeBackend {
     this.check("synchronize", id)
     const engine = this.engine
     const roundId = `subduction-${++this.round}`
-    const native = nativeId(id)
     // Peer failures are reported per peer; a rejection is local (storage or
     // closed) and rejects the round.
     const results = Object.entries(
-      await engine.syncWithAllPeers(native, { subscribe: true })
+      await engine.syncWithAllPeers(id, { subscribe: true })
     )
     // Store-triggered rounds only propagate; with no peers there is nothing
     // to report. Explicit rounds always answer their session.
@@ -379,7 +388,7 @@ export class SubductionBackend implements SedimentreeBackend {
     this.check("synchronize", id)
     // Native updates its tree before the round resolves, so these heads
     // include whatever the round ingested.
-    const marker = await this.headsMarker(native)
+    const marker = await this.headsMarker(id)
     const outcomes: SyncRoundResult["peers"][number][] = results.map(
       ([peer, response]) => {
         const failures = response.transportErrors
@@ -447,7 +456,8 @@ export class SubductionBackend implements SedimentreeBackend {
     return { sequence: ++this.sequence, heads: heads.map(commitId).sort() }
   }
   open(input: SedimentreeId): SedimentreeSession {
-    const id = sedimentreeId(input)
+    this.check("open")
+    const id = backendId("open", input)
     this.check("open", id)
     let released = false
     let stream: N.StoredUpdates | undefined
@@ -466,10 +476,9 @@ export class SubductionBackend implements SedimentreeBackend {
     const observe = async (): Promise<void> => {
       this.check("open", id)
       if (released) return
-      const native = nativeId(id)
-      const updates = this.engine.loadAndWatch(native)
+      const updates = this.engine.loadAndWatch(id)
       stream = updates
-      const marker = () => this.liveMarker(watch, native)
+      const marker = () => this.liveMarker(watch, id)
       // Storage-scan items pass on as blobs, each as it arrives; every scan
       // ends with local-load-complete. Peer and local updates flow as records.
       let scanning = true
@@ -573,7 +582,7 @@ export class SubductionBackend implements SedimentreeBackend {
         sessionCheck("ephemeral")
         const bytes = encodeEphemeral(message)
         try {
-          await this.engine.publishEphemeral(nativeId(id), bytes)
+          await this.engine.publishEphemeral(id, bytes)
         } catch (cause) {
           throw error("ephemeral", cause)
         }
@@ -597,9 +606,10 @@ export class SubductionBackend implements SedimentreeBackend {
         "invalid-record",
         "Initial history is empty"
       )
-    const id = sedimentreeId(
-      options.documentId ?? crypto.getRandomValues(new Uint8Array(32))
-    )
+    const id =
+      options.documentId !== undefined
+        ? backendId("create", options.documentId)
+        : await mintBackendId(initialRecords, this.mintDocumentId)
     await this.storeRecords(id, initialRecords, true)
     return id
   }
@@ -612,7 +622,7 @@ export class SubductionBackend implements SedimentreeBackend {
     creating = false
   ): Promise<void> {
     try {
-      const id = sedimentreeId(input)
+      const id = backendId(creating ? "create" : "store", input)
       this.check("store", id)
       let records: SedimentreeRecord[]
       try {
@@ -629,11 +639,10 @@ export class SubductionBackend implements SedimentreeBackend {
       const operation = creating ? "create" : "store"
       const engine = this.engine
       const write = (async () => {
-        const native = nativeId(id)
         let submitted = false
         try {
           if (creating) {
-            const heads = (await engine.getHeads(native)) ?? []
+            const heads = (await engine.getHeads(id)) ?? []
             if (heads.length)
               throw new BackendError(
                 "create",
@@ -651,7 +660,7 @@ export class SubductionBackend implements SedimentreeBackend {
             else fragments.push(fragmentInput(record))
           submitted = true
           try {
-            await engine.storeBatch(native, { commits, fragments })
+            await engine.storeBatch(id, { commits, fragments })
           } catch (cause) {
             // Native rejects invalid input (including wire count limits)
             // with a TypeError before signing or writing anything.
@@ -706,7 +715,7 @@ export class SubductionBackend implements SedimentreeBackend {
    */
   async flush(ids?: readonly SedimentreeId[]): Promise<void> {
     this.check("flush")
-    const targets = ids?.map(sedimentreeId)
+    const targets = ids?.map(id => backendId("flush", id))
     const captured = targets
       ? targets.flatMap(id => this.acks.get(id) ?? [])
       : [...this.acks.values()]
@@ -718,8 +727,8 @@ export class SubductionBackend implements SedimentreeBackend {
   }
   deleteLocal(input: SedimentreeId): Promise<void> {
     try {
-      const id = sedimentreeId(input)
       this.check("delete")
+      const id = backendId("delete", input)
       if (this.deleting.has(id)) return this.deleting.get(id)!
       const sequence = ++this.sequence
       for (const [watch, tree] of this.watches)
@@ -730,7 +739,7 @@ export class SubductionBackend implements SedimentreeBackend {
       const earlier = this.acks.get(id)
       const work: Promise<void> = (async () => {
         await Promise.allSettled([earlier])
-        await this.engine.removeSedimentree(nativeId(id))
+        await this.engine.removeSedimentree(id)
       })()
         .catch(cause => {
           throw error("delete", cause)

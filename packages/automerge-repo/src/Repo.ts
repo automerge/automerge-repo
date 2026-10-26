@@ -23,7 +23,9 @@ import { extractRecords } from "./sedimentree/automerge/index.js"
 import {
   BackendError,
   idBytes,
+  mintBackendId,
   sedimentreeId,
+  type MintDocumentId,
   type BackendIdentity,
   type SedimentreeBackend,
   type SedimentreeId,
@@ -43,6 +45,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   #log = makeLogger("automerge-repo:repo")
   #entries = new Map<DocumentId, Entry>()
   #backend?: SedimentreeBackend
+  #mintDocumentId?: MintDocumentId
   #operations = new Set<Promise<unknown>>()
   #closed = false
   #shutdown?: Promise<void>
@@ -52,9 +55,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     path: [],
   }
 
-  constructor({ backend }: RepoConfig = {}) {
+  constructor({ backend, mintDocumentId }: RepoConfig = {}) {
     super()
     this.#backend = backend
+    this.#mintDocumentId = mintDocumentId
   }
 
   get handles(): Record<DocumentId, DocHandle<any>> {
@@ -170,13 +174,27 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (!A.getHeads(doc).length) doc = A.emptyChange(doc)
     let id: DocumentId
     if (this.#backend) {
+      const records = extractRecords(doc)
+      // Repo's minter overrides the backend's.
+      const documentId = requested
+        ? this.#backendId(requested)
+        : this.#mintDocumentId &&
+          (await mintBackendId(records, this.#mintDocumentId))
       const allocated = await this.#backend.create(
-        extractRecords(doc),
-        requested ? { documentId: this.#backendId(requested) } : undefined
+        records,
+        documentId ? { documentId } : undefined
       )
       id = binaryToDocumentId(idBytes(allocated) as BinaryDocumentId)
+    } else if (requested) {
+      id = requested
     } else {
-      id = requested ?? this.#localId()
+      const minted = await mintBackendId(
+        this.#mintDocumentId ? extractRecords(doc) : [],
+        this.#mintDocumentId
+      )
+      id = binaryToDocumentId(idBytes(minted) as BinaryDocumentId)
+      if (this.#entries.has(id))
+        throw new BackendError("create", "conflict", "Document already exists")
     }
     this.#checkOpen()
     const existing = this.#entries.get(id)
@@ -195,19 +213,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       return existing.handle
     }
     return this.#register<T>(id, doc).handle
-  }
-
-  #localId(): DocumentId {
-    let bytes: Uint8Array
-    let id: DocumentId
-    do {
-      bytes = crypto.getRandomValues(new Uint8Array(32))
-      id = binaryToDocumentId(bytes as BinaryDocumentId)
-    } while (
-      bytes.subarray(16).every(byte => byte === 0) ||
-      this.#entries.has(id)
-    )
-    return id
   }
 
   #backendId(id: DocumentId): SedimentreeId {
@@ -320,9 +325,10 @@ export class Repo extends EventEmitter<RepoEvents> {
    * its own first failure. Failed writes are not retried. Does not wait for
    * network delivery.
    */
-  flush(documents?: DocumentId[]): Promise<void> {
+  flush(ids?: DocumentId[]): Promise<void> {
     try {
       this.#checkOpen()
+      const documents = ids?.map(interpretAsDocumentId)
       const backend = this.#backend
       if (!backend) return Promise.resolve()
       const targets = documents
@@ -356,8 +362,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   }
 
   /** Persist first, then release a cached document without deleting its history. */
-  async removeFromCache(id: DocumentId): Promise<void> {
+  async removeFromCache(input: DocumentId): Promise<void> {
     this.#checkOpen()
+    const id = interpretAsDocumentId(input)
     const entry = this.#entries.get(id)
     if (!entry) return
     const sync = entry.sync
@@ -437,6 +444,11 @@ function collectErrors(results: PromiseSettledResult<unknown>[]): unknown[] {
 
 export interface RepoConfig {
   backend?: SedimentreeBackend
+  /**
+   * Mints the 32-byte ID of each new document, overriding the backend's own
+   * minter; defaults to {@link mintDocumentId}.
+   */
+  mintDocumentId?: MintDocumentId
 }
 
 /** Include in an options object to pass an AbortSignal to a function. */

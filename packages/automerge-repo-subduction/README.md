@@ -43,6 +43,28 @@ backend generates an in-memory identity, which also does not survive restart;
 are borrowed; keep them alive until after `backend.close()`. Use valid Ed25519
 signer keys, as native code can panic on invalid keys.
 
+### Document IDs
+
+Document IDs are 32 bytes. Older 16-byte Automerge URLs are still accepted and
+open the same document as their 32-byte form, which `handle.url` reports.
+By default `create()` mints IDs a keyhive-enabled Subduction server accepts
+without authorization.
+
+To use keyhive authorization instead, mint each ID as the verifying key of a
+keyhive document the server knows. Pass a `mintDocumentId` function, which
+receives the initial records (e.g. to call keyhive's `generate_doc` with their
+heads), to the backend or to `Repo` (where it overrides the backend's):
+
+```ts
+const backend = new SubductionBackend({
+  storage,
+  mintDocumentId: async initialRecords => createKeyhiveDocument(initialRecords),
+})
+```
+
+If `mintDocumentId` throws or returns anything other than 32 bytes, `create()`
+rejects with `BackendError("create", "invalid-id")`.
+
 ### Storage adapters
 
 Storage adapters live in separate packages. For persistent local history in a

@@ -65,7 +65,7 @@ export function backendContract(
       ).toEqual([commit(1)])
       await expect(
         backend.create([commit(2)], { documentId: "invalid" as typeof id })
-      ).rejects.toThrow(TypeError)
+      ).rejects.toMatchObject({ operation: "create", code: "invalid-id" })
       await backend.deleteLocal(id)
       await expect(
         backend.create([commit(2)], { documentId: id })

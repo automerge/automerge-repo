@@ -12,12 +12,11 @@ import {
   SubductionBackend,
   type SubductionBackendOptions,
 } from "../src/index.js"
-import { nativeId, logicalId } from "../src/storage.js"
 import { TestStore, deferred, savedKeys, storedRecords } from "./storage.js"
 import { corruptFrame } from "./frame.js"
 import type { TestSigner } from "./transport.js"
 
-const tree = sedimentreeId("ab".repeat(16))
+const tree = sedimentreeId("ab".repeat(16) + "00".repeat(16))
 const cid = (n: number) => commitId(n.toString(16).padStart(64, "0"))
 const record = (n: number, parents: number[] = []): LooseCommitRecord => ({
   kind: "commit",
@@ -59,7 +58,7 @@ async function initial(session: SedimentreeSession, id = tree) {
  * private engine: the backend deliberately exposes no native accessor. */
 async function nativeCommits(backend: SubductionBackend): Promise<number> {
   const engine = (backend as unknown as { engine: N.Subduction }).engine
-  return ((await engine.getCommits(nativeId(tree))) ?? []).length
+  return ((await engine.getCommits(tree)) ?? []).length
 }
 async function next(iterator: AsyncIterator<SedimentreeEvent>) {
   const value = await iterator.next()
@@ -98,6 +97,7 @@ describe("real local Subduction", () => {
     const first = await backend.create([record(1)])
     const second = await backend.create([record(1)])
     expect(first).toMatch(/^[0-9a-f]{64}$/)
+    expect(second).toMatch(/^[0-9a-f]{64}$/)
     expect(second).not.toBe(first)
     expect((await initial(backend.open(first), first)).records).toEqual([
       record(1),
@@ -111,12 +111,47 @@ describe("real local Subduction", () => {
     })
   })
 
+  it("mints IDs with the mintDocumentId hook, given the initial records", async () => {
+    const keyhive = sedimentreeId("cd".repeat(32))
+    const mintDocumentId = vi.fn(() => Buffer.from(keyhive, "hex"))
+    const backend = create({ mintDocumentId })
+    const id = await backend.create([record(1)])
+    expect(id).toBe(keyhive)
+    expect(mintDocumentId).toHaveBeenCalledWith([record(1)])
+    expect((await initial(backend.open(id), id)).records).toEqual([record(1)])
+    // A supplied ID bypasses the hook.
+    const supplied = sedimentreeId("ef".repeat(16) + "00".repeat(16))
+    await expect(
+      backend.create([record(1)], { documentId: supplied })
+    ).resolves.toBe(supplied)
+    expect(mintDocumentId).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ["returns a wrong length", () => new Uint8Array(16)],
+    [
+      "throws",
+      () => {
+        throw new Error("no keyhive")
+      },
+    ],
+    ["rejects", () => Promise.reject(new Error("no keyhive"))],
+  ])("rejects create when mintDocumentId %s", async (_, mintDocumentId) => {
+    const backend = create({ mintDocumentId })
+    await expect(backend.create([record(1)])).rejects.toMatchObject({
+      name: "BackendError",
+      operation: "create",
+      code: "invalid-id",
+    })
+    await expect(backend.flush()).resolves.toBeUndefined()
+  })
+
   /** Hold this store's first scan of `id` until released. */
   function blockScan(id = tree) {
     const entered = deferred(),
       release = deferred()
     const load = storage.loadPrefix.bind(storage)
-    const scan = `subduction-v2/trees/${id.padEnd(64, "0")}/`
+    const scan = `subduction-v2/trees/${id}/`
     let blocked = false
     vi.spyOn(storage, "loadPrefix").mockImplementation(async prefix => {
       if (!blocked && prefix.startsWith(scan)) {
@@ -187,7 +222,7 @@ describe("real local Subduction", () => {
 
   it("starts unrelated opens while another initial scan is pending", async () => {
     const backend = create()
-    const otherTree = sedimentreeId("cd".repeat(16))
+    const otherTree = sedimentreeId("cd".repeat(16) + "00".repeat(16))
     const scan = blockScan()
     const first = backend.open(tree)
     await scan.entered
@@ -214,7 +249,7 @@ describe("real local Subduction", () => {
 
   it("deletes while an initial scan is pending and keeps other sessions observing", async () => {
     const backend = create()
-    const otherTree = sedimentreeId("cd".repeat(16))
+    const otherTree = sedimentreeId("cd".repeat(16) + "00".repeat(16))
     const other = await initial(backend.open(otherTree), otherTree)
     const scan = blockScan()
     const iterator = backend.open(tree).events[Symbol.asyncIterator]()
@@ -334,7 +369,7 @@ describe("real local Subduction", () => {
     }
     await expect(
       backend.create([record(1)], { documentId: "invalid" as typeof tree })
-    ).rejects.toThrow(TypeError)
+    ).rejects.toMatchObject({ operation: "create", code: "invalid-id" })
   })
 
   it("persists native signed bytes, opaque commit identities and parents; reloads through a fresh engine", async () => {
@@ -344,7 +379,7 @@ describe("real local Subduction", () => {
     const key = keys.find(k => k.endsWith(`/signed/${cid(2)}`))!
     expect((await storage.load(key))!.length).toBeGreaterThan(0)
     const engine = (backend as unknown as { engine: N.Subduction }).engine
-    const commit = ((await engine.getCommits(nativeId(tree))) ?? []).find(
+    const commit = ((await engine.getCommits(tree)) ?? []).find(
       c => c.head === cid(2)
     )!
     expect(commit.parents).toEqual([cid(1)])
@@ -412,14 +447,26 @@ describe("real local Subduction", () => {
     await expect(nativeCommits(backend)).resolves.toBe(1)
   })
 
-  it("maps 16-byte IDs by zero-padding, preserves native 32-byte IDs without truncation", async () => {
+  it("passes 32-byte IDs to native unchanged and rejects other lengths", async () => {
     const full = sedimentreeId("ab".repeat(16) + "cd".repeat(16))
-    for (const id of [tree, full]) {
-      const native = nativeId(id)
-      expect(native).toBe(id.padEnd(64, "0"))
-      expect(logicalId(native)).toBe(id)
-    }
     const backend = create()
+    const short = "ab".repeat(16) as typeof tree
+    const invalid = { name: "BackendError", code: "invalid-id" }
+    expect(() => backend.open(short)).toThrow(
+      expect.objectContaining({ ...invalid, operation: "open" })
+    )
+    await expect(backend.store(short, [record(1)])).rejects.toMatchObject({
+      ...invalid,
+      operation: "store",
+    })
+    await expect(backend.flush([short])).rejects.toMatchObject({
+      ...invalid,
+      operation: "flush",
+    })
+    await expect(backend.deleteLocal(short)).rejects.toMatchObject({
+      ...invalid,
+      operation: "delete",
+    })
     await backend.store(tree, [record(1)])
     await backend.store(full, [record(2)])
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])
@@ -653,7 +700,7 @@ describe("real local Subduction", () => {
     await backend.store(tree, [record(1)])
     const { iterator } = await initial(backend.open(tree))
     const engine = (backend as unknown as { engine: N.Subduction }).engine
-    const native = nativeId(tree)
+    const native = tree
     const entered = deferred(),
       release = deferred()
     const headsDuringSave: string[][] = []
@@ -726,7 +773,7 @@ describe("real local Subduction", () => {
   it("reports malformed persisted fragments rather than treating them as absent", async () => {
     const backend = create()
     await storage.save(
-      `subduction-v2/trees/${tree.padEnd(64, "0")}/fragments/signed/${cid(1)}`,
+      `subduction-v2/trees/${tree}/fragments/signed/${cid(1)}`,
       new Uint8Array([1])
     )
     const iterator = backend.open(tree).events[Symbol.asyncIterator]()
@@ -832,7 +879,7 @@ describe("real local Subduction", () => {
     }
     await expect(backend.store(tree, [record(1)])).rejects.toThrow()
     expect(await storage.list("subduction-v2/ids/")).toEqual([
-      `subduction-v2/ids/${tree.padEnd(64, "0")}`,
+      `subduction-v2/ids/${tree}`,
     ])
   })
 
@@ -935,7 +982,7 @@ describe("real local Subduction", () => {
 
   it("flush waits for an accepted deletion, but not another document's", async () => {
     const backend = create()
-    const otherTree = sedimentreeId("cd".repeat(16))
+    const otherTree = sedimentreeId("cd".repeat(16) + "00".repeat(16))
     await backend.store(tree, [record(1)])
     const gate = deferred()
     const engine = (backend as unknown as { engine: N.Subduction }).engine

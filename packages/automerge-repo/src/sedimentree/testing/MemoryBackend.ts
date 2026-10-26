@@ -1,13 +1,16 @@
 import {
   BackendError,
+  backendId,
+  mintBackendId,
   type BackendOperation,
+  type MintDocumentId,
   type EphemeralEnvelope,
   type SedimentreeBackend,
   type SedimentreeEvent,
   type SedimentreeSession,
   type SyncRoundResult,
 } from "../index.js"
-import { sedimentreeId, type CommitId, type SedimentreeId } from "../index.js"
+import type { CommitId, SedimentreeId } from "../index.js"
 import {
   copyRecord,
   equalRecords,
@@ -32,6 +35,8 @@ export interface MemoryBackendOptions {
    * backend's acknowledgement order and flush see it, unlike a `vi.spyOn` wrapper.
    */
   beforeStore?: (id: SedimentreeId, batch: RecordBatch) => void | Promise<void>
+  /** Mints IDs for `create()` without a supplied ID; see {@link MintDocumentId}. */
+  mintDocumentId?: MintDocumentId
 }
 
 interface Tree {
@@ -54,8 +59,11 @@ interface Tree {
  * backend uses; flush reports failures of the work it drained and retains none.
  */
 export class MemoryBackend implements SedimentreeBackend {
-  readonly #options: Required<Omit<MemoryBackendOptions, "beforeStore">>
+  readonly #options: Required<
+    Omit<MemoryBackendOptions, "beforeStore" | "mintDocumentId">
+  >
   readonly #beforeStore?: MemoryBackendOptions["beforeStore"]
+  readonly #mintDocumentId?: MintDocumentId
   readonly #trees = new Map<SedimentreeId, Tree>()
   /** The latest store or deletion per ID; flush and delete wait on it. */
   readonly #acks = new Map<SedimentreeId, Promise<void>>()
@@ -66,6 +74,7 @@ export class MemoryBackend implements SedimentreeBackend {
 
   constructor(options: MemoryBackendOptions = {}) {
     this.#beforeStore = options.beforeStore
+    this.#mintDocumentId = options.mintDocumentId
     this.#options = {
       batchRecords: options.batchRecords ?? 128,
       batchBytes: options.batchBytes ?? 1024 * 1024,
@@ -90,9 +99,11 @@ export class MemoryBackend implements SedimentreeBackend {
         "Initial history is empty"
       )
     }
-    const id = sedimentreeId(
-      options.documentId ?? crypto.getRandomValues(new Uint8Array(32))
-    )
+    const id =
+      options.documentId !== undefined
+        ? backendId("create", options.documentId)
+        : await mintBackendId(initialRecords, this.#mintDocumentId)
+    this.#assertOpen("create")
     this.#assertNotDeleting("create", id)
     if (this.#trees.get(id)?.records.size)
       throw new BackendError("create", "conflict", "Document already exists")
@@ -102,7 +113,7 @@ export class MemoryBackend implements SedimentreeBackend {
 
   open(rawId: SedimentreeId): SedimentreeSession {
     this.#assertOpen("open")
-    const id = sedimentreeId(rawId)
+    const id = backendId("open", rawId)
     this.#assertNotDeleting("open", id)
     const tree = this.#tree(id)
     // Immutable private record references pin a finite initial cut without
@@ -153,7 +164,7 @@ export class MemoryBackend implements SedimentreeBackend {
     let id: SedimentreeId
     try {
       this.#assertOpen("store")
-      id = sedimentreeId(rawId)
+      id = backendId("store", rawId)
       this.#assertNotDeleting("store", id)
     } catch (error) {
       return Promise.reject(error)
@@ -246,7 +257,7 @@ export class MemoryBackend implements SedimentreeBackend {
 
   async flush(ids?: readonly SedimentreeId[]): Promise<void> {
     this.#assertOpen("flush")
-    const targets = ids?.map(sedimentreeId)
+    const targets = ids?.map(id => backendId("flush", id))
     // Capture the barrier now; stores accepted later are not part of it.
     const captured = targets
       ? targets.flatMap(id => this.#acks.get(id) ?? [])
@@ -262,7 +273,7 @@ export class MemoryBackend implements SedimentreeBackend {
     let id: SedimentreeId
     try {
       this.#assertOpen("delete")
-      id = sedimentreeId(rawId)
+      id = backendId("delete", rawId)
     } catch (error) {
       return Promise.reject(error)
     }

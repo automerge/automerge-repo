@@ -1,4 +1,4 @@
-/** Canonical lowercase hex. Logical tree IDs retain their 16/32-byte length. */
+/** Canonical lowercase hex of exactly 32 bytes. */
 export type SedimentreeId = string & { readonly __sedimentreeId: unique symbol }
 /** Caller-supplied logical identity, not necessarily a hash of stored bytes. */
 export type CommitId = string & { readonly __commitId: unique symbol }
@@ -18,10 +18,22 @@ function canonicalHex(value: string | Uint8Array): string {
 
 export function sedimentreeId(value: string | Uint8Array): SedimentreeId {
   const hex = canonicalHex(value)
-  if (hex.length !== 32 && hex.length !== 64) {
-    throw new TypeError("A logical sedimentree ID must be 16 or 32 bytes")
+  if (hex.length !== 64) {
+    throw new TypeError("A sedimentree ID must be 32 bytes")
   }
   return hex as SedimentreeId
+}
+
+/**
+ * Default document ID minter. Currently 16 random bytes then 16 zero bytes:
+ * keyhive-enabled Subduction servers accept such IDs without authorization.
+ * The first half is never all zero.
+ */
+export function mintDocumentId(): SedimentreeId {
+  const bytes = new Uint8Array(32)
+  do crypto.getRandomValues(bytes.subarray(0, 16))
+  while (bytes.subarray(0, 16).every(byte => byte === 0))
+  return sedimentreeId(bytes)
 }
 
 export function commitId(value: string | Uint8Array): CommitId {
@@ -41,7 +53,7 @@ export function checkpointForCommit(id: CommitId): CheckpointId {
   return checkpointId(commitId(id).slice(0, 24))
 }
 
-/** Returns a fresh buffer. Native Subduction padding is intentionally not here. */
+/** Returns a fresh buffer. */
 export function idBytes(
   id: SedimentreeId | CommitId | CheckpointId
 ): Uint8Array {

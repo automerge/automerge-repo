@@ -18,7 +18,7 @@ import {
   type TestSigner,
 } from "./transport.js"
 
-const tree = sedimentreeId("71".repeat(16))
+const tree = sedimentreeId("71".repeat(16) + "00".repeat(16))
 const wait = { timeout: 8000, interval: 10 }
 const syncTimeout = 2000
 const records = extractRecords(
@@ -298,7 +298,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     const {
       wire: [wireA, wireB],
     } = await settledConnection(a, b)
-    const other = sedimentreeId("73".repeat(16))
+    const other = sedimentreeId("73".repeat(16) + "00".repeat(16))
     await Promise.all([
       a.backend.store(other, baseline),
       b.backend.store(other, baseline),

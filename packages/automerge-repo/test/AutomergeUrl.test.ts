@@ -6,6 +6,7 @@ import {
   generateAutomergeUrl,
   getHeadsFromUrl,
   isValidAutomergeUrl,
+  isValidDocumentId,
   parseAutomergeUrl,
   stringifyAutomergeUrl,
 } from "../src/AutomergeUrl.js"
@@ -17,26 +18,64 @@ import type {
 } from "../src/types.js"
 import { interpretAsDocumentId } from "../src/AutomergeUrl.js"
 
-const goodUrl = "automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu" as AutomergeUrl
-const badChecksumUrl = "automerge:badbadbad" as AutomergeUrl
-const badPrefixUrl = "yjs😉:4NMNnkMhL8jXrdJ9jamS58PAVdXu" as AutomergeUrl
-
-const goodDocumentId = "4NMNnkMhL8jXrdJ9jamS58PAVdXu" as DocumentId
-const badChecksumDocumentId = "badbadbad" as DocumentId
-const badUuidDocumentId = bs58check.encode(
-  new Uint8Array([1, 2, 3, 4, 42, -1, 69, 777])
-) as DocumentId
-
-const goodBinaryDocumentId = Uint8Array.from([
+const legacyBinaryDocumentId = Uint8Array.from([
   241, 194, 156, 132, 116, 200, 74, 222, 184, 0, 190, 71, 98, 125, 51, 191,
 ]) as BinaryDocumentId
+const legacyDocumentId = "4NMNnkMhL8jXrdJ9jamS58PAVdXu" as DocumentId
+const legacyUrl = `automerge:${legacyDocumentId}` as AutomergeUrl
+
+const goodBinaryDocumentId = new Uint8Array(32) as BinaryDocumentId
+goodBinaryDocumentId.set(legacyBinaryDocumentId)
+const goodDocumentId = bs58check.encode(goodBinaryDocumentId) as DocumentId
+const goodUrl = `automerge:${goodDocumentId}` as AutomergeUrl
+const badChecksumUrl = "automerge:badbadbad" as AutomergeUrl
+const badPrefixUrl = `yjs😉:${goodDocumentId}` as AutomergeUrl
+
+const badChecksumDocumentId = "badbadbad" as DocumentId
 
 describe("AutomergeUrl", () => {
   describe("generateAutomergeUrl", () => {
     it("should generate a valid Automerge URL", () => {
       const url = generateAutomergeUrl()
       assert(url.startsWith("automerge:"))
-      assert(parseAutomergeUrl(url).binaryDocumentId)
+      assert.equal(parseAutomergeUrl(url).binaryDocumentId.length, 32)
+    })
+  })
+
+  describe("legacy 16-byte IDs", () => {
+    it("normalizes to the 32-byte ID everywhere one is accepted", () => {
+      assert.equal(parseAutomergeUrl(legacyUrl).documentId, goodDocumentId)
+      assert.deepEqual(
+        parseAutomergeUrl(legacyUrl).binaryDocumentId,
+        goodBinaryDocumentId
+      )
+      assert.equal(stringifyAutomergeUrl(legacyDocumentId), goodUrl)
+      assert.equal(
+        stringifyAutomergeUrl({ documentId: legacyBinaryDocumentId }),
+        goodUrl
+      )
+      assert.equal(interpretAsDocumentId(legacyUrl), goodDocumentId)
+      assert.equal(interpretAsDocumentId(legacyDocumentId), goodDocumentId)
+      assert.equal(
+        interpretAsDocumentId(legacyBinaryDocumentId),
+        goodDocumentId
+      )
+      assert(isValidDocumentId(legacyDocumentId))
+      assert(isValidAutomergeUrl(legacyUrl))
+    })
+
+    it("keeps path and heads when re-stringifying a legacy URL", () => {
+      const head = bs58check.encode(new Uint8Array([1, 2, 3, 4]))
+      const legacy = `${legacyUrl}/a/b#${head}` as AutomergeUrl
+      const parsed = parseAutomergeUrl(legacy)
+      assert.equal(
+        stringifyAutomergeUrl({
+          documentId: parsed.documentId,
+          heads: parsed.heads,
+          segments: parsed.segments,
+        }),
+        `${goodUrl}/a/b#${head}`
+      )
     })
   })
 
@@ -92,7 +131,10 @@ describe("AutomergeUrl", () => {
     })
 
     it("should return false for a documentId with an invalid checksum", () => {
-      const url = stringifyAutomergeUrl({ documentId: badChecksumDocumentId })
+      assert.throws(() =>
+        stringifyAutomergeUrl({ documentId: badChecksumDocumentId })
+      )
+      const url = `automerge:${badChecksumDocumentId}` as AutomergeUrl
       assert(isValidAutomergeUrl(url) === false)
     })
 
@@ -101,12 +143,23 @@ describe("AutomergeUrl", () => {
     })
   })
 
-  it("should allow arbitrary uint8array ids", () => {
-    const raw = new Uint8Array("custom-id".split("").map(c => c.charCodeAt(0)))
+  it("should allow arbitrary 32-byte ids", () => {
+    const raw = new Uint8Array(32).fill(7)
     const documentId = binaryToDocumentId(raw as BinaryDocumentId)
     const url = stringifyAutomergeUrl({ documentId })
-    const interpreted = interpretAsDocumentId(url)
-    assert.deepStrictEqual(interpreted, documentId)
+    assert.deepStrictEqual(interpretAsDocumentId(url), documentId)
+  })
+
+  it("should reject ids that are neither 16 nor 32 bytes", () => {
+    for (const length of [0, 9, 15, 17, 31, 33]) {
+      const raw = new Uint8Array(length).fill(7) as BinaryDocumentId
+      const documentId = binaryToDocumentId(raw)
+      assert(!isValidDocumentId(documentId))
+      assert(!isValidAutomergeUrl(`automerge:${documentId}`))
+      assert.throws(() => stringifyAutomergeUrl({ documentId }))
+      assert.throws(() => interpretAsDocumentId(documentId))
+      assert.throws(() => interpretAsDocumentId(raw))
+    }
   })
 })
 

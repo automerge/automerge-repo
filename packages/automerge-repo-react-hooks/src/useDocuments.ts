@@ -21,11 +21,8 @@ export function useDocuments<T>(
   const handleMap = useDocHandles<T>(ids, { suspense })
   const [docMap, setDocMap] = useState<DocMap<T>>(() => {
     const docs: DocMap<T> = new Map()
-    handleMap.forEach(handle => {
-      const url = handle?.url
-      if (url) {
-        docs.set(url, handle?.doc() as Doc<T>)
-      }
+    handleMap.forEach((handle, id) => {
+      if (handle) docs.set(id, handle.doc() as Doc<T>)
     })
     return docs
   })

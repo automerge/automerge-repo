@@ -1,4 +1,9 @@
-import type { CommitId, SedimentreeId } from "./ids.js"
+import {
+  mintDocumentId,
+  sedimentreeId,
+  type CommitId,
+  type SedimentreeId,
+} from "./ids.js"
 import type { RecordBatch } from "./records.js"
 
 /**
@@ -90,6 +95,8 @@ export interface SedimentreeBackend {
    * Use the requested ID or mint one, then store initial history locally.
    * An ID that already holds records rejects with a create/conflict error;
    * an empty ID is available. Supplied IDs are a backend-only option, not Repo.create.
+   * IDs are 32 bytes; anything else rejects with an invalid-id error, as do
+   * the other operations.
    */
   create(
     initialRecords: RecordBatch,
@@ -207,6 +214,7 @@ export class BackendError extends Error {
     readonly code:
       | "closed"
       | "deleted"
+      | "invalid-id"
       | "invalid-record"
       | "conflict"
       | "unsupported"
@@ -218,6 +226,53 @@ export class BackendError extends Error {
     super(message, options)
     this.name = "BackendError"
   }
+}
+
+/** sedimentreeId(), rejecting with an `invalid-id` BackendError. */
+export function backendId(
+  operation: BackendOperation,
+  value: string | Uint8Array
+): SedimentreeId {
+  try {
+    return sedimentreeId(value)
+  } catch (cause) {
+    throw new BackendError(
+      operation,
+      "invalid-id",
+      cause instanceof Error ? cause.message : String(cause),
+      false,
+      { cause }
+    )
+  }
+}
+
+/** Mints the 32-byte ID of a new document unless a caller supplies its own. */
+export type MintDocumentId = (
+  initialRecords: RecordBatch
+) => Uint8Array | Promise<Uint8Array>
+
+/**
+ * Run a caller's minter, or the default {@link mintDocumentId}. A minter that
+ * fails or yields anything but 32 bytes rejects with a create/invalid-id error.
+ */
+export async function mintBackendId(
+  initialRecords: RecordBatch,
+  mint?: MintDocumentId
+): Promise<SedimentreeId> {
+  if (!mint) return mintDocumentId()
+  let minted: Uint8Array
+  try {
+    minted = await mint(initialRecords)
+  } catch (cause) {
+    throw new BackendError(
+      "create",
+      "invalid-id",
+      "Minting a document ID failed",
+      false,
+      { cause }
+    )
+  }
+  return backendId("create", minted)
 }
 
 /** Namespace/kind and child provenance are kept separate from record IDs. */

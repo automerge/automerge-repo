@@ -3,6 +3,7 @@ import {
   DocHandle,
   isValidAutomergeUrl,
   interpretAsDocumentId,
+  parseAutomergeUrl,
   stringifyAutomergeUrl,
 } from "@automerge/automerge-repo/slim"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
@@ -50,9 +51,12 @@ export function useDocHandle<T>(
     id &&
     handle &&
     handle.url ===
-      (isValidAutomergeUrl(id)
-        ? id
-        : stringifyAutomergeUrl({ documentId: interpretAsDocumentId(id) }))
+      // Normalized, as handle.url is (e.g. a legacy ID's 32-byte form).
+      stringifyAutomergeUrl(
+        isValidAutomergeUrl(id)
+          ? parseAutomergeUrl(id)
+          : { documentId: interpretAsDocumentId(id) }
+      )
       ? handle
       : undefined
 

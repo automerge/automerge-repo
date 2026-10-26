@@ -10,7 +10,13 @@ import "@testing-library/jest-dom"
 import { describe, expect, it, vi } from "vitest"
 import { useDocHandle, wrapperCache } from "../src/useDocHandle"
 import { ErrorBoundary } from "react-error-boundary"
-import { setup, setupDelayedRepo, pause } from "./testSetup"
+import {
+  legacyUrl,
+  setup,
+  setupDelayedRepo,
+  setupLegacy,
+  pause,
+} from "./testSetup"
 
 describe("useDocHandle", () => {
   const Component = ({
@@ -36,6 +42,24 @@ describe("useDocHandle", () => {
       { wrapper }
     )
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
+  })
+
+  it("loads a legacy URL and keeps its handle across rerenders", async () => {
+    const { handle, wrapper } = await setupLegacy()
+    const onHandle = vi.fn()
+    const { rerender } = render(
+      <Suspense fallback={null}>
+        <Component url={legacyUrl} onHandle={onHandle} />
+      </Suspense>,
+      { wrapper }
+    )
+    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handle))
+    rerender(
+      <Suspense fallback={null}>
+        <Component url={legacyUrl} onHandle={onHandle} />
+      </Suspense>
+    )
+    expect(onHandle).toHaveBeenLastCalledWith(handle)
   })
 
   it("updates the handle when the url changes", async () => {

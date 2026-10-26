@@ -26,7 +26,6 @@ import {
   type SubductionStorageAdapterInterface,
   type SubductionBackendOptions,
 } from "../src/index.js"
-import { nativeId } from "../src/storage.js"
 import {
   applyRecords,
   extractRecords,
@@ -36,7 +35,7 @@ import { corruptFrame } from "./frame.js"
 import type { TestSigner } from "./transport.js"
 import { repoFragmentFixture } from "./repoFixture.js"
 
-const tree = sedimentreeId("ab".repeat(16))
+const tree = sedimentreeId("ab".repeat(16) + "00".repeat(16))
 const cid = (n: number) => commitId(n.toString(16).padStart(2, "0").repeat(32))
 /** Distinct IDs beyond cid's 0-255 range. */
 const many = (count: number) =>
@@ -196,10 +195,10 @@ describe("local Subduction fragments", () => {
     expect(loaded.event.marker).toBeUndefined()
     // Native hydrates on demand (not at open) and reads the stored fragment.
     const engine = (reloaded as unknown as { engine: N.Subduction }).engine
-    const fragments = (await engine.getFragments(nativeId(tree))) ?? []
+    const fragments = (await engine.getFragments(tree)) ?? []
     expect(fragments).toHaveLength(1)
     expect(fragments[0].checkpoints).toEqual(fragment(4).checkpoints)
-    expect(fragments[0].sedimentreeId).toBe(tree.padEnd(64, "0"))
+    expect(fragments[0].sedimentreeId).toBe(tree)
   })
 
   it("converges when one store receives both same-head fragment variants", async () => {

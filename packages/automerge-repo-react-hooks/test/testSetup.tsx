@@ -1,6 +1,8 @@
 import React, { type PropsWithChildren } from "react"
 import {
   Repo,
+  parseAutomergeUrl,
+  type AutomergeUrl,
   type DocumentQuery,
   type QueryState,
 } from "@automerge/automerge-repo"
@@ -24,6 +26,21 @@ export interface ExampleDoc {
   foo: string
   counter?: number
   nested?: { value: string }
+}
+
+/** A legacy 16-byte document URL; Repo opens it under its 32-byte form. */
+export const legacyUrl =
+  "automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu" as AutomergeUrl
+
+/** A delayed document reachable through {@link legacyUrl}. */
+export async function setupLegacy(latency = 100) {
+  const { repoCreator, repoFinder: repo, wrapper } = setupDelayedRepo(latency)
+  const source = await repoCreator.create<ExampleDoc>({ foo: "Legacy" })
+  const handle = await repoCreator.import<ExampleDoc>(
+    (await repoCreator.export(source.url))!,
+    { docId: parseAutomergeUrl(legacyUrl).documentId }
+  )
+  return { repo, handle, wrapper }
 }
 
 export const pause = (ms = 0) =>

@@ -165,7 +165,7 @@ describe("backend-owned network adapters", () => {
       stop: async () => {},
     }
     const b = backend([adapter])
-    const session = b.open(sedimentreeId("72".repeat(16)))
+    const session = b.open(sedimentreeId("72".repeat(16) + "00".repeat(16)))
     const events = (async () => {
       for await (const _ of session.events);
     })()

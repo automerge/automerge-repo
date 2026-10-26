@@ -9,7 +9,13 @@ import "@testing-library/jest-dom"
 
 import { describe, expect, it, vi } from "vitest"
 import { ErrorBoundary } from "react-error-boundary"
-import { setup, setupDelayedRepo, pause } from "./testSetup"
+import {
+  legacyUrl,
+  setup,
+  setupDelayedRepo,
+  setupLegacy,
+  pause,
+} from "./testSetup"
 import { useDocHandles } from "../src/useDocHandles"
 
 describe("useDocHandles", () => {
@@ -33,6 +39,23 @@ describe("useDocHandles", () => {
       onHandles(handle)
       return null
     }
+
+    it("keys a legacy URL's handle by the URL passed in", async () => {
+      const { handle, wrapper } = await setupLegacy()
+      const onHandles = mockOnHandles()
+
+      render(
+        <Suspense fallback={null}>
+          <Component urls={[legacyUrl]} onHandles={onHandles} />
+        </Suspense>,
+        { wrapper }
+      )
+
+      await waitFor(() =>
+        expect(onHandles.mock.lastCall?.at(0)?.get(legacyUrl)).toBe(handle)
+      )
+      expect(handle.url).not.toBe(legacyUrl)
+    })
 
     it("loads some handles", async () => {
       const { handleA, handleB, wrapper } = await setup()
@@ -229,6 +252,20 @@ describe("useDocHandles", () => {
       onHandles(handle)
       return null
     }
+
+    it("keys a loaded legacy URL's handle by the URL passed in", async () => {
+      const { handle, wrapper } = await setupLegacy()
+      const onHandles = mockOnHandles()
+
+      render(<Component urls={[legacyUrl]} onHandles={onHandles} />, {
+        wrapper,
+      })
+
+      await waitFor(() =>
+        expect(onHandles.mock.lastCall?.at(0)?.get(legacyUrl)).toBe(handle)
+      )
+      expect(onHandles.mock.lastCall?.at(0)?.size).toBe(1)
+    })
 
     it("returns and empty map while loading then resolves to handle", async () => {
       const { repoCreator, wrapper } = setupDelayedRepo()

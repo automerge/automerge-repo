@@ -10,7 +10,6 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { SubductionBackend } from "../src/index.js"
 import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
 import { encodeEphemeral } from "../src/ephemeral.js"
-import { nativeId } from "../src/storage.js"
 import {
   PairedTransport,
   connectBackends,
@@ -33,9 +32,9 @@ vi.mock("@automerge/subduction/slim", async importOriginal => {
   }
 })
 
-const tree = sedimentreeId("71".repeat(16))
+const tree = sedimentreeId("71".repeat(16) + "00".repeat(16))
 // Same shortened native Topic.toString(), different complete topic.
-const other = sedimentreeId("71".repeat(4) + "72".repeat(12))
+const other = sedimentreeId("71".repeat(4) + "72".repeat(12) + "00".repeat(16))
 const wait = { timeout: 8000, interval: 10 }
 const message = (
   messageId: string = crypto.randomUUID()
@@ -113,7 +112,7 @@ describe("real native ephemerals", () => {
     id = tree,
     bytes = encodeEphemeral(envelope)
   ) {
-    callback(nativeId(id), p.signer.peerId(), bytes)
+    callback(id, p.signer.peerId(), bytes)
   }
   afterEach(async () => {
     releases.splice(0).forEach(release => release())

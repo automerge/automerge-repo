@@ -55,7 +55,7 @@ it("syncs through real native handshakes and keeps the connection across deleteL
     const remoteHandle = await remoteRepo.find<{ count: number }>(
       handle.documentId
     )
-    await local.deleteLocal(sedimentreeId("73".repeat(16)))
+    await local.deleteLocal(sedimentreeId("73".repeat(16) + "00".repeat(16)))
     expect(openTransport).toHaveBeenCalledOnce()
     expect(adapter.status).toBe("connected")
     await handle.change(doc => {
@@ -109,7 +109,9 @@ it("completes onboarding while an unrelated deletion runs", async () => {
   try {
     const ready = adapter.connected()
     await entered
-    const deleting = local.deleteLocal(sedimentreeId("73".repeat(16)))
+    const deleting = local.deleteLocal(
+      sedimentreeId("73".repeat(16) + "00".repeat(16))
+    )
     release()
     await deleting
     await ready

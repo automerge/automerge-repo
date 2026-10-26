@@ -18,8 +18,9 @@ separate subpaths.
 ## Plain values and ownership
 
 IDs are branded **lowercase hex strings**, constructed by `sedimentreeId`,
-`commitId`, and `checkpointId`. Logical tree IDs retain their 16/32-byte distinction.
-All 16- and 32-byte logical IDs are accepted, including zero-padded IDs.
+`commitId`, and `checkpointId`. Tree IDs are 32 bytes; other lengths reject
+with an `invalid-id` backend error. `mintDocumentId` is the default minter for
+new trees; backends and Repo accept a `mintDocumentId` option to replace it.
 Commit IDs are 32 bytes. Fragment checkpoint prefixes are 12 bytes, matching the
 sedimentree wire model; `checkpointForCommit` explicitly truncates a full commit
 ID. A stream's `HistoryMarker` instead contains full commit heads.

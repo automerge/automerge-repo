@@ -4,7 +4,13 @@ import { render, renderHook, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { useDocuments } from "../src/useDocuments"
 import { ErrorBoundary } from "react-error-boundary"
-import { ExampleDoc, setup, setupDelayedRepo } from "./testSetup"
+import {
+  ExampleDoc,
+  legacyUrl,
+  setup,
+  setupDelayedRepo,
+  setupLegacy,
+} from "./testSetup"
 
 describe("useDocuments", () => {
   const DocumentsComponent = ({
@@ -44,6 +50,27 @@ describe("useDocuments", () => {
       Promise.reject(error)
     )
     await expect(result.current[1](handleA.url, () => {})).rejects.toBe(error)
+  })
+
+  it("keys a legacy URL's document by the URL passed in", async () => {
+    const { handle, wrapper } = await setupLegacy()
+    const { result } = renderHook(
+      () => useDocuments<ExampleDoc>([legacyUrl], { suspense: false }),
+      { wrapper }
+    )
+
+    await waitFor(() =>
+      expect(result.current[0].get(legacyUrl)?.foo).toBe("Legacy")
+    )
+    expect([...result.current[0].keys()]).toEqual([legacyUrl])
+
+    await act(async () => {
+      await result.current[1](legacyUrl, doc => (doc.foo = "Changed"))
+    })
+    expect(handle.doc()?.foo).toBe("Changed")
+    await waitFor(() =>
+      expect(result.current[0].get(legacyUrl)?.foo).toBe("Changed")
+    )
   })
 
   it("should sync documents and handle changes", async () => {

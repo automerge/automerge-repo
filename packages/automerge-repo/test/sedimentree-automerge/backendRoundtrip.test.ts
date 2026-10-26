@@ -15,7 +15,7 @@ import {
   satisfiesMarker,
 } from "../../src/sedimentree/automerge/index.js"
 
-const id = sedimentreeId("42".repeat(16))
+const id = sedimentreeId("42".repeat(16) + "00".repeat(16))
 type State = { count: number; local?: boolean }
 const backends: MemoryBackend[] = []
 afterEach(async () => {

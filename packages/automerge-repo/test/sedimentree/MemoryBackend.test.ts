@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   MemoryBackend,
   type MemoryBackendOptions,
@@ -39,27 +39,66 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     await Promise.all(backends.splice(0).map(backend => backend.close()))
   })
 
-  it("keeps logical 16/32-byte namespaces distinct and validates IDs at every boundary", async () => {
+  it("keeps padded and full 32-byte IDs distinct and validates IDs at every boundary", async () => {
     const backend = create()
-    const shortId = sedimentreeId("ab".repeat(16))
-    const longId = sedimentreeId("ab".repeat(16) + "cd".repeat(16))
-    await backend.store(shortId, [commit(1)])
-    await backend.store(longId, [commit(2)])
+    const padded = sedimentreeId("ab".repeat(16) + "00".repeat(16))
+    const full = sedimentreeId("ab".repeat(16) + "cd".repeat(16))
+    await backend.store(padded, [commit(1)])
+    await backend.store(full, [commit(2)])
     expect(
-      (await initial(backend.open(shortId).events[Symbol.asyncIterator]()))
+      (await initial(backend.open(padded).events[Symbol.asyncIterator]()))
         .records
     ).toEqual([commit(1)])
     expect(
-      (await initial(backend.open(longId).events[Symbol.asyncIterator]()))
-        .records
+      (await initial(backend.open(full).events[Symbol.asyncIterator]())).records
     ).toEqual([commit(2)])
-    for (const raw of ["ab".repeat(15), "ab".repeat(33)]) {
+    const invalidId = { name: "BackendError", code: "invalid-id" }
+    for (const raw of ["ab".repeat(16), "ab".repeat(33)]) {
       const invalid = raw as SedimentreeId
-      expect(() => backend.open(invalid)).toThrow(TypeError)
-      await expect(backend.store(invalid, [])).rejects.toThrow(TypeError)
-      await expect(backend.flush([invalid])).rejects.toThrow(TypeError)
-      await expect(backend.deleteLocal(invalid)).rejects.toThrow(TypeError)
+      expect(() => backend.open(invalid)).toThrow(
+        expect.objectContaining({ ...invalidId, operation: "open" })
+      )
+      await expect(backend.store(invalid, [])).rejects.toMatchObject({
+        ...invalidId,
+        operation: "store",
+      })
+      await expect(backend.flush([invalid])).rejects.toMatchObject({
+        ...invalidId,
+        operation: "flush",
+      })
+      await expect(backend.deleteLocal(invalid)).rejects.toMatchObject({
+        ...invalidId,
+        operation: "delete",
+      })
+      await expect(
+        backend.create([commit(1)], { documentId: invalid })
+      ).rejects.toMatchObject({ ...invalidId, operation: "create" })
     }
+  })
+
+  it("mints distinct 32-byte IDs by default", async () => {
+    const backend = create()
+    const a = await backend.create([commit(1)])
+    const b = await backend.create([commit(1)])
+    expect(a).toMatch(/^[0-9a-f]{64}$/)
+    expect(b).toMatch(/^[0-9a-f]{64}$/)
+    expect(a).not.toBe(b)
+  })
+
+  it("mints with mintDocumentId, given the initial records", async () => {
+    const minted = new Uint8Array(32).fill(0xcd)
+    const mintDocumentId = vi.fn(() => minted)
+    const backend = create({ mintDocumentId })
+    expect(await backend.create([commit(1)])).toBe("cd".repeat(32))
+    expect(mintDocumentId).toHaveBeenCalledWith([commit(1)])
+    await expect(
+      create({ mintDocumentId: () => new Uint8Array(16) }).create([commit(1)])
+    ).rejects.toMatchObject({ operation: "create", code: "invalid-id" })
+    await expect(
+      create({
+        mintDocumentId: () => Promise.reject(new Error("no keyhive")),
+      }).create([commit(1)])
+    ).rejects.toMatchObject({ operation: "create", code: "invalid-id" })
   })
 
   it("a new store after deletion can reacquire the ID without an open session", async () => {
