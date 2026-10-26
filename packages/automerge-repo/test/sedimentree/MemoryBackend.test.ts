@@ -101,6 +101,19 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     ).rejects.toMatchObject({ operation: "create", code: "invalid-id" })
   })
 
+  it("snapshots create input before an async mint", async () => {
+    const minted = new Uint8Array(32).fill(0xcd)
+    const backend = create({ mintDocumentId: async () => minted })
+    const input = [commit(1)]
+    const pending = backend.create(input)
+    ;(input[0].blob as Uint8Array).fill(0)
+    input.push(commit(2))
+    const id = await pending
+    expect(
+      (await initial(backend.open(id).events[Symbol.asyncIterator]())).records
+    ).toEqual([commit(1)])
+  })
+
   it("a new store after deletion can reacquire the ID without an open session", async () => {
     const backend = create()
     await backend.store(treeId(), [commit(1)])

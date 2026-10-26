@@ -606,11 +606,21 @@ export class SubductionBackend implements SedimentreeBackend {
         "invalid-record",
         "Initial history is empty"
       )
+    // Native snapshots input only once storeBatch is called; minting and the
+    // existence check await first, so snapshot here.
+    let records: SedimentreeRecord[]
+    try {
+      records = initialRecords.map(copyRecord)
+    } catch (cause) {
+      throw new BackendError("create", "invalid-record", String(cause), false, {
+        cause,
+      })
+    }
     const id =
       options.documentId !== undefined
         ? backendId("create", options.documentId)
-        : await mintBackendId(initialRecords, this.mintDocumentId)
-    await this.storeRecords(id, initialRecords, true)
+        : await mintBackendId(records, this.mintDocumentId)
+    await this.storeRecords(id, records, true)
     return id
   }
   store(input: SedimentreeId, batch: RecordBatch): Promise<void> {
@@ -618,24 +628,12 @@ export class SubductionBackend implements SedimentreeBackend {
   }
   private storeRecords(
     input: SedimentreeId,
-    batch: RecordBatch,
+    records: RecordBatch,
     creating = false
   ): Promise<void> {
     try {
       const id = backendId(creating ? "create" : "store", input)
       this.check("store", id)
-      let records: SedimentreeRecord[]
-      try {
-        records = batch.map(copyRecord)
-      } catch (cause) {
-        throw new BackendError(
-          "store",
-          "invalid-record",
-          String(cause),
-          false,
-          { cause }
-        )
-      }
       const operation = creating ? "create" : "store"
       const engine = this.engine
       const write = (async () => {
@@ -653,13 +651,15 @@ export class SubductionBackend implements SedimentreeBackend {
           // One native call: it signs everything, saves through the bridge
           // once and minimizes once. Automerge's own memory limit is reached
           // long before a batch is large enough to need splitting here.
-          const commits: N.CommitInput[] = []
-          const fragments: N.FragmentInput[] = []
-          for (const record of records)
-            if (record.kind === "commit") commits.push(commitInput(record))
-            else fragments.push(fragmentInput(record))
           submitted = true
           try {
+            const commits: N.CommitInput[] = []
+            const fragments: N.FragmentInput[] = []
+            for (const record of records)
+              if (record.kind === "commit") commits.push(commitInput(record))
+              else fragments.push(fragmentInput(record))
+            // Native validates and copies the batch synchronously here, before
+            // store() returns, so callers may reuse their buffers at once.
             await engine.storeBatch(id, { commits, fragments })
           } catch (cause) {
             // Native rejects invalid input (including wire count limits)

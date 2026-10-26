@@ -127,6 +127,19 @@ describe("real local Subduction", () => {
     expect(mintDocumentId).toHaveBeenCalledTimes(1)
   })
 
+  it("snapshots create input before an async mint", async () => {
+    const keyhive = sedimentreeId("cd".repeat(32))
+    const backend = create({
+      mintDocumentId: async () => Buffer.from(keyhive, "hex"),
+    })
+    const input = [record(1)]
+    const pending = backend.create(input)
+    ;(input[0].blob as Uint8Array).fill(0)
+    input.push(record(2))
+    const id = await pending
+    expect((await initial(backend.open(id), id)).records).toEqual([record(1)])
+  })
+
   it.each([
     ["returns a wrong length", () => new Uint8Array(16)],
     [

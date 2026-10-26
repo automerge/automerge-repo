@@ -99,15 +99,28 @@ export class MemoryBackend implements SedimentreeBackend {
         "Initial history is empty"
       )
     }
+    // Minting awaits, so snapshot before it.
+    let records: SedimentreeRecord[]
+    try {
+      records = initialRecords.map(copyRecord)
+    } catch (cause) {
+      throw new BackendError(
+        "create",
+        "invalid-record",
+        "Invalid sedimentree record",
+        false,
+        { cause }
+      )
+    }
     const id =
       options.documentId !== undefined
         ? backendId("create", options.documentId)
-        : await mintBackendId(initialRecords, this.#mintDocumentId)
+        : await mintBackendId(records, this.#mintDocumentId)
     this.#assertOpen("create")
     this.#assertNotDeleting("create", id)
     if (this.#trees.get(id)?.records.size)
       throw new BackendError("create", "conflict", "Document already exists")
-    await this.store(id, initialRecords)
+    await this.store(id, records)
     return id
   }
 
