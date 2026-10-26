@@ -1,4 +1,6 @@
 // Runs in a separate Node process per target, to isolate each version's runtime.
+// Fullfat initializes Automerge's WASM for this process.
+// eslint-disable-next-line no-restricted-imports
 import "@automerge/automerge"
 import { readFile, writeFile } from "node:fs/promises"
 import { createHash } from "node:crypto"

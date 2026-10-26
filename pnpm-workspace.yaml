@@ -10,7 +10,7 @@ allowBuilds:
   nx: true
   svelte-preprocess: true
 overrides:
-  '@automerge/subduction': link:../subduction/subduction_wasm
+  "@automerge/subduction": link:../subduction/subduction_wasm
   semver: ^7.5.2
 # Supply-chain guard: wait 3 days (4320 minutes) after a version is published before
 # installing it, so a malicious or compromised release has time to be detected and

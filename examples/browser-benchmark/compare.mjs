@@ -33,6 +33,19 @@ for (let round = 0; round < runs; round++) {
       throw new Error(
         `Unknown target ${name}; run bench:prepare name=ref:adapter`
       )
+    // poc bundles workspace packages from dist; rebuild so it matches sources.
+    if (name === "poc")
+      command(
+        "pnpm",
+        [
+          "--filter",
+          "@automerge/automerge-repo-subduction...",
+          "--filter",
+          "@automerge/automerge-repo-subduction-storage-indexeddb...",
+          "build",
+        ],
+        root
+      )
     const env = {
       ...process.env,
       BENCH_NAME: name,
