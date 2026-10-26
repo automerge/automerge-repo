@@ -11,9 +11,7 @@ point to compiled `dist`; tests exercise `src`.
 ## API
 
 ```ts
-getRecordMetadata(doc: Doc<unknown>): RecordMetadata[]
-recordMetadataKey(metadata: RecordMetadata): string
-extractRecords(doc: Doc<unknown>, select?: RecordPredicate): SedimentreeRecord[]
+extractRecords(doc: Doc<unknown>): SedimentreeRecord[]
 extractNewCommits(before: Doc<unknown>, after: Doc<unknown>): LooseCommitRecord[]
 extractFragments(doc: Doc<unknown>, heads: Iterable<CommitId>): { records: FragmentRecord[]; absent: CommitId[] }
 isBoundary(id: CommitId): boolean
@@ -21,19 +19,14 @@ applyRecords<T>(doc: Doc<T>, records: RecordBatch): Doc<T>
 satisfiesMarker(doc: Doc<unknown>, heads: readonly CommitId[]): boolean
 ```
 
-`RecordMetadata` is the contract's commit/fragment union without `blob`;
-`RecordPredicate` receives that metadata.
-
 Extraction calls `getFragmentMetadata`, projects canonical IDs and sorted,
-deduplicated metadata sets, applies the optional predicate, and calls
-`bundleFragmentMetadata` **only for the selected native metadata**. Level zero
+deduplicated metadata sets, and calls `bundleFragmentMetadata` once. Level zero
 becomes loose commits; higher levels become fragments. Full Automerge checkpoint
 hashes become the contract's **12-byte prefixes**, using `checkpointForCommit`.
 The pinned version includes the [3.5.0 fragment checkpoint fix](https://raw.githubusercontent.com/automerge/automerge/4d2a8f6bfecfb7f1e4fca126e6d2122ac526f903/javascript/CHANGELOG.md):
 checkpoints exclude the fragment's head and boundary hashes, while the head
 remains in its members. Regression tests cover metadata and bundled APIs.
-No fragments are decoded or serialized to make the selection. Metadata passed to
-the predicate is frozen; output bytes belong to the caller.
+Output bytes belong to the caller.
 
 `extractNewCommits` returns every change added since `before` as a loose commit,
 via `getChangesSince(after, getHeads(before))`, boundaries included; it never
@@ -45,8 +38,6 @@ into a higher fragment, or unknown to the document) are returned as `absent`.
 Repo uses these to store edits loose and compact boundaries later. Deletion of
 superseded records is not performed.
 
-`recordMetadataKey` includes the complete canonical metadata, not just a head.
-It is **not** a blob fingerprint, representation equality, or coverage proof.
 Neither matching heads nor matching metadata authorizes discarding arbitrary
 incoming representations. Controllers must separately track persistence attempts,
 acknowledgments, representations, and proven coverage; a failed store must remain
@@ -91,7 +82,7 @@ metadata-versus-payload checks; Automerge load errors propagate to the caller.
   Automerge runtimes.
 
 Tests use a fixed-actor, all-times-zero 2,000-change fixture, plus deterministic
-forks. They cover metadata-only selection, fragments and loose commits, duplicates,
+forks. They cover fragments and loose commits, duplicates,
 pending dependencies, edits during loading, history inclusion, and buffer
 ownership.
 

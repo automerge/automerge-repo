@@ -6,8 +6,6 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import {
   checkpointForCommit,
   commitId,
-  equalRecords,
-  recordKey,
   type CommitId,
   type FragmentRecord,
   type LooseCommitRecord,
@@ -18,8 +16,6 @@ import {
   extractFragments,
   extractRecords,
   extractNewCommits,
-  getRecordMetadata,
-  recordMetadataKey,
   satisfiesMarker,
 } from "../../src/sedimentree/automerge/index.js"
 
@@ -181,9 +177,6 @@ describe("metadata-first extraction", () => {
     expect(records.some(record => record.kind === "fragment")).toBe(true)
     const metadata = A.getFragmentMetadata(fixture)
     expect(new Set(metadata.flatMap(meta => meta.members)).size).toBe(2000)
-    expect(records.map(recordMetadataKey)).toEqual(
-      getRecordMetadata(fixture).map(recordMetadataKey)
-    )
     metadata.forEach((meta, index) => {
       const record = records[index]
       if (record.kind === "fragment") {
@@ -224,61 +217,24 @@ describe("metadata-first extraction", () => {
     }
   })
 
-  it("inspects without bundling; bundles only selected native metadata", () => {
+  it("bundles all metadata in one call without decoding history", () => {
     const getMetadata = vi.spyOn(A, "getFragmentMetadata")
     const bundle = vi.spyOn(A, "bundleFragmentMetadata")
     const decode = vi.spyOn(A, "decodeChange")
     const readBundle = vi.spyOn(A, "readBundle")
     const getFragments = vi.spyOn(A, "getFragments")
     const getAllChanges = vi.spyOn(A, "getAllChanges")
-    const metadata = getRecordMetadata(fixture)
-    expect(bundle).not.toHaveBeenCalled()
-    const wanted = new Set([
-      recordMetadataKey(metadata[0]),
-      recordMetadataKey(metadata.at(-1)!),
-    ])
-    const selected = extractRecords(fixture, meta =>
-      wanted.has(recordMetadataKey(meta))
-    )
-    expect(getMetadata).toHaveBeenCalledTimes(2)
-    expect(bundle).toHaveBeenCalledTimes(1)
-    expect(bundle.mock.calls[0][1]).toHaveLength(2)
-    expect(selected.map(recordMetadataKey)).toEqual([...wanted])
-    expect(
-      selected.every(record =>
-        records.some(original => equalRecords(record, original))
-      )
-    ).toBe(true)
+    expect(extractRecords(fixture)).toEqual(records)
+    expect(getMetadata).toHaveBeenCalledOnce()
+    expect(bundle).toHaveBeenCalledOnce()
+    expect(bundle.mock.calls[0][1]).toHaveLength(records.length)
     expect(decode).not.toHaveBeenCalled()
     expect(readBundle).not.toHaveBeenCalled()
     expect(getFragments).not.toHaveBeenCalled()
     expect(getAllChanges).not.toHaveBeenCalled()
-    expect(extractRecords(fixture, () => false)).toEqual([])
-    expect(bundle).toHaveBeenCalledTimes(1)
   })
 
-  it("keeps full metadata distinct from the logical head key and bytes", () => {
-    const fragment = records.find(
-      record => record.kind === "fragment"
-    ) as FragmentRecord
-    const variant = { ...fragment, boundary: [commitId("ff".repeat(32))] }
-    expect(recordKey(variant)).toBe(recordKey(fragment))
-    expect(recordMetadataKey(variant)).not.toBe(recordMetadataKey(fragment))
-    expect(equalRecords(variant, fragment)).toBe(false)
-    const otherBytes = { ...fragment, blob: new Uint8Array([1]) }
-    expect(recordMetadataKey(otherBytes)).toBe(recordMetadataKey(fragment))
-    expect(equalRecords(otherBytes, fragment)).toBe(false)
-    expect(
-      recordMetadataKey({
-        ...variant,
-        boundary: [...variant.boundary, ...variant.boundary],
-      })
-    ).toBe(recordMetadataKey(variant))
-  })
-
-  it("does not expose mutable native metadata or borrowed output buffers", () => {
-    const metadata = getRecordMetadata(fixture)
-    expect(Object.isFrozen(metadata[0])).toBe(true)
+  it("does not expose borrowed output buffers", () => {
     const first = extractRecords(fixture)
     first[0].blob.fill(0)
     const second = extractRecords(fixture)

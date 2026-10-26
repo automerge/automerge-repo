@@ -4,12 +4,10 @@ import { describe, expect, it } from "vitest"
 import { checkpointId, type CommitId } from "../../src/sedimentree/index.js"
 import {
   copyRecord,
-  equalRecords,
-  recordBytes,
   recordHead,
-  recordKey,
   type SedimentreeRecord,
 } from "../../src/sedimentree/index.js"
+import { equalRecords, recordBytes, recordKey } from "../helpers/records.js"
 import { cid, commit, fragment } from "./helpers.js"
 
 describe("plain record validation and ownership", () => {

@@ -42,10 +42,6 @@
     "./sedimentree/automerge": {
       "types": "./dist/sedimentree/automerge/index.d.ts",
       "default": "./dist/sedimentree/automerge/index.js"
-    },
-    "./sedimentree/testing": {
-      "types": "./dist/sedimentree/testing/index.d.ts",
-      "default": "./dist/sedimentree/testing/index.js"
     }
   },
   "publishConfig": {

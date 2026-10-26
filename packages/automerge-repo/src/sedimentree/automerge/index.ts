@@ -12,11 +12,7 @@ import {
 import { concatBytes } from "../concatBytes.js"
 
 /** Canonical metadata, without encoding any payloads. Not a coverage proof. */
-export type RecordMetadata =
-  | Omit<LooseCommitRecord, "blob">
-  | Omit<FragmentRecord, "blob">
-
-export type RecordPredicate = (metadata: RecordMetadata) => boolean
+type RecordMetadata = Omit<LooseCommitRecord, "blob"> | Omit<FragmentRecord, "blob">
 
 function canonicalIds(ids: readonly string[]): CommitId[] {
   return [...new Set(ids.map(commitId))].sort()
@@ -44,50 +40,16 @@ function project(meta: A.FragmentMeta): RecordMetadata {
   })
 }
 
-/** Inspect the current covering representation; pending changes are not included. */
-export function getRecordMetadata(doc: A.Doc<unknown>): RecordMetadata[] {
-  return A.getFragmentMetadata(doc).map(project)
-}
-
 /**
- * Stable key of all canonical metadata, NOT of the encoded representation.
- * Even equal metadata does not prove equal blobs or equivalent history coverage.
+ * Encode the current covering representation in one bundling call; pending
+ * changes are not included. Returned blobs are owned by the caller.
  */
-export function recordMetadataKey(metadata: RecordMetadata): string {
-  if (metadata.kind === "commit") {
-    return JSON.stringify([
-      "commit",
-      commitId(metadata.id),
-      canonicalIds(metadata.parents),
-    ])
-  }
-  return JSON.stringify([
-    "fragment",
-    commitId(metadata.head),
-    canonicalIds(metadata.boundary),
-    [...new Set(metadata.checkpoints.map(checkpointId))].sort(),
-  ])
-}
-
-/**
- * Inspect first, then encode ONLY selected metadata in one bundling call.
- * Selection never decodes/serializes all fragments. Returned blobs are owned by
- * the caller. The predicate sees frozen metadata, not Automerge's mutable arrays.
- */
-export function extractRecords(
-  doc: A.Doc<unknown>,
-  select: RecordPredicate = () => true
-): SedimentreeRecord[] {
-  const selected = A.getFragmentMetadata(doc)
-    .map(native => ({ native, metadata: project(native) }))
-    .filter(({ metadata }) => select(metadata))
-  if (selected.length === 0) return []
-  const blobs = A.bundleFragmentMetadata(
-    doc,
-    selected.map(({ native }) => native)
-  )
-  return selected.map(({ metadata }, index) => ({
-    ...metadata,
+export function extractRecords(doc: A.Doc<unknown>): SedimentreeRecord[] {
+  const native = A.getFragmentMetadata(doc)
+  if (native.length === 0) return []
+  const blobs = A.bundleFragmentMetadata(doc, native)
+  return native.map((meta, index) => ({
+    ...project(meta),
     blob: new Uint8Array(blobs[index]),
   }))
 }

@@ -14,7 +14,7 @@ import {
   checkpointForCommit,
   commitId,
   copyRecord,
-  recordKey,
+  recordHead,
   sedimentreeId,
   type FragmentRecord,
   type LooseCommitRecord,
@@ -145,8 +145,8 @@ describe("local Subduction fragments", () => {
     )
     realBoundary = {
       acknowledged,
-      pending: extractRecords(after, meta =>
-        added.has(meta.kind === "commit" ? meta.id : meta.head)
+      pending: extractRecords(after).filter(record =>
+        added.has(recordHead(record))
       ),
       prior,
       after,
@@ -336,9 +336,9 @@ describe("local Subduction fragments", () => {
 
     const reopened = create()
     const stored = (await initial(reopened)).records
-    expect(stored.map(recordKey).sort()).toEqual(
-      acknowledged.map(recordKey).sort()
-    )
+    const key = (record: SedimentreeRecord) =>
+      `${record.kind}:${recordHead(record)}`
+    expect(stored.map(key).sort()).toEqual(acknowledged.map(key).sort())
     expect(applyRecords(A.init<{ count: number }>(), stored)).toEqual(prior)
     await reopened.store(tree, pending)
     await reopened.close()

@@ -22,8 +22,8 @@ export class Document<T = unknown> {
   /** No WASM document until storage, peer history, or a caller needs one. */
   #doc?: A.Doc<T>
 
-  /** Owns readiness; documents built without a Repo are always ready. */
-  query?: RootQuery<any>
+  /** Owns readiness; set by Repo right after construction. */
+  query!: RootQuery<any>
 
   /** Set by {@link Document.delete}. */
   deleted = false
@@ -80,7 +80,7 @@ export class Document<T = unknown> {
   }
 
   get ready(): boolean {
-    return !this.query || this.query.state().state === "ready"
+    return this.query.state().state === "ready"
   }
 
   /** Mark deleted, settle the query, then notify every handle. Idempotent. */
@@ -88,7 +88,7 @@ export class Document<T = unknown> {
     if (this.deleted) return
     this.deleted = true
     // Settle acquisition before delete listeners can synchronously find the ID.
-    this.query?.deleted()
+    this.query.deleted()
     this.registry.dispatchDelete()
   }
 

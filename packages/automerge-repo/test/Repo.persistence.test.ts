@@ -1,10 +1,10 @@
 import { next as A } from "@automerge/automerge"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Repo } from "../src/Repo.js"
-import { DocHandle } from "../src/DocHandle.js"
-import { Document } from "../src/Document.js"
+import type { DocHandle } from "../src/DocHandle.js"
+import { createTestDocument } from "./helpers/testHandle.js"
 import { documentIdToBinary } from "../src/AutomergeUrl.js"
-import { MemoryBackend } from "../src/sedimentree/testing/MemoryBackend.js"
+import { MemoryBackend } from "./helpers/MemoryBackend.js"
 import { sedimentreeId, type SedimentreeId } from "../src/sedimentree/index.js"
 import { applyRecords } from "../src/sedimentree/automerge/index.js"
 import type { DocumentId } from "../src/types.js"
@@ -128,14 +128,12 @@ describe("Repo persistence", () => {
       })
       expect(await handle.changeAt(heads, d => (d.count = 2))).toBeDefined()
       await r.flush()
-      const other = new DocHandle(
-        new Document(
-          "other" as DocumentId,
-          A.change(A.clone(handle.fullDoc()), d => {
-            d.count = 3
-          })
-        )
-      )
+      const other = createTestDocument(
+        "other" as DocumentId,
+        A.change(A.clone(handle.fullDoc()), d => {
+          d.count = 3
+        })
+      ).handle
       await handle.merge(other)
       await handle.sub("nested").remove()
       expect(store).toHaveBeenCalledTimes(4)

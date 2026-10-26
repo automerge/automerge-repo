@@ -8,7 +8,7 @@ import {
   type SedimentreeEvent,
   type SedimentreeSession,
 } from "../../src/sedimentree/index.js"
-import { MemoryBackend } from "../../src/sedimentree/testing/index.js"
+import { MemoryBackend } from "../helpers/MemoryBackend.js"
 import {
   applyRecords,
   extractRecords,

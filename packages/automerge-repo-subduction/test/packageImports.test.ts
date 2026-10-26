@@ -23,7 +23,6 @@ describe("lightweight package entrypoints", () => {
 
   it.each([
     ["@automerge/automerge-repo/sedimentree", "sedimentreeId", []],
-    ["@automerge/automerge-repo/sedimentree/testing", "MemoryBackend", []],
     [
       "@automerge/automerge-repo/sedimentree/automerge",
       "extractRecords",

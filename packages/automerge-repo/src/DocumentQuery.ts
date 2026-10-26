@@ -45,13 +45,13 @@ export interface DocumentQuery<T> {
  */
 export class RootQuery<T> implements DocumentQuery<T> {
   readonly documentId: DocumentId
-  readonly handle: DocHandle<T>
+  readonly #handle: DocHandle<T>
   #state: QueryState<T> = { state: "loading" }
   #subscribers = new Set<(state: QueryState<T>) => void>()
 
   constructor(handle: DocHandle<T>) {
     this.documentId = handle.documentId
-    this.handle = handle
+    this.#handle = handle
   }
 
   state(): QueryState<T> {
@@ -75,12 +75,8 @@ export class RootQuery<T> implements DocumentQuery<T> {
     return state === "deleted" || state === "failed"
   }
 
-  loading(): void {
-    if (this.pending) this.#transition({ state: "loading" })
-  }
-
   ready(): void {
-    if (this.pending) this.#transition({ state: "ready", handle: this.handle })
+    if (this.pending) this.#transition({ state: "ready", handle: this.#handle })
   }
 
   unavailable(): void {

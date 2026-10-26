@@ -3,12 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   MemoryBackend,
   type MemoryBackendOptions,
-} from "../../src/sedimentree/testing/MemoryBackend.js"
+} from "../helpers/MemoryBackend.js"
 import {
-  recordBytes,
   recordHead,
   type SedimentreeRecord,
 } from "../../src/sedimentree/index.js"
+import { recordBytes } from "../helpers/records.js"
 import {
   sedimentreeId,
   type SedimentreeId,

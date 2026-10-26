@@ -1,5 +1,5 @@
 import { vi, type Mock } from "vitest"
-import { MemoryBackend } from "../../src/sedimentree/testing/MemoryBackend.js"
+import { MemoryBackend } from "./MemoryBackend.js"
 import type {
   SedimentreeEvent,
   SedimentreeId,

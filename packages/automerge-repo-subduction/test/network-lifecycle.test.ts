@@ -4,7 +4,6 @@ import * as N from "@automerge/subduction"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   recordHead,
-  recordKey,
   sedimentreeId,
   type SedimentreeEvent,
   type SedimentreeId,
@@ -32,7 +31,7 @@ const baseline = extractRecords(
   })
 )
 const persistedRecords = [...baseline, ...records].sort((a, b) =>
-  recordKey(a).localeCompare(recordKey(b))
+  `${a.kind}:${recordHead(a)}`.localeCompare(`${b.kind}:${recordHead(b)}`)
 )
 type Peer = {
   storage: TestStore

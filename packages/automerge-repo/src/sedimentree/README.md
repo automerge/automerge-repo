@@ -8,12 +8,8 @@ Names, event schemas and conflict handling remain provisional.
 
 The pure Automerge translation is available separately through
 `@automerge/automerge-repo/sedimentree/automerge`; see its [README](./automerge/README.md).
-The testing-only backend is exported through `/sedimentree/testing`, not the
-contract entrypoint.
-
 Import its types and helpers directly from
-`@automerge/automerge-repo/sedimentree`; translation and test utilities use
-separate subpaths.
+`@automerge/automerge-repo/sedimentree`; translation uses a separate subpath.
 
 ## Plain values and ownership
 
@@ -27,8 +23,7 @@ ID. A stream's `HistoryMarker` instead contains full commit heads.
 
 A record's logical key is its kind plus commit ID/fragment head, scoped to its
 tree. `copyRecord` canonicalizes metadata sets and copies bytes, including Buffer
-inputs. `equalRecords` compares **canonical exact representations**, not history
-equivalence. It does not prove fragment coverage. Backends snapshot mutable
+inputs. Backends snapshot mutable
 inputs before returning control, so callers may immediately reuse their arrays
 and buffers without awaiting the store promise. Returned metadata is readonly
 and may be frozen/shared; delivered writable byte buffers belong to each observer
@@ -58,11 +53,8 @@ never from the envelope's claimed origin. Ephemeral data is not persisted.
 
 ## Deterministic memory test double
 
-```ts
-import { MemoryBackend } from "@automerge/automerge-repo/sedimentree/testing"
-```
-
-This is **not a production default**. It retains exact records, creates no network
+`MemoryBackend` lives in `packages/automerge-repo/test/helpers/` and is not
+exported. It is **not a production default**. It retains exact records, creates no network
 connections, and performs no compaction or reclamation. Same logical key with
 conflicting metadata/blob bytes rejects explicitly. This is deliberately stricter
 than Subduction's variant resolution and cannot validate cross-backend coverage.

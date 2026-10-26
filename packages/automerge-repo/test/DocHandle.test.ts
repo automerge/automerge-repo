@@ -8,7 +8,8 @@ import {
 } from "../src/AutomergeUrl.js"
 import { eventPromise } from "./helpers/eventPromise.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
-import { Document } from "../src/Document.js"
+import type { Document } from "../src/Document.js"
+import { createTestDocument } from "./helpers/testHandle.js"
 import type { StorageId } from "../src/types.js"
 import { TestDoc } from "./types.js"
 
@@ -18,9 +19,13 @@ describe("DocHandle", () => {
   const documents = new WeakMap<DocHandle<any>, Document<any>>()
   const setup = (options?: any) => {
     const { quick, documentId, doc, ...rest } = options ?? {}
-    let id = documentId ?? TEST_ID
-    const document = new Document<TestDoc>(id, doc ?? A.init<TestDoc>())
-    const handle = new DocHandle<TestDoc>(document, rest)
+    const { document, handle: root } = createTestDocument<TestDoc>(
+      documentId ?? TEST_ID,
+      doc
+    )
+    const handle = Object.keys(rest).length
+      ? new DocHandle<TestDoc>(document, rest)
+      : root
     documents.set(handle, document)
     return handle
   }
@@ -36,8 +41,7 @@ describe("DocHandle", () => {
   })
 
   it("shares document-owned remote sync info across root and sub-handles", () => {
-    const document = new Document<TestDoc>(TEST_ID, A.init<TestDoc>())
-    const handle = new DocHandle(document)
+    const { document, handle } = createTestDocument<TestDoc>(TEST_ID)
     const peer = "peer" as StorageId
     const heads = A.getHeads(A.from({ count: 1 }))
     document.recordRemoteHeads(peer, heads)
@@ -571,9 +575,8 @@ describe("DocHandle", () => {
     })
 
     it("getSyncInfo reads remote heads recorded by Document", () => {
-      const document = new Document<TestDoc>(TEST_ID, A.init<TestDoc>())
+      const { document, handle } = createTestDocument<TestDoc>(TEST_ID)
       document.recordRemoteHeads("storage-1" as StorageId, ["abcd"])
-      const handle = new DocHandle<TestDoc>(document, {})
       expect(handle.getSyncInfo("storage-1" as StorageId)).toMatchObject({
         lastHeads: encodeHeads(["abcd"]),
         lastSyncTimestamp: expect.any(Number),
@@ -582,9 +585,8 @@ describe("DocHandle", () => {
     })
 
     it("view handles share Document sync info", () => {
-      const document = new Document<TestDoc>(TEST_ID, A.init<TestDoc>())
+      const { document, handle } = createTestDocument<TestDoc>(TEST_ID)
       document.recordRemoteHeads("storage-1" as StorageId, ["abcd"])
-      const handle = new DocHandle<TestDoc>(document, {})
       document.applyMutation(d => A.change(d, x => (x.foo = "bar")))
       const view = handle.view(handle.heads())
       assert.deepEqual(

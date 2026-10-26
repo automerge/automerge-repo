@@ -9,18 +9,16 @@ import {
   type SedimentreeEvent,
   type SedimentreeSession,
   type SyncRoundResult,
-} from "../index.js"
-import type { CommitId, SedimentreeId } from "../index.js"
+} from "../../src/sedimentree/index.js"
+import type { CommitId, SedimentreeId } from "../../src/sedimentree/index.js"
 import {
   copyRecord,
-  equalRecords,
-  recordBytes,
   recordHead,
-  recordKey,
   type RecordBatch,
   type SedimentreeRecord,
-} from "../index.js"
+} from "../../src/sedimentree/index.js"
 import { Observation } from "./Observation.js"
+import { equalRecords, recordBytes, recordKey } from "./records.js"
 
 export interface MemoryBackendOptions {
   /** Maximum records per delivered batch (a single oversized record is allowed). */

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest"
 import * as Automerge from "@automerge/automerge"
 import { Repo } from "../../src/Repo.js"
 import { DocHandle } from "../../src/DocHandle.js"
-import { Document } from "../../src/Document.js"
+import { createTestDocument } from "../helpers/testHandle.js"
 import type { HandleRegistry } from "../../src/subdoc-handles/handle-registry.js"
 import { encodeHeads } from "../../src/AutomergeUrl.js"
 import { splice } from "../../src/index.js"
@@ -670,9 +670,9 @@ describe("unified DocHandle / Ref", () => {
     let baseline: number
     let registry: HandleRegistry
     beforeEach(() => {
-      const document = new Document<any>(handle.documentId, Automerge.init())
-      handle = new DocHandle(document)
-      registry = document.registry
+      const created = createTestDocument<any>(handle.documentId)
+      handle = created.handle
+      registry = created.document.registry
       baseline = registry.retainedCount
     })
 

@@ -10,7 +10,7 @@ import {
   parseAutomergeUrl,
   stringifyAutomergeUrl,
 } from "../src/AutomergeUrl.js"
-import { MemoryBackend } from "../src/sedimentree/testing/MemoryBackend.js"
+import { MemoryBackend } from "./helpers/MemoryBackend.js"
 import { idBytes, sedimentreeId } from "../src/sedimentree/index.js"
 import { extractRecords } from "../src/sedimentree/automerge/index.js"
 import type {
