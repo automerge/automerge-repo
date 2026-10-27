@@ -97,7 +97,7 @@ describe("backend-driven Repo", () => {
     expect(documentIdToBinary(handle.documentId)).toEqual(minted)
   })
 
-  it("resolves a legacy 16-byte ID and its 32-byte form to one handle", async () => {
+  it("resolves a legacy 16-byte URL and its 32-byte form to one handle", async () => {
     const backend = new MemoryBackend()
     const legacy = new Uint8Array(16).fill(3) as BinaryDocumentId
     const legacyUrl = `automerge:${binaryToDocumentId(legacy)}` as AutomergeUrl
@@ -114,8 +114,9 @@ describe("backend-driven Repo", () => {
     expect(await r.find(binaryToDocumentId(full as BinaryDocumentId))).toBe(
       handle
     )
-    expect(await r.find(legacy)).toBe(handle)
     expect(r.query(legacyUrl)).toBe(r.query(handle.url))
+    await expect(r.find(legacy)).rejects.toThrow()
+    await expect(r.find(binaryToDocumentId(legacy))).rejects.toThrow()
   })
 
   it("imports into a local-only lookup and announces it once", async () => {

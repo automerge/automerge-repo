@@ -43,25 +43,24 @@ describe("AutomergeUrl", () => {
   })
 
   describe("legacy 16-byte IDs", () => {
-    it("normalizes to the 32-byte ID everywhere one is accepted", () => {
+    it("normalizes a legacy URL to the 32-byte ID", () => {
       assert.equal(parseAutomergeUrl(legacyUrl).documentId, goodDocumentId)
       assert.deepEqual(
         parseAutomergeUrl(legacyUrl).binaryDocumentId,
         goodBinaryDocumentId
       )
-      assert.equal(stringifyAutomergeUrl(legacyDocumentId), goodUrl)
-      assert.equal(
-        stringifyAutomergeUrl({ documentId: legacyBinaryDocumentId }),
-        goodUrl
-      )
       assert.equal(interpretAsDocumentId(legacyUrl), goodDocumentId)
-      assert.equal(interpretAsDocumentId(legacyDocumentId), goodDocumentId)
-      assert.equal(
-        interpretAsDocumentId(legacyBinaryDocumentId),
-        goodDocumentId
-      )
-      assert(isValidDocumentId(legacyDocumentId))
       assert(isValidAutomergeUrl(legacyUrl))
+    })
+
+    it("rejects a legacy ID outside a URL", () => {
+      assert(!isValidDocumentId(legacyDocumentId))
+      assert.throws(() => stringifyAutomergeUrl(legacyDocumentId))
+      assert.throws(() =>
+        stringifyAutomergeUrl({ documentId: legacyBinaryDocumentId })
+      )
+      assert.throws(() => interpretAsDocumentId(legacyDocumentId))
+      assert.throws(() => interpretAsDocumentId(legacyBinaryDocumentId))
     })
 
     it("keeps path and heads when re-stringifying a legacy URL", () => {
@@ -150,7 +149,7 @@ describe("AutomergeUrl", () => {
     assert.deepStrictEqual(interpretAsDocumentId(url), documentId)
   })
 
-  it("should reject ids that are neither 16 nor 32 bytes", () => {
+  it("should reject ids of any other length", () => {
     for (const length of [0, 9, 15, 17, 31, 33]) {
       const raw = new Uint8Array(length).fill(7) as BinaryDocumentId
       const documentId = binaryToDocumentId(raw)
