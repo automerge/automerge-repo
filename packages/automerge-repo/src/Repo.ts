@@ -9,7 +9,7 @@ import {
 } from "./AutomergeUrl.js"
 import { DocHandle } from "./DocHandle.js"
 import { Document } from "./Document.js"
-import { DocumentSync } from "./DocumentSync.js"
+import { DocumentDelegate } from "./DocumentDelegate.js"
 import {
   RootQuery,
   queryAtHeads,
@@ -37,7 +37,7 @@ type Entry<T = any> = {
   document: Document<T>
   handle: DocHandle<T>
   query: RootQuery<T>
-  sync?: DocumentSync<T>
+  delegate?: DocumentDelegate<T>
 }
 
 /** Owns Automerge documents; an optional backend owns their storage and sync. */
@@ -202,7 +202,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       // Loading can begin while backend creation is pending. Adopt that shared entry.
       if (existing.document.deleted || existing.document.closed)
         throw new Error("Document is no longer open")
-      if (existing.sync) existing.sync.adopt(doc)
+      if (existing.delegate) existing.delegate.adopt(doc)
       else {
         await existing.document.applyMutation(
           current => A.merge(current, A.clone(doc)),
@@ -232,7 +232,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     const entry: Entry<T> = { document, handle, query }
     if (this.#backend)
-      entry.sync = new DocumentSync(
+      entry.delegate = new DocumentDelegate(
         this.#backendId(id),
         document,
         query,
@@ -242,7 +242,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       )
     this.#entries.set(id, entry)
     let announced = false
-    entry.sync?.start()
+    entry.delegate?.start()
     query.subscribe(state => {
       if (!announced && state.state === "ready") {
         announced = true
@@ -259,8 +259,8 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#entries.delete(id)
       // Shutdown releases sessions itself.
       if (this.#closed) return
-      if (entry.sync)
-        void this.#track(entry.sync.release()).catch(error =>
+      if (entry.delegate)
+        void this.#track(entry.delegate.release()).catch(error =>
           this.#log.error("failed to release a settled document", error)
         )
       if (state.state === "deleted")
@@ -300,10 +300,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     } catch (error) {
       removal = Promise.reject(error)
     }
-    const sync = entry?.sync
+    const delegate = entry?.delegate
     const release = (async () => {
-      sync?.markDeleted()
-      await sync?.release()
+      delegate?.markDeleted()
+      await delegate?.release()
     })()
     return this.#track(
       (async () => {
@@ -338,7 +338,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         (async () => {
           // Compactions submit their stores synchronously, so the barrier
           // captured next covers them; a queued rerun is awaited directly.
-          const compactions = targets.map(entry => entry.sync?.compactNow())
+          const compactions = targets.map(entry => entry.delegate?.compactNow())
           const barrier = backend.flush(
             documents?.map(id => this.#backendId(id))
           )
@@ -367,15 +367,15 @@ export class Repo extends EventEmitter<RepoEvents> {
     const id = interpretAsDocumentId(input)
     const entry = this.#entries.get(id)
     if (!entry) return
-    const sync = entry.sync
-    if (!sync)
+    const delegate = entry.delegate
+    if (!delegate)
       throw new Error(
         "Cannot evict a local-only document: its handle holds the only copy"
       )
     // Stop edits before draining; otherwise retained handles can outlive eviction.
-    sync.close()
+    delegate.close()
     await this.flush([id])
-    await this.#track(sync.release())
+    await this.#track(delegate.release())
     if (this.#entries.get(id) === entry) this.#entries.delete(id)
     entry.query.fail(new Error("Document removed from cache"))
   }
@@ -386,7 +386,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     this.#closed = true
     const entries = [...this.#entries.values()]
     for (const entry of entries) {
-      if (entry.sync) entry.sync.close()
+      if (entry.delegate) entry.delegate.close()
       else entry.document.close()
     }
     const operations = [...this.#operations]
@@ -399,12 +399,14 @@ export class Repo extends EventEmitter<RepoEvents> {
       if (backend) {
         results.push(
           ...(await Promise.allSettled(
-            entries.map(entry => entry.sync?.compactNow())
+            entries.map(entry => entry.delegate?.compactNow())
           ))
         )
         results.push(...(await Promise.allSettled([backend.flush()])))
         results.push(...(await Promise.allSettled([backend.close()])))
-        await Promise.allSettled(entries.map(entry => entry.sync?.settled()))
+        await Promise.allSettled(
+          entries.map(entry => entry.delegate?.settled())
+        )
       }
       for (const error of collectErrors(results))
         this.#log.error("error during Repo shutdown", error)

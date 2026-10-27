@@ -36,7 +36,7 @@ export interface DocumentQuery<T> {
 }
 
 /**
- * The single per-document query, driven by the Repo and its DocumentSync.
+ * The single per-document query, driven by the Repo and its DocumentDelegate.
  * Terminal states (`deleted`, `failed`) ignore later reports.
  *
  * @internal

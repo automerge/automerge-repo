@@ -68,7 +68,7 @@ function whenIdle(run: () => void): () => void {
  * like any write. Flush compacts what is due at once; a request arriving after
  * it waits for the timer or the next load.
  */
-export class DocumentSync<T> {
+export class DocumentDelegate<T> {
   #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
   /** Storage-scan bytes, applied together at the scan's local-load-complete. */
   #blobs: Uint8Array[] = []
