@@ -1,6 +1,6 @@
 // Fullfat entrypoints initialize WASM before the slim-backed Repo and backend.
 // eslint-disable-next-line no-restricted-imports
-import "@automerge/automerge"
+import { splice } from "@automerge/automerge"
 import "@automerge/subduction"
 // eslint-disable-next-line no-restricted-imports
 import { Repo } from "@automerge/automerge-repo"
@@ -84,6 +84,7 @@ function profile(
 export const target: Target = {
   id: "poc",
   adapter: "backend-poc",
+  splice: splice as Target["splice"],
   open(database, stats) {
     const storage = new IndexedDBSubductionStorageAdapter({ database })
     const backend = new SubductionBackend({
@@ -94,6 +95,10 @@ export const target: Target = {
       import: bytes => repo.import(bytes),
       create: async <T>(initial: T) =>
         (await repo.create(initial)) as unknown as Handle<T>,
+      clone: async <T>(handle: Handle<T>) =>
+        (await repo.clone(
+          handle as unknown as Parameters<Repo["clone"]>[0]
+        )) as unknown as Handle<T>,
       find: async <T>(url: string) =>
         (await repo.find<T>(
           url as Parameters<Repo["find"]>[0]

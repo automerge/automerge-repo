@@ -94,6 +94,17 @@ for (const count of smoke ? [10] : [10, 100, 500, 1000]) {
   metrics[`load${count}WorstFrameMs`] = r =>
     Math.max(...r.loads.find(load => load.count === count).frameGapMs)
 }
+// Older reports have no mixed loads; their metrics compare as null.
+for (const count of smoke ? [50] : [100, 500, 1000]) {
+  const mixed = r => r.mixedLoads?.find(load => load.count === count) ?? null
+  metrics[`mixed${count}Ms`] = r => mixed(r)?.totalMs ?? null
+  metrics[`mixed${count}P95Ms`] = r => mixed(r)?.p95Ms ?? null
+  metrics[`mixed${count}WorstFrameMs`] = r =>
+    mixed(r) ? Math.max(...mixed(r).frameGapMs) : null
+  for (const bucket of ["small", "medium", "large", "text"])
+    metrics[`mixed${count}_${bucket}P95Ms`] = r =>
+      mixed(r)?.buckets[bucket]?.p95Ms ?? null
+}
 // Import classes come from the result itself so older reports (no imports)
 // compare as null rather than throwing. A class with any failed sample is null.
 const importClasses = new Set(
@@ -149,6 +160,13 @@ const importHashes = new Set(
 )
 if (importHashes.size !== 1)
   throw new Error("Import fixture manifests differ across targets")
+const mixedHashes = new Set(
+  Object.values(results)
+    .flat()
+    .map(result => result.mixedFixtureSha256 ?? null)
+)
+if (mixedHashes.size !== 1)
+  throw new Error("Mixed fixture manifests differ across targets")
 for (const [key, pick] of Object.entries(metrics)) {
   const baselineValues = series("main", pick)
   const baseline = baselineValues.every(value => value !== null)
@@ -188,6 +206,7 @@ const output = {
         adapter: r.target.adapter,
         fixtureSha256: r.fixtureSha256,
         seed: r.seed,
+        mixedSeed: r.mixedSeed ?? null,
       })),
     ])
   ),

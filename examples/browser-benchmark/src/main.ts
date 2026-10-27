@@ -1,7 +1,16 @@
 import "./style.css"
 import { deleteDatabase, saveSeedInfo, seedInfo, storeSize } from "./storage.js"
 import { target } from "bench-target"
-import type { StorageStats } from "./target.js"
+import type { Handle, Session, StorageStats } from "./target.js"
+import {
+  bucketSummary,
+  canonicalJson,
+  mixedCounts,
+  replayBatch,
+  type MixedDoc,
+  type MixedManifest,
+  type ReplayApi,
+} from "./mixed.js"
 
 type Fixture = { name: string; sha256: string; bytes: number }
 type Manifest = {
@@ -35,6 +44,16 @@ type LoadResult = {
     wasmBytes: null
   }
   storeMutated: boolean
+}
+type MixedLoadResult = LoadResult & {
+  buckets: ReturnType<typeof bucketSummary>
+}
+type SeedSummary = {
+  reused: boolean
+  durationMs: number
+  database: string
+  revision?: string
+  storage?: StorageStats
 }
 type ImportFixture = Fixture & {
   changes: number
@@ -88,23 +107,20 @@ type WriteResult = {
   storeBytes: number | null
 }
 type Result = {
-  schema: 4
+  schema: 5
   target: { id: string; adapter: string }
   mode: "full" | "smoke" | "custom"
   fixtureSha256: string
   importFixtureSha256: string | null
+  mixedFixtureSha256: string
   fixture: Omit<Manifest, "files">
   userAgent: string
   timestamp: string
-  seed: {
-    reused: boolean
-    durationMs: number
-    database: string
-    revision?: string
-    storage?: StorageStats
-  }
+  seed: SeedSummary
+  mixedSeed: SeedSummary & { keys?: number; bytes?: number }
   editDatabase?: string
   loads: LoadResult[]
+  mixedLoads: MixedLoadResult[]
   imports: ImportResult[]
   creates?: WriteResult
   burst?: WriteResult
@@ -208,6 +224,23 @@ async function importFixtures(): Promise<{
   return { manifest, hash: await sha256(bytes) }
 }
 
+async function mixedFixtures(): Promise<{
+  docs: MixedDoc[]
+  hash: string
+}> {
+  const response = await fetch("/fixtures/v1/mixed.json", {
+    cache: "no-store",
+  })
+  if (!response.ok)
+    throw new Error("Missing mixed fixtures. Run pnpm bench:fixtures first.")
+  const bytes = await response.arrayBuffer()
+  const manifest = JSON.parse(new TextDecoder().decode(bytes)) as MixedManifest
+  const count = mixedCounts(smoke).at(-1)!
+  if (manifest.version !== 1 || manifest.docs.length < count)
+    throw new Error(`Expected at least ${count} v1 mixed documents`)
+  return { docs: manifest.docs.slice(0, count), hash: await sha256(bytes) }
+}
+
 async function fetchFixture(fixture: Fixture): Promise<Uint8Array> {
   const response = await fetch(`/fixtures/v1/${fixture.name}`)
   if (!response.ok) throw new Error(`Failed to fetch ${fixture.name}`)
@@ -275,6 +308,106 @@ async function seed(database: string, files: Fixture[], hash: string) {
     durationMs: performance.now() - started,
     revision,
     storage: stats,
+  }
+}
+
+/**
+ * Replays mixed documents through the target's own Repo, saving at each burst.
+ * Concurrent authors are forked into a scratch session so only merged documents
+ * reach the measured store. Every document is then reopened and hash-checked.
+ */
+async function seedMixed(database: string, docs: MixedDoc[], hash: string) {
+  const cached = await seedInfo(database)
+  if (!reseed && cached) {
+    if (cached.hash !== hash || cached.urls.length !== docs.length)
+      throw new Error(
+        "Mixed seed differs from fixtures; run with ?reseed (or automate --reseed)"
+      )
+    const databases = await indexedDB.databases()
+    if (databases.some(entry => entry.name === database)) {
+      progress(`Using prepared ${docs.length}-document mixed store`, 1, true)
+      return {
+        urls: cached.urls,
+        reused: true,
+        durationMs: 0,
+        revision: cached.revision,
+      }
+    }
+  }
+  const started = performance.now()
+  await deleteDatabase(database)
+  const stats = storageStats()
+  const session = target.open(database, stats)
+  const urls: string[] = []
+  try {
+    for (let start = 0; start < docs.length; start += 20) {
+      const scratchName = `automerge-repo-benchmark-${targetName}-v1-scratch-${crypto.randomUUID()}`
+      const scratch = target.open(scratchName)
+      const pending: Promise<unknown>[] = []
+      const track = (write: void | Promise<void>) => {
+        if (write) pending.push(write)
+      }
+      const api: ReplayApi<Handle<Record<string, unknown>>> = {
+        create: initial => session.create(initial),
+        change: (handle, edit) => track(handle.change(edit, { time: 0 })),
+        fork: handle => scratch.clone(handle),
+        merge: (into, from) => track(into.merge(from)),
+        splice: target.splice,
+      }
+      try {
+        const results = await replayBatch(
+          docs.slice(start, start + 20),
+          api,
+          async () => {
+            await Promise.all([session.flush(), ...pending.splice(0)])
+          }
+        )
+        urls.push(...results.map(({ handle }) => handle.url))
+      } finally {
+        await scratch.close()
+        await deleteDatabase(scratchName).catch(() => {})
+      }
+      progress(
+        `Seeding mixed: ${urls.length}/${docs.length}`,
+        urls.length / docs.length
+      )
+    }
+    await session.flush()
+  } finally {
+    await session.close()
+  }
+  await verifyMixed(database, docs, urls)
+  const revision = import.meta.env.VITE_BENCH_COMMIT ?? "current worktree"
+  await saveSeedInfo(database, { hash, urls, revision })
+  return {
+    urls,
+    reused: false,
+    durationMs: performance.now() - started,
+    revision,
+    storage: stats,
+  }
+}
+
+async function verifyMixed(database: string, docs: MixedDoc[], urls: string[]) {
+  const session: Session = target.open(database)
+  try {
+    for (let start = 0; start < urls.length; start += 20) {
+      await Promise.all(
+        urls.slice(start, start + 20).map(async (url, j) => {
+          const i = start + j
+          const doc = (await session.find(url)).doc()
+          const json = new TextEncoder().encode(canonicalJson(doc))
+          if ((await sha256(json.buffer as ArrayBuffer)) !== docs[i].sha256)
+            throw new Error(`Mixed document ${i} content mismatch`)
+        })
+      )
+      progress(
+        `Verifying mixed: ${Math.min(start + 20, urls.length)}/${urls.length}`,
+        (start + 20) / urls.length
+      )
+    }
+  } finally {
+    await session.close()
   }
 }
 
@@ -442,29 +575,56 @@ async function writes(
   return sample
 }
 
-async function prepare() {
+const loadDatabase = `automerge-repo-benchmark-${targetName}-v1-${smoke ? "smoke" : "full"}`
+const mixedDatabase = `automerge-repo-benchmark-${targetName}-v1-mixed${smoke ? "-smoke" : ""}`
+
+/** Seeds both stores; a fresh seed is recorded so the post-reload run reports it. */
+async function prepareStores() {
   const { manifest, hash } = await fixtures()
-  const database = `automerge-repo-benchmark-${targetName}-v1-${smoke ? "smoke" : "full"}`
+  const mixed = await mixedFixtures()
   progress("Preparing documents", 0, true)
   const prepared = await seed(
-    database,
+    loadDatabase,
     manifest.files.slice(0, smoke ? 10 : 1000),
     hash
   )
-  sessionStorage.setItem(
-    "benchmark-seed",
-    JSON.stringify({
-      reused: prepared.reused,
-      durationMs: prepared.durationMs,
-      database,
-      revision: prepared.revision,
-      storage: prepared.storage,
-    })
-  )
-  return { reused: prepared.reused }
+  progress("Preparing mixed documents", 0, true)
+  const preparedMixed = await seedMixed(mixedDatabase, mixed.docs, mixed.hash)
+  for (const [key, database, value] of [
+    ["benchmark-seed", loadDatabase, prepared],
+    ["benchmark-mixed-seed", mixedDatabase, preparedMixed],
+  ] as const)
+    if (!value.reused || !sessionStorage.getItem(key))
+      sessionStorage.setItem(
+        key,
+        JSON.stringify({
+          reused: value.reused,
+          durationMs: value.durationMs,
+          database,
+          revision: value.revision,
+          storage: value.storage,
+        } satisfies SeedSummary)
+      )
+  return { manifest, hash, mixed, prepared, preparedMixed }
 }
 
-async function load(database: string, urls: string[]): Promise<LoadResult> {
+async function prepare() {
+  const { prepared, preparedMixed } = await prepareStores()
+  return { reused: prepared.reused && preparedMixed.reused }
+}
+
+function storedSeed(key: string): SeedSummary {
+  const value = sessionStorage.getItem(key)
+  sessionStorage.removeItem(key)
+  if (!value) throw new Error(`Missing ${key}`)
+  return JSON.parse(value) as SeedSummary
+}
+
+async function load(
+  database: string,
+  urls: string[],
+  check: (doc: unknown, index: number) => boolean
+): Promise<LoadResult> {
   const sizeBefore = await storeSize(database)
   const before = { ...sizeBefore, jsHeapBytes: memory(), wasmBytes: null }
   const stats = storageStats()
@@ -492,8 +652,8 @@ async function load(database: string, urls: string[]): Promise<LoadResult> {
     let finished = 0
     const readyMs = await Promise.all(
       urls.map((url, i) =>
-        session.find<{ count: number }>(url).then(handle => {
-          if (handle.doc()?.count !== 50)
+        session.find(url).then(handle => {
+          if (!check(handle.doc(), i))
             throw new Error(`Incorrect document ${i}`)
           finished++
           progress(
@@ -804,10 +964,21 @@ async function run() {
   report.textContent = "Running…"
   try {
     progress("Reading fixture manifest", 0, true)
-    const { manifest, hash } = await fixtures()
     const importSet = await importFixtures()
+    const { manifest, hash, mixed, prepared, preparedMixed } =
+      await prepareStores()
+    if (!prepared.reused || !preparedMixed.reused) {
+      // Release seeding's JS/WASM state before measuring.
+      sessionStorage.setItem("benchmark-resume", "1")
+      const url = new URL(location.href)
+      url.searchParams.delete("reseed")
+      history.replaceState(null, "", url)
+      progress("Prepared; reloading before measurements", 1, true)
+      location.reload()
+      return undefined
+    }
     result = {
-      schema: 4,
+      schema: 5,
       target: { id: targetName, adapter: target.adapter },
       mode:
         requestedEdits === (smoke ? 30 : 5000)
@@ -817,6 +988,7 @@ async function run() {
           : "custom",
       fixtureSha256: hash,
       importFixtureSha256: importSet?.hash ?? null,
+      mixedFixtureSha256: mixed.hash,
       fixture: {
         version: manifest.version,
         count: manifest.count,
@@ -825,53 +997,16 @@ async function run() {
       },
       userAgent: navigator.userAgent,
       timestamp: new Date().toISOString(),
-      seed: { reused: false, durationMs: 0, database: "" },
+      seed: storedSeed("benchmark-seed"),
+      mixedSeed: storedSeed("benchmark-mixed-seed"),
       loads: [],
+      mixedLoads: [],
       imports: [],
     }
-    const database = `automerge-repo-benchmark-${targetName}-v1-${smoke ? "smoke" : "full"}`
-    const prepared = await seed(
-      database,
-      manifest.files.slice(0, smoke ? 10 : 1000),
-      hash
-    )
-    if (!prepared.reused) {
-      sessionStorage.setItem("benchmark-resume", "1")
-      sessionStorage.setItem(
-        "benchmark-seed",
-        JSON.stringify({
-          reused: false,
-          durationMs: prepared.durationMs,
-          database,
-          revision: prepared.revision,
-          storage: prepared.storage,
-        })
-      )
-      const url = new URL(location.href)
-      url.searchParams.delete("reseed")
-      history.replaceState(null, "", url)
-      progress("Prepared; reloading before measurements", 1, true)
-      location.reload()
-      return undefined
-    }
-    const preparedSeed = sessionStorage.getItem("benchmark-seed")
-    sessionStorage.removeItem("benchmark-seed")
-    result.seed = preparedSeed
-      ? JSON.parse(preparedSeed)
-      : {
-          reused: prepared.reused,
-          durationMs: prepared.durationMs,
-          database,
-          revision: prepared.revision,
-          storage: prepared.storage,
-        }
-    for (const count of smoke ? [10] : [10, 100, 500, 1000]) {
-      progress(`Loading ${count} documents`, 0, true)
-      const sample = await load(database, prepared.urls.slice(0, count))
-      result.loads.push(sample)
+    const loadRow = (label: string, sample: LoadResult) => {
       const row = document.createElement("tr")
       for (const value of [
-        count.toString(),
+        label,
         fmt(sample.totalMs),
         fmt(sample.p50Ms),
         fmt(sample.p95Ms),
@@ -883,6 +1018,38 @@ async function run() {
         row.append(cell)
       }
       loadRows.append(row)
+    }
+    for (const count of smoke ? [10] : [10, 100, 500, 1000]) {
+      progress(`Loading ${count} documents`, 0, true)
+      const sample = await load(
+        loadDatabase,
+        prepared.urls.slice(0, count),
+        doc => (doc as { count?: number } | undefined)?.count === 50
+      )
+      result.loads.push(sample)
+      loadRow(count.toString(), sample)
+    }
+    // The seal is the final change, so seeing it means the whole history loaded.
+    for (const count of mixedCounts(smoke)) {
+      progress(`Loading ${count} mixed documents`, 0, true)
+      const sample = await load(
+        mixedDatabase,
+        preparedMixed.urls.slice(0, count),
+        (doc, i) =>
+          (doc as { seal?: string } | undefined)?.seal === mixed.docs[i].seal
+      )
+      const summary = {
+        ...sample,
+        buckets: bucketSummary(sample.readyMs, mixed.docs),
+      }
+      result.mixedLoads.push(summary)
+      loadRow(`mixed ${count}`, sample)
+    }
+    const size = result.mixedLoads[0]?.before
+    result.mixedSeed = {
+      ...result.mixedSeed,
+      keys: size?.keys,
+      bytes: size?.bytes,
     }
     // Small imports reuse the 51-change load fixtures; the rest come from
     // imports.json. Each large fixture is one multi-hundred-record batch, which
@@ -898,16 +1065,14 @@ async function run() {
       ],
       ...(importSet?.manifest.files ?? [])
         .filter(fixture => !smoke || "count" in fixture)
-        .map(
-          (fixture): Parameters<typeof imports> => [
-            fixture.name.replace(/^import-|\.automerge$/g, ""),
-            fixture.records,
-            Array.from({ length: smoke ? 1 : 3 }, () => ({
-              fixture,
-              verify: verifyFixture(fixture),
-            })),
-          ]
-        ),
+        .map((fixture): Parameters<typeof imports> => [
+          fixture.name.replace(/^import-|\.automerge$/g, ""),
+          fixture.records,
+          Array.from({ length: smoke ? 1 : 3 }, () => ({
+            fixture,
+            verify: verifyFixture(fixture),
+          })),
+        ]),
     ]
     for (const args of importClasses) {
       const sample = await imports(...args)
@@ -971,7 +1136,11 @@ async function run() {
       {
         fixtureSha256: hash,
         seed: result.seed,
+        mixedSeed: result.mixedSeed,
         loads: result.loads.map(({ readyMs: _readyMs, ...summary }) => summary),
+        mixedLoads: result.mixedLoads.map(
+          ({ readyMs: _readyMs, frameGapMs: _frames, ...summary }) => summary
+        ),
         imports: result.imports.map(({ samples, ...summary }) => ({
           ...summary,
           errors: [

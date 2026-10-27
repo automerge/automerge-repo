@@ -5,14 +5,63 @@ import { createHash } from "node:crypto"
 import { mkdir, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
+import { canonicalJson, mixedPlan, replayBatch } from "./src/mixed.ts"
 
-const count = Number(process.argv[2] ?? 1000)
+const args = process.argv.slice(2)
+const mixedOnly = args.includes("--mixed")
+const count = Number(args.find(arg => !arg.startsWith("--")) ?? 1000)
 if (!Number.isSafeInteger(count) || count < 1 || count > 1000)
   throw new Error("Count must be an integer between 1 and 1000")
 
 const output = fileURLToPath(new URL("./public/fixtures/v1/", import.meta.url))
 await mkdir(output, { recursive: true })
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex")
+
+// Mixed documents are replayed by each target through its own Repo; this
+// plain-Automerge replay only records what each final document must contain.
+// Every run uses fresh random actors, so identical output across runs shows
+// the content does not depend on actor IDs.
+{
+  const plan = mixedPlan(1000)
+  const api = {
+    create: async initial => ({ doc: A.from(initial) }),
+    change: (handle, edit) => {
+      handle.doc = A.change(handle.doc, { time: 0 }, edit)
+    },
+    fork: async handle => ({ doc: A.clone(handle.doc) }),
+    merge: (into, from) => {
+      into.doc = A.merge(into.doc, from.doc)
+    },
+    splice: A.splice,
+  }
+  const docs = []
+  for (let start = 0; start < plan.length; start += 20) {
+    const batch = plan.slice(start, start + 20)
+    const results = await replayBatch(batch, api, async () => {})
+    for (const [i, { handle, changes }] of results.entries()) {
+      const json = new TextEncoder().encode(canonicalJson(handle.doc))
+      if (A.getAllChanges(handle.doc).length !== changes)
+        throw new Error(`mixed ${batch[i].index}: change count mismatch`)
+      docs.push({
+        ...batch[i],
+        changes,
+        sha256: sha256(json),
+        jsonBytes: json.length,
+      })
+    }
+    console.log(`Generated mixed ${docs.length}/${plan.length}`)
+  }
+  await writeFile(
+    join(output, "mixed.json"),
+    JSON.stringify({ version: 1, count: docs.length, docs }, null, 2) + "\n"
+  )
+  const total = docs.reduce((sum, doc) => sum + doc.changes, 0)
+  console.log(
+    `Wrote mixed manifest: ${docs.length} documents, ${total} changes`
+  )
+}
+if (mixedOnly) process.exit(0)
+
 const files = []
 for (let i = 0; i < count; i++) {
   const actor = (i + 1).toString(16).padStart(32, "0")

@@ -90,6 +90,10 @@ const importHashes = new Set(
   Object.values(results).map(r => r.importFixtureSha256)
 )
 if (importHashes.size !== 1) throw new Error("Import fixture hashes differ")
+const mixedHashes = new Set(
+  Object.values(results).map(r => r.mixed.fixtureSha256)
+)
+if (mixedHashes.size !== 1) throw new Error("Mixed fixture hashes differ")
 const counts = smoke ? [10] : [10, 100, 500, 1000]
 const median = values =>
   [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]
@@ -107,6 +111,39 @@ const summary = Object.fromEntries(
             medianMs: median(values),
             minMs: Math.min(...values),
             maxMs: Math.max(...values),
+          },
+        ]
+      })
+    ),
+  ])
+)
+const mixedSummary = Object.fromEntries(
+  (smoke ? [50] : [100, 500, 1000]).map(count => [
+    count,
+    Object.fromEntries(
+      names.map(name => {
+        const samples = results[name].mixed.samples.filter(
+          s => s.count === count
+        )
+        const values = samples.map(s => s.totalMs)
+        const buckets = [
+          ...new Set(samples.flatMap(s => Object.keys(s.buckets))),
+        ]
+        return [
+          name,
+          {
+            medianMs: median(values),
+            minMs: Math.min(...values),
+            maxMs: Math.max(...values),
+            p95Ms: median(samples.map(s => s.p95Ms)),
+            bucketP95Ms: Object.fromEntries(
+              buckets.map(bucket => [
+                bucket,
+                median(samples.map(s => s.buckets[bucket].p95Ms)),
+              ])
+            ),
+            keys: results[name].mixed.seed.keys,
+            bytes: results[name].mixed.seed.bytes,
           },
         ]
       })
@@ -201,12 +238,13 @@ const historySummary = Object.fromEntries(
   })
 )
 const report = {
-  schema: 4,
+  schema: 5,
   mode: "node-memory-load-write",
   smoke,
   runs,
   results,
   summary,
+  mixedSummary,
   writeSummary,
   historySummary,
   importSummary,
@@ -217,6 +255,7 @@ const file = join(
 )
 await writeFile(file, JSON.stringify(report, null, 2) + "\n")
 console.log(JSON.stringify(summary, null, 2))
+console.log(JSON.stringify(mixedSummary, null, 2))
 console.log(JSON.stringify(writeSummary, null, 2))
 console.log(JSON.stringify(historySummary, null, 2))
 console.log(JSON.stringify(importSummary, null, 2))

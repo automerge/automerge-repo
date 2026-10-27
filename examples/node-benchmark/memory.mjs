@@ -39,6 +39,20 @@ export class MemoryStore {
     )
   }
 
+  /** Stored entries in insertion order, for the on-disk seed cache. */
+  snapshot() {
+    return [...this.#keys].map(([encoded, key]) => [
+      key,
+      this.#data.get(encoded),
+    ])
+  }
+
+  static restore(entries) {
+    const store = new MemoryStore()
+    for (const [key, bytes] of entries) store.#put(key, new Uint8Array(bytes))
+    return store
+  }
+
   size() {
     return {
       keys: this.#data.size,

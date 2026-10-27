@@ -1,14 +1,22 @@
 // Runs in a separate Node process per target, to isolate each version's runtime.
 // Fullfat initializes Automerge's WASM for this process.
 // eslint-disable-next-line no-restricted-imports
-import "@automerge/automerge"
-import { readFile, writeFile } from "node:fs/promises"
+import { splice as currentSplice } from "@automerge/automerge"
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
+import { realpathSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { join } from "node:path"
+import { join, relative } from "node:path"
 import { performance } from "node:perf_hooks"
 import { Session as InspectorSession } from "node:inspector"
+import { deserialize, serialize } from "node:v8"
 import { MemoryStore } from "./memory.mjs"
+import {
+  bucketSummary,
+  canonicalJson,
+  mixedCounts,
+  replayBatch,
+} from "../browser-benchmark/src/mixed.ts"
 
 const { target, directory, runs, smoke, output, profile } = JSON.parse(
   process.argv[2]
@@ -73,12 +81,45 @@ for (const entry of importClasses) {
   )
 }
 
+const rawMixed = await readFile(join(fixtureDirectory, "mixed.json")).catch(
+  () => {
+    throw new Error("Missing mixed fixtures: run pnpm bench:fixtures")
+  }
+)
+const mixedFixtureSha256 = createHash("sha256").update(rawMixed).digest("hex")
+const mixedManifest = JSON.parse(rawMixed)
+const mixedLoadCounts = mixedCounts(smoke)
+if (
+  mixedManifest.version !== 1 ||
+  mixedManifest.docs.length < mixedLoadCounts.at(-1)
+)
+  throw new Error("Missing mixed fixtures: run pnpm bench:fixtures")
+const mixedDocs = mixedManifest.docs.slice(0, mixedLoadCounts.at(-1))
+
 async function fromFile(path) {
   return import(pathToFileURL(path).href)
 }
 
 let open
+// The branch's own Automerge `splice`, for text edits inside `change`.
+let splice = currentSplice
+// Built code the seeded mixed store depends on, for its cache key.
+let codePaths
 if (target === "poc") {
+  const root = fileURLToPath(new URL("../../", import.meta.url))
+  codePaths = [
+    join(root, "packages/automerge-repo/dist"),
+    join(root, "packages/automerge-repo-subduction/dist"),
+    realpathSync(
+      join(root, "packages/automerge-repo/node_modules/@automerge/automerge")
+    ),
+    realpathSync(
+      join(
+        root,
+        "packages/automerge-repo-subduction/node_modules/@automerge/subduction"
+      )
+    ),
+  ]
   const { Repo } = await import("@automerge/automerge-repo")
   await import("@automerge/subduction")
   const { SubductionBackend } =
@@ -89,6 +130,7 @@ if (target === "poc") {
     return {
       import: bytes => repo.import(bytes),
       create: initial => repo.create(initial),
+      clone: handle => repo.clone(handle),
       find: url => repo.find(url),
       flush: () => repo.flush(),
       close: async () => {
@@ -103,11 +145,19 @@ if (target === "poc") {
 } else {
   const base = join(directory, "packages/automerge-repo")
   const { Repo } = await fromFile(join(base, "dist/entrypoints/fullfat.js"))
+  const automerge = realpathSync(
+    join(base, "node_modules/@automerge/automerge")
+  )
+  ;({ splice } = await fromFile(
+    join(automerge, "dist/mjs/entrypoints/slim.js")
+  ))
+  codePaths = [join(base, "dist"), automerge]
   if (target === "subductionjs") {
     const native = join(
       base,
       "node_modules/@automerge/automerge-subduction/dist/esm"
     )
+    codePaths.push(realpathSync(native))
     const { initSync } = await fromFile(join(native, "slim.js"))
     const { wasmBase64 } = await fromFile(join(native, "wasm-base64.js"))
     initSync({ module: Uint8Array.from(Buffer.from(wasmBase64, "base64")) })
@@ -122,6 +172,7 @@ if (target === "poc") {
     return {
       import: bytes => repo.import(bytes),
       create: initial => repo.create(initial),
+      clone: async handle => repo.clone(handle),
       find: url => repo.find(url),
       flush: () => repo.flush(),
       close: () => repo.shutdown(),
@@ -206,6 +257,167 @@ for (let round = 0; round < runs; round++) {
     )
   }
 }
+// Mixed documents are replayed through this target's Repo, so the store holds
+// whatever this branch writes for incrementally edited, multi-author documents.
+// Replay is slow and deterministic, so the verified store is cached on disk,
+// keyed by the fixtures, harness and built code it came from.
+async function hashPaths(paths) {
+  const hash = createHash("sha256")
+  for (const path of paths) {
+    const files = (
+      await readdir(path, { recursive: true, withFileTypes: true })
+    )
+      .filter(entry => entry.isFile())
+      .map(entry => join(entry.parentPath, entry.name))
+      .sort()
+    for (const file of files) {
+      hash.update(relative(path, file)).update(await readFile(file))
+    }
+    hash.update(path)
+  }
+  return hash.digest("hex")
+}
+
+async function seedMixed() {
+  const here = fileURLToPath(new URL(".", import.meta.url))
+  const harness = [
+    fileURLToPath(new URL("./load.mjs", import.meta.url)),
+    fileURLToPath(new URL("./memory.mjs", import.meta.url)),
+    fileURLToPath(
+      new URL("../browser-benchmark/src/mixed.ts", import.meta.url)
+    ),
+  ]
+  const key = createHash("sha256")
+    .update(
+      JSON.stringify({
+        target,
+        smoke,
+        mixedFixtureSha256,
+        harness: await Promise.all(harness.map(file => readFile(file, "utf8"))),
+        code: await hashPaths(codePaths),
+      })
+    )
+    .digest("hex")
+  const cacheDirectory = join(here, "results", "seed-cache")
+  const file = join(
+    cacheDirectory,
+    `${target}-mixed${smoke ? "-smoke" : ""}-${key.slice(0, 16)}.v8`
+  )
+  try {
+    const { entries, urls } = deserialize(await readFile(file))
+    return {
+      store: MemoryStore.restore(entries),
+      urls,
+      cached: true,
+      seedMs: 0,
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error
+  }
+  const started = performance.now()
+  const mixedStore = new MemoryStore()
+  const session = open(mixedStore)
+  const urls = []
+  try {
+    for (let start = 0; start < mixedDocs.length; start += 20) {
+      // Concurrent authors live in a scratch Repo; only merges reach the store.
+      const scratch = open(new MemoryStore())
+      const pending = []
+      const track = write => {
+        if (write) pending.push(write)
+      }
+      try {
+        const results = await replayBatch(
+          mixedDocs.slice(start, start + 20),
+          {
+            create: initial => session.create(initial),
+            change: (handle, edit) => track(handle.change(edit, { time: 0 })),
+            fork: handle => scratch.clone(handle),
+            merge: (into, from) => track(into.merge(from)),
+            splice,
+          },
+          async () => {
+            await Promise.all([session.flush(), ...pending.splice(0)])
+          }
+        )
+        urls.push(...results.map(({ handle }) => handle.url))
+      } finally {
+        await scratch.close()
+      }
+      console.log(
+        `${target} mixed seed: ${urls.length}/${mixedDocs.length} documents`
+      )
+    }
+    await session.flush()
+  } finally {
+    await session.close()
+  }
+  const reader = open(mixedStore)
+  try {
+    for (let i = 0; i < urls.length; i++) {
+      const json = canonicalJson((await reader.find(urls[i])).doc())
+      if (
+        createHash("sha256").update(json).digest("hex") !== mixedDocs[i].sha256
+      )
+        throw new Error(`Mixed document ${i} content mismatch`)
+    }
+  } finally {
+    await reader.close()
+  }
+  const seedMs = performance.now() - started
+  await mkdir(cacheDirectory, { recursive: true })
+  await writeFile(file, serialize({ entries: mixedStore.snapshot(), urls }))
+  return { store: mixedStore, urls, cached: false, seedMs }
+}
+
+const mixedSeed = await seedMixed()
+const mixedBefore = mixedSeed.store.size()
+console.log(
+  `${target} mixed store: ${mixedBefore.keys} keys, ${mixedBefore.bytes} bytes${mixedSeed.cached ? " (cached)" : `, seeded in ${(mixedSeed.seedMs / 1000).toFixed(1)} s`}`
+)
+const mixedSamples = []
+for (let round = 0; round < runs; round++) {
+  for (const count of mixedLoadCounts) {
+    mixedSeed.store.resetStats()
+    const session = open(mixedSeed.store)
+    let readyMs, totalMs, stats
+    try {
+      const start = performance.now()
+      // The seal is the final change, so seeing it means the whole history loaded.
+      readyMs = await Promise.all(
+        mixedSeed.urls.slice(0, count).map((url, i) =>
+          session.find(url).then(handle => {
+            if (handle.doc()?.seal !== mixedDocs[i].seal)
+              throw new Error(`Incorrect mixed document ${i}`)
+            return performance.now() - start
+          })
+        )
+      )
+      totalMs = performance.now() - start
+      stats = mixedSeed.store.stats()
+    } finally {
+      await session.close()
+    }
+    const after = mixedSeed.store.size()
+    if (mixedBefore.keys !== after.keys || mixedBefore.bytes !== after.bytes)
+      throw new Error("Mixed load changed the store")
+    mixedSamples.push({
+      round: round + 1,
+      count,
+      totalMs,
+      p50Ms: percentile(readyMs, 0.5),
+      p95Ms: percentile(readyMs, 0.95),
+      p99Ms: percentile(readyMs, 0.99),
+      maxMs: Math.max(...readyMs),
+      buckets: bucketSummary(readyMs, mixedDocs),
+      storage: stats,
+    })
+    console.log(
+      `${target} round ${round + 1}/${runs}, ${count} mixed docs: ${totalMs.toFixed(1)} ms`
+    )
+  }
+}
+
 const imports = []
 for (let round = 0; round < runs; round++) {
   for (const entry of importClasses) {
@@ -445,12 +657,21 @@ await writeFile(
   output,
   JSON.stringify(
     {
-      schema: 4,
+      schema: 5,
       target,
       node: process.version,
       fixtureSha256,
       seed: before,
       samples,
+      mixed: {
+        fixtureSha256: mixedFixtureSha256,
+        seed: {
+          ...mixedBefore,
+          cached: mixedSeed.cached,
+          seedMs: mixedSeed.seedMs,
+        },
+        samples: mixedSamples,
+      },
       writes,
       history,
       imports,

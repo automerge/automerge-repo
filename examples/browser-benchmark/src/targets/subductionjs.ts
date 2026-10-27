@@ -1,6 +1,6 @@
 // Fullfat initializes Automerge; Subduction needs its own native initializer.
 // eslint-disable-next-line no-restricted-imports
-import "@automerge/automerge"
+import { splice } from "@automerge/automerge"
 import { initSync } from "@automerge/automerge-subduction/slim"
 import { wasmBase64 } from "@automerge/automerge-subduction/wasm-base64"
 // eslint-disable-next-line no-restricted-imports
@@ -13,6 +13,7 @@ initSync({ module: Uint8Array.from(atob(wasmBase64), c => c.charCodeAt(0)) })
 export const target: Target = {
   id: "subductionjs",
   adapter: "subductionjs",
+  splice: splice as Target["splice"],
   open(database) {
     const storage = new IndexedDBStorageAdapter(database)
     const repo = new Repo({ storage, subductionWebsocketEndpoints: [] })
@@ -20,6 +21,10 @@ export const target: Target = {
       import: async bytes => repo.import(bytes),
       create: async <T>(initial: T) =>
         repo.create(initial) as unknown as Handle<T>,
+      clone: async <T>(handle: Handle<T>) =>
+        repo.clone(
+          handle as unknown as Parameters<Repo["clone"]>[0]
+        ) as unknown as Handle<T>,
       find: async <T>(url: string) =>
         (await repo.find<T>(
           url as Parameters<Repo["find"]>[0]
