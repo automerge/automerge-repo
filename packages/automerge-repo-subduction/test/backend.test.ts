@@ -885,12 +885,23 @@ describe("real local Subduction", () => {
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])
   })
 
-  it("enumerates a registered tree even if its batch fails", async () => {
+  it("registers a single record's tree only once the record is durable", async () => {
     const backend = create()
     storage.beforeSave = async key => {
       if (key.includes("/commits/")) throw new Error("disk failed")
     }
     await expect(backend.store(tree, [record(1)])).rejects.toThrow()
+    expect(await storage.list("subduction-v2/ids/")).toEqual([])
+  })
+
+  it("enumerates a registered tree even if its batch fails", async () => {
+    const backend = create()
+    storage.beforeSave = async key => {
+      if (key.includes("/commits/")) throw new Error("disk failed")
+    }
+    await expect(
+      backend.store(tree, [record(1), record(2, [1])])
+    ).rejects.toThrow()
     expect(await storage.list("subduction-v2/ids/")).toEqual([
       `subduction-v2/ids/${tree}`,
     ])
@@ -927,6 +938,8 @@ describe("real local Subduction", () => {
 
   it("acknowledges stores to one tree in submission order", async () => {
     const backend = create()
+    // A stored, resident tree, as for edits to an open document.
+    await backend.store(tree, [record(0)])
     const gate = deferred(),
       entered = deferred()
     storage.beforeSave = async key => {
@@ -936,7 +949,7 @@ describe("real local Subduction", () => {
         throw new Error("disk failed")
       }
     }
-    const first = backend.store(tree, [record(1)]).catch(e => e)
+    const first = backend.store(tree, [record(1, [0])]).catch(e => e)
     await entered.promise
     // The later save completes on its own, but is not acknowledged before or
     // without the earlier one.

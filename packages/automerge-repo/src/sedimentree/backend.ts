@@ -115,7 +115,8 @@ export interface SedimentreeBackend {
    * Resolve when ALL submitted history is recoverable under the backend's
    * documented local durability guarantee, not when a peer receives it or an
    * observer consumes it. Schedule propagation according to backend policy even
-   * when there is no open session for the ID.
+   * when there is no open session for the ID: a push to subscribed peers or a
+   * synchronization round, at the backend's discretion.
    *
    * Acknowledge stores to one ID in submission order: resolve only once every
    * earlier store to that ID has resolved, and reject if any of them rejected.

@@ -235,6 +235,59 @@ describe("public Repo with native Subduction", () => {
     }
   }, 60000)
 
+  it("pushes single edits and a single compacted fragment without sync rounds", async () => {
+    const a = peer(),
+      b = peer()
+    const source = await a.repo.create<State>({ count: 0 })
+    await connect(a, b)
+    const receiver = await b.repo.find<State>(source.url)
+    await ready(receiver, { count: 0 })
+    const engine = (a.backend as unknown as { engine: N.Subduction }).engine
+    const rounds = vi.spyOn(engine, "syncWithAllPeers")
+    const pushedFragments = vi.spyOn(engine, "addFragment")
+    // Edit until exactly one boundary commit is due for compaction.
+    do
+      await source.change(doc => {
+        doc.count++
+      })
+    while (!A.getHeads(source.fullDoc())[0].startsWith("00"))
+    const count = source.doc()!.count
+    await ready(receiver, { count })
+    await a.repo.flush()
+    expect(pushedFragments).toHaveBeenCalledOnce()
+    await vi.waitFor(async () => {
+      expect(
+        (await b.storage.list("subduction-v2/")).some(key =>
+          key.includes("/fragments/")
+        )
+      ).toBe(true)
+    }, wait)
+    expect(rounds).not.toHaveBeenCalled()
+    await b.repo.shutdown()
+    const reloaded = await peer(b.storage).repo.find<State>(source.url)
+    expect(A.getHeads(reloaded.fullDoc())).toEqual(A.getHeads(source.fullDoc()))
+  }, 60000)
+
+  it("propagates an import into an existing document with one sync round", async () => {
+    const a = peer(),
+      b = peer()
+    const source = await a.repo.create<State>({ count: 0 })
+    await connect(a, b)
+    const receiver = await b.repo.find<State>(source.url)
+    await ready(receiver, { count: 0 })
+    let fork = A.clone(source.fullDoc())
+    for (let i = 1; i <= 3; i++)
+      fork = A.change(fork, doc => {
+        doc.left = i
+      })
+    const engine = (a.backend as unknown as { engine: N.Subduction }).engine
+    const rounds = vi.spyOn(engine, "syncWithAllPeers")
+    const { documentId } = parseAutomergeUrl(source.url)
+    await a.repo.import<State>(A.save(fork), { docId: documentId })
+    await ready(receiver, { count: 0, left: 3 })
+    expect(rounds).toHaveBeenCalledOnce()
+  }, 20000)
+
   it("syncs a boundary left loose by a crash alongside a later compacted fragment", async () => {
     // A crash before compaction leaves boundary F loose. After reopening,
     // the next boundary H is compacted into a fragment whose boundary is F.

@@ -25,6 +25,21 @@ const records = extractRecords(
     doc.count = 1
   })
 )
+const twoRecords = extractRecords(
+  A.change(
+    A.change(
+      A.init<{ count: number }>({ actor: "acacac" }),
+      { time: 0 },
+      doc => {
+        doc.count = 1
+      }
+    ),
+    { time: 0 },
+    doc => {
+      doc.count = 2
+    }
+  )
+)
 const baseline = extractRecords(
   A.change(A.init<{ count: number }>({ actor: "ababab" }), { time: 0 }, doc => {
     doc.count = 0
@@ -519,7 +534,9 @@ describe("authenticated network failure and lifecycle barriers", () => {
     b.storage.beforeSave = async key => {
       if (key.includes("/commits/")) throw new Error("disk full")
     }
-    await a.backend.store(tree, records)
+    // A batch, so A propagates by a round rather than a push; B's explicit
+    // round then has to ingest it.
+    await a.backend.store(tree, twoRecords)
     const round = await bounded(
       track(right.session.synchronize()).catch(cause => cause),
       "round"

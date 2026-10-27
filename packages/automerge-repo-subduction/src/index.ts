@@ -350,7 +350,7 @@ export class SubductionBackend implements SedimentreeBackend {
         })
     }
   }
-  /** Propagate a store without an open session; one round per store. */
+  /** Propagate a stored batch without an open session; one round per batch. */
   private scheduleSync(id: SedimentreeId): void {
     if (this.closed || this.deleting.has(id)) return
     void this.syncRound(id).catch(cause => {
@@ -648,19 +648,31 @@ export class SubductionBackend implements SedimentreeBackend {
                 "Document already exists"
               )
           }
-          // One native call: it signs everything, saves through the bridge
-          // once and minimizes once. Automerge's own memory limit is reached
-          // long before a batch is large enough to need splitting here.
-          submitted = true
+          // A single record to an existing tree is pushed to subscribed peers
+          // (both directions of a subscribing round) and needs no round.
+          // Batches (imports, merges) and new trees are stored in one native
+          // call; a round then sends peers only what they lack, and a new
+          // tree reaches peers through its session's first round.
+          const single = !creating && records.length === 1 ? records[0] : null
+          submitted = !single
           try {
-            const commits: N.CommitInput[] = []
-            const fragments: N.FragmentInput[] = []
-            for (const record of records)
-              if (record.kind === "commit") commits.push(commitInput(record))
-              else fragments.push(fragmentInput(record))
-            // Native validates and copies the batch synchronously here, before
+            // Native validates and copies its input synchronously here, before
             // store() returns, so callers may reuse their buffers at once.
-            await engine.storeBatch(id, { commits, fragments })
+            if (single?.kind === "commit")
+              // The returned fragment hint is ignored: Repo owns compaction.
+              await engine.addCommit(id, commitInput(single))
+            else if (single?.kind === "fragment")
+              await engine.addFragment(id, fragmentInput(single))
+            else {
+              const commits: N.CommitInput[] = []
+              const fragments: N.FragmentInput[] = []
+              for (const record of records)
+                if (record.kind === "commit") commits.push(commitInput(record))
+                else fragments.push(fragmentInput(record))
+              // One native call signs everything, saves through the bridge
+              // once and minimizes once.
+              await engine.storeBatch(id, { commits, fragments })
+            }
           } catch (cause) {
             // Native rejects invalid input (including wire count limits)
             // with a TypeError before signing or writing anything.
@@ -675,8 +687,8 @@ export class SubductionBackend implements SedimentreeBackend {
             )
           }
         } finally {
-          // Durability never waits for a peer; a round propagates stores even
-          // without a document session. A failed write may still have made
+          // Durability never waits for a peer; a round propagates batches even
+          // without a document session. A failed batch may still have made
           // some records durable; they must propagate too, and a retry of the
           // whole batch dedupes them.
           if (submitted) this.scheduleSync(id)

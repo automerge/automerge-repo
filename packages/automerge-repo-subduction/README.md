@@ -226,8 +226,17 @@ readiness, or global convergence.
 
 Only open documents sync a new connection (through their native stream). Stored
 but unopened documents are not replayed on connect; native still serves them to
-peers that ask. Each local `store()` schedules one coalesced propagation round
-to the currently connected peers.
+peers that ask. Local writes propagate without waiting for peers:
+
+| Write                             | Native call   | Propagation                                             |
+| --------------------------------- | ------------- | ------------------------------------------------------- |
+| One commit to an existing tree    | `addCommit`   | pushed to subscribed peers                              |
+| One fragment to an existing tree  | `addFragment` | pushed to subscribed peers                              |
+| Several records (imports, merges) | `storeBatch`  | one sync round per batch                                |
+| `create()`                        | `storeBatch`  | one sync round; the session's first round also syncs it |
+
+A subscribing round subscribes both peers, so pushes flow either way. Rounds are
+not coalesced: batches stored in quick succession each start one.
 
 ### Empty connected lookups
 
