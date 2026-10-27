@@ -5,8 +5,10 @@ import {
   checkpointId,
   commitId,
   copyRecord,
+  fragmentRequests,
   mintBackendId,
   type BackendIdentity,
+  type CoverageItem,
   type MintDocumentId,
   type BackendOperation,
   type HistoryMarker,
@@ -121,6 +123,8 @@ function copyEvent(value: SedimentreeEvent): SedimentreeEvent {
       remote: { ...value.remote, path: [...value.remote.path] },
       heads: [...value.heads],
     }
+  if (value.type === "fragments-requested")
+    return { ...value, heads: [...value.heads] }
   return { ...value }
 }
 /** Record for an item on a native stored stream. */
@@ -140,6 +144,18 @@ function storedRecord(
     boundary: item.metadata.boundary.map(commitId),
     checkpoints: item.metadata.checkpoints.map(checkpointId),
     blob: item.blob,
+  }
+}
+/** Coverage metadata for a scanned item, without retaining its blob. */
+function coverageItem(
+  item: Extract<N.StoredUpdate, { type: "commit" | "fragment" }>
+): CoverageItem {
+  if (item.type === "commit")
+    return { kind: "commit", id: commitId(item.metadata.head) }
+  return {
+    kind: "fragment",
+    head: commitId(item.metadata.head),
+    checkpoints: item.metadata.checkpoints.map(checkpointId),
   }
 }
 function commitInput(record: LooseCommitRecord): N.CommitInput {
@@ -481,14 +497,33 @@ export class SubductionBackend implements SedimentreeBackend {
       const marker = () => this.liveMarker(watch, id)
       // Storage-scan items pass on as blobs, each as it arrives; every scan
       // ends with local-load-complete. Peer and local updates flow as records.
+      // Each scan, and each live record, requests fragments for the boundary
+      // commits it leaves uncovered.
       let scanning = true
       let found = false
+      let scanned: CoverageItem[] = []
+      const requests = (items: readonly CoverageItem[]) => {
+        const heads = fragmentRequests(
+          items,
+          head => this.engine.commitDepth(head) > 0
+        )
+        return heads.length
+          ? [
+              {
+                type: "fragments-requested",
+                sequence: ++this.sequence,
+                heads,
+              } as const,
+            ]
+          : []
+      }
       try {
         for await (const update of updates) {
           if (released) break
           if (update.type === "commit" || update.type === "fragment") {
             if (scanning) {
               found = true
+              scanned.push(coverageItem(update))
               const event: SedimentreeEvent = {
                 type: "blobs",
                 sequence: ++this.sequence,
@@ -505,6 +540,7 @@ export class SubductionBackend implements SedimentreeBackend {
               phase: "live",
               records: [record],
             })
+            for (const event of requests([record])) watch.push(event)
             await marker()
           } else if (update.type === "storageChecked") {
             if (!scanning) continue
@@ -514,8 +550,11 @@ export class SubductionBackend implements SedimentreeBackend {
               found,
               backendSyncs: true,
             } as const
+            const requested = requests(scanned)
+            scanned = []
             if (initialized) {
               watch.push(complete)
+              for (const event of requested) watch.push(event)
               continue
             }
             initialized = true
@@ -526,7 +565,10 @@ export class SubductionBackend implements SedimentreeBackend {
               ? 0
               : (await this.engine.getConnectedPeerIds()).length
             const noPeers = !found && !peers
-            watch.initialize([noPeers ? { ...complete, noPeers } : complete])
+            watch.initialize([
+              noPeers ? { ...complete, noPeers } : complete,
+              ...requested,
+            ])
             this.reconcileInterest(id)
             // loadAndWatch reports neither failed rounds nor an empty settled
             // load, so one explicit round decides whether connected peers
@@ -538,6 +580,7 @@ export class SubductionBackend implements SedimentreeBackend {
           } else if (update.type === "rescanRequired") {
             scanning = true
             found = false
+            scanned = []
           }
         }
       } catch (cause) {

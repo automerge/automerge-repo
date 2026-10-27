@@ -17,7 +17,8 @@ import { corruptFrame } from "./frame.js"
 import type { TestSigner } from "./transport.js"
 
 const tree = sedimentreeId("ab".repeat(16) + "00".repeat(16))
-const cid = (n: number) => commitId(n.toString(16).padStart(64, "0"))
+/** Not a fragment boundary: no leading zero byte. */
+const cid = (n: number) => commitId("f" + n.toString(16).padStart(63, "0"))
 const record = (n: number, parents: number[] = []): LooseCommitRecord => ({
   kind: "commit",
   id: cid(n),

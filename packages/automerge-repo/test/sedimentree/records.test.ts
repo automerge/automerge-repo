@@ -1,9 +1,15 @@
 import { Buffer } from "node:buffer"
 // @vitest-environment node
 import { describe, expect, it } from "vitest"
-import { checkpointId, type CommitId } from "../../src/sedimentree/index.js"
+import {
+  checkpointForCommit,
+  checkpointId,
+  commitId,
+  type CommitId,
+} from "../../src/sedimentree/index.js"
 import {
   copyRecord,
+  fragmentRequests,
   recordHead,
   type SedimentreeRecord,
 } from "../../src/sedimentree/index.js"
@@ -31,7 +37,7 @@ describe("plain record validation and ownership", () => {
   )
 
   it("canonicalizes parents, boundary and checkpoints as independent sorted sets", () => {
-    const high = "AB".repeat(32) as CommitId
+    const high = "FE".repeat(32) as CommitId
     const low = cid(2)
     const parents = [high, low, high.toLowerCase() as CommitId]
     const input = commit(1, parents)
@@ -88,5 +94,30 @@ describe("plain record validation and ownership", () => {
     { ...commit(1), kind: "unknown" },
   ])("rejects invalid record %#", record => {
     expect(() => copyRecord(record as SedimentreeRecord)).toThrow(TypeError)
+  })
+})
+
+describe("fragmentRequests", () => {
+  const boundary = (n: number) =>
+    commitId("00" + n.toString(16).padEnd(62, "0"))
+  const isBoundary = (id: CommitId) => id.startsWith("00")
+
+  it("requests boundary commits no fragment among the items covers", () => {
+    const [covered, absorbed, loose] = [1, 2, 3].map(boundary)
+    const items = [
+      { kind: "commit" as const, id: cid(1) },
+      { kind: "commit" as const, id: covered },
+      { kind: "commit" as const, id: absorbed },
+      { kind: "commit" as const, id: loose },
+      { kind: "commit" as const, id: loose },
+      // Covers `covered` as its head and `absorbed` as a checkpoint.
+      {
+        kind: "fragment" as const,
+        head: covered,
+        checkpoints: [checkpointForCommit(absorbed)],
+      },
+    ]
+    expect(fragmentRequests(items, isBoundary)).toEqual([loose])
+    expect(fragmentRequests(items, () => false)).toEqual([])
   })
 })

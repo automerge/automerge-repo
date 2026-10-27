@@ -189,6 +189,36 @@ describe("Repo compaction", () => {
     expect(fragmentHeads(store)).toEqual(A.getHeads(after))
   })
 
+  it("compacts a boundary stored loose before the document loads", async () => {
+    // A crash before compaction leaves the boundary loose in storage.
+    const backend = new MemoryBackend()
+    const writer = repo(backend)
+    const handle = await create(writer)
+    const before = handle.fullDoc()
+    const after = forkToBoundary(before)
+    const id = sedimentreeId(documentIdToBinary(handle.documentId)!)
+    await backend.store(id, extractNewCommits(before, after))
+    const reader = repo(backend)
+    const store = vi.spyOn(backend, "store")
+    const loaded = await reader.find<Doc>(handle.url)
+    expect(A.getHeads(loaded.fullDoc())).toEqual(A.getHeads(after))
+    await reader.flush([handle.documentId])
+    expect(fragmentHeads(store)).toEqual(A.getHeads(after))
+  })
+
+  it("does not rebuild a stored fragment when the document loads", async () => {
+    const backend = new MemoryBackend()
+    const writer = repo(backend)
+    const handle = await create(writer)
+    await editToBoundary(handle)
+    await writer.flush()
+    const reader = repo(backend)
+    const store = vi.spyOn(backend, "store")
+    await reader.find<Doc>(handle.url)
+    await reader.flush()
+    expect(store).not.toHaveBeenCalled()
+  })
+
   it("another repo's fragment clears the boundary it covers", async () => {
     vi.useFakeTimers()
     const random = vi.spyOn(Math, "random")

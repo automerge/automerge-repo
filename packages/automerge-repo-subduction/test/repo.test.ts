@@ -320,6 +320,28 @@ describe("public Repo with native Subduction", () => {
     expect(A.getHeads(receiver.fullDoc())).toEqual(A.getHeads(again.fullDoc()))
   }, 60000)
 
+  it("compacts a boundary left loose by a crash once the document reloads", async () => {
+    const a = peer()
+    const source = await a.repo.create<State>({ count: 0 })
+    do
+      await source.change(doc => {
+        doc.count++
+      })
+    while (!A.getHeads(source.fullDoc())[0].startsWith("00"))
+    const [head] = A.getHeads(source.fullDoc())
+    const compacted = async (p: Peer) =>
+      (await fragmentKeys(p)).some(key => key.endsWith(head))
+    // Crash: drop the Repo without flush or shutdown.
+    await a.backend.close()
+    expect(await compacted(a)).toBe(false)
+    const reopened = peer(a.storage)
+    await reopened.repo.find<State>(source.url)
+    await vi.waitFor(async () => {
+      await reopened.repo.flush()
+      expect(await compacted(reopened)).toBe(true)
+    }, wait)
+  }, 60000)
+
   it("syncs bidirectional edits and merges genuinely concurrent edits", async () => {
     const a = peer(),
       b = peer()

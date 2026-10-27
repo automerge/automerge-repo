@@ -35,8 +35,8 @@ fragment (hash starting with a zero byte). `extractFragments` bundles the
 fragments headed by given boundary commits with one `getFragmentMeta` lookup per
 head, not a full metadata scan; heads with no fragment of their own (absorbed
 into a higher fragment, or unknown to the document) are returned as `absent`.
-Repo uses these to store edits loose and compact boundaries later. Deletion of
-superseded records is not performed.
+Repo uses these to store edits loose and to build the fragments its backend
+requests later. Deletion of superseded records is not performed.
 
 Neither matching heads nor matching metadata authorizes discarding arbitrary
 incoming representations. Controllers must separately track persistence attempts,

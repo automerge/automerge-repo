@@ -13,7 +13,9 @@ import type {
 
 export const treeId = (n = 1) =>
   sedimentreeId(n.toString(16).padStart(32, "0").padEnd(64, "0"))
-export const cid = (n: number) => commitId(n.toString(16).padStart(64, "0"))
+/** Not a fragment boundary: no leading zero byte. */
+export const cid = (n: number) =>
+  commitId("f" + n.toString(16).padStart(63, "0"))
 export const commit = (
   n: number,
   parents: CommitId[] = [],

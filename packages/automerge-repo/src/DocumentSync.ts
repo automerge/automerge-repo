@@ -61,11 +61,12 @@ function whenIdle(run: () => void): () => void {
  * and deletion fences. A failed store is not retried: the document stops
  * accepting local edits, and Repo reports the failure on every later flush.
  *
- * Edits are stored as loose commits. Boundary commits (which head a fragment)
- * are compacted later: once one is due, a jittered timer per document waits for
- * an idle moment, then the fragments are bundled and stored like any write.
- * Flush compacts at once. Due boundaries are learned from local edits and live
- * records only; history loaded from storage is not inspected.
+ * Edits are stored as loose commits. The backend decides which boundary
+ * commits (which head a fragment) need one, for stored, local and remote
+ * history alike, and requests them. Once one is due, a jittered timer per
+ * document waits for an idle moment, then the fragments are bundled and stored
+ * like any write. Flush compacts what is due at once; a request arriving after
+ * it waits for the timer or the next load.
  */
 export class DocumentSync<T> {
   #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
@@ -74,7 +75,7 @@ export class DocumentSync<T> {
   #session?: SedimentreeSession
   #consumer: Promise<void> = Promise.resolve()
   #deleted = false
-  /** Boundary commits in the document with no covering fragment seen yet. */
+  /** Requested boundary commits with no covering fragment seen since. */
   #due = new Set<CommitId>()
   #timer?: ReturnType<typeof setTimeout>
   #cancelIdle?: () => void
@@ -144,7 +145,8 @@ export class DocumentSync<T> {
   // -- Writes --
 
   /** Store new changes as loose commits. Boundaries among them are compacted
-   * later, or with `compact` (merges and imports) bundled into this batch. */
+   * once the backend requests it, or with `compact` (merges and imports)
+   * bundled into this batch. */
   commit(
     before: A.Doc<T>,
     after: A.Doc<T>,
@@ -157,14 +159,10 @@ export class DocumentSync<T> {
     // records is a failed write, so it fail-stops like one.
     return this.#store(() => {
       const commits = extractNewCommits(before, after)
-      if (!commits.length) return []
-      const boundaries = commits.flatMap(c => (isBoundary(c.id) ? [c.id] : []))
-      if (!options.compact) {
-        for (const head of boundaries) this.#markDue(head)
-        return commits
-      }
+      if (!commits.length || !options.compact) return commits
       // Local changes are all in `after`, so an absent head was absorbed into
       // a higher fragment in the same batch.
+      const boundaries = commits.flatMap(c => (isBoundary(c.id) ? [c.id] : []))
       return [...commits, ...extractFragments(after, boundaries).records]
     })
   }
@@ -227,11 +225,6 @@ export class DocumentSync<T> {
     return (
       this.#deleted || this.document.deleted || !!this.document.writeFailure
     )
-  }
-
-  #markDue(head: CommitId): void {
-    this.#due.add(head)
-    this.#schedule()
   }
 
   /** Throttle per document: the first due boundary starts the timer. */
@@ -344,10 +337,6 @@ export class DocumentSync<T> {
             incoming: true,
             initial: this.query.pending,
           })
-          // Only commits new to the document can become due.
-          for (const record of unknown)
-            if (record.kind === "commit" && isBoundary(record.id))
-              this.#due.add(record.id)
         }
         // Every stored fragment, including echoes of our own and those in
         // this same batch, covers its head and checkpoints.
@@ -368,6 +357,10 @@ export class DocumentSync<T> {
         break
       case "history-marker":
         this.#marker("live", event.marker)
+        break
+      case "fragments-requested":
+        for (const head of event.heads) this.#due.add(head)
+        this.#schedule()
         break
       case "synchronized": {
         this.#marker("sync", event.result.marker)

@@ -1,4 +1,5 @@
 import {
+  checkpointForCommit,
   checkpointId,
   commitId,
   type CheckpointId,
@@ -25,6 +26,36 @@ export type RecordBatch = readonly SedimentreeRecord[]
 
 export function recordHead(record: SedimentreeRecord): CommitId {
   return record.kind === "commit" ? record.id : record.head
+}
+
+/** Record metadata that decides fragment coverage. */
+export type CoverageItem =
+  | Pick<LooseCommitRecord, "kind" | "id">
+  | Pick<FragmentRecord, "kind" | "head" | "checkpoints">
+
+/**
+ * Boundary commits among `items` that no fragment among them covers, as head
+ * or checkpoint. Stateless: coverage outside `items` is not known, so a
+ * consumer may also be told of heads a fragment it saw earlier covers.
+ */
+export function fragmentRequests(
+  items: Iterable<CoverageItem>,
+  isBoundary: (id: CommitId) => boolean
+): CommitId[] {
+  const boundaries = new Set<CommitId>()
+  const heads = new Set<CommitId>()
+  const checkpoints = new Set<CheckpointId>()
+  for (const item of items) {
+    if (item.kind === "commit") {
+      if (isBoundary(item.id)) boundaries.add(item.id)
+    } else {
+      heads.add(item.head)
+      for (const checkpoint of item.checkpoints) checkpoints.add(checkpoint)
+    }
+  }
+  return [...boundaries].filter(
+    id => !heads.has(id) && !checkpoints.has(checkpointForCommit(id))
+  )
 }
 
 /**
