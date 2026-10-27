@@ -446,6 +446,59 @@ describe("DocHandle", () => {
     expect(timeForCachedAccesses).toBeLessThan(timeForFirstAccess / 10)
   })
 
+  describe("hasHeads", () => {
+    it("is true for current and past heads", () => {
+      const handle = setup()
+      handle.change(d => (d.foo = "one"))
+      handle.change(d => (d.foo = "two"))
+      expect(handle.hasHeads(handle.heads())).toBe(true)
+      for (const heads of handle.history()) {
+        expect(handle.hasHeads(heads)).toBe(true)
+      }
+    })
+
+    it("is false for unknown heads", () => {
+      const handle = setup()
+      handle.change(d => (d.foo = "one"))
+      const other = encodeHeads(A.getHeads(A.from({ foo: "other" })))
+      expect(handle.hasHeads(other)).toBe(false)
+      expect(handle.hasHeads([...handle.heads(), ...other] as any)).toBe(false)
+    })
+
+    it("only counts history up to a view's fixed heads", () => {
+      const handle = setup()
+      handle.change(d => (d.foo = "one"))
+      const pinned = handle.heads()
+      handle.change(d => (d.foo = "two"))
+      const later = handle.heads()
+      const view = handle.view(pinned)
+      expect(view.hasHeads(pinned)).toBe(true)
+      expect(view.hasHeads(later)).toBe(false)
+      expect(handle.view(later).hasHeads(pinned)).toBe(true)
+    })
+
+    it("is false for heads concurrent with a view's fixed heads", () => {
+      const handle = setup()
+      handle.change(d => (d.foo = "base"))
+      const fork = A.change(A.clone(handle.doc()), d => (d.bar = "fork"))
+      handle.change(d => (d.foo = "local"))
+      const pinned = handle.heads()
+      update(handle, doc => A.merge(doc, fork))
+      const forkHeads = encodeHeads(A.getHeads(fork))
+      expect(handle.hasHeads(forkHeads)).toBe(true)
+      expect(handle.view(pinned).hasHeads(forkHeads)).toBe(false)
+    })
+
+    it("ignores path scoping", () => {
+      const handle = setup()
+      handle.change(d => (d.foo = "one"))
+      const heads = handle.heads()
+      handle.change(d => (d.bar = "two"))
+      expect(handle.sub("foo").hasHeads(heads)).toBe(true)
+      expect(handle.sub("bar").hasHeads(handle.heads())).toBe(true)
+    })
+  })
+
   describe("isReadOnly", () => {
     it("should return false for a regular document handle", () => {
       const handle = setup()
@@ -564,7 +617,6 @@ describe("DocHandle", () => {
         "reload",
         "metadata",
         "update",
-        "hasHeads",
         "_handleRetainerSize",
         "_trieNodeCount",
         "_receiveInboundEphemeral",

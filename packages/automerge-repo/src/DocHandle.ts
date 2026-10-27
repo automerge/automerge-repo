@@ -182,6 +182,24 @@ export class DocHandle<T> {
   }
 
   /**
+   * True if every hash in `heads` is in this document's history. For a
+   * view-pinned handle, only history up to its fixed heads counts.
+   */
+  hasHeads(heads: UrlHeads): boolean {
+    const decoded = decodeHeads(heads)
+    const doc = this.#document.doc
+    if (!A.hasHeads(doc, decoded)) return false
+    if (!this.#fixedHeads) return true
+    // A.hasHeads ignores a view's heads, so check ancestry of the fixed heads:
+    // adding `heads` changes nothing iff they are already ancestors.
+    const fixed = decodeHeads(this.#fixedHeads)
+    return (
+      A.getChangesMetaSince(doc, [...fixed, ...decoded]).length ===
+      A.getChangesMetaSince(doc, fixed).length
+    )
+  }
+
+  /**
    * Returns an array of all past "heads" for the document in topological order.
    *
    * @remarks

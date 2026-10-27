@@ -1,6 +1,4 @@
-import { next as Automerge } from "@automerge/automerge/slim"
 import type { DocHandle } from "./DocHandle.js"
-import { decodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { Segment } from "./subdoc-handles/types.js"
 import { makeLogger } from "./Logger.js"
@@ -106,12 +104,10 @@ export function queryAtHeads<T>(
   query: DocumentQuery<T>,
   heads: UrlHeads
 ): DocumentQuery<T> {
-  const decoded = decodeHeads(heads)
   const state = (): QueryState<T> => {
     const upstream = query.state()
     if (upstream.state !== "ready") return upstream
-    if (!Automerge.hasHeads(upstream.handle.fullDoc(), decoded))
-      return { state: "loading" }
+    if (!upstream.handle.hasHeads(heads)) return { state: "loading" }
     return { state: "ready", handle: upstream.handle.view(heads) }
   }
   return {
