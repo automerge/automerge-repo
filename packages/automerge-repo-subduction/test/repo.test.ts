@@ -23,6 +23,13 @@ type Peer = {
   signer: TestSigner
 }
 const wait = { timeout: 8000, interval: 20 }
+// A commit whose hash starts with a zero byte is a boundary, so creation can
+// store and sync history as a fragment rather than loose commits.
+const isRecordKey = (key: string) => /\/(commits|fragments)\//.test(key)
+const fragmentKeys = async (p: Peer) =>
+  (await p.storage.list("subduction-v2/")).filter(key =>
+    key.includes("/fragments/")
+  )
 
 async function ready<T>(handle: DocHandle<T>, state: T) {
   await vi.waitFor(() => expect(handle.doc()).toEqual(state), wait)
@@ -198,6 +205,7 @@ describe("public Repo with native Subduction", () => {
     await connect(a, b)
     const receiver = await b.repo.find<State>(source.url)
     await ready(receiver, { count: 0 })
+    const created = await fragmentKeys(a)
     let boundaries = 0
     while (boundaries < 2) {
       await source.change(doc => {
@@ -208,11 +216,7 @@ describe("public Repo with native Subduction", () => {
     const count = source.doc()!.count
     // Loose commits sync before any compaction.
     await ready(receiver, { count })
-    expect(
-      (await a.storage.list("subduction-v2/")).some(key =>
-        key.includes("/fragments/")
-      )
-    ).toBe(false)
+    expect(await fragmentKeys(a)).toEqual(created)
     await Promise.all([a.repo.flush(), b.repo.flush()])
     for (const p of [a, b])
       expect(
@@ -679,7 +683,7 @@ describe("public Repo with native Subduction", () => {
     gates.push(gate)
     let writes = 0
     b.storage.beforeSave = async key => {
-      if (key.includes("/commits/") && ++writes === 2) {
+      if (isRecordKey(key) && ++writes === 2) {
         entered.resolve()
         await gate.promise
       }
@@ -704,7 +708,7 @@ describe("public Repo with native Subduction", () => {
       gate = deferred()
     gates.push(gate)
     b.storage.beforeSave = async key => {
-      if (key.includes("/commits/")) {
+      if (isRecordKey(key)) {
         entered.resolve()
         await gate.promise
       }
