@@ -1,32 +1,25 @@
 /** Single-consumer observation queue, not a history store. Initial-load
- * events are readable as they arrive; live events queue until pulled. */
+ * events are readable as they arrive; live events queue until pulled and
+ * are held until the initial load completes. */
 export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
   private initial: T[] = []
   private initialIndex = 0
   private live: T[] = []
   private ready = false
-  private buffering = false
   private ended = false
   private claimed = false
   private pulling = false
   private wake?: () => void
   active = false
 
-  constructor(
-    private readonly copy: (value: T) => T,
-    private readonly released: () => void
-  ) {}
+  constructor(private readonly released: () => void) {}
 
   [Symbol.asyncIterator](): AsyncIterator<T> {
     if (this.claimed) throw new Error("Observation has one consumer")
     this.claimed = true
     return this
   }
-  /** Buffer live notifications before a non-atomic initial read completes. */
-  bufferBeforeInitialize(): void {
-    if (!this.ended) this.buffering = true
-  }
-  /** Deliver an initial-load event ahead of buffered live notifications. */
+  /** Deliver an initial-load event ahead of held live notifications. */
   pushInitial(value: T): void {
     if (this.ended || this.ready) return
     this.initial.push(value)
@@ -38,11 +31,10 @@ export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
     this.initial.push(...values)
     this.ready = true
     this.active = true
-    this.buffering = false
     this.wake?.()
   }
   push(value: T): void {
-    if (this.ended || (!this.active && !this.buffering)) return
+    if (this.ended) return
     this.live.push(value)
     this.wake?.()
   }
@@ -50,7 +42,6 @@ export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
     if (this.ended) return
     this.ended = true
     this.active = false
-    this.buffering = false
     this.initial = final === undefined ? [] : [final]
     this.initialIndex = 0
     this.live = []
@@ -69,11 +60,11 @@ export class Watch<T> implements AsyncIterable<T>, AsyncIterator<T> {
             this.initial = []
             this.initialIndex = 0
           }
-          return { done: false, value: this.copy(value) }
+          return { done: false, value }
         }
         if (this.ready) {
           if (this.live.length)
-            return { done: false, value: this.copy(this.live.shift()!) }
+            return { done: false, value: this.live.shift()! }
           if (this.ended) return { done: true, value: undefined }
         }
         await new Promise<void>(resolve => {

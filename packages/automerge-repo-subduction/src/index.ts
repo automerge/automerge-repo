@@ -81,52 +81,6 @@ function error(
     )
   return new BackendError(operation, "io", String(cause), !terminal, { cause })
 }
-function copyEvent(value: SedimentreeEvent): SedimentreeEvent {
-  if (value.type === "ephemeral")
-    // Metadata is frozen and shared; each session owns its payload bytes.
-    return {
-      ...value,
-      message: {
-        ...value.message,
-        payload: new Uint8Array(value.message.payload),
-      },
-    }
-  if (value.type === "records" || value.type === "blobs")
-    // Each session's native stream yields its own JS copies of stored bytes,
-    // and an event is delivered to only that session.
-    return value
-  if (value.type === "history-marker" || value.type === "local-load-complete")
-    return value.marker
-      ? {
-          ...value,
-          marker: { ...value.marker, heads: [...value.marker.heads] },
-        }
-      : { ...value }
-  if (value.type === "synchronized")
-    return {
-      ...value,
-      result: {
-        ...value.result,
-        marker: {
-          ...value.result.marker,
-          heads: [...value.result.marker.heads],
-        },
-        peers: value.result.peers.map(p => ({
-          ...p,
-          peer: { ...p.peer, path: [...p.peer.path] },
-        })),
-      },
-    }
-  if (value.type === "remote-heads")
-    return {
-      ...value,
-      remote: { ...value.remote, path: [...value.remote.path] },
-      heads: [...value.heads],
-    }
-  if (value.type === "fragments-requested")
-    return { ...value, heads: [...value.heads] }
-  return { ...value }
-}
 /** Record for an item on a native stored stream. */
 function storedRecord(
   item: Extract<N.StoredUpdate, { type: "commit" | "fragment" }>
@@ -266,16 +220,16 @@ export class SubductionBackend implements SedimentreeBackend {
     if (!watches.length) return
     const message = decodeEphemeral(bytes)
     if (!message) return
-    const event: SedimentreeEvent = {
-      type: "ephemeral",
-      sequence: ++this.sequence,
-      message,
-      sender: Object.freeze({
-        ...this.peerIdentity(peer),
-        path: Object.freeze([]),
-      }),
-    }
-    for (const [watch] of watches) watch.push(event)
+    const sequence = ++this.sequence
+    const sender = this.peerIdentity(peer)
+    // Metadata is frozen and shared; each session owns its payload bytes.
+    for (const [watch] of watches)
+      watch.push({
+        type: "ephemeral",
+        sequence,
+        message: { ...message, payload: new Uint8Array(message.payload) },
+        sender,
+      })
   }
   private onRemoteHeads(
     id: N.SedimentreeId,
@@ -285,17 +239,22 @@ export class SubductionBackend implements SedimentreeBackend {
     if (this.closed) return
     const tree = id as SedimentreeId
     if (this.deleting.has(tree)) return
-    const event: SedimentreeEvent = {
+    // Shared by every session on the tree.
+    const event: SedimentreeEvent = Object.freeze({
       type: "remote-heads",
       sequence: ++this.sequence,
       remote: this.peerIdentity(peer),
-      heads: heads.map(commitId),
-    }
+      heads: Object.freeze(heads.map(commitId)),
+    })
     for (const [watch, watched] of this.watches)
       if (watched === tree) watch.push(event)
   }
   private peerIdentity(peer: N.PeerId): BackendIdentity {
-    return { kind: "subduction", id: peer, path: [] }
+    return Object.freeze({
+      kind: "subduction",
+      id: peer,
+      path: Object.freeze([]),
+    })
   }
   /** Authenticate an outgoing transport with this backend's signer and add
    * the connection; resolves to the remote peer ID. The engine disconnects it
@@ -439,16 +398,17 @@ export class SubductionBackend implements SedimentreeBackend {
         }
       }
     )
-    const result: SyncRoundResult = {
+    // Shared by the caller and every session on the tree.
+    const result: SyncRoundResult = Object.freeze({
       roundId,
-      marker,
+      marker: Object.freeze({ ...marker, heads: Object.freeze(marker.heads) }),
       outcome: !outcomes.length
         ? "no-peers"
         : outcomes.some(p => p.outcome === "failed")
           ? "failed"
           : "complete",
-      peers: outcomes,
-    }
+      peers: Object.freeze(outcomes.map(p => Object.freeze(p))),
+    })
     if (!this.closed && !this.deleting.has(id))
       for (const [watch, tree] of this.watches)
         if (tree === id && (!recipient || watch === recipient))
@@ -482,7 +442,7 @@ export class SubductionBackend implements SedimentreeBackend {
     let released = false
     let stream: N.StoredUpdates | undefined
     let initialized = false
-    const watch = new Watch<SedimentreeEvent>(copyEvent, () => {
+    const watch = new Watch<SedimentreeEvent>(() => {
       released = true
       stream?.close()
       this.watches.delete(watch)
@@ -490,8 +450,6 @@ export class SubductionBackend implements SedimentreeBackend {
       this.confirming.delete(watch)
       this.reconcileInterest(id)
     })
-    // Keep sync and peer events that arrive while a first load waits on peers.
-    watch.bufferBeforeInitialize()
     this.watches.set(watch, id)
     // One native stream per session keeps syncing across connections.
     const observe = async (): Promise<void> => {

@@ -3,15 +3,14 @@ import { Watch } from "../src/watch.js"
 
 function queue() {
   const released = vi.fn()
-  const watch = new Watch<string>(value => value, released)
+  const watch = new Watch<string>(released)
   watch.initialize([])
   return { watch, released }
 }
 
 describe("observation queue", () => {
   it("buffers pre-initialization updates behind the initial batch", async () => {
-    const watch = new Watch<string>(value => value, vi.fn())
-    watch.bufferBeforeInitialize()
+    const watch = new Watch<string>(vi.fn())
     watch.push("live")
     expect(watch.active).toBe(false)
     watch.initialize(["initial", "complete"])
@@ -22,8 +21,7 @@ describe("observation queue", () => {
   })
 
   it("delivers initial-load events as they arrive, ahead of held live updates", async () => {
-    const watch = new Watch<string>(value => value, vi.fn())
-    watch.bufferBeforeInitialize()
+    const watch = new Watch<string>(vi.fn())
     watch.push("live")
     const pending = watch.next()
     watch.pushInitial("blob 1")
