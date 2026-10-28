@@ -195,6 +195,8 @@ export class SubductionBackend implements SedimentreeBackend {
   private readonly watches = new Map<Watch<SedimentreeEvent>, SedimentreeId>()
   /** Sessions whose consumer verified a complete snapshot (markComplete). */
   private readonly completed = new Set<Watch<SedimentreeEvent>>()
+  /** Sessions with a confirmation round in flight. */
+  private readonly confirming = new Set<Watch<SedimentreeEvent>>()
   /** Ephemeral topics last requested from native. */
   private readonly interests = new Set<SedimentreeId>()
   /**
@@ -350,21 +352,23 @@ export class SubductionBackend implements SedimentreeBackend {
           })
     })
   }
-  /** One explicit round for a session whose local load was empty. */
-  private async probe(
-    id: SedimentreeId,
-    watch: Watch<SedimentreeEvent>
-  ): Promise<void> {
-    try {
-      await this.syncRound(id, watch)
-    } catch (cause) {
-      if (!this.closed && !this.deleting.has(id))
-        watch.push({
-          type: "failure",
-          sequence: ++this.sequence,
-          error: error("synchronize", cause),
-        })
-    }
+  /**
+   * One confirmation round for an incomplete session whose local load was empty,
+   * at most one in flight. Its marker covers everything each peer had.
+   */
+  private confirm(id: SedimentreeId, watch: Watch<SedimentreeEvent>): void {
+    if (this.confirming.has(watch) || this.completed.has(watch)) return
+    this.confirming.add(watch)
+    void this.syncRound(id, watch)
+      .catch(cause => {
+        if (!this.closed && !this.deleting.has(id))
+          watch.push({
+            type: "failure",
+            sequence: ++this.sequence,
+            error: error("synchronize", cause),
+          })
+      })
+      .finally(() => this.confirming.delete(watch))
   }
   /** Propagate a stored batch without an open session; one round per batch. */
   private scheduleSync(id: SedimentreeId): void {
@@ -483,6 +487,7 @@ export class SubductionBackend implements SedimentreeBackend {
       stream?.close()
       this.watches.delete(watch)
       this.completed.delete(watch)
+      this.confirming.delete(watch)
       this.reconcileInterest(id)
     })
     // Keep sync and peer events that arrive while a first load waits on peers.
@@ -541,7 +546,12 @@ export class SubductionBackend implements SedimentreeBackend {
               records: [record],
             })
             for (const event of requests([record])) watch.push(event)
-            await marker()
+            // Data a peer sends back in its own round arrives as unordered
+            // fire-and-forget records with no completion event; heads read
+            // between them can name a complete prefix. Without local history,
+            // confirm with a round of our own, as Subduction's design advises.
+            if (found) await marker()
+            else this.confirm(id, watch)
           } else if (update.type === "storageChecked") {
             if (!scanning) continue
             scanning = false
@@ -573,7 +583,7 @@ export class SubductionBackend implements SedimentreeBackend {
             // loadAndWatch reports neither failed rounds nor an empty settled
             // load, so one explicit round decides whether connected peers
             // have this document. Remove once native reports it.
-            if (peers) void this.probe(id, watch)
+            if (peers) this.confirm(id, watch)
           } else if (update.type === "peerSynced") {
             // Ordered after the round's items, so native heads include them.
             await marker()

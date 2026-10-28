@@ -775,6 +775,65 @@ describe("public Repo with native Subduction", () => {
     }
   }, 10000)
 
+  it("does not mark history pushed record by record ready before it is complete", async () => {
+    const a = peer(),
+      b = peer()
+    await connect(a, b)
+    const url = generateAutomergeUrl()
+    const progress = b.repo.query<State>(url)
+    await vi.waitFor(
+      () => expect(progress.state().state).toBe("unavailable"),
+      wait
+    )
+    const counts: (number | undefined)[] = []
+    const unsubscribe = progress.subscribe(state => {
+      if (state.state === "ready") counts.push(state.handle.doc()?.count)
+    })
+    let doc = A.init<State>()
+    for (let count = 0; count < 20; count++)
+      doc = A.change(doc, { time: 0 }, d => {
+        d.count = count
+      })
+    const [last] = A.getHeads(doc)
+    const signed = async () =>
+      (await b.storage.list("subduction-v2/")).filter(key =>
+        /\/commits\/signed\//.test(key)
+      )
+    // Hold the final commit back so the reader holds a complete prefix alone.
+    const entered = deferred(),
+      gate = deferred()
+    gates.push(gate)
+    b.storage.beforeSave = async key => {
+      if (isRecordKey(key) && key.endsWith(last)) {
+        entered.resolve()
+        await gate.promise
+      }
+    }
+    try {
+      // The writer's round answers the reader's request one record per message.
+      await a.repo.import<State>(A.save(doc), {
+        docId: parseAutomergeUrl(url).documentId,
+      })
+      await entered.promise
+      // The other records land one by one, unless a round of the reader's
+      // own fetched them in one batch with the held commit.
+      await vi
+        .waitFor(async () => expect(await signed()).toHaveLength(19), {
+          timeout: 1000,
+          interval: 20,
+        })
+        .catch(() => {})
+      await new Promise(resolve => setTimeout(resolve, 100))
+      expect(progress.state().state).not.toBe("ready")
+      gate.resolve()
+      await vi.waitFor(() => expect(progress.state().state).toBe("ready"), wait)
+      expect(counts).toEqual([19])
+    } finally {
+      gate.resolve()
+      unsubscribe()
+    }
+  }, 10000)
+
   it("waits for delayed incoming history without reporting unavailable", async () => {
     const a = peer(),
       b = peer()

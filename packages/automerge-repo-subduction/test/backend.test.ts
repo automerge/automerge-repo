@@ -440,10 +440,12 @@ describe("real local Subduction", () => {
         phase: "live",
         records: [record(1)],
       })
-      expect(await next(loaded.iterator)).toMatchObject({
-        type: "history-marker",
-        marker: { heads: [cid(1)] },
-      })
+      // An empty local load takes its marker from a round, not the item.
+      expect(await next(loaded.iterator)).toMatchObject(
+        timing === "before"
+          ? { type: "history-marker", marker: { heads: [cid(1)] } }
+          : { type: "synchronized", result: { marker: { heads: [cid(1)] } } }
+      )
       expect((await initial(b.open(tree))).records).toEqual([record(1)])
       // The local write hydrated native, which holds the one record.
       await expect(nativeCommits(b)).resolves.toBe(1)
@@ -546,15 +548,18 @@ describe("real local Subduction", () => {
       await next(iterator),
       await next(iterator),
     ]
+    // The empty-loaded session's record starts a round of its own.
     expect(events.map(e => e.type).sort()).toEqual([
-      "history-marker",
       "records",
+      "synchronized",
       "synchronized",
     ])
     expect(events).toContainEqual(
       expect.objectContaining({
-        type: "history-marker",
-        marker: expect.objectContaining({ heads: [cid(1)] }),
+        type: "synchronized",
+        result: expect.objectContaining({
+          marker: expect.objectContaining({ heads: [cid(1)] }),
+        }),
       })
     )
     expect(events).toContainEqual(
@@ -690,22 +695,23 @@ describe("real local Subduction", () => {
 
   it("emits storage markers only to incomplete sessions", async () => {
     const backend = create()
+    await backend.store(tree, [record(1)])
     const done = backend.open(tree)
     const loading = backend.open(tree)
     const a = await initial(done)
     const b = await initial(loading)
     done.markComplete!()
-    await backend.store(tree, [record(1)])
+    await backend.store(tree, [record(2, [1])])
     expect(await next(a.iterator)).toMatchObject({ type: "records" })
     expect(await next(b.iterator)).toMatchObject({ type: "records" })
     expect(await next(b.iterator)).toMatchObject({
       type: "history-marker",
-      marker: { heads: [cid(1)] },
+      marker: { heads: [cid(2)] },
     })
     await done.synchronize()
     expect(await next(a.iterator)).toMatchObject({
       type: "synchronized",
-      result: { marker: { heads: [cid(1)] } },
+      result: { marker: { heads: [cid(2)] } },
     })
   })
 
