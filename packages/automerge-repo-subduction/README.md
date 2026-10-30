@@ -55,7 +55,7 @@ without authorization.
 To use keyhive authorization instead, mint each ID as the verifying key of a
 keyhive document the server knows. Pass a `mintDocumentId` function, which
 receives the initial records (e.g. to call keyhive's `generate_doc` with their
-heads), to the backend or to `Repo` (where it overrides the backend's):
+heads), to the backend:
 
 ```ts
 const backend = new SubductionBackend({

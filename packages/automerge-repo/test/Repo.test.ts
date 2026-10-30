@@ -70,27 +70,7 @@ describe("backend-driven Repo", () => {
     ).rejects.toMatchObject({ code: "conflict" })
   })
 
-  it("mints with its own mintDocumentId, overriding the backend's", async () => {
-    const minted = new Uint8Array(32).fill(9)
-    const own = vi.fn(() => minted)
-    const backendMint = vi.fn(() => new Uint8Array(32).fill(1))
-    const backend = new MemoryBackend({ mintDocumentId: backendMint })
-    const handle = await repo(backend, { mintDocumentId: own }).create({
-      count: 0,
-    })
-    expect(documentIdToBinary(handle.documentId)).toEqual(minted)
-    expect(own).toHaveBeenCalledOnce()
-    expect(own.mock.calls[0][0].length).toBeGreaterThan(0)
-    expect(backendMint).not.toHaveBeenCalled()
-
-    const local = await repo(undefined, { mintDocumentId: own }).create()
-    expect(local.documentId).toBe(handle.documentId)
-    await expect(
-      repo(undefined, { mintDocumentId: () => new Uint8Array(16) }).create()
-    ).rejects.toMatchObject({ operation: "create", code: "invalid-id" })
-  })
-
-  it("uses the backend's mintDocumentId when Repo has none", async () => {
+  it("uses the backend's mintDocumentId", async () => {
     const minted = new Uint8Array(32).fill(5)
     const backend = new MemoryBackend({ mintDocumentId: () => minted })
     const handle = await repo(backend).create({ count: 0 })

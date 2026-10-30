@@ -84,7 +84,6 @@ In v2, `peerId` identified both the Repo and its network peer. v3 splits them:
 - `repo.flush()` rejects if any write has failed, and keeps rejecting for that document.
 - `repo.find(id, { signal })` can be aborted.
 - `handle.hasHeads(heads)` checks whether the document contains the given heads.
-- `RepoConfig.mintDocumentId` lets you choose new document IDs, e.g. for keyhive.
 
 ## Repo
 

@@ -16,7 +16,7 @@ Import its types and helpers directly from
 IDs are branded **lowercase hex strings**, constructed by `sedimentreeId`,
 `commitId`, and `checkpointId`. Tree IDs are 32 bytes; other lengths reject
 with an `invalid-id` backend error. `mintDocumentId` is the default minter for
-new trees; backends and Repo accept a `mintDocumentId` option to replace it.
+new trees; backends accept a `mintDocumentId` option to replace it.
 Commit IDs are 32 bytes. Fragment checkpoint prefixes are 12 bytes, matching the
 sedimentree wire model; `checkpointForCommit` explicitly truncates a full commit
 ID. A stream's `HistoryMarker` instead contains full commit heads.

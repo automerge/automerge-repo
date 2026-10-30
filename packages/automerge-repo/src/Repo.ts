@@ -23,9 +23,8 @@ import { extractRecords } from "./sedimentree/automerge/index.js"
 import {
   BackendError,
   idBytes,
-  mintBackendId,
+  mintDocumentId,
   sedimentreeId,
-  type MintDocumentId,
   type BackendIdentity,
   type SedimentreeBackend,
   type SedimentreeId,
@@ -50,7 +49,6 @@ export class Repo extends EventEmitter<RepoEvents> {
   #log = makeLogger("automerge-repo:repo")
   #entries = new Map<DocumentId, Entry>()
   #backend?: SedimentreeBackend
-  #mintDocumentId?: MintDocumentId
   #operations = new Set<Promise<unknown>>()
   #closed = false
   #shutdown?: Promise<void>
@@ -62,14 +60,12 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   constructor({
     backend,
-    mintDocumentId,
     id = crypto.randomUUID() as RepoId,
   }: RepoConfig = {}) {
     super()
     if (typeof id !== "string" || !id)
       throw new TypeError("id must be a nonempty string")
     this.#backend = backend
-    this.#mintDocumentId = mintDocumentId
     this.#identity = Object.freeze({
       kind: "repo",
       id,
@@ -195,25 +191,15 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (!A.getHeads(doc).length) doc = A.emptyChange(doc)
     let id: DocumentId
     if (this.#backend) {
-      const records = extractRecords(doc)
-      // Repo's minter overrides the backend's.
-      const documentId = requested
-        ? this.#backendId(requested)
-        : this.#mintDocumentId &&
-          (await mintBackendId(records, this.#mintDocumentId))
       const allocated = await this.#backend.create(
-        records,
-        documentId ? { documentId } : undefined
+        extractRecords(doc),
+        requested ? { documentId: this.#backendId(requested) } : undefined
       )
       id = binaryToDocumentId(idBytes(allocated) as BinaryDocumentId)
     } else if (requested) {
       id = requested
     } else {
-      const minted = await mintBackendId(
-        this.#mintDocumentId ? extractRecords(doc) : [],
-        this.#mintDocumentId
-      )
-      id = binaryToDocumentId(idBytes(minted) as BinaryDocumentId)
+      id = binaryToDocumentId(idBytes(mintDocumentId()) as BinaryDocumentId)
       if (this.#entries.has(id))
         throw new BackendError("create", "conflict", "Document already exists")
     }
@@ -467,11 +453,6 @@ function collectErrors(results: PromiseSettledResult<unknown>[]): unknown[] {
 
 export interface RepoConfig {
   backend?: SedimentreeBackend
-  /**
-   * Mints the 32-byte ID of each new document, overriding the backend's own
-   * minter; defaults to {@link mintDocumentId}.
-   */
-  mintDocumentId?: MintDocumentId
   /**
    * Identifies this Repo instance; a random UUID by default. Must be unique
    * among concurrently live Repos: it is the `originId` of the ephemeral
