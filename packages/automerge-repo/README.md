@@ -128,6 +128,11 @@ change. States:
 state. Write failures reject the `change()` promise and `flush()`; they do not
 change the query. `findWithProgress()` is deprecated in favour of `query()`.
 
+`remote-heads` events report the heads a peer advertised, with that peer's
+`peerId` (a `PeerId`, as the backend authenticated it) in place of `storageId`;
+`getSyncInfo(peerId)` returns the latest. Advertised heads are not proof that
+the peer has stored them, or that we have them.
+
 ## Ephemeral State
 
 `DocHandle` ephemeral APIs and `Presence` remain available. Ephemeral messages are

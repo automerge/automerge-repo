@@ -1,7 +1,7 @@
 import { next as A } from "@automerge/automerge/slim"
 import { makeLogger, Logger } from "./Logger.js"
 import { decodeHeads, encodeHeads } from "./AutomergeUrl.js"
-import type { DocumentId, StorageId, SyncInfo, UrlHeads } from "./types.js"
+import type { DocumentId, PeerId, SyncInfo, UrlHeads } from "./types.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
 import type { RootQuery } from "./DocumentQuery.js"
@@ -31,9 +31,9 @@ export class Document<T = unknown> {
   /** The first failed local write; once set, local edits are rejected. */
   writeFailure?: { error: unknown }
 
-  #syncInfo = new Map<StorageId, SyncInfo>()
+  #syncInfo = new Map<PeerId, SyncInfo>()
   /** Peers whose reports arrived before ready; their latest is in `#syncInfo`. */
-  #pendingRemoteHeads = new Set<StorageId>()
+  #pendingRemoteHeads = new Set<PeerId>()
 
   /** Capture local history synchronously, before reentrant listeners run.
    * `compact` stores the fragments of new boundary commits in the same batch. */
@@ -101,24 +101,24 @@ export class Document<T = unknown> {
     return this.#doc ? A.getHeads(this.#doc) : []
   }
 
-  getSyncInfo(storageId: StorageId): SyncInfo | undefined {
-    return this.#syncInfo.get(storageId)
+  getSyncInfo(peerId: PeerId): SyncInfo | undefined {
+    return this.#syncInfo.get(peerId)
   }
 
-  recordRemoteHeads(storageId: StorageId, heads: readonly string[]): void {
+  recordRemoteHeads(peerId: PeerId, heads: readonly string[]): void {
     const encoded = encodeHeads([...heads])
     const timestamp = Date.now()
-    this.#syncInfo.set(storageId, {
+    this.#syncInfo.set(peerId, {
       lastHeads: encoded,
       lastSyncTimestamp: timestamp,
     })
     if (!this.ready) {
-      this.#pendingRemoteHeads.add(storageId)
+      this.#pendingRemoteHeads.add(peerId)
       return
     }
     // A later report supersedes one still awaiting the flush.
-    this.#pendingRemoteHeads.delete(storageId)
-    this.registry.dispatchRemoteHeads(storageId, encoded, timestamp)
+    this.#pendingRemoteHeads.delete(peerId)
+    this.registry.dispatchRemoteHeads(peerId, encoded, timestamp)
   }
 
   /** Deliver pre-ready reports in a later task, after `find()` callers attach. */
@@ -128,10 +128,10 @@ export class Document<T = unknown> {
       const pending = [...this.#pendingRemoteHeads]
       this.#pendingRemoteHeads.clear()
       if (this.closed || this.deleted) return
-      for (const storageId of pending) {
-        const info = this.#syncInfo.get(storageId)!
+      for (const peerId of pending) {
+        const info = this.#syncInfo.get(peerId)!
         this.registry.dispatchRemoteHeads(
-          storageId,
+          peerId,
           info.lastHeads,
           info.lastSyncTimestamp
         )

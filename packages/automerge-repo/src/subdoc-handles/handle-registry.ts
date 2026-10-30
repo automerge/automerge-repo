@@ -4,7 +4,6 @@ import type { UrlHeads, PeerId, RepoId } from "../types.js"
 import { scopedValueAt } from "./path-ops.js"
 import type { Document } from "../Document.js"
 import type { DocHandle } from "../DocHandle.js"
-import type { StorageId } from "../types.js"
 import { KIND } from "./types.js"
 import type { CursorRange, PathSegment, Pattern } from "./types.js"
 import { matchesPattern } from "./utils.js"
@@ -373,12 +372,12 @@ export class HandleRegistry {
 
   /** Fan out a `remote-heads` notification (document-level event). */
   dispatchRemoteHeads(
-    storageId: StorageId,
+    peerId: PeerId,
     heads: UrlHeads,
     timestamp: number
   ): void {
     for (const handle of this.#listeners.keys()) {
-      this.emit(handle, "remote-heads", { storageId, heads, timestamp })
+      this.emit(handle, "remote-heads", { peerId, heads, timestamp })
     }
   }
 

@@ -1,6 +1,6 @@
 import type { next as A } from "@automerge/automerge/slim"
 import type { DocHandle } from "./DocHandle.js"
-import type { RepoId, PeerId, StorageId, UrlHeads } from "./types.js"
+import type { RepoId, PeerId, UrlHeads } from "./types.js"
 
 /** These are the events that this DocHandle emits to external listeners */
 export interface DocHandleEvents<T> {
@@ -70,7 +70,8 @@ export interface DocHandleEphemeralMessagePayload<T> {
 
 /** Emitted when we have new remote heads for this document */
 export interface DocHandleRemoteHeadsPayload {
-  storageId: StorageId
+  /** The peer whose heads these are, as the backend authenticated it. */
+  peerId: PeerId
   heads: UrlHeads
   timestamp: number
 }

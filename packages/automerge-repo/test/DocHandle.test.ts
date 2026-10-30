@@ -10,7 +10,7 @@ import { eventPromise } from "./helpers/eventPromise.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import type { Document } from "../src/Document.js"
 import { createTestDocument } from "./helpers/testHandle.js"
-import type { StorageId } from "../src/types.js"
+import type { PeerId } from "../src/types.js"
 import { TestDoc } from "./types.js"
 
 describe("DocHandle", () => {
@@ -42,7 +42,7 @@ describe("DocHandle", () => {
 
   it("shares document-owned remote sync info across root and sub-handles", () => {
     const { document, handle } = createTestDocument<TestDoc>(TEST_ID)
-    const peer = "peer" as StorageId
+    const peer = "peer" as PeerId
     const heads = A.getHeads(A.from({ count: 1 }))
     document.recordRemoteHeads(peer, heads)
     expect(handle.getSyncInfo(peer)?.lastHeads).toEqual(encodeHeads(heads))
@@ -628,22 +628,22 @@ describe("DocHandle", () => {
 
     it("getSyncInfo reads remote heads recorded by Document", () => {
       const { document, handle } = createTestDocument<TestDoc>(TEST_ID)
-      document.recordRemoteHeads("storage-1" as StorageId, ["abcd"])
-      expect(handle.getSyncInfo("storage-1" as StorageId)).toMatchObject({
+      document.recordRemoteHeads("peer-1" as PeerId, ["abcd"])
+      expect(handle.getSyncInfo("peer-1" as PeerId)).toMatchObject({
         lastHeads: encodeHeads(["abcd"]),
         lastSyncTimestamp: expect.any(Number),
       })
-      assert.equal(handle.getSyncInfo("storage-2" as any), undefined)
+      assert.equal(handle.getSyncInfo("peer-2" as PeerId), undefined)
     })
 
     it("view handles share Document sync info", () => {
       const { document, handle } = createTestDocument<TestDoc>(TEST_ID)
-      document.recordRemoteHeads("storage-1" as StorageId, ["abcd"])
+      document.recordRemoteHeads("peer-1" as PeerId, ["abcd"])
       document.applyMutation(d => A.change(d, x => (x.foo = "bar")))
       const view = handle.view(handle.heads())
       assert.deepEqual(
-        view.getSyncInfo("storage-1" as StorageId),
-        handle.getSyncInfo("storage-1" as StorageId)
+        view.getSyncInfo("peer-1" as PeerId),
+        handle.getSyncInfo("peer-1" as PeerId)
       )
     })
   })

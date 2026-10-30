@@ -35,10 +35,7 @@ export type PeerId = string & { __peerId: true }
  */
 export type RepoId = string & { __repoId: true }
 
-/** Opaque peer-storage identity reported with remote heads. */
-export type StorageId = string & { __storageId: true }
-
-/** The last heads seen from a remote storage peer, and when. */
+/** The last heads a remote peer advertised, and when. */
 export type SyncInfo = {
   lastHeads: UrlHeads
   lastSyncTimestamp: number

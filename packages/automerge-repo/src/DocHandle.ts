@@ -10,7 +10,7 @@ import { encode } from "./helpers/cbor.js"
 import type {
   AutomergeUrl,
   DocumentId,
-  StorageId,
+  PeerId,
   SyncInfo,
   UrlHeads,
 } from "./types.js"
@@ -341,9 +341,9 @@ export class DocHandle<T> {
     }
   }
 
-  /** Returns the heads and the timestamp of the last update for the storageId. */
-  getSyncInfo(storageId: StorageId): SyncInfo | undefined {
-    return this.#document.getSyncInfo(storageId)
+  /** Returns the heads and the timestamp of the last update from the given peer. */
+  getSyncInfo(peerId: PeerId): SyncInfo | undefined {
+    return this.#document.getSyncInfo(peerId)
   }
 
   /**

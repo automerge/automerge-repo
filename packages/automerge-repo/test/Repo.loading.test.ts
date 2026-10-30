@@ -2,7 +2,7 @@ import { next as A } from "@automerge/automerge"
 import { next as SlimA } from "@automerge/automerge/slim"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Repo } from "../src/Repo.js"
-import type { DocHandle, StorageId } from "../src/DocHandle.js"
+import type { DocHandle } from "../src/DocHandle.js"
 import {
   binaryToDocumentId,
   encodeHeads,
@@ -12,7 +12,7 @@ import {
 import { encode } from "../src/helpers/cbor.js"
 import { Presence } from "../src/presence/Presence.js"
 import { PRESENCE_MESSAGE_MARKER } from "../src/presence/constants.js"
-import type { BinaryDocumentId } from "../src/types.js"
+import type { BinaryDocumentId, PeerId } from "../src/types.js"
 import { MemoryBackend } from "./helpers/MemoryBackend.js"
 import { BackendError, commitId } from "../src/sedimentree/index.js"
 import { recordKey } from "./helpers/records.js"
@@ -714,7 +714,7 @@ describe("Repo loading", () => {
       await session.push(remoteHeads("peer", advertised))
       expect(listener).not.toHaveBeenCalled()
       expect(progress.state().state).toBe("loading")
-      expect(handle.getSyncInfo("peer" as StorageId)?.lastHeads).toEqual(
+      expect(handle.getSyncInfo("peer" as PeerId)?.lastHeads).toEqual(
         encodeHeads([...advertised])
       )
     })
@@ -736,14 +736,14 @@ describe("Repo loading", () => {
       expect(listener).toHaveBeenCalledTimes(2)
       expect(listener).toHaveBeenCalledWith(
         expect.objectContaining({
-          storageId: "a",
+          peerId: "a",
           heads: encodeHeads([...latest]),
-          timestamp: handle.getSyncInfo("a" as StorageId)?.lastSyncTimestamp,
+          timestamp: handle.getSyncInfo("a" as PeerId)?.lastSyncTimestamp,
         })
       )
       expect(listener).toHaveBeenCalledWith(
         expect.objectContaining({
-          storageId: "b",
+          peerId: "b",
           heads: encodeHeads([...other]),
         })
       )
@@ -757,7 +757,7 @@ describe("Repo loading", () => {
       await session.push(remoteHeads("peer", advertised))
       expect(listener).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({
-          storageId: "peer",
+          peerId: "peer",
           heads: encodeHeads([...advertised]),
         })
       )

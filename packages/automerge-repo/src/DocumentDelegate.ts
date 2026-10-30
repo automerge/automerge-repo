@@ -2,7 +2,7 @@ import { next as A } from "@automerge/automerge/slim"
 import type { Document } from "./Document.js"
 import type { RootQuery } from "./DocumentQuery.js"
 import { decode } from "./helpers/cbor.js"
-import type { RepoId, PeerId, StorageId } from "./types.js"
+import type { RepoId, PeerId } from "./types.js"
 import {
   checkpointForCommit,
   recordHead,
@@ -389,10 +389,7 @@ export class DocumentDelegate<T> {
         else this.fail(event.error)
         break
       case "remote-heads":
-        this.document.recordRemoteHeads(
-          event.remote.id as StorageId,
-          event.heads
-        )
+        this.document.recordRemoteHeads(event.remote.id as PeerId, event.heads)
         break
       case "ephemeral":
         if (event.message.origin.id === this.repoIdentity.id) break
