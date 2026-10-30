@@ -1,7 +1,7 @@
 /**
  * A branded string representing a URL for a document, in the form `automerge:<base58check encoded
  * string>`; for example, `automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu`. Legacy 16-byte IDs are accepted
- * in URLs and zero-padded to 32 bytes.
+ * in URLs and zero-padded to 32 bytes; use `normalizeDocumentId` to pad them in other forms.
  */
 export type AutomergeUrl = string & { __documentUrl: true } // for opening / linking
 

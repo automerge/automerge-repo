@@ -25,11 +25,8 @@ const checkDocumentId = (
 ): BinaryDocumentId | undefined =>
   id?.length === 32 ? (id as BinaryDocumentId) : undefined
 
-/**
- * Legacy 16-byte IDs are accepted in URLs only, zero-padded to their 32-byte
- * equivalent.
- */
-const normalizeUrlDocumentId = (
+/** Zero-pads a legacy 16-byte ID to its 32-byte equivalent. */
+const padDocumentId = (
   id: Uint8Array | undefined
 ): BinaryDocumentId | undefined => {
   if (id?.length !== 16) return checkDocumentId(id)
@@ -75,7 +72,8 @@ export const parseAutomergeUrl = (url: AutomergeUrl): ParsedAutomergeUrl => {
   const match = baseUrl.match(new RegExp(`^${urlPrefix}([^/]+)(?:\\/(.*))?$`))
   if (!match) throw new Error("Invalid document URL: " + url)
   const [, docMatch, pathStr] = match
-  const binaryDocumentId = normalizeUrlDocumentId(
+  // Legacy 16-byte IDs are accepted in URLs.
+  const binaryDocumentId = padDocumentId(
     documentIdToBinary(docMatch as DocumentId)
   )
 
@@ -238,6 +236,28 @@ export const interpretAsDocumentId = (id: AnyDocumentId): DocumentId => {
 
   // none of the above
   throw new Error(`Invalid AutomergeUrl: '${id}'`)
+}
+
+/**
+ * Like {@link interpretAsDocumentId}, but also accepts legacy 16-byte IDs in
+ * any form, zero-padding them to 32 bytes. The Repo only accepts 32-byte IDs,
+ * so use this to migrate stored legacy IDs before passing them to it.
+ *
+ * Throws on invalid input.
+ */
+export const normalizeDocumentId = (id: AnyDocumentId): DocumentId => {
+  if (id instanceof Uint8Array) {
+    const binary = padDocumentId(id)
+    if (binary) return binaryToDocumentId(binary)
+    throw new Error("Invalid binary document ID")
+  }
+
+  if (isValidAutomergeUrl(id)) return parseAutomergeUrl(id).documentId
+
+  const binary = padDocumentId(documentIdToBinary(id as DocumentId))
+  if (binary) return binaryToDocumentId(binary)
+
+  throw new Error(`Invalid document ID: '${id}'`)
 }
 
 // TYPES

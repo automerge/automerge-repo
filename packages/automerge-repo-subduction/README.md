@@ -47,6 +47,8 @@ signer keys, as native code can panic on invalid keys.
 
 Document IDs are 32 bytes. Older 16-byte Automerge URLs are still accepted and
 open the same document as their 32-byte form, which `handle.url` reports.
+Bare 16-byte IDs are rejected; convert stored ones with `normalizeDocumentId`
+from `@automerge/automerge-repo`.
 By default `create()` mints IDs a keyhive-enabled Subduction server accepts
 without authorization.
 

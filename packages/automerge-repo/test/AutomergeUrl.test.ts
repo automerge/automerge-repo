@@ -16,7 +16,10 @@ import type {
   DocumentId,
   UrlHeads,
 } from "../src/types.js"
-import { interpretAsDocumentId } from "../src/AutomergeUrl.js"
+import {
+  interpretAsDocumentId,
+  normalizeDocumentId,
+} from "../src/AutomergeUrl.js"
 
 const legacyBinaryDocumentId = Uint8Array.from([
   241, 194, 156, 132, 116, 200, 74, 222, 184, 0, 190, 71, 98, 125, 51, 191,
@@ -61,6 +64,34 @@ describe("AutomergeUrl", () => {
       )
       assert.throws(() => interpretAsDocumentId(legacyDocumentId))
       assert.throws(() => interpretAsDocumentId(legacyBinaryDocumentId))
+    })
+
+    it("normalizes a legacy ID in any form with normalizeDocumentId", () => {
+      assert.equal(normalizeDocumentId(legacyBinaryDocumentId), goodDocumentId)
+      assert.equal(normalizeDocumentId(legacyDocumentId), goodDocumentId)
+      assert.equal(normalizeDocumentId(legacyUrl), goodDocumentId)
+    })
+
+    it("passes 32-byte IDs through normalizeDocumentId", () => {
+      assert.equal(normalizeDocumentId(goodBinaryDocumentId), goodDocumentId)
+      assert.equal(normalizeDocumentId(goodDocumentId), goodDocumentId)
+      assert.equal(normalizeDocumentId(goodUrl), goodDocumentId)
+    })
+
+    it("rejects other lengths and garbage in normalizeDocumentId", () => {
+      assert.throws(() =>
+        normalizeDocumentId(new Uint8Array(8) as BinaryDocumentId)
+      )
+      assert.throws(() =>
+        normalizeDocumentId(new Uint8Array(0) as BinaryDocumentId)
+      )
+      assert.throws(() =>
+        normalizeDocumentId(
+          binaryToDocumentId(new Uint8Array(24) as BinaryDocumentId)
+        )
+      )
+      assert.throws(() => normalizeDocumentId(badChecksumDocumentId))
+      assert.throws(() => normalizeDocumentId(badChecksumUrl))
     })
 
     it("keeps path and heads when re-stringifying a legacy URL", () => {
