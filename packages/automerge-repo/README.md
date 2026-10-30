@@ -1,188 +1,194 @@
 # Automerge Repo
 
-Automerge Repo manages collections of [Automerge](https://github.com/automerge/automerge)
-documents. `Repo` provides document lookup and lifecycle management; `DocHandle`
-provides document access, mutation, and change events. An optional sedimentree
-backend provides local persistence and synchronization.
+A wrapper for the [Automerge](https://github.com/automerge/automerge) CRDT library which
+supports working with many documents at once, with pluggable persistence and synchronization.
 
-This branch is an experimental backend proof of concept, not a production-ready
-replacement for the released adapter-based implementation. Backend contracts and
-integration behavior remain provisional. Legacy network/storage adapters,
-templates, and demos have been removed; a legacy backend is deferred.
+> **Alpha.** This is not yet ready for use in production
 
-## Configuration
-
-Pass an initialized backend to `Repo`. Repo owns its backend sessions, orders
-each document's local persistence, and closes the backend during shutdown. Do
-not share a single-owner backend instance between independently managed Repos.
+## Quick Start
 
 ```ts
+import "@automerge/subduction" // initializes Subduction's WASM
 import { Repo } from "@automerge/automerge-repo"
-import type { SedimentreeBackend } from "@automerge/automerge-repo/sedimentree"
+import { SubductionBackend } from "@automerge/automerge-repo-subduction"
+import { IndexedDBSubductionStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
+import { WebSocketSubductionNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
 
-function createRepo(backend: SedimentreeBackend) {
-  return new Repo({ backend })
-}
-```
+const storage = new IndexedDBSubductionStorageAdapter()
+const backend = new SubductionBackend({
+  storage,
+  network: [
+    new WebSocketSubductionNetworkAdapter(
+      "wss://subduction.sync.inkandswitch.com"
+    ),
+  ],
+})
+const repo = new Repo({
+  backend,
+})
 
-See [the backend contract](./src/sedimentree/README.md) and
-[the Subduction backend](../automerge-repo-subduction/README.md) for configuration,
-limitations, and persistence/synchronization semantics. There is no `network`,
-`storage`, or `sharePolicy` adapter configuration on this Repo.
-
-`new Repo()` without a backend is local-only: documents created or imported in
-that instance are available, but there is no persistent storage or remote lookup.
-
-## Documents
-
-```ts
-import { Repo } from "@automerge/automerge-repo"
-
-const repo = new Repo() // Local-only example; configure a backend for persistence.
 const handle = await repo.create({ count: 0 })
-
-const persistence = handle.change(doc => {
+await handle.change(doc => {
   doc.count++
 })
-console.log(handle.doc()?.count) // 1: edits apply immediately.
-await persistence
 
 const found = await repo.find<{ count: number }>(handle.url)
-const binary = await repo.export(found.url)
-if (binary) {
-  const imported = await repo.import<{ count: number }>(binary)
-  console.log(imported.doc()?.count)
-}
-
-try {
-  await repo.flush()
-} finally {
-  await repo.shutdown()
-}
 ```
 
-- `create<T>(initialValue?)` returns `Promise<DocHandle<T>>`. With a backend,
-  creation waits for initial history to be locally recoverable, not peer delivery.
-- `import<T>(binary, { docId }?)` returns `Promise<DocHandle<T>>`. An explicit
-  existing ID merges history rather than replacing it.
-- `find<T>(id, { signal }?)` returns `Promise<DocHandle<T>>`, rejecting when the
-  document is unavailable, loading fails, or the wait is aborted. Cancellation
-  stops this wait, not shared loading. IDs may be document IDs or Automerge URLs,
-  including supported heads/path references.
-- `handle.doc()` reads the current document. Listen to `handle.on("change", fn)`
-  for updates; scoped handles expose the referenced subtree.
-- `handle.change(fn, options?)` applies edits immediately and returns
-  `Promise<void>` for local persistence of this edit and every earlier local
-  edit. Await it to observe failures; it does not promise remote delivery or
-  durability. `changeAt(heads, fn, options?)` behaves the same, resolving with
-  the new heads. A rejected save does not undo the edit, and is not retried: the
-  document then rejects every later local edit with that error, without applying it.
-- `clone(handle)` returns `Promise<DocHandle<T>>`, preserving the source history.
-- `export(id)` serializes document history as an Automerge binary.
-- `delete(id)` returns `Promise<void>` for local deletion, not deletion on peers.
-  Existing handles become deleted; lookups reject until removal settles, after
-  which a lookup can reacquire the ID.
-- `removeFromCache(id)` drains writes and releases a backend-backed document
-  without deleting its history. Without a backend, or after a failed write, it
-  rejects, since the handle holds the only copy.
-- `flush(documentIds?)` is the backend's persistence barrier: it drains accepted
-  local history across documents, including `create()`/`import()` and pending
-  deletions (with the bundled backends), and rejects
-  on persistence failures. A failed write is never forgotten: every later
-  `flush()` covering that document rejects with it. It also compacts any due
-  fragments first (see below). It is not a remote synchronization barrier.
-- `shutdown()` returns `Promise<void>` for idempotent, best-effort teardown.
-  It compacts due fragments, then logs failures rather than rejecting them;
-  call `flush()` first when persistence errors must be observable.
+`new Repo()` can function without a backend, but is _local-only_: nothing is stored or synced.
 
-### Deferred compaction
+When you are finished, close down the repo. This also closes the backend and flushes any pending writes.
 
-Edits are stored as loose commits, so `change()` never waits on fragment work.
-A commit whose hash starts with a zero byte heads a fragment; once a document
-has one with no fragment stored yet, a per-document timer (10 s plus up to 2 s
-of jitter, so documents due together spread out) waits for an idle moment, then
-bundles every due fragment in one store. `flush()`, `removeFromCache()` and
-`shutdown()` compact at once. A failed compaction fails like any other write.
-Boundaries received from peers are compacted too. `create()`, `import()` and
-`merge()` store their fragments with their commits, since they can bring many
-boundaries at once. Due boundaries are learned only while a
-document is open; boundaries already in storage without a fragment (for example
-after a crash before compaction) are not detected and stay loose.
-Nothing is lost either way: loose commits hold the full history.
+```ts
+await repo.shutdown()
+await storage.close()
+```
 
-## Loading Observation
+See [automerge-repo-subduction](../automerge-repo-subduction/) for backend configuration.
 
-`query(id)` returns a `DocumentQuery` with `state()` and `subscribe()`. It accepts
-the same IDs and URLs as `find()` and starts loading if needed. `subscribe()`
-calls back synchronously with the current state before returning, then on every
-change. States:
+## Breaking Changes from v2
 
-- `loading`: no verified snapshot yet.
-- `ready`: `handle` is usable (a view or sub-handle for URLs with heads or a path).
-- `unavailable`: the backend verified it has no history; may still become `ready`.
-- `deleted`: deleted locally. Terminal.
-- `failed`: a nonretryable backend error, or shutdown. Terminal; the handle is
-  closed and a later `query()`/`find()` starts afresh.
+| v2                                                    | v3                                                                                                             |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `new Repo({ network, storage, sharePolicy, ... })`    | `new Repo({ backend })`                                                                                        |
+| Network/storage adapter packages                      | Subduction backend with its own storage and network adapters                                                   |
+| `sharePolicy`, `shareConfig`, `denylist`              | Removed                                                                                                        |
+| `RepoConfig.peerId`, `repo.peerId`                    | `RepoConfig.id`, `repo.id` (a `RepoId`)                                                                        |
+| `repo.peers`, `StorageId`                             | Removed                                                                                                        |
+| `create()`, `import()`, `clone()` return `DocHandle`  | Return `Promise<DocHandle>`                                                                                    |
+| `handle.change()` returns `void`                      | Returns `Promise<void>`, resolving once the edit is stored                                                     |
+| `repo.delete()` returns `void`                        | Returns `Promise<void>`                                                                                        |
+| `findWithProgress()`                                  | Deprecated; use `query()`                                                                                      |
+| `handle.whenReady()`, `inState()`                     | Removed; handles from `find()`/`create()` are always ready                                                     |
+| `getRemoteHeads(storageId)`, `getSyncInfo(storageId)` | `getSyncInfo(peerId)`                                                                                          |
+| `remote-heads` event's `storageId`                    | `peerId`                                                                                                       |
+| `ephemeral-message` event's `senderId`                | `senderId` (authenticated peer) and `originId` (sending Repo)                                                  |
+| `doc-metrics` event                                   | Removed                                                                                                        |
+| `ephemeral-message-outbound` event                    | Removed                                                                                                        |
+| `Presence` keyed by peer ID                           | Keyed by `originId`                                                                                            |
+| 16-byte document IDs                                  | 32-byte; old URLs still open; convert IDs with `normalizeDocumentId`                                           |
+| Failed saves logged; included in the next save        | `change()` and `flush()` reject; no retry; the document rejects further local edits (peer changes still apply) |
 
-`find(id)` resolves when the query is `ready` and rejects on any other settled
-state. Write failures reject the `change()` promise and `flush()`; they do not
-change the query. `findWithProgress()` is deprecated in favour of `query()`.
+### `Repo.id` and peer IDs
 
-`remote-heads` events report the heads a peer advertised, with that peer's
-`peerId` (a `PeerId`, as the backend authenticated it) in place of `storageId`;
-`getSyncInfo(peerId)` returns the latest. Advertised heads are not proof that
-the peer has stored them, or that we have them.
+In v2, `peerId` identified both the Repo and its network peer. v3 splits them:
 
-## Ephemeral State
+- The **peer ID** belongs to the backend (`backend.peerId`, from Subduction's signer). It is
+  authenticated, and several Repos may share it, e.g. browser tabs using one signer.
+- **`repo.id`** identifies the Repo instance. It is a random UUID unless set with
+  `RepoConfig.id`, must be unique among live Repos, and is not verified.
 
-`DocHandle` ephemeral APIs and `Presence` remain available. Ephemeral messages are
-best-effort and not persisted.
-Delivery depends on backend support and connected peers.
+## New in v3
 
-A message is sent from a peer on behalf of a Repo, so each `ephemeral-message`
-carries both:
+- `repo.query(id)` observes loading. See [DocumentQuery](#documentquery).
+- `repo.flush()` rejects if any write has failed, and keeps rejecting for that document.
+- `repo.find(id, { signal })` can be aborted.
+- `handle.hasHeads(heads)` checks whether the document contains the given heads.
+- `RepoConfig.mintDocumentId` lets you choose new document IDs, e.g. for keyhive.
 
-- `senderId` (a `PeerId`): the peer the backend authenticated as sending it.
-  Several Repos may act through one peer, e.g. tabs behind one signer or one
-  worker-hosted backend. A backend may report one Repo's peer differently to
-  different observers.
-- `originId` (a `RepoId`): the Repo it was sent for. A Repo's `id` is a random
-  UUID unless set with `RepoConfig.id` (which replaces `RepoConfig.peerId`),
-  must be unique among live Repos, and is claimed, not verified.
+## Repo
 
-| `senderId` | `originId` | Meaning                                                 |
-| ---------- | ---------- | ------------------------------------------------------- |
-| same       | same       | the same Repo                                           |
-| same       | different  | one peer, several Repos (e.g. tabs on one device)       |
-| different  | same       | another peer claiming a known Repo: a clash or impostor |
-| different  | different  | unrelated Repos                                         |
+### Usage
 
-`Presence` keeps one entry per Repo:
+- `create<T>(initialValue?)`: creates a document. Resolves once it is stored locally.
+- `find<T>(id, { signal }?)`: loads a document locally or from peers. Rejects if it is
+  unavailable, fails, or the wait is aborted.
+- `query<T>(id)`: observes a document's loading. See [DocumentQuery](#documentquery).
+- `import<T>(binary, { docId }?)`: imports an `Automerge.save()` binary. Passing an
+  existing `docId` merges into it.
+- `export(id)`: exports a document as an Automerge binary.
+- `clone(handle)`: copies a document, with its history, under a new ID.
+- `delete(id)`: deletes the local copy. _Not deleted on other peers._
+- `removeFromCache(id)`: stores, then unloads a document without deleting it.
+- `flush(ids?)`: waits until pending writes are stored. Rejects on write failures.
+- `shutdown()`: stores pending writes and closes. Logs errors rather than rejecting;
+  call `flush()` first if you need them.
 
-- `PeerState` and every event carry `senderId` and `originId` (instead of
-  `peerId`); `getPeerStates().value` is keyed by `originId`.
-- `getStates()` groups by Repo by default (`originIdentity`). Group a peer's
-  Repos with `groupingFn: senderIdentity`, or by an attribute of your own state
-  (e.g. a user ID).
-- Presence does not detect two peers claiming one `originId`: the entry follows
-  the latest update.
-- `pruning` events report the pruned `originId`s.
-- Broadcasts that are not presence messages are ignored.
+`id` may be a document ID or an Automerge URL, including heads or a path.
+
+### Events
+
+```ts
+repo.on("document", ({ handle }) => {})
+```
+
+- `document` `{ handle }`: a document was created, imported or loaded. Once per load.
+- `delete-document` `{ documentId }`: a document was deleted locally.
+- `unavailable-document` `{ documentId }`: a document was not found locally or on
+  connected peers. It may still arrive later.
+
+## DocHandle
+
+- `doc()`: the current document.
+- `change(fn, options?)`: applies an edit. Returns a promise which resolves when the change has been stored locally.
+- `changeAt(heads, fn, options?)`: edits as if at `heads`. Resolves with the new heads.
+- `heads()`, `history()`, `diff()`, `view(heads)`: as in v2.
+- `merge(otherHandle)`: merges another document into this one.
+- `sub(...path)`: a handle scoped to a path inside the document. `remove()` deletes it.
+- `broadcast(message)`: sends an ephemeral message. See [Ephemeral messages](#ephemeral-messages).
+
+### Events
+
+```ts
+const onChange = ({ doc, patches }) => {}
+handle.on("change", onChange)
+handle.off("change", onChange)
+```
+
+- `change` `{ handle, doc, patches, patchInfo, scopeReplaced }`: a local or remote edit.
+  On a sub-handle, `doc` and `patches` are scoped to its path, and `scopeReplaced` is
+  `true` when the whole subtree was replaced or removed.
+- `heads-changed` `{ handle, doc }`: the document's heads changed.
+- `delete` `{ handle }`: the document was deleted.
+- `ephemeral-message` `{ handle, senderId, originId, message }`: see
+  [Ephemeral messages](#ephemeral-messages).
+- `remote-heads` `{ peerId, heads, timestamp }`: a peer reported its heads
+
+## DocumentQuery
+
+`repo.query(id)` returns a `DocumentQuery`, and starts loading the document if needed.
+
+- `documentId`: the queried document ID
+- `state()`: the current QueryState.
+- `subscribe(fn)`: calls `fn` with the current QueryState before returning, then on every
+  status change. Returns an unsubscribe function.
+
+```ts
+const query = repo.query<{ count: number }>(url)
+const unsubscribe = query.subscribe(state => {
+  if (state.status === "ready") render(state.handle.doc())
+  if (state.status === "failed") console.error(state.error)
+})
+```
+
+`subscribe` reports loading only, once `ready`, the handle is returned and handle events can be subscribed to for changes.
+
+| Status        | Meaning                                                          |
+| ------------- | ---------------------------------------------------------------- |
+| `loading`     | Not loaded yet.                                                  |
+| `ready`       | `handle` is usable.                                              |
+| `unavailable` | Not in storage or on connected peers. May still become `ready`.  |
+| `deleted`     | Deleted locally. Final.                                          |
+| `failed`      | Backend error or shutdown. Final; a later `find()` starts again. |
+
+`find()` resolves on `ready` and rejects on anything else and uses DocumentQuery under the hood.
+
+## Ephemeral Messages
+
+Ephemeral messages are best-effort and not stored. Each `ephemeral-message` carries
+both [IDs](#repoid-and-peer-ids):
+
+- `senderId`: the sending peer's ID, authenticated by the backend.
+- `originId`: the sending Repo's `repo.id`.
+
+`Presence` keeps one entry per `originId`;
+`getStates()` groups by Repo by default, or by peer with `groupingFn: senderIdentity`.
 
 ## Bindings
 
-- [React hooks](../automerge-repo-react-hooks/README.md)
-- [Svelte stores](../automerge-repo-svelte-store/README.md)
-- [Solid primitives](../automerge-repo-solid-primitives/readme.md)
-
-Await document creation/import before passing its URL to a binding. React/Svelte
-updaters return persistence promises; Solid exposes the underlying handle.
-
-## Logging
-
-Enable debug output with `DEBUG=automerge-repo:*`. Use the exported
-`setLoggerFactory(namespace => logger)` to supply `debug`, `info`, `warn`, and
-`error` methods for application-specific logging.
+- [React hooks](../automerge-repo-react-hooks/)
+- [Svelte stores](../automerge-repo-svelte-store/)
+- [Solid primitives](../automerge-repo-solid-primitives/)
 
 ## Acknowledgements
 
