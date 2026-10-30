@@ -58,11 +58,11 @@ export function setupDelayedRepo(latency = 10) {
 
   vi.spyOn(repoFinder, "query").mockImplementation(id => {
     const local = localQuery(id)
-    if (local.state().state === "ready") return local
+    if (local.state().status === "ready") return local
     const query = repoCreator.query(id)
     // Hide the creator's state until the delayed find has "loaded" it.
     const hide = (state: QueryState<unknown>): QueryState<unknown> =>
-      loaded.has(String(id)) ? state : { state: "loading" }
+      loaded.has(String(id)) ? state : { status: "loading" }
     return {
       documentId: query.documentId,
       state: () => hide(query.state()),
@@ -71,7 +71,7 @@ export function setupDelayedRepo(latency = 10) {
   })
   vi.spyOn(repoFinder, "find").mockImplementation(async (id, options) => {
     const local = localQuery(id)
-    if (local.state().state === "ready") return localFind(id, options)
+    if (local.state().status === "ready") return localFind(id, options)
     await pause(latency)
     options?.signal?.throwIfAborted()
     const handle = await repoCreator.find(id, options)

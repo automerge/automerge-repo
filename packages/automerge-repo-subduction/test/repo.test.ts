@@ -541,7 +541,9 @@ describe("public Repo with native Subduction", () => {
     expect(deleted).toHaveBeenCalledTimes(1)
     expect(subDeleted).toHaveBeenCalledTimes(1)
     await p.repo.shutdown()
-    expect(peer(p.storage).repo.query(handle.url).state().state).toBe("loading")
+    expect(peer(p.storage).repo.query(handle.url).state().status).toBe(
+      "loading"
+    )
   })
 
   it("deletes unopened stored history without opening a native stream", async () => {
@@ -626,12 +628,12 @@ describe("public Repo with native Subduction", () => {
     const url = generateAutomergeUrl()
     const progress = b.repo.query(url)
     await expect(b.repo.find(url)).rejects.toThrow("unavailable")
-    expect(progress.state().state).toBe("unavailable")
+    expect(progress.state().status).toBe("unavailable")
     const { documentId } = parseAutomergeUrl(url)
     await a.repo.import<State>(A.save(A.from<State>({ count: 9 })), {
       docId: documentId,
     })
-    await vi.waitFor(() => expect(progress.state().state).toBe("ready"), wait)
+    await vi.waitFor(() => expect(progress.state().status).toBe("ready"), wait)
     expect((await b.repo.find<State>(url)).doc()).toEqual({ count: 9 })
   }, 10000)
 
@@ -657,8 +659,8 @@ describe("public Repo with native Subduction", () => {
     await a.repo.flush()
     await connect(a, b)
     const progress = b.repo.query<State>(source.url)
-    const states: string[] = [progress.state().state]
-    const unsubscribe = progress.subscribe(state => states.push(state.state))
+    const states: string[] = [progress.state().status]
+    const unsubscribe = progress.subscribe(state => states.push(state.status))
     try {
       expect((await b.repo.find<State>(source.url)).doc()).toEqual({
         count: 2,
@@ -721,7 +723,7 @@ describe("public Repo with native Subduction", () => {
     const reader = peer(original.storage)
     const openings = failAfterLocalScan(reader, 1)
     const progress = reader.repo.query<State>(source.url)
-    await vi.waitFor(() => expect(progress.state().state).toBe("failed"), wait)
+    await vi.waitFor(() => expect(progress.state().status).toBe("failed"), wait)
     expect(openings()).toBe(1)
   }, 15000)
 
@@ -732,11 +734,11 @@ describe("public Repo with native Subduction", () => {
     await a.repo.flush()
     const progress = b.repo.query<State>(source.url)
     await vi.waitFor(
-      () => expect(progress.state().state).not.toBe("loading"),
+      () => expect(progress.state().status).not.toBe("loading"),
       wait
     )
     await connect(a, b)
-    await vi.waitFor(() => expect(progress.state().state).toBe("ready"), wait)
+    await vi.waitFor(() => expect(progress.state().status).toBe("ready"), wait)
     expect((await b.repo.find<State>(source.url)).doc()).toEqual({ count: 5 })
   }, 10000)
 
@@ -750,7 +752,7 @@ describe("public Repo with native Subduction", () => {
     await a.repo.flush()
     const progress = b.repo.query<State>(source.url)
     await vi.waitFor(
-      () => expect(progress.state().state).toBe("unavailable"),
+      () => expect(progress.state().status).toBe("unavailable"),
       wait
     )
     const entered = deferred(),
@@ -766,9 +768,12 @@ describe("public Repo with native Subduction", () => {
     try {
       await connect(a, b)
       await entered.promise
-      expect(progress.state().state).not.toBe("ready")
+      expect(progress.state().status).not.toBe("ready")
       gate.resolve()
-      await vi.waitFor(() => expect(progress.state().state).toBe("ready"), wait)
+      await vi.waitFor(
+        () => expect(progress.state().status).toBe("ready"),
+        wait
+      )
       expect((await b.repo.find<State>(source.url)).doc()).toEqual({ count: 1 })
     } finally {
       gate.resolve()
@@ -782,12 +787,12 @@ describe("public Repo with native Subduction", () => {
     const url = generateAutomergeUrl()
     const progress = b.repo.query<State>(url)
     await vi.waitFor(
-      () => expect(progress.state().state).toBe("unavailable"),
+      () => expect(progress.state().status).toBe("unavailable"),
       wait
     )
     const counts: (number | undefined)[] = []
     const unsubscribe = progress.subscribe(state => {
-      if (state.state === "ready") counts.push(state.handle.doc()?.count)
+      if (state.status === "ready") counts.push(state.handle.doc()?.count)
     })
     let doc = A.init<State>()
     for (let count = 0; count < 20; count++)
@@ -824,9 +829,12 @@ describe("public Repo with native Subduction", () => {
         })
         .catch(() => {})
       await new Promise(resolve => setTimeout(resolve, 100))
-      expect(progress.state().state).not.toBe("ready")
+      expect(progress.state().status).not.toBe("ready")
       gate.resolve()
-      await vi.waitFor(() => expect(progress.state().state).toBe("ready"), wait)
+      await vi.waitFor(
+        () => expect(progress.state().status).toBe("ready"),
+        wait
+      )
       expect(counts).toEqual([19])
     } finally {
       gate.resolve()
@@ -849,13 +857,13 @@ describe("public Repo with native Subduction", () => {
     }
     await connect(a, b)
     const progress = b.repo.query<State>(source.url)
-    const states: string[] = [progress.state().state]
-    const unsubscribe = progress.subscribe(state => states.push(state.state))
+    const states: string[] = [progress.state().status]
+    const unsubscribe = progress.subscribe(state => states.push(state.status))
     const finding = b.repo.find<State>(source.url)
     void finding.catch(() => {})
     try {
       await entered.promise
-      expect(progress.state().state).toBe("loading")
+      expect(progress.state().status).toBe("loading")
       gate.resolve()
       const receiver = await finding
       expect(receiver.doc()).toEqual({ count: 7 })

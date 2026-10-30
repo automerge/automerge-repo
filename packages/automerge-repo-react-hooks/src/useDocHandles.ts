@@ -29,7 +29,7 @@ export function useDocHandles<T>(
         continue
       }
 
-      if (state.state === "ready") {
+      if (state.status === "ready") {
         map.set(id, state.handle)
       }
     }

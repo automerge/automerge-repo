@@ -17,11 +17,11 @@ const log = makeLogger("automerge-repo:query")
  * - `failed`: observation stopped with an error. Terminal.
  */
 export type QueryState<T> =
-  | { state: "loading" }
-  | { state: "ready"; handle: DocHandle<T> }
-  | { state: "unavailable" }
-  | { state: "deleted" }
-  | { state: "failed"; error: Error }
+  | { status: "loading" }
+  | { status: "ready"; handle: DocHandle<T> }
+  | { status: "unavailable" }
+  | { status: "deleted" }
+  | { status: "failed"; error: Error }
 
 /** An observable view of a document's readiness, returned by {@link Repo.query}. */
 export interface DocumentQuery<T> {
@@ -44,7 +44,7 @@ export interface DocumentQuery<T> {
 export class RootQuery<T> implements DocumentQuery<T> {
   readonly documentId: DocumentId
   readonly #handle: DocHandle<T>
-  #state: QueryState<T> = { state: "loading" }
+  #state: QueryState<T> = { status: "loading" }
   #subscribers = new Set<(state: QueryState<T>) => void>()
 
   constructor(handle: DocHandle<T>) {
@@ -64,29 +64,30 @@ export class RootQuery<T> implements DocumentQuery<T> {
 
   /** Still waiting for a first verified snapshot. */
   get pending(): boolean {
-    const { state } = this.#state
-    return state === "loading" || state === "unavailable"
+    const { status } = this.#state
+    return status === "loading" || status === "unavailable"
   }
 
   get terminal(): boolean {
-    const { state } = this.#state
-    return state === "deleted" || state === "failed"
+    const { status } = this.#state
+    return status === "deleted" || status === "failed"
   }
 
   ready(): void {
-    if (this.pending) this.#transition({ state: "ready", handle: this.#handle })
+    if (this.pending)
+      this.#transition({ status: "ready", handle: this.#handle })
   }
 
   unavailable(): void {
-    if (this.pending) this.#transition({ state: "unavailable" })
+    if (this.pending) this.#transition({ status: "unavailable" })
   }
 
   deleted(): void {
-    if (!this.terminal) this.#transition({ state: "deleted" })
+    if (!this.terminal) this.#transition({ status: "deleted" })
   }
 
   fail(error: Error): void {
-    if (!this.terminal) this.#transition({ state: "failed", error })
+    if (!this.terminal) this.#transition({ status: "failed", error })
   }
 
   #transition(next: QueryState<T>): void {
@@ -106,9 +107,9 @@ export function queryAtHeads<T>(
 ): DocumentQuery<T> {
   const state = (): QueryState<T> => {
     const upstream = query.state()
-    if (upstream.state !== "ready") return upstream
-    if (!upstream.handle.hasHeads(heads)) return { state: "loading" }
-    return { state: "ready", handle: upstream.handle.view(heads) }
+    if (upstream.status !== "ready") return upstream
+    if (!upstream.handle.hasHeads(heads)) return { status: "loading" }
+    return { status: "ready", handle: upstream.handle.view(heads) }
   }
   return {
     documentId: query.documentId,
@@ -123,7 +124,7 @@ export function queryAtHeads<T>(
         callback(next)
       }
       const attach = (state: QueryState<T>) => {
-        if (detach || state.state !== "ready") return
+        if (detach || state.status !== "ready") return
         const handle = state.handle
         handle.on("heads-changed", emit)
         detach = () => handle.off("heads-changed", emit)
@@ -147,9 +148,9 @@ export function queryAtPath<T>(
   segments: Segment[]
 ): DocumentQuery<T> {
   const map = (state: QueryState<T>): QueryState<T> =>
-    state.state === "ready"
+    state.status === "ready"
       ? {
-          state: "ready",
+          status: "ready",
           handle: state.handle.sub(...(segments as any[])) as DocHandle<T>,
         }
       : state
@@ -179,9 +180,9 @@ export function waitUntilReady<T>(
       reject(signal!.reason)
     }
     const check = (state: QueryState<T>) => {
-      if (settled || state.state === "loading") return
+      if (settled || state.status === "loading") return
       cleanup()
-      if (state.state === "ready") resolve(state.handle)
+      if (state.status === "ready") resolve(state.handle)
       else reject(stateError(query.documentId, state))
     }
     signal?.addEventListener("abort", onAbort, { once: true })
@@ -196,7 +197,7 @@ export function stateError(
   documentId: DocumentId,
   state: QueryState<unknown>
 ): Error {
-  switch (state.state) {
+  switch (state.status) {
     case "failed":
       return state.error
     case "deleted":
@@ -222,8 +223,8 @@ function deliver<S>(callback: (state: S) => void, state: S): void {
 }
 
 function statesEqual<T>(a: QueryState<T>, b: QueryState<T>): boolean {
-  if (a.state !== b.state) return false
-  if (a.state === "ready" && b.state === "ready") return a.handle === b.handle
-  if (a.state === "failed" && b.state === "failed") return a.error === b.error
+  if (a.status !== b.status) return false
+  if (a.status === "ready" && b.status === "ready") return a.handle === b.handle
+  if (a.status === "failed" && b.status === "failed") return a.error === b.error
   return true
 }

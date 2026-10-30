@@ -147,14 +147,14 @@ describe("backend-driven Repo", () => {
     const query = r.query<{ count: number }>(id)
     const handle = r.handles[id] as DocHandle<{ count: number }>
     expect(handle.isReady()).toBe(false)
-    expect(query.state().state).toBe("loading")
+    expect(query.state().status).toBe("loading")
     expect(announced).not.toHaveBeenCalled()
     expect(() => handle.change(d => (d.count = 2))).toThrow("not ready")
 
     const source = A.from({ count: 1 })
     await backend.store(backendIdOf(id), extractRecords(source))
     expect(await r.find(id)).toBe(handle)
-    expect(query.state()).toEqual({ state: "ready", handle })
+    expect(query.state()).toEqual({ status: "ready", handle })
     expect(handle.isReady()).toBe(true)
     expect(handle.doc()).toEqual({ count: 1 })
     expect(announced).toHaveBeenCalledOnce()
@@ -428,7 +428,7 @@ describe("backend-driven Repo", () => {
     await r.delete(handle.url)
     expect(handle.isDeleted()).toBe(true)
     expect(deleted).toHaveBeenCalledTimes(1)
-    expect(r.query(handle.url).state().state).toBe("loading")
+    expect(r.query(handle.url).state().status).toBe("loading")
     const imported = await r.import(A.save(A.from({ count: 10 })), {
       docId: handle.documentId,
     })
@@ -598,10 +598,10 @@ describe("backend-driven Repo", () => {
     void two.then(stillWaiting, stillWaiting)
     controller.abort("cancelled")
     await rejected
-    expect(r.query(url).state().state).toBe("loading")
+    expect(r.query(url).state().status).toBe("loading")
     synchronize.resolve()
     expect(stillWaiting).not.toHaveBeenCalled()
-    expect(r.query(url).state().state).toBe("loading")
+    expect(r.query(url).state().status).toBe("loading")
   })
 
   it("makes an empty lookup unavailable without preventing later history", async () => {
@@ -611,13 +611,13 @@ describe("backend-driven Repo", () => {
     const { documentId } = parseAutomergeUrl(url)
     const progress = r.query<{ count: number }>(url)
     const states: string[] = []
-    progress.subscribe(state => states.push(state.state))
-    await vi.waitFor(() => expect(progress.state().state).toBe("unavailable"))
+    progress.subscribe(state => states.push(state.status))
+    await vi.waitFor(() => expect(progress.state().status).toBe("unavailable"))
     await backend.store(
       backendIdOf(documentId),
       extractRecords(A.from({ count: 3 }))
     )
-    await vi.waitFor(() => expect(progress.state().state).toBe("ready"))
+    await vi.waitFor(() => expect(progress.state().status).toBe("ready"))
     expect((await r.find<{ count: number }>(url)).doc()).toEqual({ count: 3 })
     expect(states).toContain("unavailable")
     expect(states).not.toContain("failed")
@@ -630,7 +630,7 @@ describe("backend-driven Repo", () => {
     })
     const r = repo(backend)
     expect(r.query(generateAutomergeUrl()).state()).toMatchObject({
-      state: "failed",
+      status: "failed",
       error: { message: "open failed" },
     })
   })
@@ -650,8 +650,8 @@ describe("backend-driven Repo", () => {
     r.on("delete-document", deleted)
     await r.delete(a.url)
     b.delete()
-    expect(qa.state()).toEqual({ state: "deleted" })
-    expect(qb.state()).toEqual({ state: "deleted" })
+    expect(qa.state()).toEqual({ status: "deleted" })
+    expect(qb.state()).toEqual({ status: "deleted" })
     expect(deleted).toHaveBeenCalledWith({ documentId: a.documentId })
     expect(deleted).toHaveBeenCalledWith({ documentId: b.documentId })
     await expect(r.find(b.url)).resolves.not.toBe(b)
@@ -667,11 +667,11 @@ describe("backend-driven Repo", () => {
         stringifyAutomergeUrl({ documentId: handle.documentId, heads: at })
       )
       .state()
-    expect(view.state === "ready" && view.handle.doc()).toEqual({
+    expect(view.status === "ready" && view.handle.doc()).toEqual({
       items: ["a"],
     })
     const sub = r.query<any>(handle.sub("items").url).state()
-    expect(sub.state === "ready" && sub.handle.doc()).toEqual(["a", "b"])
+    expect(sub.status === "ready" && sub.handle.doc()).toEqual(["a", "b"])
   })
 
   it("findWithProgress maps deletion to the deprecated failed state", async () => {

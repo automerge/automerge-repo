@@ -35,7 +35,7 @@ export default function useDocHandle<T>(
     if (!unwrappedURL) return undefined
     // Preserve synchronous initial values; find() resolves asynchronously.
     const state = repo.query<T>(unwrappedURL).state()
-    return state.state === "ready" ? state.handle : undefined
+    return state.status === "ready" ? state.handle : undefined
   }
 
   const [handle, { mutate }] = createResource(url, url => repo.find<T>(url), {

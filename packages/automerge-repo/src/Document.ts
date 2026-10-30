@@ -80,7 +80,7 @@ export class Document<T = unknown> {
   }
 
   get ready(): boolean {
-    return this.query.state().state === "ready"
+    return this.query.state().status === "ready"
   }
 
   /** Mark deleted, settle the query, then notify every handle. Idempotent. */

@@ -111,7 +111,7 @@ describe("Repo loading", () => {
       expect(handle.heads()).toEqual([])
       await vi.waitFor(() =>
         expect(progress.state()).toMatchObject({
-          state: "failed",
+          status: "failed",
           error: { message: "invalid bytes" },
         })
       )
@@ -206,12 +206,12 @@ describe("Repo loading", () => {
       expect(load).not.toHaveBeenCalled()
       expect(handle.heads()).toEqual([])
       expect(changed).not.toHaveBeenCalled()
-      expect(progress.state().state).toBe("loading")
+      expect(progress.state().status).toBe("loading")
       await session.push({ type: "local-load-complete", found: true })
       expect(load).toHaveBeenCalledOnce()
       expect(handle.doc()).toEqual({ count: 2 })
       expect(changed).toHaveBeenCalledOnce()
-      expect(progress.state().state).toBe("ready")
+      expect(progress.state().status).toBe("ready")
       expect(session.synchronize).not.toHaveBeenCalled()
       expect(session.markComplete).toHaveBeenCalledOnce()
     })
@@ -295,7 +295,7 @@ describe("Repo loading", () => {
     it("asks for synchronization after an empty local load unless the backend syncs", async () => {
       const { session, progress } = await lookup()
       await session.push({ type: "local-load-complete", found: false })
-      expect(progress.state().state).toBe("loading")
+      expect(progress.state().status).toBe("loading")
       expect(session.synchronize).toHaveBeenCalledOnce()
       const other = await lookup()
       await other.session.push({
@@ -327,7 +327,7 @@ describe("Repo loading", () => {
         type: "history-marker",
         marker: { sequence: 1, heads: heads(remote) },
       })
-      expect(empty.progress.state().state).toBe("ready")
+      expect(empty.progress.state().status).toBe("ready")
       expect(empty.session.markComplete).toHaveBeenCalledOnce()
     })
 
@@ -344,20 +344,20 @@ describe("Repo loading", () => {
         phase: "initial",
         sequence: 1,
       })
-      expect(progress.state().state).toBe("loading")
+      expect(progress.state().status).toBe("loading")
       await session.push({
         type: "local-load-complete",
         found: true,
         marker: { sequence: 1, heads: heads(remote) },
       })
-      expect(progress.state().state).toBe("loading")
+      expect(progress.state().status).toBe("loading")
       await session.push({
         type: "records",
         records: extractRecords(remote),
         phase: "initial",
         sequence: 1,
       })
-      expect(progress.state().state).toBe("ready")
+      expect(progress.state().status).toBe("ready")
     })
 
     it("settles an empty local cut with no peers, without permanently failing", async () => {
@@ -371,7 +371,7 @@ describe("Repo loading", () => {
         backendSyncs: true,
       })
       await session.push({ type: "synchronized", result: noPeers() })
-      expect(progress.state().state).toBe("unavailable")
+      expect(progress.state().status).toBe("unavailable")
       expect(unavailable).toHaveBeenCalledExactlyOnceWith({ documentId: id })
       await expect(r.find(id)).rejects.toThrow("unavailable")
       const remote = A.from({ count: 3 })
@@ -385,7 +385,7 @@ describe("Repo loading", () => {
         type: "history-marker",
         marker: { sequence: 1, heads: heads(remote) },
       })
-      expect(progress.state().state).toBe("ready")
+      expect(progress.state().status).toBe("ready")
       expect((await r.find<Doc>(id)).doc()).toEqual({ count: 3 })
     })
 
@@ -401,9 +401,9 @@ describe("Repo loading", () => {
         type: "synchronized",
         result: { ...noPeers(), roundId: "1", outcome: "failed" },
       })
-      expect(progress.state().state).toBe("loading")
+      expect(progress.state().status).toBe("loading")
       await session.push({ type: "synchronized", result: noPeers() })
-      expect(progress.state().state).toBe("unavailable")
+      expect(progress.state().status).toBe("unavailable")
     })
 
     it("treats an empty load with no connected peers as unavailable", async () => {
@@ -414,7 +414,7 @@ describe("Repo loading", () => {
         backendSyncs: true,
         noPeers: true,
       })
-      expect(progress.state().state).toBe("unavailable")
+      expect(progress.state().status).toBe("unavailable")
     })
 
     it("logs retryable failures and fails on nonretryable ones, releasing the session", async () => {
@@ -424,14 +424,14 @@ describe("Repo loading", () => {
         sequence: 0,
         error: new BackendError("synchronize", "io", "retry", true),
       })
-      expect(progress.state().state).toBe("loading")
+      expect(progress.state().status).toBe("loading")
       await session.push({
         type: "failure",
         sequence: 1,
         error: new BackendError("open", "io", "read failed"),
       })
       expect(progress.state()).toMatchObject({
-        state: "failed",
+        status: "failed",
         error: { message: "read failed" },
       })
       // The failed session is released rather than left delivering data.
@@ -439,7 +439,7 @@ describe("Repo loading", () => {
       expect(() => handle.change(d => void (d.count = 5))).toThrow("closed")
       // A settled query is final; a later lookup starts afresh.
       expect(r.query(id)).not.toBe(progress)
-      expect(r.query(id).state().state).toBe("loading")
+      expect(r.query(id).state().status).toBe("loading")
     })
 
     it("fails partial loading on a nonretryable failure", async () => {
@@ -459,7 +459,7 @@ describe("Repo loading", () => {
         found: true,
         marker: { sequence: 0, heads: heads(complete) },
       })
-      expect(progress.state().state).toBe("loading")
+      expect(progress.state().status).toBe("loading")
       const waiting = r.find(id)
       const failed = expect(waiting).rejects.toThrow("read interrupted")
       await session.push({
@@ -467,7 +467,7 @@ describe("Repo loading", () => {
         sequence: 1,
         error: new BackendError("observe", "io", "read interrupted"),
       })
-      expect(progress.state().state).toBe("failed")
+      expect(progress.state().status).toBe("failed")
       await failed
     })
 
@@ -477,7 +477,7 @@ describe("Repo loading", () => {
       await session.end()
       await vi.waitFor(() =>
         expect(progress.state()).toMatchObject({
-          state: "failed",
+          status: "failed",
           error: { message: "Backend observation ended" },
         })
       )
@@ -713,7 +713,7 @@ describe("Repo loading", () => {
       handle.on("remote-heads", listener)
       await session.push(remoteHeads("peer", advertised))
       expect(listener).not.toHaveBeenCalled()
-      expect(progress.state().state).toBe("loading")
+      expect(progress.state().status).toBe("loading")
       expect(handle.getSyncInfo("peer" as PeerId)?.lastHeads).toEqual(
         encodeHeads([...advertised])
       )
@@ -774,7 +774,7 @@ describe("Repo loading", () => {
         backendSyncs: true,
         noPeers: true,
       })
-      expect(progress.state().state).toBe("unavailable")
+      expect(progress.state().status).toBe("unavailable")
       const remote = A.from({ count: 3 })
       await session.push({
         type: "records",
@@ -786,7 +786,7 @@ describe("Repo loading", () => {
         type: "history-marker",
         marker: { sequence: 1, heads: heads(remote) },
       })
-      expect(progress.state().state).toBe("ready")
+      expect(progress.state().status).toBe("ready")
       await new Promise(resolve => setTimeout(resolve, 10))
       expect(listener).not.toHaveBeenCalled()
     })
@@ -829,10 +829,12 @@ describe("Repo loading", () => {
       const progress = r.query<Doc>(id)
       const announced = vi.fn()
       r.on("document", announced)
-      await vi.waitFor(() => expect(progress.state().state).toBe("unavailable"))
+      await vi.waitFor(() =>
+        expect(progress.state().status).toBe("unavailable")
+      )
       release()
       const imported = await importing
-      expect(progress.state().state).toBe("ready")
+      expect(progress.state().status).toBe("ready")
       expect(await r.find<Doc>(id)).toBe(imported)
       expect(imported.doc()).toEqual({ count: 5 })
       expect(announced).toHaveBeenCalledOnce()

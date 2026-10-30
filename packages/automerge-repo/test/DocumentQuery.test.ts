@@ -24,7 +24,7 @@ function readyQuery<T>(value: T) {
 describe("RootQuery", () => {
   it("starts loading and exposes only the observable surface", () => {
     const { query } = createTestQuery(docId)
-    expect(query.state()).toEqual({ state: "loading" })
+    expect(query.state()).toEqual({ status: "loading" })
     expect(query.documentId).toBe(docId)
     expect("whenReady" in query).toBe(false)
   })
@@ -32,22 +32,28 @@ describe("RootQuery", () => {
   it("moves from loading through unavailable to ready", () => {
     const { query, handle } = createTestQuery(docId)
     const states: string[] = []
-    query.subscribe(state => states.push(state.state))
+    query.subscribe(state => states.push(state.status))
     query.unavailable()
     query.ready()
     expect(states).toEqual(["loading", "unavailable", "ready"])
-    expect(query.state()).toEqual({ state: "ready", handle })
+    expect(query.state()).toEqual({ status: "ready", handle })
   })
 
   it("does not leave ready for unavailable", () => {
     const { query } = readyQuery({ count: 1 })
     query.unavailable()
-    expect(query.state().state).toBe("ready")
+    expect(query.state().status).toBe("ready")
   })
 
   it.each([
-    ["deleted", (q: ReturnType<typeof createTestQuery>["query"]) => q.deleted()],
-    ["failed", (q: ReturnType<typeof createTestQuery>["query"]) => q.fail(new Error())],
+    [
+      "deleted",
+      (q: ReturnType<typeof createTestQuery>["query"]) => q.deleted(),
+    ],
+    [
+      "failed",
+      (q: ReturnType<typeof createTestQuery>["query"]) => q.fail(new Error()),
+    ],
   ] as const)("%s is terminal", (expected, settle) => {
     const { query } = createTestQuery(docId)
     settle(query)
@@ -55,7 +61,7 @@ describe("RootQuery", () => {
     query.unavailable()
     query.deleted()
     query.fail(new Error("later"))
-    expect(query.state().state).toBe(expected)
+    expect(query.state().status).toBe(expected)
     expect(query.terminal).toBe(true)
   })
 
@@ -89,7 +95,7 @@ describe("RootQuery", () => {
     const callback = vi.fn()
     query.subscribe(callback)
     expect(callback).toHaveBeenCalledExactlyOnceWith({
-      state: "ready",
+      status: "ready",
       handle,
     })
   })
@@ -101,7 +107,7 @@ describe("RootQuery", () => {
     })
     const atHeads = vi.fn()
     queryAtHeads(query, encodeHeads(A.getHeads(future))).subscribe(atHeads)
-    expect(atHeads).toHaveBeenCalledExactlyOnceWith({ state: "loading" })
+    expect(atHeads).toHaveBeenCalledExactlyOnceWith({ status: "loading" })
     const atPath = vi.fn()
     queryAtPath(query, ["items"] as any).subscribe(atPath)
     expect(atPath).toHaveBeenCalledOnce()
@@ -113,7 +119,7 @@ describe("RootQuery", () => {
     const callback = vi.fn()
     query.subscribe(callback)()
     query.ready()
-    expect(callback).toHaveBeenCalledExactlyOnceWith({ state: "loading" })
+    expect(callback).toHaveBeenCalledExactlyOnceWith({ status: "loading" })
   })
 })
 
@@ -188,18 +194,18 @@ describe("queryAtHeads", () => {
   it("passes through non-ready states", () => {
     const { query } = createTestQuery<{ value: string }>(docId)
     const atHeads = queryAtHeads(query, [] as unknown as UrlHeads)
-    expect(atHeads.state().state).toBe("loading")
+    expect(atHeads.state().status).toBe("loading")
     query.unavailable()
-    expect(atHeads.state().state).toBe("unavailable")
+    expect(atHeads.state().status).toBe("unavailable")
   })
 
   it("stays loading until the requested heads arrive, then yields a view", async () => {
     const { query, handle } = readyQuery({ value: "v1" })
     const { v2, heads } = future(handle)
     const atHeads = queryAtHeads(query, heads)
-    expect(atHeads.state().state).toBe("loading")
+    expect(atHeads.state().status).toBe("loading")
     const states: string[] = []
-    atHeads.subscribe(state => states.push(state.state))
+    atHeads.subscribe(state => states.push(state.status))
     const waiting = waitUntilReady(atHeads)
     applyInbound(handle, () => v2)
     const view = await waiting
@@ -242,7 +248,7 @@ describe("queryAtPath", () => {
   it("yields a sub-handle once ready", () => {
     const { query } = readyQuery({ items: ["a"] })
     const state = queryAtPath(query, ["items"] as any).state()
-    expect(state.state === "ready" && state.handle.doc()).toEqual(["a"])
+    expect(state.status === "ready" && state.handle.doc()).toEqual(["a"])
   })
 
   it("maps subscribed states", () => {
@@ -252,8 +258,10 @@ describe("queryAtPath", () => {
     queryAtPath(query, ["items"] as any).subscribe(s => states.push(s))
     query.ready()
     expect(states).toHaveLength(2)
-    expect(states[0]).toEqual({ state: "loading" })
-    expect(states[1].state === "ready" && states[1].handle.doc()).toEqual(["a"])
+    expect(states[0]).toEqual({ status: "loading" })
+    expect(states[1].status === "ready" && states[1].handle.doc()).toEqual([
+      "a",
+    ])
   })
 })
 

@@ -41,7 +41,7 @@ export interface DocumentProgress<T> {
 /** Adapt a query to the deprecated {@link DocumentProgress} shape. */
 export function toProgress<T>(query: DocumentQuery<T>): DocumentProgress<T> {
   const map = (state: QueryState<T>): ProgressState<T> => {
-    switch (state.state) {
+    switch (state.status) {
       case "loading":
         return { state: "loading", sources: { backend: "pending" } }
       case "ready":

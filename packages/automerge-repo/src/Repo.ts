@@ -163,7 +163,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   ): Promise<DocHandle<T>> {
     if (!id) return this.#createDocument(doc)
     const existing = this.#entries.get(id)
-    if (existing?.query.state().state === "ready") {
+    if (existing?.query.state().status === "ready") {
       await existing.document.applyMutation(
         current => A.merge(current, A.clone(doc)),
         { compact: true }
@@ -265,14 +265,14 @@ export class Repo extends EventEmitter<RepoEvents> {
     let announced = false
     entry.delegate?.start()
     query.subscribe(state => {
-      if (!announced && state.state === "ready") {
+      if (!announced && state.status === "ready") {
         announced = true
         this.emit("document", { handle })
       }
-      if (state.state === "unavailable")
+      if (state.status === "unavailable")
         this.emit("unavailable-document", { documentId: id })
       if (
-        (state.state !== "deleted" && state.state !== "failed") ||
+        (state.status !== "deleted" && state.status !== "failed") ||
         this.#entries.get(id) !== entry
       )
         return
@@ -284,7 +284,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         void this.#track(entry.delegate.release()).catch(error =>
           this.#log.error("failed to release a settled document", error)
         )
-      if (state.state === "deleted")
+      if (state.status === "deleted")
         this.emit("delete-document", { documentId: id })
     })
     return entry
