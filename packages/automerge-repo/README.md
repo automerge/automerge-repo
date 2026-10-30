@@ -134,6 +134,36 @@ change the query. `findWithProgress()` is deprecated in favour of `query()`.
 best-effort and not persisted.
 Delivery depends on backend support and connected peers.
 
+A message is sent from a peer on behalf of a Repo, so each `ephemeral-message`
+carries both:
+
+- `senderId` (a `PeerId`): the peer the backend authenticated as sending it.
+  Several Repos may act through one peer, e.g. tabs behind one signer or one
+  worker-hosted backend. A backend may report one Repo's peer differently to
+  different observers.
+- `originId` (a `RepoId`): the Repo it was sent for. A Repo's `id` is a random
+  UUID unless set with `RepoConfig.id` (which replaces `RepoConfig.peerId`),
+  must be unique among live Repos, and is claimed, not verified.
+
+| `senderId` | `originId` | Meaning                                                 |
+| ---------- | ---------- | ------------------------------------------------------- |
+| same       | same       | the same Repo                                           |
+| same       | different  | one peer, several Repos (e.g. tabs on one device)       |
+| different  | same       | another peer claiming a known Repo: a clash or impostor |
+| different  | different  | unrelated Repos                                         |
+
+`Presence` keeps one entry per Repo:
+
+- `PeerState` and every event carry `senderId` and `originId` (instead of
+  `peerId`); `getPeerStates().value` is keyed by `originId`.
+- `getStates()` groups by Repo by default (`originIdentity`). Group a peer's
+  Repos with `groupingFn: senderIdentity`, or by an attribute of your own state
+  (e.g. a user ID).
+- Presence does not detect two peers claiming one `originId`: the entry follows
+  the latest update.
+- `pruning` events report the pruned `originId`s.
+- Broadcasts that are not presence messages are ignored.
+
 ## Bindings
 
 - [React hooks](../automerge-repo-react-hooks/README.md)

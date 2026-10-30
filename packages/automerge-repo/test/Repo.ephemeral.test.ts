@@ -12,6 +12,7 @@ import {
   type SedimentreeEvent,
   type SedimentreeId,
 } from "../src/sedimentree/index.js"
+import type { RepoId } from "../src/types.js"
 import { MemoryBackend } from "./helpers/MemoryBackend.js"
 
 // Adapted from pinned 5fa3b25f: keep real history observation under injected traffic.
@@ -116,6 +117,22 @@ describe("DocHandle backend ephemerals", () => {
     ).not.toBe(sent.origin.id)
   })
 
+  it("publishes under a configured id and rejects an empty one", async () => {
+    const backend = new ControlledBackend()
+    const repo = new Repo({ backend, id: "tab-1" as RepoId })
+    repos.push(repo)
+    expect(repo.id).toBe("tab-1")
+    const handle = await repo.create({ count: 0 })
+    handle.broadcast("hello")
+    expect(backend.sessions[0].publish.mock.calls[0][0].origin).toEqual({
+      kind: "repo",
+      id: "tab-1",
+      path: [],
+    })
+    expect(setup().repo.id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(() => new Repo({ id: "" as RepoId })).toThrow(TypeError)
+  })
+
   it("filters returned own origin and fans authenticated sender out to root/sub/view", async () => {
     const { backend, repo } = setup()
     const handle = await repo.create({ count: 0 })
@@ -146,6 +163,7 @@ describe("DocHandle backend ephemerals", () => {
       expect(listener).toHaveBeenCalledWith({
         handle: target,
         senderId: "signed-originator",
+        originId: "untrusted",
         message: new Uint8Array([1, 2]),
       })
     }

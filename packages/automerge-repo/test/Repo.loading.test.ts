@@ -12,7 +12,7 @@ import {
 import { encode } from "../src/helpers/cbor.js"
 import { Presence } from "../src/presence/Presence.js"
 import { PRESENCE_MESSAGE_MARKER } from "../src/presence/constants.js"
-import type { BinaryDocumentId, PeerId } from "../src/types.js"
+import type { BinaryDocumentId } from "../src/types.js"
 import { MemoryBackend } from "./helpers/MemoryBackend.js"
 import { BackendError, commitId } from "../src/sedimentree/index.js"
 import { recordKey } from "./helpers/records.js"
@@ -629,7 +629,7 @@ describe("Repo loading", () => {
   })
 
   describe("peers", () => {
-    it("uses authenticated ephemeral sender, not claimed origin", async () => {
+    it("reports authenticated sender and claimed origin separately", async () => {
       const { handle, session } = await created()
       const listener = vi.fn()
       const sub = handle.sub("count")
@@ -647,6 +647,7 @@ describe("Repo loading", () => {
       expect(listener).toHaveBeenCalledWith({
         handle: sub,
         senderId: "signed-originator",
+        originId: "original-source",
         message: { hello: "world" },
       })
     })
@@ -693,9 +694,13 @@ describe("Repo loading", () => {
             ),
           },
         })
-        expect(
-          presence.getPeerStates().value["signed-originator" as PeerId]?.value
-        ).toEqual({ name: "remote" })
+        expect(Object.values(presence.getPeerStates().value)).toEqual([
+          expect.objectContaining({
+            senderId: "signed-originator",
+            originId: "original-source",
+            value: { name: "remote" },
+          }),
+        ])
       } finally {
         presence.stop()
       }

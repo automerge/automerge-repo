@@ -34,8 +34,9 @@ export class PeerStateView<State extends PresenceState> {
   }
 
   /**
-   * Get the presence state of all peers. By default, each peer is its own
-   * group, but presence activity can be aggregated by arbitrary criteria.
+   * Get the presence state of all peers. By default, each peer (one publishing
+   * Repo, see {@link originIdentity}) is its own group, but presence activity
+   * can be aggregated by arbitrary criteria, e.g. {@link senderIdentity}.
    *
    * @param opts
    * @returns presence state for all groups
@@ -43,7 +44,7 @@ export class PeerStateView<State extends PresenceState> {
   getStates<SummaryState = PeerState<State>>(
     opts?: GetStatesOpts<State, SummaryState>
   ) {
-    const groupingFn = opts?.groupingFn ?? peerIdentity
+    const groupingFn = opts?.groupingFn ?? originIdentity
     const summaryFn =
       opts?.summaryFn ??
       (getLastActivePeer as (states: PeerState<State>[]) => SummaryState)
@@ -70,15 +71,28 @@ export class PeerStateView<State extends PresenceState> {
 }
 
 /**
- * Get the peerId of this peer.
+ * Get the publishing Repo of this peer: one entry per Repo, e.g. per tab.
  *
  * @param peer
- * @returns peer id
+ * @returns origin id
  */
-export function peerIdentity<State extends PresenceState>(
+export function originIdentity<State extends PresenceState>(
   peer: PeerState<State>
 ) {
-  return peer.peerId
+  return peer.originId
+}
+
+/**
+ * Get the authenticated sender of this peer, which several Repos (e.g. tabs
+ * sharing a signer) may share. What a sender stands for depends on the backend.
+ *
+ * @param peer
+ * @returns sender id
+ */
+export function senderIdentity<State extends PresenceState>(
+  peer: PeerState<State>
+) {
+  return peer.senderId
 }
 
 /**

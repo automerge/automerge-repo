@@ -1,6 +1,6 @@
 import type { next as A } from "@automerge/automerge/slim"
 import type { DocHandle } from "./DocHandle.js"
-import type { PeerId, StorageId, UrlHeads } from "./types.js"
+import type { RepoId, PeerId, StorageId, UrlHeads } from "./types.js"
 
 /** These are the events that this DocHandle emits to external listeners */
 export interface DocHandleEvents<T> {
@@ -61,7 +61,10 @@ export interface DocHandleDeletePayload<T> {
 /** Emitted when an ephemeral message is received for the document */
 export interface DocHandleEphemeralMessagePayload<T> {
   handle: DocHandle<T>
+  /** The peer that sent it, as the backend authenticated it; several Repos may share one. */
   senderId: PeerId
+  /** The Repo it was sent for (that Repo's `id`); claimed, not authenticated. */
+  originId: RepoId
   message: unknown
 }
 

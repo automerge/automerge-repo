@@ -1,6 +1,6 @@
 import { next as A } from "@automerge/automerge/slim"
 import type { Prop } from "@automerge/automerge/slim"
-import type { UrlHeads, PeerId } from "../types.js"
+import type { UrlHeads, PeerId, RepoId } from "../types.js"
 import { scopedValueAt } from "./path-ops.js"
 import type { Document } from "../Document.js"
 import type { DocHandle } from "../DocHandle.js"
@@ -389,11 +389,16 @@ export class HandleRegistry {
   }
 
   /** Fan out an inbound ephemeral message to every retained handle. */
-  dispatchEphemeral(senderId: PeerId, message: unknown): void {
+  dispatchEphemeral(
+    senderId: PeerId,
+    originId: RepoId,
+    message: unknown
+  ): void {
     for (const handle of this.#listeners.keys()) {
       this.emit(handle, "ephemeral-message", {
         handle,
         senderId,
+        originId,
         message,
       })
     }

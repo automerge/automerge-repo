@@ -485,6 +485,7 @@ describe("real native ephemerals", () => {
     expect(received.mock.calls[0][0]).toMatchObject({
       handle: remote,
       senderId: a.signer.peerId(),
+      originId: repoA.id,
       message: { cursor: [2, 3] },
     })
     expect(echo).not.toHaveBeenCalled()

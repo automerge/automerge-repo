@@ -30,7 +30,12 @@ import {
   type SedimentreeBackend,
   type SedimentreeId,
 } from "./sedimentree/index.js"
-import type { AnyDocumentId, BinaryDocumentId, DocumentId } from "./types.js"
+import type {
+  AnyDocumentId,
+  BinaryDocumentId,
+  DocumentId,
+  RepoId,
+} from "./types.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
 
 type Entry<T = any> = {
@@ -49,16 +54,32 @@ export class Repo extends EventEmitter<RepoEvents> {
   #operations = new Set<Promise<unknown>>()
   #closed = false
   #shutdown?: Promise<void>
-  #origin: BackendIdentity = {
-    kind: "repo",
-    id: crypto.randomUUID(),
-    path: [],
-  }
+  /**
+   * This Repo's identity on the backend contract, e.g. as the origin of its
+   * ephemerals.
+   */
+  #identity: BackendIdentity
 
-  constructor({ backend, mintDocumentId }: RepoConfig = {}) {
+  constructor({
+    backend,
+    mintDocumentId,
+    id = crypto.randomUUID() as RepoId,
+  }: RepoConfig = {}) {
     super()
+    if (typeof id !== "string" || !id)
+      throw new TypeError("id must be a nonempty string")
     this.#backend = backend
     this.#mintDocumentId = mintDocumentId
+    this.#identity = Object.freeze({
+      kind: "repo",
+      id,
+      path: Object.freeze([]),
+    })
+  }
+
+  /** This Repo instance's identity; see {@link RepoConfig.id}. */
+  get id(): RepoId {
+    return this.#identity.id as RepoId
   }
 
   get handles(): Record<DocumentId, DocHandle<any>> {
@@ -237,7 +258,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         document,
         query,
         this.#backend,
-        this.#origin,
+        this.#identity,
         !!initial
       )
     this.#entries.set(id, entry)
@@ -451,6 +472,13 @@ export interface RepoConfig {
    * minter; defaults to {@link mintDocumentId}.
    */
   mintDocumentId?: MintDocumentId
+  /**
+   * Identifies this Repo instance; a random UUID by default. Must be unique
+   * among concurrently live Repos: it is the `originId` of the ephemeral
+   * messages this Repo publishes, which tells Repos behind one peer apart, and
+   * a Repo ignores messages from its own `id`. Not verified by receivers.
+   */
+  id?: RepoId
 }
 
 /** Include in an options object to pass an AbortSignal to a function. */

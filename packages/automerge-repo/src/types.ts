@@ -21,8 +21,19 @@ export type AnyDocumentId = AutomergeUrl | DocumentId | BinaryDocumentId
 // We need to define our own version of heads because the AutomergeHeads type is not bs58check encoded
 export type UrlHeads = string[] & { __automergeUrlHeads: unknown }
 
-/** A branded type for peer IDs */
+/**
+ * The identity a backend authenticated for a peer, e.g. a signer's key. A peer
+ * may act for several Repos (tabs behind one signer, or one backend hosted for
+ * many), and may be reported differently to different observers.
+ */
 export type PeerId = string & { __peerId: true }
+
+/**
+ * Identifies one Repo instance: new on each construction unless configured,
+ * and chosen by the Repo itself, so not verified by anyone else. A peer
+ * ({@link PeerId}) may act for several Repos.
+ */
+export type RepoId = string & { __repoId: true }
 
 /** Opaque peer-storage identity reported with remote heads. */
 export type StorageId = string & { __storageId: true }

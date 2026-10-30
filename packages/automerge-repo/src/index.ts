@@ -41,7 +41,11 @@ export { Repo } from "./Repo.js"
 export { setLoggerFactory, makeLogger } from "./Logger.js"
 export type { Logger, LoggerFactory } from "./Logger.js"
 export { Presence } from "./presence/Presence.js"
-export { PeerStateView } from "./presence/PeerStateView.js"
+export {
+  PeerStateView,
+  originIdentity,
+  senderIdentity,
+} from "./presence/PeerStateView.js"
 export type { GetStatesOpts } from "./presence/PeerStateView.js"
 export type {
   PeerState,

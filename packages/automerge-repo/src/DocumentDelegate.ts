@@ -2,7 +2,7 @@ import { next as A } from "@automerge/automerge/slim"
 import type { Document } from "./Document.js"
 import type { RootQuery } from "./DocumentQuery.js"
 import { decode } from "./helpers/cbor.js"
-import type { PeerId, StorageId } from "./types.js"
+import type { RepoId, PeerId, StorageId } from "./types.js"
 import {
   checkpointForCommit,
   recordHead,
@@ -87,7 +87,8 @@ export class DocumentDelegate<T> {
     readonly document: Document<T>,
     readonly query: RootQuery<T>,
     private backend: SedimentreeBackend,
-    private origin: BackendIdentity,
+    /** The owning Repo's identity, e.g. as the origin of its ephemerals. */
+    private repoIdentity: BackendIdentity,
     created = false
   ) {
     document.commit = (before, after, options) =>
@@ -278,7 +279,7 @@ export class DocumentDelegate<T> {
     if (!session || this.document.closed) throw new Error("No active session")
     await session.publishEphemeral({
       messageId: crypto.randomUUID(),
-      origin: this.origin,
+      origin: this.repoIdentity,
       payload,
     })
   }
@@ -394,10 +395,11 @@ export class DocumentDelegate<T> {
         )
         break
       case "ephemeral":
-        if (event.message.origin.id === this.origin.id) break
+        if (event.message.origin.id === this.repoIdentity.id) break
         try {
           this.document.registry.dispatchEphemeral(
             event.sender.id as PeerId,
+            event.message.origin.id as RepoId,
             decode(event.message.payload)
           )
         } catch (error) {

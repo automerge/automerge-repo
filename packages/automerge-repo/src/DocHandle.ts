@@ -469,9 +469,11 @@ export class DocHandle<T> {
   /**
    * Sends an arbitrary ephemeral message out to all reachable peers who would receive sync messages
    * from you. It has no guarantee of delivery, and is not persisted to the underlying automerge doc
-   * in any way. Messages will have a sending PeerId but this is *not* a useful user identifier (a
-   * user could have multiple tabs open and would appear as multiple PeerIds). Every message source
-   * must have a unique PeerId.
+   * in any way. It is sent from this Repo's peer on behalf of this Repo: receivers see the peer
+   * the backend authenticated as `senderId`, which several Repos (e.g. tabs sharing one signer)
+   * may share, and this Repo's `id` as `originId`, which tells those Repos apart. Neither is a
+   * user identifier. Messages are scoped to the whole document: a sub-handle's broadcasts reach
+   * the root and every other handle of it.
    */
   broadcast(message: unknown) {
     void this.#document.publishEphemeral?.(encode(message))

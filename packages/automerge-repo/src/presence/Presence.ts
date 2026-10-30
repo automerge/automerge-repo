@@ -79,48 +79,56 @@ export class Presence<
     this.#handleEphemeralMessage = (
       e: DocHandleEphemeralMessagePayload<DocType>
     ) => {
-      const peerId = e.senderId
       const envelope = e.message as PresenceMessage
 
-      if (!(PRESENCE_MESSAGE_MARKER in envelope)) {
+      if (
+        typeof envelope !== "object" ||
+        envelope === null ||
+        !(PRESENCE_MESSAGE_MARKER in envelope)
+      ) {
         return
       }
 
       const message = envelope[PRESENCE_MESSAGE_MARKER]
+      const { senderId, originId } = e
 
-      if (!this.#peers.has(peerId)) {
+      if (!this.#peers.has(originId)) {
         this.announce()
       }
 
       switch (message.type) {
         case "heartbeat":
-          this.#peers.markSeen(peerId)
-          this.emit("heartbeat", { type: "heartbeat", peerId })
+          this.#peers.markSeen(originId)
+          this.emit("heartbeat", { type: "heartbeat", senderId, originId })
           break
         case "goodbye":
-          this.#peers.delete(peerId)
-          this.emit("goodbye", { type: "goodbye", peerId })
+          this.#peers.delete(originId)
+          this.emit("goodbye", { type: "goodbye", senderId, originId })
           break
         case "update":
           this.#peers.update({
-            peerId,
+            senderId,
+            originId,
             value: { [message.channel]: message.value } as Partial<State>,
           })
           this.emit("update", {
             type: "update",
-            peerId,
+            senderId,
+            originId,
             channel: message.channel,
             value: message.value,
           })
           break
         case "snapshot":
           this.#peers.update({
-            peerId,
+            senderId,
+            originId,
             value: message.state as State,
           })
           this.emit("snapshot", {
             type: "snapshot",
-            peerId,
+            senderId,
+            originId,
             state: message.state,
           })
           break
