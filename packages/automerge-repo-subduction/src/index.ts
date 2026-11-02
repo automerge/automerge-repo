@@ -328,35 +328,38 @@ export class SubductionBackend implements SedimentreeBackend {
         session.confirming = false
       })
   }
-  /** Propagate a stored batch without an open session; one round per batch. */
-  private scheduleSync(id: SedimentreeId): void {
-    void this.syncRound(id).catch(cause =>
-      this.broadcast(id, this.failure("synchronize", cause))
+  /**
+   * Send a stored batch to peers, with or without an open session; one round
+   * per batch. Nothing awaits or reads its result; local failures are reported
+   * to the tree's sessions.
+   */
+  private propagate(id: SedimentreeId): void {
+    void (async () => {
+      this.check("synchronize", id)
+      await this.syncAllPeers(id)
+    })().catch(cause => this.broadcast(id, this.failure("synchronize", cause)))
+  }
+  /**
+   * Per-peer results; a rejection is local (storage or closed). Native hydrates
+   * the tree before checking for peers, so skip it when none is connected.
+   * Remove the check once syncWithAllPeers short-circuits itself.
+   */
+  private async syncAllPeers(
+    id: SedimentreeId
+  ): Promise<[N.PeerId, N.PeerSyncResult][]> {
+    if (!(await this.engine.getConnectedPeerIds()).length) return []
+    return Object.entries(
+      await this.engine.syncWithAllPeers(id, { subscribe: true })
     )
   }
+  /** A round answering one session: its result is pushed there and returned. */
   private async syncRound(
     id: SedimentreeId,
-    recipient?: SessionState
+    recipient: SessionState
   ): Promise<SyncRoundResult> {
     this.check("synchronize", id)
-    const engine = this.engine
     const roundId = `subduction-${++this.round}`
-    // Native hydrates the tree before checking for peers, so skip it when none
-    // is connected. Remove once syncWithAllPeers short-circuits itself.
-    // Peer failures are reported per peer; a rejection is local (storage or
-    // closed) and rejects the round.
-    const results = (await engine.getConnectedPeerIds()).length
-      ? Object.entries(await engine.syncWithAllPeers(id, { subscribe: true }))
-      : []
-    // Store-triggered rounds only propagate; with no peers there is nothing
-    // to report. Explicit rounds always answer their session.
-    if (!results.length && !recipient)
-      return {
-        roundId,
-        marker: { sequence: ++this.sequence, heads: [] },
-        outcome: "no-peers",
-        peers: [],
-      }
+    const results = await this.syncAllPeers(id)
     this.check("synchronize", id)
     // Native updates its tree before the round resolves, so these heads
     // include whatever the round ingested.
@@ -391,7 +394,7 @@ export class SubductionBackend implements SedimentreeBackend {
         }
       }
     )
-    // Shared by the caller and every session on the tree.
+    // Shared by the caller and its session's event.
     const result: SyncRoundResult = Object.freeze({
       roundId,
       marker: Object.freeze({ ...marker, heads: Object.freeze(marker.heads) }),
@@ -402,8 +405,7 @@ export class SubductionBackend implements SedimentreeBackend {
           : "complete",
       peers: Object.freeze(outcomes.map(p => Object.freeze(p))),
     })
-    if (recipient) recipient.watch.push({ type: "synchronized", result })
-    else this.broadcast(id, { type: "synchronized", result })
+    recipient.watch.push({ type: "synchronized", result })
     return result
   }
   private check(operation: BackendOperation, id?: SedimentreeId): void {
@@ -683,7 +685,7 @@ export class SubductionBackend implements SedimentreeBackend {
         }
         // Durability never waits for a peer; a round propagates batches even
         // without a document session. A failed batch stored nothing to send.
-        if (!single) this.scheduleSync(id)
+        if (!single) this.propagate(id)
       })().catch(cause => {
         throw error(operation, cause)
       })
