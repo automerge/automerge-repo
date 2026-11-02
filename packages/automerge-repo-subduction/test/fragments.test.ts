@@ -99,9 +99,17 @@ async function initial(backend: SubductionBackend, inspectRecords = true) {
     if (event.type === "records") records.push(...event.records)
     if (event.type === "blobs") blobs.push(...event.blobs)
     if (event.type === "local-load-complete") {
-      // An empty first load is settled by one confirmation round.
-      if (!event.found)
-        expect(await next(iterator)).toMatchObject({ type: "synchronized" })
+      // An empty first load is settled by one confirmation round; peer
+      // notifications may arrive first, nothing else should.
+      if (!event.found) {
+        let confirmed = await next(iterator)
+        while (
+          confirmed.type === "remote-heads" ||
+          confirmed.type === "ephemeral"
+        )
+          confirmed = await next(iterator)
+        expect(confirmed).toMatchObject({ type: "synchronized" })
+      }
       if (!inspectRecords) return { records, blobs, event, iterator }
       records.push(...(await storedRecords(currentStorage, tree)))
       expect(

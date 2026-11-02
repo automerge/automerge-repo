@@ -62,7 +62,10 @@ async function initial(session: SedimentreeSession, id = tree) {
 }
 /** An empty first load is settled by one confirmation round. */
 async function confirmation(iterator: AsyncIterator<SedimentreeEvent>) {
-  const event = await next(iterator)
+  let event = await next(iterator)
+  // Peer notifications may arrive first; nothing else should.
+  while (event.type === "remote-heads" || event.type === "ephemeral")
+    event = await next(iterator)
   if (event.type !== "synchronized")
     throw new Error(`Expected a confirmation round, got ${event.type}`)
   return event.result
@@ -681,7 +684,9 @@ describe("real local Subduction", () => {
         throw new Error("disk failed")
     }
     const engine = (backend as unknown as { engine: N.Subduction }).engine
-    const rounds = vi.spyOn(engine, "getConnectedPeerIds")
+    // With a peer reported connected, a scheduled round would reach native.
+    vi.spyOn(engine, "getConnectedPeerIds").mockResolvedValue([somePeer])
+    const rounds = vi.spyOn(engine, "syncWithAllPeers")
     await expect(backend.store(tree, records)).rejects.toThrow()
     // A failed batch stored nothing, so no round propagates it.
     expect(rounds).not.toHaveBeenCalled()

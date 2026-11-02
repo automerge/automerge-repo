@@ -640,7 +640,7 @@ export class SubductionBackend implements SedimentreeBackend {
           const heads = (await engine.getHeads(id)) ?? []
           if (heads.length)
             throw new BackendError(
-              "create",
+              operation,
               "conflict",
               "Document already exists"
             )
