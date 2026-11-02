@@ -25,12 +25,13 @@ import {
 } from "./sedimentree/automerge/index.js"
 import { concatBytes } from "./sedimentree/concatBytes.js"
 
-/** Compaction delay after a document first has a boundary due, plus jitter so
- * documents that become due together do not compact together. */
-const COMPACTION_DELAY_MS = 10_000
+/** Compaction delay after a document first has a boundary due, so sustained
+ * edits share one bundling run, plus jitter so documents that become due
+ * together do not compact together. */
+const COMPACTION_DELAY_MS = 1_000
 const COMPACTION_JITTER_MS = 2_000
 /** Longest a busy page can defer a due compaction once its timer has fired. */
-const COMPACTION_IDLE_TIMEOUT_MS = 10_000
+const COMPACTION_IDLE_TIMEOUT_MS = 3_000
 
 type IdleGlobal = {
   requestIdleCallback?: (
