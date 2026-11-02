@@ -264,13 +264,6 @@ export class MemoryBackend implements SedimentreeBackend {
         records,
         sequence,
       }))
-      const requested = fragmentRequests(records, isBoundary)
-      if (requested.length)
-        this.#append(tree, sequence => ({
-          type: "fragments-requested",
-          sequence,
-          heads: requested,
-        }))
     }
     const heads = headsOf([...tree.records.values()])
     this.#append(tree, sequence => ({

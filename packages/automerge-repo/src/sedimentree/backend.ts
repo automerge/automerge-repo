@@ -45,11 +45,12 @@ import type { RecordBatch } from "./records.js"
  * - `history-marker`: a position and history heads, ordered after associated record
  *   deliveries. The consumer must process those records and verify history
  *   inclusion using its CRDT; nonempty heads or the first blob are not enough.
- * - `fragments-requested`: boundary commits the backend holds with no covering
- *   fragment it knows of, judged by its own depth metric. Ordered after the
- *   records, blobs or load completion that delivered them; covering fragments
- *   delivered later supersede it. Requests can repeat or be already satisfied;
- *   building an existing fragment again is harmless. Not ordered by `flush`.
+ * - `fragments-requested`: boundary commits a local load found with no covering
+ *   fragment, judged by the backend's own depth metric. Ordered after that
+ *   load's `local-load-complete`; covering fragments delivered later supersede
+ *   it. Not sent for live records: each consumer compacts the boundaries it
+ *   stores, and other sessions receive its fragments. Requests can repeat or be
+ *   already satisfied; building an existing fragment again is harmless.
  * - `synchronized`: the result of a bounded synchronization round. Its marker
  *   covers history the round ingested; it is not ordered after concurrent
  *   local stores, and the stream may deliver records after it. Resolving the matching `synchronize()` promise does not

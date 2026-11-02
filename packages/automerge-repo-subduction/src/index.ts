@@ -440,8 +440,8 @@ export class SubductionBackend implements SedimentreeBackend {
     session.stream = updates
     // Storage-scan items pass on as blobs, each as it arrives; every scan
     // ends with local-load-complete. Peer and local updates flow as records.
-    // Each scan, and each live record, requests fragments for the boundary
-    // commits it leaves uncovered.
+    // Each scan requests fragments for the boundary commits it leaves
+    // uncovered. Live boundaries are compacted by their writer.
     let initialized = false
     let scanning = true
     let found = false
@@ -484,7 +484,6 @@ export class SubductionBackend implements SedimentreeBackend {
             phase: "live",
             records: [record],
           })
-          for (const event of requests([record])) watch.push(event)
           // Data a peer sends back in its own round arrives as unordered
           // fire-and-forget records with no completion event; heads read
           // between them can name a complete prefix. Without local history,

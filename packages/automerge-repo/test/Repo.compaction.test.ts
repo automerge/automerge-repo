@@ -171,24 +171,6 @@ describe("Repo compaction", () => {
     expect(fragmentHeads(store)).toEqual([head])
   })
 
-  it("compacts a boundary received from a peer", async () => {
-    vi.useFakeTimers()
-    const backend = new MemoryBackend()
-    const r = repo(backend)
-    const handle = await create(r)
-    // A peer writes loose commits straight to the backend.
-    const before = handle.fullDoc()
-    const after = forkToBoundary(before)
-    const id = sedimentreeId(documentIdToBinary(handle.documentId)!)
-    await backend.store(id, extractNewCommits(before, after))
-    const store = vi.spyOn(backend, "store")
-    await vi.waitFor(() =>
-      expect(A.getHeads(handle.fullDoc())).toEqual(A.getHeads(after))
-    )
-    await vi.advanceTimersByTimeAsync(12_001)
-    expect(fragmentHeads(store)).toEqual(A.getHeads(after))
-  })
-
   it("compacts a boundary stored loose before the document loads", async () => {
     // A crash before compaction leaves the boundary loose in storage.
     const backend = new MemoryBackend()
@@ -219,21 +201,22 @@ describe("Repo compaction", () => {
     expect(store).not.toHaveBeenCalled()
   })
 
-  it("another repo's fragment clears the boundary it covers", async () => {
+  it("leaves another repo's boundary to its writer", async () => {
     vi.useFakeTimers()
-    const random = vi.spyOn(Math, "random")
     const backend = new MemoryBackend()
     const writer = repo(backend)
     const reader = repo(backend)
     const handle = await create(writer)
     const remote = await reader.find<Doc>(handle.url)
     const store = vi.spyOn(backend, "store")
-    // The writer's timer fires first; the reader's later, after the echo.
-    random.mockReturnValueOnce(0).mockReturnValue(0.99)
     const head = await editToBoundary(handle)
     await vi.waitFor(() => expect(A.getHeads(remote.fullDoc())).toEqual([head]))
+    // Only the writer's compaction timer is armed.
+    expect(vi.getTimerCount()).toBe(1)
     await vi.advanceTimersByTimeAsync(12_001)
+    await reader.flush()
     expect(fragmentHeads(store)).toEqual([head])
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it("a fragment delivered in the same batch as its boundary covers it", async () => {
@@ -258,30 +241,31 @@ describe("Repo compaction", () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it("does not poll a boundary whose dependencies are missing", async () => {
+  it("does not poll a requested boundary whose dependencies are missing", async () => {
     vi.useFakeTimers()
     const backend = new MemoryBackend()
-    const r = repo(backend)
-    const handle = await create(r)
+    const writer = repo(backend)
+    const handle = await create(writer)
     const base = handle.fullDoc()
     const fork = forkToBoundary(base, 2)
     const chain = extractNewCommits(base, fork)
-    // Deliver the boundary commit without its ancestors.
+    // Storage holds the boundary commit without its ancestors.
     const id = sedimentreeId(documentIdToBinary(handle.documentId)!)
     await backend.store(id, [chain.at(-1)!])
-    await vi.waitFor(() =>
-      expect(A.getMissingDeps(handle.fullDoc())).not.toEqual([])
-    )
+    const reader = repo(backend)
+    // Ready only once the ancestors arrive.
+    const found = reader.find<Doc>(handle.url)
     const store = vi.spyOn(backend, "store")
-    expect(vi.getTimerCount()).toBe(1)
+    await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1))
     await vi.advanceTimersByTimeAsync(12_001)
     // Nothing stored, and no timer re-armed to poll the pending head.
     expect(store).not.toHaveBeenCalled()
     expect(vi.getTimerCount()).toBe(0)
     // The ancestors arrive: the head is retried and compacted.
     await backend.store(id, chain.slice(0, -1))
+    const loaded = await found
     await vi.waitFor(() =>
-      expect(A.getHeads(handle.fullDoc())).toEqual(A.getHeads(fork))
+      expect(A.getHeads(loaded.fullDoc())).toEqual(A.getHeads(fork))
     )
     await vi.advanceTimersByTimeAsync(12_001)
     expect(fragmentHeads(store)).toEqual(A.getHeads(fork))

@@ -42,11 +42,11 @@ session, ending iteration, or closing the backend wakes a pending pull. Multiple
 sessions have independent lifetimes. Live events queue per session until
 pulled.
 
-The backend decides which boundary commits need a fragment and sends
-`fragments-requested` after the delivery that revealed them; the consumer
-builds and stores those fragments. `fragmentRequests` derives requests
-statelessly from one delivery's metadata, for backends that have no native
-signal.
+A consumer compacts the boundary commits it stores. For those a local load
+finds without a covering fragment, the backend sends `fragments-requested`
+after the load; the consumer builds and stores those fragments.
+`fragmentRequests` derives requests statelessly from one load's metadata, for
+backends that have no native signal.
 
 Deletion invalidates existing sessions and supersedes queued old-generation
 records with a final `deleted` event. A later explicit open/store can reacquire

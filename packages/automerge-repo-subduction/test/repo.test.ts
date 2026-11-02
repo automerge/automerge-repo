@@ -217,13 +217,17 @@ describe("public Repo with native Subduction", () => {
     // Loose commits sync before any compaction.
     await ready(receiver, { count })
     expect(await fragmentKeys(a)).toEqual(created)
-    await Promise.all([a.repo.flush(), b.repo.flush()])
+    // The writer compacts; the receiver gets its fragments pushed.
+    await a.repo.flush()
     for (const p of [a, b])
-      expect(
-        (await p.storage.list("subduction-v2/")).some(key =>
-          key.includes("/fragments/")
-        )
-      ).toBe(true)
+      await vi.waitFor(async () => {
+        expect(
+          (await p.storage.list("subduction-v2/")).some(key =>
+            key.includes("/fragments/")
+          )
+        ).toBe(true)
+      }, wait)
+    await b.repo.flush()
     await wires[0].disconnect()
     for (const p of [a, b]) {
       await p.repo.shutdown()

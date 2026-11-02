@@ -310,9 +310,10 @@ document's first write failure and reports it from `repo.flush()`.
 
 Until native reports which boundary commits lack a fragment, the backend works
 it out from metadata it already receives, without extra reads: each storage
-scan, and each live record, requests fragments for the boundary commits
-(`commitDepth > 0`) it holds with no covering fragment. Repo builds them. So a
-boundary left loose by a crash is compacted after the next load.
+scan requests fragments for the boundary commits (`commitDepth > 0`) it holds
+with no covering fragment. Repo builds them. So a boundary left loose by a
+crash is compacted after the next load. Live records request nothing: their
+writer compacts them.
 
 ### Known gaps
 
@@ -324,9 +325,6 @@ These are tracked upstream rather than emulated here:
 - **Deletion fencing.** Deletion waits for local stores, but not for ingested
   writes in flight, and does not stop peer sync: a subscribed peer can resend
   the tree.
-- **Fragment requests and flush.** Requests for a local store arrive with its
-  echo on the stream, so a `flush()` straight after an edit may not compact it;
-  the timer or the next load does.
 - **Typed write errors.** Native wraps storage rejections in opaque errors, so
   they surface as `io`.
 - **Ingress tree check.** Native does not check that a peer's signed record
