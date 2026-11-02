@@ -4,6 +4,7 @@ import { decodeHeads, encodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, PeerId, SyncInfo, UrlHeads } from "./types.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
+import { arraysAreEqual } from "./helpers/arraysAreEqual.js"
 import type { RootQuery } from "./DocumentQuery.js"
 
 /**
@@ -203,7 +204,7 @@ export class Document<T = unknown> {
         : (this.commit?.(before, after, { compact: options.compact }) ??
           Promise.resolve())
     void stored.catch(() => {})
-    if (arrayEqual(beforeHeads, afterHeads)) return stored
+    if (arraysAreEqual(beforeHeads, afterHeads)) return stored
     const initial =
       options.incoming && options.initial && beforeHeads.length === 0
     const patches = initial ? undefined : A.diff(after, beforeHeads, afterHeads)
@@ -230,10 +231,4 @@ export class Document<T = unknown> {
     }
     return stored
   }
-}
-
-function arrayEqual(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
-  return true
 }

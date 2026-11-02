@@ -7,6 +7,7 @@ import {
 } from "./AutomergeUrl.js"
 import { Document } from "./Document.js"
 import { encode } from "./helpers/cbor.js"
+import { arraysAreEqual } from "./helpers/arraysAreEqual.js"
 import type {
   AutomergeUrl,
   DocumentId,
@@ -571,10 +572,11 @@ export class DocHandle<T> {
     const thisPath = this.#path
     const otherPath = other.#path
     if (thisPath.length >= otherPath.length) return false
-    for (let i = 0; i < thisPath.length; i++) {
-      if (!segmentEquals(thisPath[i], otherPath[i])) return false
-    }
-    return true
+    return arraysAreEqual(
+      thisPath,
+      otherPath.slice(0, thisPath.length),
+      segmentEquals
+    )
   }
 
   /** True if this handle is a strict descendant of `other`. */
@@ -591,10 +593,7 @@ export class DocHandle<T> {
     if (!this.#range || !other.range) return false
     const thisPath = this.#path
     const otherPath = other.#path
-    if (thisPath.length !== otherPath.length) return false
-    for (let i = 0; i < thisPath.length; i++) {
-      if (!segmentEquals(thisPath[i], otherPath[i])) return false
-    }
+    if (!arraysAreEqual(thisPath, otherPath, segmentEquals)) return false
     const thisPos = this.rangePositions()
     const otherPos = other.rangePositions?.()
     if (!thisPos || !otherPos) return false

@@ -1,3 +1,4 @@
+import { arraysAreEqual } from "../../src/helpers/arraysAreEqual.js"
 import type { SedimentreeRecord } from "../../src/sedimentree/index.js"
 
 /** Scoped to one sedimentree. This is NOT a representation/content fingerprint. */
@@ -11,22 +12,16 @@ export function equalRecords(
   b: SedimentreeRecord
 ): boolean {
   if (recordKey(a) !== recordKey(b)) return false
-  if (!equalArrays(a.blob, b.blob)) return false
+  if (!arraysAreEqual(a.blob, b.blob)) return false
   if (a.kind === "commit" && b.kind === "commit") {
-    return equalArrays(a.parents, b.parents)
+    return arraysAreEqual(a.parents, b.parents)
   }
   return (
     a.kind === "fragment" &&
     b.kind === "fragment" &&
-    equalArrays(a.boundary, b.boundary) &&
-    equalArrays(a.checkpoints, b.checkpoints)
+    arraysAreEqual(a.boundary, b.boundary) &&
+    arraysAreEqual(a.checkpoints, b.checkpoints)
   )
-}
-
-function equalArrays<T>(a: ArrayLike<T>, b: ArrayLike<T>): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
-  return true
 }
 
 /** Encoded payload/metadata budget, not an estimate of the entire JS heap. */

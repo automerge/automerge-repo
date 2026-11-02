@@ -1,5 +1,6 @@
 import type { Prop } from "@automerge/automerge/slim"
 import type { UrlHeads } from "../types.js"
+import { arraysAreEqual } from "../helpers/arraysAreEqual.js"
 import { KIND } from "./types.js"
 import type { PathSegment, Pattern, ResolvedPathSegment } from "./types.js"
 
@@ -72,9 +73,7 @@ export function sameFixedHeads(
 ): boolean {
   if (a === b) return true
   if (!a || !b) return false
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
-  return true
+  return arraysAreEqual(a, b)
 }
 
 /** True iff one path prefixes the other (or they're equal). */
