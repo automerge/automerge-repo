@@ -609,11 +609,15 @@ export class SubductionBackend implements SedimentreeBackend {
         cause,
       })
     }
+    const { documentId } = options
     const id =
-      options.documentId !== undefined
-        ? backendId("create", options.documentId)
+      documentId !== undefined
+        ? backendId("create", documentId)
         : await mintBackendId(records, this.mintDocumentId)
-    await this.storeRecords(id, records, true)
+    // Only a supplied or custom-minted ID can already exist; the default
+    // minter's random IDs cannot, so they skip the existence read.
+    const checkExisting = documentId !== undefined || !!this.mintDocumentId
+    await this.storeRecords(id, records, true, checkExisting)
     return id
   }
   store(input: SedimentreeId, batch: RecordBatch): Promise<void> {
@@ -622,7 +626,8 @@ export class SubductionBackend implements SedimentreeBackend {
   private storeRecords(
     input: SedimentreeId,
     records: RecordBatch,
-    creating = false
+    creating = false,
+    checkExisting = false
   ): Promise<void> {
     try {
       const id = backendId(creating ? "create" : "store", input)
@@ -630,7 +635,8 @@ export class SubductionBackend implements SedimentreeBackend {
       const operation = creating ? "create" : "store"
       const engine = this.engine
       const write = (async () => {
-        if (creating) {
+        // Best effort: concurrent creates of one ID are not fenced.
+        if (checkExisting) {
           const heads = (await engine.getHeads(id)) ?? []
           if (heads.length)
             throw new BackendError(

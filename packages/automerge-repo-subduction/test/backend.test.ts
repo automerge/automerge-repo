@@ -140,6 +140,28 @@ describe("real local Subduction", () => {
     expect(mintDocumentId).toHaveBeenCalledTimes(1)
   })
 
+  it("checks for an existing document only when the ID could collide", async () => {
+    const backend = create()
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const reads = vi.spyOn(engine, "getHeads")
+    await backend.create([record(1)])
+    expect(reads).not.toHaveBeenCalled()
+    await backend.create([record(1)], { documentId: tree })
+    expect(reads).toHaveBeenCalledOnce()
+  })
+
+  it("rejects a custom-minted ID that already holds records", async () => {
+    const backend = create({
+      mintDocumentId: () => Buffer.from(tree, "hex"),
+    })
+    await expect(backend.create([record(1)])).resolves.toBe(tree)
+    await expect(backend.create([record(2)])).rejects.toMatchObject({
+      operation: "create",
+      code: "conflict",
+    })
+    expect((await initial(backend.open(tree))).records).toEqual([record(1)])
+  })
+
   it("snapshots create input before an async mint", async () => {
     const keyhive = sedimentreeId("cd".repeat(32))
     const backend = create({
