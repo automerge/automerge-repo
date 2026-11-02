@@ -341,11 +341,13 @@ export class SubductionBackend implements SedimentreeBackend {
     this.check("synchronize", id)
     const engine = this.engine
     const roundId = `subduction-${++this.round}`
+    // Native hydrates the tree before checking for peers, so skip it when none
+    // is connected. Remove once syncWithAllPeers short-circuits itself.
     // Peer failures are reported per peer; a rejection is local (storage or
     // closed) and rejects the round.
-    const results = Object.entries(
-      await engine.syncWithAllPeers(id, { subscribe: true })
-    )
+    const results = (await engine.getConnectedPeerIds()).length
+      ? Object.entries(await engine.syncWithAllPeers(id, { subscribe: true }))
+      : []
     // Store-triggered rounds only propagate; with no peers there is nothing
     // to report. Explicit rounds always answer their session.
     if (!results.length && !recipient)
@@ -508,19 +510,13 @@ export class SubductionBackend implements SedimentreeBackend {
           // Peers still connecting may have the document.
           if (!found) await this.networkSettled
           if (session.released) break
-          const peers = found
-            ? 0
-            : (await this.engine.getConnectedPeerIds()).length
-          const noPeers = !found && !peers
-          watch.initialize([
-            noPeers ? { ...complete, noPeers } : complete,
-            ...requested,
-          ])
+          watch.initialize([complete, ...requested])
           this.reconcileInterest(id)
           // loadAndWatch reports neither failed rounds nor an empty settled
           // load, so one explicit round decides whether connected peers
-          // have this document. Remove once native reports it.
-          if (peers) this.confirm(session)
+          // have this document (none connected: "no-peers"). Remove once
+          // native reports it.
+          if (!found) this.confirm(session)
         } else if (update.type === "peerSynced") {
           // Ordered after the round's items, so native heads include them.
           await this.liveMarker(session)

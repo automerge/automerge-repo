@@ -17,6 +17,7 @@ import { corruptFrame } from "./frame.js"
 import type { TestSigner } from "./transport.js"
 
 const tree = sedimentreeId("ab".repeat(16) + "00".repeat(16))
+const somePeer = "cd".repeat(32)
 /** Not a fragment boundary: no leading zero byte. */
 const cid = (n: number) => commitId("f" + n.toString(16).padStart(63, "0"))
 const record = (n: number, parents: number[] = []): LooseCommitRecord => ({
@@ -51,9 +52,20 @@ async function initial(session: SedimentreeSession, id = tree) {
         if (index < 0) throw new Error("Initial blob missing from test store")
         records.push(available.splice(index, 1)[0])
       }
-      return { records, blobs, complete: result.value, iterator }
+      const complete = result.value
+      const confirmed = complete.found
+        ? undefined
+        : await confirmation(iterator)
+      return { records, blobs, complete, confirmed, iterator }
     }
   }
+}
+/** An empty first load is settled by one confirmation round. */
+async function confirmation(iterator: AsyncIterator<SedimentreeEvent>) {
+  const event = await next(iterator)
+  if (event.type !== "synchronized")
+    throw new Error(`Expected a confirmation round, got ${event.type}`)
+  return event.result
 }
 /** Loose commits native holds for `tree`, hydrating on demand. Reaches the
  * private engine: the backend deliberately exposes no native accessor. */
@@ -186,6 +198,8 @@ describe("real local Subduction", () => {
     const rounds = vi.spyOn(engine, "syncWithAllPeers")
     const session = backend.open(tree)
     await initial(session)
+    // Rounds skip native without a connected peer.
+    vi.spyOn(engine, "getConnectedPeerIds").mockResolvedValue([somePeer])
     await session.synchronize()
     // Rounds rely on the node's default deadline.
     expect(rounds.mock.calls[0][1]).toEqual({ subscribe: true })
@@ -581,6 +595,8 @@ describe("real local Subduction", () => {
     const session = backend.open(tree)
     const { iterator } = await initial(session)
     const engine = (backend as unknown as { engine: N.Subduction }).engine
+    // Rounds skip native without a connected peer.
+    vi.spyOn(engine, "getConnectedPeerIds").mockResolvedValue([somePeer])
     vi.spyOn(engine, "syncWithAllPeers").mockRejectedValueOnce(
       new Error("ingest storage failed")
     )
@@ -595,6 +611,24 @@ describe("real local Subduction", () => {
     })
     // The session keeps working after the failed round.
     expect(await session.synchronize()).toMatchObject({ outcome: "no-peers" })
+  })
+
+  it("settles an empty load without peers through a confirmation result, without a native round", async () => {
+    const backend = create()
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const rounds = vi.spyOn(engine, "syncWithAllPeers")
+    const { complete, confirmed } = await initial(backend.open(tree))
+    expect(complete).toEqual({
+      type: "local-load-complete",
+      found: false,
+      backendSyncs: true,
+    })
+    expect(confirmed).toMatchObject({
+      outcome: "no-peers",
+      peers: [],
+      marker: { heads: [] },
+    })
+    expect(rounds).not.toHaveBeenCalled()
   })
 
   it("writes a submission of any size in one native call, in order", async () => {
