@@ -393,7 +393,7 @@ describe("real native ephemerals", () => {
     expect(ephemerals(observed.events)).toHaveLength(0)
   })
 
-  it("releases interests on iterator return without ending durable observation on subscription failure", async () => {
+  it("releases interests on iterator return and session close", async () => {
     const a = peer()
     const native = engine(a)
     const subscribe = vi.spyOn(native, "subscribeEphemeral")
@@ -406,21 +406,9 @@ describe("real native ephemerals", () => {
     expect(unsubscribe).not.toHaveBeenCalled()
     await iterators[1].return?.()
     await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledOnce(), wait)
-    subscribe.mockImplementationOnce(async () => {
-      await new Promise(resolve => setTimeout(resolve, 20))
-      throw new Error("subscription failed")
-    })
-    const failed = await observe(a)
-    await vi.waitFor(
-      () =>
-        expect(failed.events.at(-1)).toMatchObject({
-          type: "failure",
-          error: { operation: "ephemeral", retryable: true },
-        }),
-      wait
-    )
+    const third = await observe(a)
     await expect(
-      failed.session.publishEphemeral(message())
+      third.session.publishEphemeral(message())
     ).resolves.toBeUndefined()
     expect(unsubscribe).toHaveBeenCalledOnce()
     const doc = A.change(
@@ -435,14 +423,14 @@ describe("real native ephemerals", () => {
     await vi.waitFor(
       () =>
         expect(
-          failed.events.flatMap(e => (e.type === "records" ? e.records : []))
+          third.events.flatMap(e => (e.type === "records" ? e.records : []))
         ).toEqual(records),
       wait
     )
-    await expect(failed.session.synchronize()).resolves.toMatchObject({
+    await expect(third.session.synchronize()).resolves.toMatchObject({
       outcome: "no-peers",
     })
-    await failed.session.close()
+    await third.session.close()
     await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledTimes(2), wait)
     const reopened = await observe(a)
     expect(subscribe).toHaveBeenCalledTimes(3)

@@ -147,6 +147,11 @@ export class SubductionBackend implements SedimentreeBackend {
   private sequence = 0
   private round = 0
   private readonly deleting = new Map<SedimentreeId, Promise<void>>()
+  /**
+   * Open sessions per tree. Close and deletion end a tree's sessions in the
+   * same turn that raises their barrier, so no session survives either, and
+   * fan-outs need no barrier checks of their own.
+   */
   private readonly sessions = new Map<SedimentreeId, Set<SessionState>>()
   /** Ephemeral topics last requested from native. */
   private readonly interests = new Set<SedimentreeId>()
@@ -208,9 +213,7 @@ export class SubductionBackend implements SedimentreeBackend {
     ).join("")
   }
   private onEphemeral(topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) {
-    if (this.closed) return
     const tree = topic as SedimentreeId
-    if (this.deleting.has(tree)) return
     const active = [...this.sessionsFor(tree)].filter(s => s.watch.active)
     if (!active.length) return
     const message = decodeEphemeral(bytes)
@@ -231,20 +234,35 @@ export class SubductionBackend implements SedimentreeBackend {
     peer: N.PeerId,
     heads: N.CommitId[]
   ) {
-    if (this.closed) return
     const tree = id as SedimentreeId
-    if (this.deleting.has(tree)) return
+    if (!this.sessions.has(tree)) return
     // Shared by every session on the tree.
-    const event: SedimentreeEvent = Object.freeze({
-      type: "remote-heads",
-      sequence: ++this.sequence,
-      remote: this.peerIdentity(peer),
-      heads: Object.freeze(heads.map(commitId)),
-    })
-    for (const { watch } of this.sessionsFor(tree)) watch.push(event)
+    this.broadcast(
+      tree,
+      Object.freeze({
+        type: "remote-heads",
+        sequence: ++this.sequence,
+        remote: this.peerIdentity(peer),
+        heads: Object.freeze(heads.map(commitId)),
+      })
+    )
   }
   private sessionsFor(id: SedimentreeId): Iterable<SessionState> {
     return this.sessions.get(id) ?? []
+  }
+  private broadcast(id: SedimentreeId, event: SedimentreeEvent): void {
+    for (const { watch } of this.sessionsFor(id)) watch.push(event)
+  }
+  private failure(
+    operation: BackendOperation,
+    cause: unknown,
+    terminal = false
+  ): Extract<SedimentreeEvent, { type: "failure" }> {
+    return {
+      type: "failure",
+      sequence: ++this.sequence,
+      error: error(operation, cause, terminal),
+    }
   }
   private peerIdentity(peer: N.PeerId): BackendIdentity {
     return Object.freeze({
@@ -286,27 +304,16 @@ export class SubductionBackend implements SedimentreeBackend {
   }
   private reconcileInterest(id: SedimentreeId): void {
     if (this.closed) return
-    const desired =
-      !this.deleting.has(id) &&
-      [...this.sessionsFor(id)].some(s => s.watch.active)
+    const desired = [...this.sessionsFor(id)].some(s => s.watch.active)
     if (desired === this.interests.has(id)) return
-    // Native may update its local interest before a control send fails.
-    // Record the attempted state so a released observer still cleans up.
     if (desired) this.interests.add(id)
     else this.interests.delete(id)
-    void (async () => {
-      if (desired) await this.engine.subscribeEphemeral([id])
-      else await this.engine.unsubscribeEphemeral([id])
-    })().catch(cause => {
-      if (this.closed) return
-      for (const { watch } of this.sessionsFor(id))
-        if (watch.active)
-          watch.push({
-            type: "failure",
-            sequence: ++this.sequence,
-            error: error("ephemeral", cause),
-          })
-    })
+    // Native never reports control-send failures; only a closing engine rejects.
+    void (
+      desired
+        ? this.engine.subscribeEphemeral([id])
+        : this.engine.unsubscribeEphemeral([id])
+    ).catch(() => {})
   }
   /**
    * One confirmation round for an incomplete session whose local load was empty,
@@ -315,32 +322,17 @@ export class SubductionBackend implements SedimentreeBackend {
   private confirm(session: SessionState): void {
     if (session.confirming || session.completed) return
     session.confirming = true
-    const { id, watch } = session
-    void this.syncRound(id, session)
-      .catch(cause => {
-        if (!this.closed && !this.deleting.has(id))
-          watch.push({
-            type: "failure",
-            sequence: ++this.sequence,
-            error: error("synchronize", cause),
-          })
-      })
+    void this.syncRound(session.id, session)
+      .catch(cause => session.watch.push(this.failure("synchronize", cause)))
       .finally(() => {
         session.confirming = false
       })
   }
   /** Propagate a stored batch without an open session; one round per batch. */
   private scheduleSync(id: SedimentreeId): void {
-    if (this.closed || this.deleting.has(id)) return
-    void this.syncRound(id).catch(cause => {
-      if (!this.closed && !this.deleting.has(id))
-        for (const { watch } of this.sessionsFor(id))
-          watch.push({
-            type: "failure",
-            sequence: ++this.sequence,
-            error: error("synchronize", cause),
-          })
-    })
+    void this.syncRound(id).catch(cause =>
+      this.broadcast(id, this.failure("synchronize", cause))
+    )
   }
   private async syncRound(
     id: SedimentreeId,
@@ -408,9 +400,8 @@ export class SubductionBackend implements SedimentreeBackend {
           : "complete",
       peers: Object.freeze(outcomes.map(p => Object.freeze(p))),
     })
-    if (!this.closed && !this.deleting.has(id))
-      for (const session of recipient ? [recipient] : this.sessionsFor(id))
-        session.watch.push({ type: "synchronized", result })
+    if (recipient) recipient.watch.push({ type: "synchronized", result })
+    else this.broadcast(id, { type: "synchronized", result })
     return result
   }
   private check(operation: BackendOperation, id?: SedimentreeId): void {
@@ -516,7 +507,7 @@ export class SubductionBackend implements SedimentreeBackend {
           initialized = true
           // Peers still connecting may have the document.
           if (!found) await this.networkSettled
-          if (session.released || this.closed) break
+          if (session.released) break
           const peers = found
             ? 0
             : (await this.engine.getConnectedPeerIds()).length
@@ -540,7 +531,7 @@ export class SubductionBackend implements SedimentreeBackend {
         }
       }
     } catch (cause) {
-      if (!session.released && !this.closed) throw cause
+      if (!session.released) throw cause
     } finally {
       updates.close()
     }
@@ -561,11 +552,7 @@ export class SubductionBackend implements SedimentreeBackend {
     if (open) open.add(session)
     else this.sessions.set(id, new Set([session]))
     void this.observe(session).catch(cause =>
-      watch.finish({
-        type: "failure",
-        sequence: ++this.sequence,
-        error: error("open", cause, true),
-      })
+      watch.finish(this.failure("open", cause, true))
     )
     const sessionCheck = (op: BackendOperation) => {
       this.check(op, id)
@@ -578,13 +565,9 @@ export class SubductionBackend implements SedimentreeBackend {
         try {
           sessionCheck("synchronize")
           const work = this.syncRound(id, session).catch(cause => {
-            const failure = error("synchronize", cause)
-            watch.push({
-              type: "failure",
-              sequence: ++this.sequence,
-              error: failure,
-            })
-            throw failure
+            const failure = this.failure("synchronize", cause)
+            watch.push(failure)
+            throw failure.error
           })
           // An aborted wait leaves the round's own rejection unobserved.
           void work.catch(() => {})
@@ -757,6 +740,8 @@ export class SubductionBackend implements SedimentreeBackend {
       this.check("delete")
       const id = backendId("delete", input)
       if (this.deleting.has(id)) return this.deleting.get(id)!
+      // Ending the sessions in the same turn as the barrier below is what lets
+      // fan-outs skip deletion checks.
       const sequence = ++this.sequence
       for (const { watch } of this.sessionsFor(id))
         watch.finish({ type: "deleted", sequence })
