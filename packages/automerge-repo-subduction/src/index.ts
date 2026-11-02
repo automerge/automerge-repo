@@ -29,6 +29,7 @@ import type {
   SubductionNetworkAdapterInterface,
 } from "./network/SubductionNetworkAdapterInterface.js"
 import { Watch } from "./watch.js"
+import type { SessionState } from "./session.js"
 import { decodeEphemeral, encodeEphemeral } from "./ephemeral.js"
 
 export type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
@@ -146,11 +147,7 @@ export class SubductionBackend implements SedimentreeBackend {
   private sequence = 0
   private round = 0
   private readonly deleting = new Map<SedimentreeId, Promise<void>>()
-  private readonly watches = new Map<Watch<SedimentreeEvent>, SedimentreeId>()
-  /** Sessions whose consumer verified a complete snapshot (markComplete). */
-  private readonly completed = new Set<Watch<SedimentreeEvent>>()
-  /** Sessions with a confirmation round in flight. */
-  private readonly confirming = new Set<Watch<SedimentreeEvent>>()
+  private readonly sessions = new Map<SedimentreeId, Set<SessionState>>()
   /** Ephemeral topics last requested from native. */
   private readonly interests = new Set<SedimentreeId>()
   /**
@@ -214,16 +211,14 @@ export class SubductionBackend implements SedimentreeBackend {
     if (this.closed) return
     const tree = topic as SedimentreeId
     if (this.deleting.has(tree)) return
-    const watches = [...this.watches].filter(
-      ([watch, id]) => id === tree && watch.active
-    )
-    if (!watches.length) return
+    const active = [...this.sessionsFor(tree)].filter(s => s.watch.active)
+    if (!active.length) return
     const message = decodeEphemeral(bytes)
     if (!message) return
     const sequence = ++this.sequence
     const sender = this.peerIdentity(peer)
     // Metadata is frozen and shared; each session owns its payload bytes.
-    for (const [watch] of watches)
+    for (const { watch } of active)
       watch.push({
         type: "ephemeral",
         sequence,
@@ -246,8 +241,10 @@ export class SubductionBackend implements SedimentreeBackend {
       remote: this.peerIdentity(peer),
       heads: Object.freeze(heads.map(commitId)),
     })
-    for (const [watch, watched] of this.watches)
-      if (watched === tree) watch.push(event)
+    for (const { watch } of this.sessionsFor(tree)) watch.push(event)
+  }
+  private sessionsFor(id: SedimentreeId): Iterable<SessionState> {
+    return this.sessions.get(id) ?? []
   }
   private peerIdentity(peer: N.PeerId): BackendIdentity {
     return Object.freeze({
@@ -291,7 +288,7 @@ export class SubductionBackend implements SedimentreeBackend {
     if (this.closed) return
     const desired =
       !this.deleting.has(id) &&
-      [...this.watches].some(([watch, tree]) => tree === id && watch.active)
+      [...this.sessionsFor(id)].some(s => s.watch.active)
     if (desired === this.interests.has(id)) return
     // Native may update its local interest before a control send fails.
     // Record the attempted state so a released observer still cleans up.
@@ -302,8 +299,8 @@ export class SubductionBackend implements SedimentreeBackend {
       else await this.engine.unsubscribeEphemeral([id])
     })().catch(cause => {
       if (this.closed) return
-      for (const [watch, tree] of this.watches)
-        if (tree === id && watch.active)
+      for (const { watch } of this.sessionsFor(id))
+        if (watch.active)
           watch.push({
             type: "failure",
             sequence: ++this.sequence,
@@ -315,10 +312,11 @@ export class SubductionBackend implements SedimentreeBackend {
    * One confirmation round for an incomplete session whose local load was empty,
    * at most one in flight. Its marker covers everything each peer had.
    */
-  private confirm(id: SedimentreeId, watch: Watch<SedimentreeEvent>): void {
-    if (this.confirming.has(watch) || this.completed.has(watch)) return
-    this.confirming.add(watch)
-    void this.syncRound(id, watch)
+  private confirm(session: SessionState): void {
+    if (session.confirming || session.completed) return
+    session.confirming = true
+    const { id, watch } = session
+    void this.syncRound(id, session)
       .catch(cause => {
         if (!this.closed && !this.deleting.has(id))
           watch.push({
@@ -327,25 +325,26 @@ export class SubductionBackend implements SedimentreeBackend {
             error: error("synchronize", cause),
           })
       })
-      .finally(() => this.confirming.delete(watch))
+      .finally(() => {
+        session.confirming = false
+      })
   }
   /** Propagate a stored batch without an open session; one round per batch. */
   private scheduleSync(id: SedimentreeId): void {
     if (this.closed || this.deleting.has(id)) return
     void this.syncRound(id).catch(cause => {
       if (!this.closed && !this.deleting.has(id))
-        for (const [watch, tree] of this.watches)
-          if (tree === id)
-            watch.push({
-              type: "failure",
-              sequence: ++this.sequence,
-              error: error("synchronize", cause),
-            })
+        for (const { watch } of this.sessionsFor(id))
+          watch.push({
+            type: "failure",
+            sequence: ++this.sequence,
+            error: error("synchronize", cause),
+          })
     })
   }
   private async syncRound(
     id: SedimentreeId,
-    recipient?: Watch<SedimentreeEvent>
+    recipient?: SessionState
   ): Promise<SyncRoundResult> {
     this.check("synchronize", id)
     const engine = this.engine
@@ -410,9 +409,8 @@ export class SubductionBackend implements SedimentreeBackend {
       peers: Object.freeze(outcomes.map(p => Object.freeze(p))),
     })
     if (!this.closed && !this.deleting.has(id))
-      for (const [watch, tree] of this.watches)
-        if (tree === id && (!recipient || watch === recipient))
-          watch.push({ type: "synchronized", result })
+      for (const session of recipient ? [recipient] : this.sessionsFor(id))
+        session.watch.push({ type: "synchronized", result })
     return result
   }
   private check(operation: BackendOperation, id?: SedimentreeId): void {
@@ -422,142 +420,147 @@ export class SubductionBackend implements SedimentreeBackend {
       throw new BackendError(operation, "deleted", "Deletion barrier is active")
   }
   /** Stream items follow native's cache update, so native heads include them. */
-  private async liveMarker(
-    watch: Watch<SedimentreeEvent>,
-    native: N.SedimentreeId
-  ): Promise<void> {
+  private async liveMarker(session: SessionState): Promise<void> {
     // Markers only establish readiness; completed sessions no longer need them.
-    if (this.completed.has(watch)) return
-    const target = await this.headsMarker(native)
-    watch.push({ type: "history-marker", marker: target })
+    if (session.completed) return
+    const target = await this.headsMarker(session.id)
+    session.watch.push({ type: "history-marker", marker: target })
   }
   private async headsMarker(native: N.SedimentreeId): Promise<HistoryMarker> {
     const heads = (await this.engine.getHeads(native)) ?? []
     return { sequence: ++this.sequence, heads: heads.map(commitId).sort() }
   }
+  private release(session: SessionState): void {
+    session.released = true
+    session.stream?.close()
+    const open = this.sessions.get(session.id)
+    open?.delete(session)
+    if (!open?.size) this.sessions.delete(session.id)
+    this.reconcileInterest(session.id)
+  }
+  /** One native stream per session keeps syncing across connections. */
+  private async observe(session: SessionState): Promise<void> {
+    const { id, watch } = session
+    this.check("open", id)
+    if (session.released) return
+    const updates = this.engine.loadAndWatch(id)
+    session.stream = updates
+    // Storage-scan items pass on as blobs, each as it arrives; every scan
+    // ends with local-load-complete. Peer and local updates flow as records.
+    // Each scan, and each live record, requests fragments for the boundary
+    // commits it leaves uncovered.
+    let initialized = false
+    let scanning = true
+    let found = false
+    let scanned: CoverageItem[] = []
+    const requests = (items: readonly CoverageItem[]) => {
+      const heads = fragmentRequests(
+        items,
+        head => this.engine.commitDepth(head) > 0
+      )
+      return heads.length
+        ? [
+            {
+              type: "fragments-requested",
+              sequence: ++this.sequence,
+              heads,
+            } as const,
+          ]
+        : []
+    }
+    try {
+      for await (const update of updates) {
+        if (session.released) break
+        if (update.type === "commit" || update.type === "fragment") {
+          if (scanning) {
+            found = true
+            scanned.push(coverageItem(update))
+            const event: SedimentreeEvent = {
+              type: "blobs",
+              sequence: ++this.sequence,
+              blobs: [update.blob],
+            }
+            if (initialized) watch.push(event)
+            else watch.pushInitial(event)
+            continue
+          }
+          const record = storedRecord(update)
+          watch.push({
+            type: "records",
+            sequence: ++this.sequence,
+            phase: "live",
+            records: [record],
+          })
+          for (const event of requests([record])) watch.push(event)
+          // Data a peer sends back in its own round arrives as unordered
+          // fire-and-forget records with no completion event; heads read
+          // between them can name a complete prefix. Without local history,
+          // confirm with a round of our own, as Subduction's design advises.
+          if (found) await this.liveMarker(session)
+          else this.confirm(session)
+        } else if (update.type === "storageChecked") {
+          if (!scanning) continue
+          scanning = false
+          const complete = {
+            type: "local-load-complete",
+            found,
+            backendSyncs: true,
+          } as const
+          const requested = requests(scanned)
+          scanned = []
+          if (initialized) {
+            watch.push(complete)
+            for (const event of requested) watch.push(event)
+            continue
+          }
+          initialized = true
+          // Peers still connecting may have the document.
+          if (!found) await this.networkSettled
+          if (session.released || this.closed) break
+          const peers = found
+            ? 0
+            : (await this.engine.getConnectedPeerIds()).length
+          const noPeers = !found && !peers
+          watch.initialize([
+            noPeers ? { ...complete, noPeers } : complete,
+            ...requested,
+          ])
+          this.reconcileInterest(id)
+          // loadAndWatch reports neither failed rounds nor an empty settled
+          // load, so one explicit round decides whether connected peers
+          // have this document. Remove once native reports it.
+          if (peers) this.confirm(session)
+        } else if (update.type === "peerSynced") {
+          // Ordered after the round's items, so native heads include them.
+          await this.liveMarker(session)
+        } else if (update.type === "rescanRequired") {
+          scanning = true
+          found = false
+          scanned = []
+        }
+      }
+    } catch (cause) {
+      if (!session.released && !this.closed) throw cause
+    } finally {
+      updates.close()
+    }
+  }
   open(input: SedimentreeId): SedimentreeSession {
     this.check("open")
     const id = backendId("open", input)
     this.check("open", id)
-    let released = false
-    let stream: N.StoredUpdates | undefined
-    let initialized = false
-    const watch = new Watch<SedimentreeEvent>(() => {
-      released = true
-      stream?.close()
-      this.watches.delete(watch)
-      this.completed.delete(watch)
-      this.confirming.delete(watch)
-      this.reconcileInterest(id)
-    })
-    this.watches.set(watch, id)
-    // One native stream per session keeps syncing across connections.
-    const observe = async (): Promise<void> => {
-      this.check("open", id)
-      if (released) return
-      const updates = this.engine.loadAndWatch(id)
-      stream = updates
-      const marker = () => this.liveMarker(watch, id)
-      // Storage-scan items pass on as blobs, each as it arrives; every scan
-      // ends with local-load-complete. Peer and local updates flow as records.
-      // Each scan, and each live record, requests fragments for the boundary
-      // commits it leaves uncovered.
-      let scanning = true
-      let found = false
-      let scanned: CoverageItem[] = []
-      const requests = (items: readonly CoverageItem[]) => {
-        const heads = fragmentRequests(
-          items,
-          head => this.engine.commitDepth(head) > 0
-        )
-        return heads.length
-          ? [
-              {
-                type: "fragments-requested",
-                sequence: ++this.sequence,
-                heads,
-              } as const,
-            ]
-          : []
-      }
-      try {
-        for await (const update of updates) {
-          if (released) break
-          if (update.type === "commit" || update.type === "fragment") {
-            if (scanning) {
-              found = true
-              scanned.push(coverageItem(update))
-              const event: SedimentreeEvent = {
-                type: "blobs",
-                sequence: ++this.sequence,
-                blobs: [update.blob],
-              }
-              if (initialized) watch.push(event)
-              else watch.pushInitial(event)
-              continue
-            }
-            const record = storedRecord(update)
-            watch.push({
-              type: "records",
-              sequence: ++this.sequence,
-              phase: "live",
-              records: [record],
-            })
-            for (const event of requests([record])) watch.push(event)
-            // Data a peer sends back in its own round arrives as unordered
-            // fire-and-forget records with no completion event; heads read
-            // between them can name a complete prefix. Without local history,
-            // confirm with a round of our own, as Subduction's design advises.
-            if (found) await marker()
-            else this.confirm(id, watch)
-          } else if (update.type === "storageChecked") {
-            if (!scanning) continue
-            scanning = false
-            const complete = {
-              type: "local-load-complete",
-              found,
-              backendSyncs: true,
-            } as const
-            const requested = requests(scanned)
-            scanned = []
-            if (initialized) {
-              watch.push(complete)
-              for (const event of requested) watch.push(event)
-              continue
-            }
-            initialized = true
-            // Peers still connecting may have the document.
-            if (!found) await this.networkSettled
-            if (released || this.closed) break
-            const peers = found
-              ? 0
-              : (await this.engine.getConnectedPeerIds()).length
-            const noPeers = !found && !peers
-            watch.initialize([
-              noPeers ? { ...complete, noPeers } : complete,
-              ...requested,
-            ])
-            this.reconcileInterest(id)
-            // loadAndWatch reports neither failed rounds nor an empty settled
-            // load, so one explicit round decides whether connected peers
-            // have this document. Remove once native reports it.
-            if (peers) this.confirm(id, watch)
-          } else if (update.type === "peerSynced") {
-            // Ordered after the round's items, so native heads include them.
-            await marker()
-          } else if (update.type === "rescanRequired") {
-            scanning = true
-            found = false
-            scanned = []
-          }
-        }
-      } catch (cause) {
-        if (!released && !this.closed) throw cause
-      } finally {
-        updates.close()
-      }
+    const session: SessionState = {
+      id,
+      watch: new Watch<SedimentreeEvent>(() => this.release(session)),
+      released: false,
+      completed: false,
+      confirming: false,
     }
-    void observe().catch(cause =>
+    const { watch } = session
+    const open = this.sessions.get(id)
+    if (open) open.add(session)
+    else this.sessions.set(id, new Set([session]))
+    void this.observe(session).catch(cause =>
       watch.finish({
         type: "failure",
         sequence: ++this.sequence,
@@ -566,14 +569,15 @@ export class SubductionBackend implements SedimentreeBackend {
     )
     const sessionCheck = (op: BackendOperation) => {
       this.check(op, id)
-      if (released) throw new BackendError(op, "closed", "Session is closed")
+      if (session.released)
+        throw new BackendError(op, "closed", "Session is closed")
     }
     return {
       events: watch,
       synchronize: (options = {}) => {
         try {
           sessionCheck("synchronize")
-          const work = this.syncRound(id, watch).catch(cause => {
+          const work = this.syncRound(id, session).catch(cause => {
             const failure = error("synchronize", cause)
             watch.push({
               type: "failure",
@@ -599,7 +603,7 @@ export class SubductionBackend implements SedimentreeBackend {
         }
       },
       markComplete: () => {
-        if (!released) this.completed.add(watch)
+        session.completed = true
       },
       close: async () => {
         await watch.return()
@@ -754,8 +758,8 @@ export class SubductionBackend implements SedimentreeBackend {
       const id = backendId("delete", input)
       if (this.deleting.has(id)) return this.deleting.get(id)!
       const sequence = ++this.sequence
-      for (const [watch, tree] of this.watches)
-        if (tree === id) watch.finish({ type: "deleted", sequence })
+      for (const { watch } of this.sessionsFor(id))
+        watch.finish({ type: "deleted", sequence })
       // Local stores accepted earlier land first, and flush covers the
       // removal. Native owns removal and should fence ingested writes and
       // peer sync for this tree.
@@ -807,7 +811,8 @@ export class SubductionBackend implements SedimentreeBackend {
         throw new AggregateError(errors, "Backend close failed")
     })()
     this.markClosed()
-    for (const watch of this.watches.keys()) watch.finish()
+    for (const open of this.sessions.values())
+      for (const { watch } of open) watch.finish()
     return this.closing
   }
 }
