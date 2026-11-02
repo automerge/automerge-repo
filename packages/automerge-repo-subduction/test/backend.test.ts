@@ -658,7 +658,11 @@ describe("real local Subduction", () => {
       if (key.includes("/commits/") && ++writes === 5)
         throw new Error("disk failed")
     }
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const rounds = vi.spyOn(engine, "getConnectedPeerIds")
     await expect(backend.store(tree, records)).rejects.toThrow()
+    // A failed batch stored nothing, so no round propagates it.
+    expect(rounds).not.toHaveBeenCalled()
     // Native recovers by rescanning: nothing of the failed batch surfaces.
     expect(await next(iterator)).toMatchObject({
       type: "local-load-complete",

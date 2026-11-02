@@ -630,62 +630,54 @@ export class SubductionBackend implements SedimentreeBackend {
       const operation = creating ? "create" : "store"
       const engine = this.engine
       const write = (async () => {
-        let submitted = false
-        try {
-          if (creating) {
-            const heads = (await engine.getHeads(id)) ?? []
-            if (heads.length)
-              throw new BackendError(
-                "create",
-                "conflict",
-                "Document already exists"
-              )
-          }
-          // A single record to an existing tree is pushed to subscribed peers
-          // (both directions of a subscribing round) and needs no round.
-          // Batches (imports, merges) and new trees are stored in one native
-          // call; a round then sends peers only what they lack, and a new
-          // tree reaches peers through its session's first round.
-          const single = !creating && records.length === 1 ? records[0] : null
-          submitted = !single
-          try {
-            // Native validates and copies its input synchronously here, before
-            // store() returns, so callers may reuse their buffers at once.
-            if (single?.kind === "commit")
-              // The returned fragment hint is ignored: Repo owns compaction.
-              await engine.addCommit(id, commitInput(single))
-            else if (single?.kind === "fragment")
-              await engine.addFragment(id, fragmentInput(single))
-            else {
-              const commits: N.CommitInput[] = []
-              const fragments: N.FragmentInput[] = []
-              for (const record of records)
-                if (record.kind === "commit") commits.push(commitInput(record))
-                else fragments.push(fragmentInput(record))
-              // One native call signs everything, saves through the bridge
-              // once and minimizes once.
-              await engine.storeBatch(id, { commits, fragments })
-            }
-          } catch (cause) {
-            // Native rejects invalid input (including wire count limits)
-            // with a TypeError before signing or writing anything.
-            if (!(cause instanceof TypeError)) throw cause
-            submitted = false
+        if (creating) {
+          const heads = (await engine.getHeads(id)) ?? []
+          if (heads.length)
             throw new BackendError(
-              operation,
-              "invalid-record",
-              cause.message,
-              false,
-              { cause }
+              "create",
+              "conflict",
+              "Document already exists"
             )
-          }
-        } finally {
-          // Durability never waits for a peer; a round propagates batches even
-          // without a document session. A failed batch may still have made
-          // some records durable; they must propagate too, and a retry of the
-          // whole batch dedupes them.
-          if (submitted) this.scheduleSync(id)
         }
+        // A single record to an existing tree is pushed to subscribed peers
+        // (both directions of a subscribing round) and needs no round.
+        // Batches (imports, merges) and new trees are stored in one native
+        // call; a round then sends peers only what they lack, and a new
+        // tree reaches peers through its session's first round.
+        const single = !creating && records.length === 1 ? records[0] : null
+        try {
+          // Native validates and copies its input synchronously here, before
+          // store() returns, so callers may reuse their buffers at once.
+          if (single?.kind === "commit")
+            // The returned fragment hint is ignored: Repo owns compaction.
+            await engine.addCommit(id, commitInput(single))
+          else if (single?.kind === "fragment")
+            await engine.addFragment(id, fragmentInput(single))
+          else {
+            const commits: N.CommitInput[] = []
+            const fragments: N.FragmentInput[] = []
+            for (const record of records)
+              if (record.kind === "commit") commits.push(commitInput(record))
+              else fragments.push(fragmentInput(record))
+            // One native call signs everything, saves through the bridge
+            // once (atomically) and minimizes once.
+            await engine.storeBatch(id, { commits, fragments })
+          }
+        } catch (cause) {
+          // Native rejects invalid input (including wire count limits)
+          // with a TypeError before signing or writing anything.
+          if (!(cause instanceof TypeError)) throw cause
+          throw new BackendError(
+            operation,
+            "invalid-record",
+            cause.message,
+            false,
+            { cause }
+          )
+        }
+        // Durability never waits for a peer; a round propagates batches even
+        // without a document session. A failed batch stored nothing to send.
+        if (!single) this.scheduleSync(id)
       })().catch(cause => {
         throw error(operation, cause)
       })
