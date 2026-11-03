@@ -124,6 +124,12 @@ function fragmentInput(record: FragmentRecord): N.FragmentInput {
     blob: record.blob,
   }
 }
+/** Settle every promise; resolve to the reasons of those that rejected. */
+async function failures(promises: readonly unknown[]): Promise<unknown[]> {
+  return (await Promise.allSettled(promises)).flatMap(r =>
+    r.status === "rejected" ? [r.reason] : []
+  )
+}
 function waitOnly<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return promise
   return new Promise<T>((resolve, reject) => {
@@ -724,9 +730,7 @@ export class SubductionBackend implements SedimentreeBackend {
     const captured = targets
       ? targets.flatMap(id => this.acks.get(id) ?? [])
       : [...this.acks.values()]
-    const errors = (await Promise.allSettled(captured)).flatMap(r =>
-      r.status === "rejected" ? [r.reason] : []
-    )
+    const errors = await failures(captured)
     if (errors.length)
       throw new AggregateError(errors, "Accepted persistence attempts failed")
   }
@@ -763,33 +767,24 @@ export class SubductionBackend implements SedimentreeBackend {
     }
   }
   close(): Promise<void> {
+    // if we are already closing, return the existing promise
     if (this.closing) return this.closing
     this.closed = true
-    // Disconnect at once so stalled peer waits end. Native close would cancel
-    // accepted local stores and deletions, so let them settle first; their
-    // failures belong to flush, not close. Native close drains its own tasks.
+    // get what we need to check during close
     const accepted = [...this.acks.values()]
     const disconnected = this.engine.disconnectAll()
-    // Deferred so adapters that re-enter close() see the installed guard.
-    const adapters = this.network.map(adapter =>
-      Promise.resolve().then(() => adapter.stop())
-    )
-    this.closing = (async () => {
-      const [disconnect, ...rest] = await Promise.allSettled([
+    this.closing = Promise.resolve().then(async () => {
+      const errors = await failures([
         disconnected,
-        ...adapters,
-        ...accepted,
+        ...this.network.map(async adapter => adapter.stop()),
       ])
-      const closed = await Promise.allSettled([this.engine.close()])
+      // Await pending writes and deletes, but failures are handled in flush
+      await failures(accepted)
+      errors.push(...(await failures([this.engine.close()])))
       this.engine.free()
-      const errors = [
-        disconnect,
-        ...rest.slice(0, adapters.length),
-        closed[0],
-      ].flatMap(r => (r.status === "rejected" ? [r.reason] : []))
       if (errors.length)
         throw new AggregateError(errors, "Backend close failed")
-    })()
+    })
     this.markClosed()
     for (const open of this.sessions.values())
       for (const { watch } of open) watch.finish()
