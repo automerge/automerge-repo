@@ -4,7 +4,7 @@ import type { RepoId, PeerId, UrlHeads } from "./types.js"
 
 /** These are the events that this DocHandle emits to external listeners */
 export interface DocHandleEvents<T> {
-  "heads-changed": (payload: DocHandleEncodedChangePayload<T>) => void
+  "heads-changed": (payload: DocHandleHeadsChangedPayload<T>) => void
   change: (payload: DocHandleChangePayload<T>) => void
   delete: (payload: DocHandleDeletePayload<T>) => void
   "ephemeral-message": (payload: DocHandleEphemeralMessagePayload<T>) => void
@@ -17,10 +17,13 @@ export interface DocHandleEvents<T> {
 }
 
 /** Emitted when this document's heads have changed */
-export interface DocHandleEncodedChangePayload<T> {
+export interface DocHandleHeadsChangedPayload<T> {
   handle: DocHandle<T>
   doc: A.Doc<T>
 }
+
+/** @deprecated Use {@link DocHandleHeadsChangedPayload}. */
+export type DocHandleEncodedChangePayload<T> = DocHandleHeadsChangedPayload<T>
 
 /** Emitted when this document has changed */
 export interface DocHandleChangePayload<T> {

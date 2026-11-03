@@ -79,6 +79,7 @@ export type {
   DocHandleDeletePayload,
   DocHandleEncodedChangePayload,
   DocHandleEphemeralMessagePayload,
+  DocHandleHeadsChangedPayload,
   DocHandleRemoteHeadsPayload,
   DocHandleEvents,
 } from "./DocHandleEvents.js"
