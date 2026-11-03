@@ -41,12 +41,6 @@ import type { RecordBatch } from "./records.js"
  * - `history-marker`: a position and history heads, ordered after associated record
  *   deliveries. The consumer must process those records and verify history
  *   inclusion using its CRDT; nonempty heads are not enough.
- * - `fragments-requested`: boundary commits a local load found with no covering
- *   fragment, judged by the backend's own depth metric. Ordered after that
- *   load's `local-load-complete`; covering fragments delivered later supersede
- *   it. Not sent for live records: each consumer compacts the boundaries it
- *   stores, and other sessions receive its fragments. Requests can repeat or be
- *   already satisfied; building an existing fragment again is harmless.
  * - `synchronized`: the result of a bounded synchronization round. Its marker
  *   covers history the round ingested; it is not ordered after concurrent
  *   local stores, and the stream may deliver records after it. Resolving the matching `synchronize()` promise does not
@@ -331,12 +325,6 @@ export type SedimentreeEvent =
       readonly noPeers?: boolean
     }
   | { readonly type: "history-marker"; readonly marker: HistoryMarker }
-  | {
-      /** Boundary heads whose fragments the consumer should build. */
-      readonly type: "fragments-requested"
-      readonly sequence: number
-      readonly heads: readonly CommitId[]
-    }
   | { readonly type: "synchronized"; readonly result: SyncRoundResult }
   | {
       readonly type: "remote-heads"

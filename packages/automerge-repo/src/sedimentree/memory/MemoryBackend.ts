@@ -13,9 +13,7 @@ import {
 import type { SedimentreeId } from "../ids.js"
 import {
   copyRecord,
-  fragmentRequests,
   headsOf,
-  isBoundary,
   type RecordBatch,
   type SedimentreeRecord,
 } from "../records.js"
@@ -55,12 +53,11 @@ interface Tree {
  * different representation of a stored commit rejects. Like Subduction, valid
  * same-head fragment variants coexist (Automerge's fragments depend on arrival
  * order, so two Repos compacting one tree can produce different ones); this
- * does not prove generic history equivalence. Each initial cut and delivered
- * batch requests fragments for the boundary commits it leaves uncovered.
- * Persistence is synchronous and process-local unless `beforeStore` holds a
- * store open. Stores and deletions of one ID are acknowledged in submission
- * order, through the same self-clearing acknowledgement chain the Subduction
- * backend uses; flush reports failures of the work it drained and retains none.
+ * does not prove generic history equivalence. Persistence is synchronous and
+ * process-local unless `beforeStore` holds a store open. Stores and deletions
+ * of one ID are acknowledged in submission order, through the same self-clearing
+ * acknowledgement chain the Subduction backend uses; flush reports failures of
+ * the work it drained and retains none.
  */
 export class MemoryBackend implements SedimentreeBackend {
   readonly #options: Required<
@@ -139,7 +136,6 @@ export class MemoryBackend implements SedimentreeBackend {
     const heads = headsOf(snapshot)
     const sequence = tree.sequence
     const batches = this.#batches(snapshot)
-    const requested = fragmentRequests(snapshot, isBoundary)
     function* initial(): Generator<SedimentreeEvent> {
       for (const records of batches)
         yield { type: "records", phase: "initial", sequence, records }
@@ -148,8 +144,6 @@ export class MemoryBackend implements SedimentreeBackend {
         marker: { sequence, heads },
         found: snapshot.length > 0,
       }
-      if (requested.length)
-        yield { type: "fragments-requested", sequence, heads: requested }
     }
     const watch = new Observation<SedimentreeEvent>(
       initial(),
@@ -455,8 +449,6 @@ function copyEvent(event: SedimentreeEvent): SedimentreeEvent {
       }
     case "synchronized":
       return { ...event, result: copySyncResult(event.result) }
-    case "fragments-requested":
-      return { ...event, heads: [...event.heads] }
     // The memory double never produces peers, remote heads, ephemerals or failures.
     case "remote-heads":
     case "ephemeral":

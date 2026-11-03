@@ -5,6 +5,7 @@ import { decode } from "./helpers/cbor.js"
 import type { RepoId, PeerId } from "./types.js"
 import {
   checkpointForCommit,
+  fragmentRequests,
   recordHead,
   type BackendIdentity,
   type CommitId,
@@ -14,6 +15,7 @@ import {
   type SedimentreeBackend,
   type SedimentreeEvent,
   type SedimentreeId,
+  type SedimentreeRecord,
   type SedimentreeSession,
 } from "./sedimentree/index.js"
 import {
@@ -64,20 +66,21 @@ function whenIdle(run: () => void): () => void {
  *
  * Edits are stored as loose commits. Each writer compacts the boundary commits
  * (which head a fragment) it stores; others receive its fragments. Boundaries
- * a storage scan finds loose, e.g. after a crash, the backend requests. Once one
- * is due, a jittered timer per document waits for an idle moment, then the
- * fragments are bundled and stored like any write. Flush compacts at once.
+ * the initial load finds with no covering fragment, e.g. after a crash, are
+ * also due. Once one is due, a jittered timer per document waits for an idle
+ * moment, then the fragments are bundled and stored like any write. Flush
+ * compacts at once.
  */
 export class DocumentDelegate<T> {
   #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
-  /** Initial-cut record bytes, applied together at local-load-complete. */
-  #initial: Uint8Array[] = []
+  /** Initial-cut records, applied together at local-load-complete. */
+  #initial: SedimentreeRecord[] = []
   /** The session's first local-load-complete has arrived. */
   #loaded = false
   #session?: SedimentreeSession
   #consumer: Promise<void> = Promise.resolve()
   #deleted = false
-  /** Own or requested boundary commits with no covering fragment seen since. */
+  /** Own or loaded boundary commits with no covering fragment seen since. */
   #due = new Set<CommitId>()
   #timer?: ReturnType<typeof setTimeout>
   #cancelIdle?: () => void
@@ -331,22 +334,12 @@ export class DocumentDelegate<T> {
     if (this.document.closed || this.query.terminal) return
     switch (event.type) {
       case "records": {
-        // An applied head includes all its dependencies, even when delivered
-        // through a fragment. Pending heads are not reported by hasHeads.
-        // This is a materialization shortcut, not a persistence receipt.
-        const current = this.document.peekDoc()
-        const unknown = current
-          ? event.records.filter(
-              record => !A.hasHeads(current, [recordHead(record)])
-            )
-          : event.records
         // The initial cut is applied in one load at local-load-complete.
         if (event.phase === "initial" && !this.#loaded) {
-          for (const record of unknown) this.#initial.push(record.blob)
-          for (const record of event.records)
-            if (record.kind === "fragment") this.#covered(record)
+          this.#initial.push(...event.records)
           break
         }
+        const unknown = this.#unknown(event.records)
         if (unknown.length) {
           const next = applyRecords(this.document.doc, unknown)
           void this.document.applyMutation(() => next, {
@@ -373,10 +366,6 @@ export class DocumentDelegate<T> {
         break
       case "history-marker":
         this.#marker("live", event.marker)
-        break
-      case "fragments-requested":
-        for (const head of event.heads) this.#due.add(head)
-        this.#schedule()
         break
       case "synchronized": {
         this.#marker("sync", event.result.marker)
@@ -438,10 +427,29 @@ export class DocumentDelegate<T> {
     } catch {}
   }
 
-  /** Apply the buffered initial cut in one update. */
+  /**
+   * Records whose heads the document does not already include. An applied
+   * head includes all its dependencies, even when delivered through a
+   * fragment; pending heads are not reported by hasHeads. This is a
+   * materialization shortcut, not a persistence receipt.
+   */
+  #unknown(records: RecordBatch): RecordBatch {
+    const current = this.document.peekDoc()
+    if (!current) return records
+    return records.filter(record => !A.hasHeads(current, [recordHead(record)]))
+  }
+
+  /** Apply the buffered initial cut in one update, and mark due the boundary
+   * commits it holds with no covering fragment. */
   #applyInitial(): void {
-    const input = concatBytes(this.#initial)
+    const records = this.#initial
     this.#initial = []
+    for (const head of fragmentRequests(records, isBoundary))
+      this.#due.add(head)
+    for (const record of records)
+      if (record.kind === "fragment") this.#covered(record)
+    this.#schedule()
+    const input = concatBytes(this.#unknown(records).map(record => record.blob))
     if (!input.byteLength) return
     const current = this.document.peekDoc()
     if (!current) {

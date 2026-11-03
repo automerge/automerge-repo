@@ -5,7 +5,6 @@ import {
   checkpointId,
   commitId,
   copyRecord,
-  fragmentRequests,
   headsOf,
   mintBackendId,
   type BackendIdentity,
@@ -447,28 +446,11 @@ export class SubductionBackend implements SedimentreeBackend {
     session.stream = updates
     // The first storage scan passes on as initial records, each as it
     // arrives, ending with local-load-complete and the scanned heads. Rescan,
-    // peer and local items flow as live records. Each scan requests fragments
-    // for the boundary commits it leaves uncovered. Live boundaries are
-    // compacted by their writer.
+    // peer and local items flow as live records.
     let initialized = false
     let scanning = true
     let found = false
     let scanned: CoverageItem[] = []
-    const requests = (items: readonly CoverageItem[]) => {
-      const heads = fragmentRequests(
-        items,
-        head => this.engine.commitDepth(head) > 0
-      )
-      return heads.length
-        ? [
-            {
-              type: "fragments-requested",
-              sequence: ++this.sequence,
-              heads,
-            } as const,
-          ]
-        : []
-    }
     try {
       for await (const update of updates) {
         if (session.released) break
@@ -476,7 +458,6 @@ export class SubductionBackend implements SedimentreeBackend {
           const record = storedRecord(update)
           if (scanning) {
             found = true
-            scanned.push(coverageItem(record))
             const event: SedimentreeEvent = {
               type: "records",
               sequence: ++this.sequence,
@@ -484,7 +465,10 @@ export class SubductionBackend implements SedimentreeBackend {
               records: [record],
             }
             if (initialized) watch.push(event)
-            else watch.pushInitial(event)
+            else {
+              scanned.push(coverageItem(record))
+              watch.pushInitial(event)
+            }
             continue
           }
           watch.push({
@@ -502,12 +486,7 @@ export class SubductionBackend implements SedimentreeBackend {
         } else if (update.type === "storageChecked") {
           if (!scanning) continue
           scanning = false
-          const requested = requests(scanned)
-          if (initialized) {
-            scanned = []
-            for (const event of requested) watch.push(event)
-            continue
-          }
+          if (initialized) continue
           initialized = true
           const complete = {
             type: "local-load-complete",
@@ -519,7 +498,7 @@ export class SubductionBackend implements SedimentreeBackend {
           // Peers still connecting may have the document.
           if (!found) await this.networkSettled
           if (session.released) break
-          watch.initialize([complete, ...requested])
+          watch.initialize([complete])
           this.reconcileInterest(id)
           // loadAndWatch reports neither failed rounds nor an empty settled
           // load, so one explicit round decides whether connected peers

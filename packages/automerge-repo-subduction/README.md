@@ -308,12 +308,10 @@ deletions accepted before the call and reports their failures; `close()` waits
 for them before closing the engine. No failure is retained: Repo keeps each
 document's first write failure and reports it from `repo.flush()`.
 
-Until native reports which boundary commits lack a fragment, the backend works
-it out from metadata it already receives, without extra reads: each storage
-scan requests fragments for the boundary commits (`commitDepth > 0`) it holds
-with no covering fragment. Repo builds them. So a boundary left loose by a
-crash is compacted after the next load. Live records request nothing: their
-writer compacts them.
+Repo works out which boundary commits lack a fragment from the initial
+records' metadata, without extra reads, and builds those fragments. So a
+boundary left loose by a crash is compacted after the next load. Live records
+need nothing: their writer compacts them.
 
 ### Known gaps
 
