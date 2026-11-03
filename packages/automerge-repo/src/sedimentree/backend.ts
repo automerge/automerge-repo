@@ -15,8 +15,7 @@ import type { RecordBatch } from "./records.js"
  * ## Observation and readiness
  *
  * `open()` establishes initial local loading and live observation together,
- * before the first pull. Initial records reconstruct a pinned cut; a backend
- * may instead deliver blobs without a verified history marker. Live
+ * before the first pull. Initial records reconstruct a pinned cut. Live
  * updates follow initial loading without a gap (duplicates are permitted).
  * Concurrent writes must not indefinitely extend initial loading. Opening
  * expresses interest, not a network connection, and does not by itself create
@@ -29,22 +28,19 @@ import type { RecordBatch } from "./records.js"
  *
  * Session events report backend facts, not CRDT document readiness:
  *
- * - `records`: history to merge. `phase: "initial"` belongs to the pinned cut;
- *   `phase: "live"` follows it. Delivery is not a local-durability receipt:
- *   events may race a store promise or expose remote data before it is persisted.
- * - `blobs`: unlabelled local bytes from a storage scan, without a source-head
- *   marker, possibly over many events as they are read. The scan's
- *   `local-load-complete` follows them; the consumer buffers them and applies
- *   the whole scan before interpreting that completion.
- * - `local-load-complete`: local enumeration finished. A backend that rescans
- *   storage (blobs only) ends each rescan with another. With record delivery its
- *   marker identifies history to verify; blob delivery has no marker. `found`
- *   says whether that load contained data, not whether dependencies are
- *   materialized or any peer has data. Empty local storage is not global
- *   absence. Sync events follow this completion event, not precede it.
+ * - `records`: history to merge. `phase: "initial"` belongs to the pinned cut
+ *   and may arrive over many events; the consumer may apply the whole cut at
+ *   `local-load-complete`. `phase: "live"` follows it, including any later
+ *   rescan of storage. Delivery is not a local-durability receipt: events may
+ *   race a store promise or expose remote data before it is persisted.
+ * - `local-load-complete`: sent once, after the initial records. Its marker
+ *   holds the heads of the cut, to verify; empty heads mean local storage was
+ *   empty. `found` says whether the cut contained data, not whether
+ *   dependencies are materialized or any peer has data. Empty local storage is
+ *   not global absence. Sync events follow this completion event, not precede it.
  * - `history-marker`: a position and history heads, ordered after associated record
  *   deliveries. The consumer must process those records and verify history
- *   inclusion using its CRDT; nonempty heads or the first blob are not enough.
+ *   inclusion using its CRDT; nonempty heads are not enough.
  * - `fragments-requested`: boundary commits a local load found with no covering
  *   fragment, judged by the backend's own depth metric. Ordered after that
  *   load's `local-load-complete`; covering fragments delivered later supersede
@@ -68,11 +64,9 @@ import type { RecordBatch } from "./records.js"
  * - `deleted`: invalidates the old local generation and ends its stream,
  *   superseding queued old-generation data. This is not a replicated tombstone.
  *
- * Record-based readiness verifies a complete initial snapshot against the
- * delivered marker. Blob-only readiness currently trusts a successful full
- * load and nonempty materialized CRDT heads, without an independent source-head
- * completeness check. Other sources may continue loading. A lookup failure or
- * timeout is never proof of absence.
+ * Readiness verifies a complete initial snapshot against a delivered marker.
+ * Other sources may continue loading. A lookup failure or timeout is never
+ * proof of absence.
  * Sequence positions are process-local, scoped to their log and lifetime, not
  * portable cursors or comparable across backends/documents/generations. Initial
  * batches can share the cut's sequence; it is not a unique ID for each batch.
@@ -328,15 +322,8 @@ export type SedimentreeEvent =
       readonly records: RecordBatch
     }
   | {
-      /** Initial local bytes, delivered together without record metadata. */
-      readonly type: "blobs"
-      readonly sequence: number
-      readonly blobs: readonly Uint8Array[]
-    }
-  | {
       readonly type: "local-load-complete"
-      /** Absent for blob-based initial loads; no independent heads were read. */
-      readonly marker?: HistoryMarker
+      readonly marker: HistoryMarker
       readonly found: boolean
       /** The backend owns peer synchronization; do not start a second round. */
       readonly backendSyncs?: boolean

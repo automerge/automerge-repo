@@ -32,10 +32,9 @@ and must not alias storage or another observer's buffers.
 ## Observation
 
 `open` establishes initial loading **before the first pull**, followed by live
-updates. Initial records (or a single unlabelled blob batch) precede
-`local-load-complete`. Record markers require history-inclusion checks; blob
-delivery has no independent marker and currently treats successful application
-with nonempty document heads as ready. An empty load is not a readiness proof.
+updates. Initial records precede `local-load-complete`, whose marker holds the
+heads of the initial cut; Repo applies the cut in one load and checks history
+inclusion against it. An empty load is not a readiness proof.
 
 Streams have one consumer and allow only one outstanding `next()`. Closing a
 session, ending iteration, or closing the backend wakes a pending pull. Multiple

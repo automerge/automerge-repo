@@ -10,6 +10,7 @@ import {
 import {
   copyRecord,
   fragmentRequests,
+  headsOf,
   recordHead,
   type SedimentreeRecord,
 } from "../../src/sedimentree/index.js"
@@ -109,11 +110,11 @@ describe("fragmentRequests", () => {
   it("requests boundary commits no fragment among the items covers", () => {
     const [covered, absorbed, loose] = [1, 2, 3].map(boundary)
     const items = [
-      { kind: "commit" as const, id: cid(1) },
-      { kind: "commit" as const, id: covered },
-      { kind: "commit" as const, id: absorbed },
-      { kind: "commit" as const, id: loose },
-      { kind: "commit" as const, id: loose },
+      { kind: "commit" as const, id: cid(1), parents: [] },
+      { kind: "commit" as const, id: covered, parents: [] },
+      { kind: "commit" as const, id: absorbed, parents: [] },
+      { kind: "commit" as const, id: loose, parents: [] },
+      { kind: "commit" as const, id: loose, parents: [] },
       // Covers `covered` as its head and `absorbed` as a checkpoint.
       {
         kind: "fragment" as const,
@@ -123,5 +124,16 @@ describe("fragmentRequests", () => {
     ]
     expect(fragmentRequests(items, isBoundary)).toEqual([loose])
     expect(fragmentRequests(items, () => false)).toEqual([])
+  })
+
+  it("reports record heads that no commit names as a parent", () => {
+    const items = [
+      { kind: "commit" as const, id: cid(1), parents: [] },
+      { kind: "commit" as const, id: cid(3), parents: [cid(1)] },
+      { kind: "commit" as const, id: cid(2), parents: [cid(1)] },
+      { kind: "fragment" as const, head: cid(4), checkpoints: [] },
+    ]
+    expect(headsOf(items)).toEqual([cid(2), cid(3), cid(4)])
+    expect(headsOf([])).toEqual([])
   })
 })

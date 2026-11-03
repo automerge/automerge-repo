@@ -14,7 +14,7 @@ import { Presence } from "../src/presence/Presence.js"
 import { PRESENCE_MESSAGE_MARKER } from "../src/presence/constants.js"
 import type { BinaryDocumentId, PeerId } from "../src/types.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
-import { BackendError, commitId } from "../src/sedimentree/index.js"
+import { BackendError, commitId, headsOf } from "../src/sedimentree/index.js"
 import { recordKey } from "../src/sedimentree/memory/records.js"
 import {
   extractNewCommits,
@@ -73,19 +73,35 @@ describe("Repo loading", () => {
     return { r, handle, session, scripted }
   }
 
-  /** One storage scan: each blob in its own event, then the scan's completion. */
-  async function scan(session: ScriptedSession, blobs: Uint8Array[]) {
-    for (const blob of blobs)
-      await session.push({ type: "blobs", sequence: 1, blobs: [blob] })
+  /** One storage scan: each change as its own initial record, then the
+   * scan's completion with their heads. */
+  async function scan(session: ScriptedSession, changes: Uint8Array[]) {
+    const records = changes.map(blob => {
+      const change = A.decodeChange(blob)
+      return {
+        kind: "commit" as const,
+        id: commitId(change.hash),
+        parents: change.deps.map(commitId),
+        blob,
+      }
+    })
+    for (const record of records)
+      await session.push({
+        type: "records",
+        phase: "initial",
+        sequence: 1,
+        records: [record],
+      })
     await session.push({
       type: "local-load-complete",
-      found: blobs.length > 0,
+      marker: { sequence: 1, heads: headsOf(records) },
+      found: records.length > 0,
       backendSyncs: true,
     })
   }
 
-  describe("initial blobs", () => {
-    it("loads first storage blobs without creating an empty document", async () => {
+  describe("initial records", () => {
+    it("loads the first storage scan without creating an empty document", async () => {
       const { handle, session } = await lookup()
       const load = vi.spyOn(SlimA, "load")
       const incremental = vi.spyOn(SlimA, "loadIncremental")
@@ -94,10 +110,6 @@ describe("Repo loading", () => {
       expect(incremental).not.toHaveBeenCalled()
       expect(load.mock.calls[0][1]).toEqual({ allowMissingChanges: true })
       expect(handle.doc()).toEqual({ count: 1 })
-      await scan(session, A.getAllChanges(A.from({ nested: { value: 2 } })))
-      expect(load).toHaveBeenCalledOnce()
-      expect(incremental).toHaveBeenCalledOnce()
-      expect(handle.doc()).toEqual({ count: 1, nested: { value: 2 } })
     })
 
     it("fails the lookup when the first load fails", async () => {
@@ -182,38 +194,13 @@ describe("Repo loading", () => {
       expect(handle.doc()).toEqual({ count: 1 })
     })
 
-    it("applies one initial blob without retaining its input bytes", async () => {
+    it("applies one initial record without retaining its input bytes", async () => {
       const blob = A.getAllChanges(A.from({ count: 1 }))[0]
       const { handle, session } = await lookup()
       await scan(session, [blob])
       expect(handle.doc()).toEqual({ count: 1 })
       blob.fill(0)
       expect(handle.doc()).toEqual({ count: 1 })
-    })
-
-    it("buffers a scan's blobs and applies them in one load on completion", async () => {
-      const source = A.change(A.from({ count: 1 }), doc => {
-        doc.count = 2
-      })
-      const blobs = A.getAllChanges(source)
-      expect(blobs.length).toBeGreaterThan(1)
-      const { handle, session, progress } = await lookup()
-      const load = vi.spyOn(SlimA, "load")
-      const changed = vi.fn()
-      handle.on("change", changed)
-      for (const blob of blobs)
-        await session.push({ type: "blobs", sequence: 1, blobs: [blob] })
-      expect(load).not.toHaveBeenCalled()
-      expect(handle.heads()).toEqual([])
-      expect(changed).not.toHaveBeenCalled()
-      expect(progress.state().status).toBe("loading")
-      await session.push({ type: "local-load-complete", found: true })
-      expect(load).toHaveBeenCalledOnce()
-      expect(handle.doc()).toEqual({ count: 2 })
-      expect(changed).toHaveBeenCalledOnce()
-      expect(progress.state().status).toBe("ready")
-      expect(session.synchronize).not.toHaveBeenCalled()
-      expect(session.markComplete).toHaveBeenCalledOnce()
     })
 
     it("buffers initial records and applies them in one load on completion", async () => {
@@ -241,7 +228,6 @@ describe("Repo loading", () => {
         type: "local-load-complete",
         found: true,
         marker: { sequence: 1, heads: heads(source) },
-        backendSyncs: true,
       })
       expect(load).toHaveBeenCalledOnce()
       expect(load.mock.calls[0][1]).toEqual({ allowMissingChanges: true })
@@ -249,6 +235,8 @@ describe("Repo loading", () => {
       expect(handle.doc()).toEqual({ count: 2 })
       expect(changed).toHaveBeenCalledOnce()
       expect(progress.state().status).toBe("ready")
+      // Ready from local storage: no synchronization round is requested.
+      expect(session.synchronize).not.toHaveBeenCalled()
       expect(session.markComplete).toHaveBeenCalledOnce()
     })
 
@@ -352,12 +340,17 @@ describe("Repo loading", () => {
   describe("readiness", () => {
     it("asks for synchronization after an empty local load unless the backend syncs", async () => {
       const { session, progress } = await lookup()
-      await session.push({ type: "local-load-complete", found: false })
+      await session.push({
+        type: "local-load-complete",
+        marker: { sequence: 0, heads: [] },
+        found: false,
+      })
       expect(progress.state().status).toBe("loading")
       expect(session.synchronize).toHaveBeenCalledOnce()
       const other = await lookup()
       await other.session.push({
         type: "local-load-complete",
+        marker: { sequence: 0, heads: [] },
         found: false,
         backendSyncs: true,
       })
@@ -468,6 +461,7 @@ describe("Repo loading", () => {
       const { session, progress } = await lookup()
       await session.push({
         type: "local-load-complete",
+        marker: { sequence: 0, heads: [] },
         found: false,
         backendSyncs: true,
         noPeers: true,
@@ -833,6 +827,7 @@ describe("Repo loading", () => {
       await session.push(remoteHeads("peer", [commitId("01".repeat(32))]))
       await session.push({
         type: "local-load-complete",
+        marker: { sequence: 0, heads: [] },
         found: false,
         backendSyncs: true,
         noPeers: true,

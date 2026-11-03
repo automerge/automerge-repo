@@ -70,9 +70,8 @@ function whenIdle(run: () => void): () => void {
  */
 export class DocumentDelegate<T> {
   #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
-  /** Storage-scan bytes (blobs or initial records), applied together at the
-   * scan's local-load-complete. */
-  #blobs: Uint8Array[] = []
+  /** Initial-cut record bytes, applied together at local-load-complete. */
+  #initial: Uint8Array[] = []
   /** The session's first local-load-complete has arrived. */
   #loaded = false
   #session?: SedimentreeSession
@@ -114,7 +113,7 @@ export class DocumentDelegate<T> {
       return
     }
     this.#session = session
-    this.#blobs = []
+    this.#initial = []
     this.#loaded = false
     if (!this.query.pending) session.markComplete?.()
     this.#consumer = this.#consume(session).catch(error => {
@@ -307,7 +306,7 @@ export class DocumentDelegate<T> {
     this.close()
     this.#deleted = true
     this.#due.clear()
-    this.#blobs = []
+    this.#initial = []
     this.document.delete()
   }
 
@@ -331,9 +330,6 @@ export class DocumentDelegate<T> {
   onEvent(event: SedimentreeEvent): void {
     if (this.document.closed || this.query.terminal) return
     switch (event.type) {
-      case "blobs":
-        this.#blobs.push(...event.blobs)
-        break
       case "records": {
         // An applied head includes all its dependencies, even when delivered
         // through a fragment. Pending heads are not reported by hasHeads.
@@ -346,7 +342,7 @@ export class DocumentDelegate<T> {
           : event.records
         // The initial cut is applied in one load at local-load-complete.
         if (event.phase === "initial" && !this.#loaded) {
-          for (const record of unknown) this.#blobs.push(record.blob)
+          for (const record of unknown) this.#initial.push(record.blob)
           for (const record of event.records)
             if (record.kind === "fragment") this.#covered(record)
           break
@@ -369,9 +365,8 @@ export class DocumentDelegate<T> {
       }
       case "local-load-complete":
         this.#loaded = true
-        this.#applyBlobs()
-        if (event.marker) this.#marker("local", event.marker)
-        else if (event.found && this.document.heads().length) this.#complete()
+        this.#applyInitial()
+        this.#marker("local", event.marker)
         if (event.noPeers) this.#unavailable()
         if (this.query.pending && !event.backendSyncs)
           void this.#session?.synchronize().catch(error => this.fail(error))
@@ -443,10 +438,10 @@ export class DocumentDelegate<T> {
     } catch {}
   }
 
-  /** Apply a completed storage scan's blobs in one update. */
-  #applyBlobs(): void {
-    const input = concatBytes(this.#blobs)
-    this.#blobs = []
+  /** Apply the buffered initial cut in one update. */
+  #applyInitial(): void {
+    const input = concatBytes(this.#initial)
+    this.#initial = []
     if (!input.byteLength) return
     const current = this.document.peekDoc()
     if (!current) {
