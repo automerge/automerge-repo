@@ -1,7 +1,4 @@
-import {
-  uint8ArrayFromHexString,
-  uint8ArrayToHexString,
-} from "./hex.js"
+import { uint8ArrayFromHexString, uint8ArrayToHexString } from "./hex.js"
 
 /** Canonical lowercase hex of exactly 32 bytes. */
 export type SedimentreeId = string & { readonly __sedimentreeId: unique symbol }

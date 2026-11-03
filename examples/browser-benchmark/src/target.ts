@@ -29,11 +29,11 @@ export type Target = {
   adapter: string
   open(database: string, stats?: StorageStats): Session
   /** The branch's own Automerge `splice`, for text edits inside `change`. */
-  splice(
+  splice: (
     doc: unknown,
     path: (string | number)[],
     index: number,
     remove: number,
     insert: string
-  ): void
+  ) => void
 }

@@ -127,13 +127,13 @@ export type ReplayApi<H> = {
   /** A concurrent copy with its own actor, outside the measured store. */
   fork(handle: H): Promise<H>
   merge(into: H, from: H): void
-  splice(
+  splice: (
     doc: Doc,
     path: Path,
     index: number,
     remove: number,
     insert: string
-  ): void
+  ) => void
 }
 
 const at = (doc: Doc, path: Path) =>

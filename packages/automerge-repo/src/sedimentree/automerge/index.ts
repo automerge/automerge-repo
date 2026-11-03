@@ -1,7 +1,6 @@
 import * as A from "@automerge/automerge/slim"
 import {
   checkpointForCommit,
-  checkpointId,
   commitId,
   type CommitId,
   type FragmentRecord,
@@ -12,7 +11,9 @@ import {
 import { concatBytes } from "../concatBytes.js"
 
 /** Canonical metadata, without encoding any payloads. Not a coverage proof. */
-type RecordMetadata = Omit<LooseCommitRecord, "blob"> | Omit<FragmentRecord, "blob">
+type RecordMetadata =
+  | Omit<LooseCommitRecord, "blob">
+  | Omit<FragmentRecord, "blob">
 
 function canonicalIds(ids: readonly string[]): CommitId[] {
   return [...new Set(ids.map(commitId))].sort()
