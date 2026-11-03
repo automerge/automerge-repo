@@ -10,7 +10,7 @@ import bs58check from "bs58check"
 import {
   uint8ArrayFromHexString,
   uint8ArrayToHexString,
-} from "./helpers/bufferFromHex.js"
+} from "./sedimentree/hex.js"
 import { parsePath, serializePath } from "./subdoc-handles/parser.js"
 import type { Segment } from "./subdoc-handles/types.js"
 import { idBytes, mintDocumentId } from "./sedimentree/ids.js"

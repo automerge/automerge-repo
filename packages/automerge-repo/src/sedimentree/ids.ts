@@ -1,3 +1,8 @@
+import {
+  uint8ArrayFromHexString,
+  uint8ArrayToHexString,
+} from "./hex.js"
+
 /** Canonical lowercase hex of exactly 32 bytes. */
 export type SedimentreeId = string & { readonly __sedimentreeId: unique symbol }
 /** Caller-supplied logical identity, not necessarily a hash of stored bytes. */
@@ -9,7 +14,7 @@ function canonicalHex(value: string | Uint8Array): string {
   const hex =
     typeof value === "string"
       ? value.toLowerCase()
-      : Array.from(value, byte => byte.toString(16).padStart(2, "0")).join("")
+      : uint8ArrayToHexString(value)
   if (!/^(?:[0-9a-f]{2})+$/.test(hex)) {
     throw new TypeError("Expected non-empty hexadecimal bytes")
   }
@@ -57,6 +62,5 @@ export function checkpointForCommit(id: CommitId): CheckpointId {
 export function idBytes(
   id: SedimentreeId | CommitId | CheckpointId
 ): Uint8Array {
-  const hex = canonicalHex(id)
-  return Uint8Array.from(hex.match(/../g)!, pair => Number.parseInt(pair, 16))
+  return uint8ArrayFromHexString(canonicalHex(id))
 }
