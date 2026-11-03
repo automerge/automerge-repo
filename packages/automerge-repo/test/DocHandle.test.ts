@@ -229,6 +229,34 @@ describe("DocHandle", () => {
     )
   })
 
+  describe("diffing against a handle of a forked document", () => {
+    const fork = () => {
+      const original = setup()
+      original.change(d => (d.foo = "zero"))
+      const forked = setup({
+        documentId: parseAutomergeUrl(generateAutomergeUrl()).documentId,
+        doc: A.clone(original.fullDoc()),
+      })
+      forked.change(d => (d.foo = "one"))
+      return { original, forked }
+    }
+    const expected = [
+      { action: "put", path: ["foo"], value: "" },
+      { action: "splice", path: ["foo", 0], value: "one" },
+    ]
+
+    it("diffs against the fork's root handle", () => {
+      const { original, forked } = fork()
+      assert.deepEqual(original.diff(forked), expected)
+    })
+
+    it("diffs against a sub-handle of the fork using its whole document", () => {
+      const { original, forked } = fork()
+      const sub = forked.sub("foo") as unknown as DocHandle<TestDoc>
+      assert.deepEqual(original.diff(sub), expected)
+    })
+  })
+
   // TODO: alexg -- should i remove this test? should this fail or no?
   it.skip("should fail diffing against unrelated handles", async () => {
     const handle1 = setup()

@@ -220,40 +220,40 @@ export class DocHandle<T> {
       return topo.map(h => encodeHeads([h])) as UrlHeads[]
     }
 
-    // Pattern segments can resolve to different indices over history,
-    // so resolve against both "before" and "after" snapshots to catch
-    // patches that create or destroy the target.
-    const segments = this.#path
+    const doc = this.#document.doc
     const out: UrlHeads[] = []
     for (let i = 0; i < topo.length; i++) {
       const after = [topo[i]]
-      const before = i === 0 ? [] : [topo[i - 1]]
-      const patches = A.diff(this.#document.doc, before, after)
-
-      const beforePath =
-        before.length === 0
-          ? undefined
-          : resolvePropPath(
-              A.view(this.#document.doc, before) as A.Doc<any>,
-              segments
-            )
-      const afterPath = resolvePropPath(
-        A.view(this.#document.doc, after) as A.Doc<any>,
-        segments
-      )
-      if (!beforePath && !afterPath) continue
-
-      const overlaps = patches.some(
-        p =>
-          (beforePath !== undefined &&
-            isPathPrefixCompatible(p.path, beforePath)) ||
-          (afterPath !== undefined && isPathPrefixCompatible(p.path, afterPath))
-      )
-      if (overlaps) {
+      const before = i === 0 ? undefined : [topo[i - 1]]
+      const inScope = this.#inScope(doc, before, after)
+      if (inScope && A.diff(doc, before ?? [], after).some(inScope))
         out.push(encodeHeads([topo[i]]) as UrlHeads)
-      }
     }
     return out
+  }
+
+  /**
+   * Whether a patch between two snapshots touches this handle's path, or
+   * undefined if the path resolves at neither. Pattern segments can resolve
+   * to different indices over history, so both endpoints are checked to
+   * catch patches that create or destroy the target.
+   */
+  #inScope(
+    doc: A.Doc<any>,
+    before: A.Heads | undefined,
+    after: A.Heads
+  ): ((patch: A.Patch) => boolean) | undefined {
+    const beforePath =
+      before && resolvePropPath(A.view(doc, before) as A.Doc<any>, this.#path)
+    const afterPath = resolvePropPath(
+      A.view(doc, after) as A.Doc<any>,
+      this.#path
+    )
+    if (!beforePath && !afterPath) return undefined
+    return patch =>
+      (beforePath !== undefined &&
+        isPathPrefixCompatible(patch.path, beforePath)) ||
+      (afterPath !== undefined && isPathPrefixCompatible(patch.path, afterPath))
   }
 
   /**
@@ -281,9 +281,10 @@ export class DocHandle<T> {
    * We allow specifying either:
    * - Two sets of heads to compare directly
    * - A single set of heads to compare against our current heads
-   * - Another DocHandle to compare against (which must share history with this document)
+   * - Another DocHandle to compare against. A different document's whole history
+   *   (whatever that handle's path) is merged into a copy of this one first, so
+   *   even unrelated documents diff without error.
    *
-   * @throws Error if the documents don't share history or if either document is not ready
    * @returns Automerge patches that go from one document state to the other
    */
   diff(first: UrlHeads | DocHandle<T>, second?: UrlHeads): A.Patch[] {
@@ -299,8 +300,8 @@ export class DocHandle<T> {
         // Same document - share the doc, no clone needed.
         diffDoc = this.#document.doc
       } else {
-        // Different documents: merge to verify shared history.
-        diffDoc = A.merge(A.clone(this.#document.doc), first.doc()!)
+        // Different documents: merge so both handles' heads are in one doc.
+        diffDoc = A.merge(A.clone(this.#document.doc), first.fullDoc())
       }
     } else {
       fromHeads = second ? first : this.heads()
@@ -316,22 +317,18 @@ export class DocHandle<T> {
 
     if (this.#path.length === 0 && !this.#range) return allPatches
 
-    // Sub-handle: filter to patches overlapping the path, resolved against
-    // both endpoints so create-and-destroy patches are caught either way,
-    // then re-root the surviving patches relative to this handle's scope so
-    // diff paths line up with `doc()` (changes at/above the scope are
-    // dropped - they describe the scope's container, not its contents).
-    const fromDoc = A.view(diffDoc, decodeHeads(fromHeads)) as A.Doc<any>
-    const toDoc = A.view(diffDoc, decodeHeads(toHeads)) as A.Doc<any>
-    const fromPath = resolvePropPath(fromDoc, this.#path)
-    const toPath = resolvePropPath(toDoc, this.#path)
-    if (!fromPath && !toPath) return []
-    const inScope = allPatches.filter(
-      p =>
-        (fromPath !== undefined && isPathPrefixCompatible(p.path, fromPath)) ||
-        (toPath !== undefined && isPathPrefixCompatible(p.path, toPath))
+    // Sub-handle: keep patches overlapping the path, then re-root them
+    // relative to this handle's scope so diff paths line up with `doc()`
+    // (changes at/above the scope are dropped - they describe the scope's
+    // container, not its contents).
+    const inScope = this.#inScope(
+      diffDoc,
+      decodeHeads(fromHeads),
+      decodeHeads(toHeads)
     )
-    return rebasePatchesToScope(inScope, this.#path.length).patches
+    if (!inScope) return []
+    return rebasePatchesToScope(allPatches.filter(inScope), this.#path.length)
+      .patches
   }
 
   #throwIfFixedHeads(operation: string) {
