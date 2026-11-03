@@ -6,6 +6,7 @@ import {
   commitId,
   copyRecord,
   fragmentRequests,
+  headsOf,
   mintBackendId,
   type BackendIdentity,
   type CoverageItem,
@@ -101,16 +102,14 @@ function storedRecord(
     blob: item.blob,
   }
 }
-/** Coverage metadata for a scanned item, without retaining its blob. */
-function coverageItem(
-  item: Extract<N.StoredUpdate, { type: "commit" | "fragment" }>
-): CoverageItem {
-  if (item.type === "commit")
-    return { kind: "commit", id: commitId(item.metadata.head) }
+/** Coverage metadata of a scanned record, without retaining its blob. */
+function coverageItem(record: SedimentreeRecord): CoverageItem {
+  if (record.kind === "commit")
+    return { kind: "commit", id: record.id, parents: record.parents }
   return {
     kind: "fragment",
-    head: commitId(item.metadata.head),
-    checkpoints: item.metadata.checkpoints.map(checkpointId),
+    head: record.head,
+    checkpoints: record.checkpoints,
   }
 }
 function commitInput(record: LooseCommitRecord): N.CommitInput {
@@ -446,10 +445,11 @@ export class SubductionBackend implements SedimentreeBackend {
     if (session.released) return
     const updates = this.engine.loadAndWatch(id)
     session.stream = updates
-    // Storage-scan items pass on as blobs, each as it arrives; every scan
-    // ends with local-load-complete. Peer and local updates flow as records.
-    // Each scan requests fragments for the boundary commits it leaves
-    // uncovered. Live boundaries are compacted by their writer.
+    // The first storage scan passes on as initial records, each as it
+    // arrives, ending with local-load-complete and the scanned heads. Rescan,
+    // peer and local items flow as live records. Each scan requests fragments
+    // for the boundary commits it leaves uncovered. Live boundaries are
+    // compacted by their writer.
     let initialized = false
     let scanning = true
     let found = false
@@ -473,19 +473,20 @@ export class SubductionBackend implements SedimentreeBackend {
       for await (const update of updates) {
         if (session.released) break
         if (update.type === "commit" || update.type === "fragment") {
+          const record = storedRecord(update)
           if (scanning) {
             found = true
-            scanned.push(coverageItem(update))
+            scanned.push(coverageItem(record))
             const event: SedimentreeEvent = {
-              type: "blobs",
+              type: "records",
               sequence: ++this.sequence,
-              blobs: [update.blob],
+              phase: initialized ? "live" : "initial",
+              records: [record],
             }
             if (initialized) watch.push(event)
             else watch.pushInitial(event)
             continue
           }
-          const record = storedRecord(update)
           watch.push({
             type: "records",
             sequence: ++this.sequence,
@@ -501,19 +502,20 @@ export class SubductionBackend implements SedimentreeBackend {
         } else if (update.type === "storageChecked") {
           if (!scanning) continue
           scanning = false
-          const complete = {
-            type: "local-load-complete",
-            found,
-            backendSyncs: true,
-          } as const
           const requested = requests(scanned)
-          scanned = []
           if (initialized) {
-            watch.push(complete)
+            scanned = []
             for (const event of requested) watch.push(event)
             continue
           }
           initialized = true
+          const complete = {
+            type: "local-load-complete",
+            marker: { sequence: ++this.sequence, heads: headsOf(scanned) },
+            found,
+            backendSyncs: true,
+          } as const
+          scanned = []
           // Peers still connecting may have the document.
           if (!found) await this.networkSettled
           if (session.released) break

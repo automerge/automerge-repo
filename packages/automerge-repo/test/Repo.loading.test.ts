@@ -216,6 +216,64 @@ describe("Repo loading", () => {
       expect(session.markComplete).toHaveBeenCalledOnce()
     })
 
+    it("buffers initial records and applies them in one load on completion", async () => {
+      const source = A.change(A.from({ count: 1 }), doc => {
+        doc.count = 2
+      })
+      const records = extractRecords(source)
+      expect(records.length).toBeGreaterThan(1)
+      const { handle, session, progress } = await lookup()
+      const load = vi.spyOn(SlimA, "load")
+      const incremental = vi.spyOn(SlimA, "loadIncremental")
+      const changed = vi.fn()
+      handle.on("change", changed)
+      for (const record of records)
+        await session.push({
+          type: "records",
+          phase: "initial",
+          sequence: 1,
+          records: [record],
+        })
+      expect(load).not.toHaveBeenCalled()
+      expect(handle.heads()).toEqual([])
+      expect(changed).not.toHaveBeenCalled()
+      await session.push({
+        type: "local-load-complete",
+        found: true,
+        marker: { sequence: 1, heads: heads(source) },
+        backendSyncs: true,
+      })
+      expect(load).toHaveBeenCalledOnce()
+      expect(load.mock.calls[0][1]).toEqual({ allowMissingChanges: true })
+      expect(incremental).not.toHaveBeenCalled()
+      expect(handle.doc()).toEqual({ count: 2 })
+      expect(changed).toHaveBeenCalledOnce()
+      expect(progress.state().status).toBe("ready")
+      expect(session.markComplete).toHaveBeenCalledOnce()
+    })
+
+    it("does not trust an initial cut that misses its marker", async () => {
+      const first = A.from({ count: 1 })
+      const second = A.change(A.clone(first), doc => {
+        doc.count = 2
+      })
+      const { handle, session, progress } = await lookup()
+      await session.push({
+        type: "records",
+        phase: "initial",
+        sequence: 1,
+        records: extractRecords(first),
+      })
+      await session.push({
+        type: "local-load-complete",
+        found: true,
+        marker: { sequence: 1, heads: heads(second) },
+        backendSyncs: true,
+      })
+      expect(handle.doc()).toEqual({ count: 1 })
+      expect(progress.state().status).toBe("loading")
+    })
+
     it("delivers initial change patches to root and scoped listeners", async () => {
       const source = A.from({ count: 1, nested: { value: 2 } })
       const { handle, session } = await lookup()
@@ -518,7 +576,7 @@ describe("Repo loading", () => {
       await session.push({
         type: "records",
         records: extractNewCommits(initial, remote),
-        phase: "initial",
+        phase: "live",
         sequence: 1,
       })
       await write
@@ -562,7 +620,7 @@ describe("Repo loading", () => {
       await session.push({
         type: "records",
         records: first,
-        phase: "initial",
+        phase: "live",
         sequence: 1,
       })
       const before = handle.fullDoc()
@@ -590,6 +648,11 @@ describe("Repo loading", () => {
         records,
         phase: "initial",
         sequence: 1,
+      })
+      await session.push({
+        type: "local-load-complete",
+        found: true,
+        marker: { sequence: 1, heads: heads(remote) },
       })
       expect(handle.doc()?.count).toBe(2000)
       const loaded = handle.fullDoc()

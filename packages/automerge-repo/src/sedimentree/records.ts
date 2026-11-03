@@ -33,10 +33,27 @@ export function isBoundary(id: CommitId): boolean {
   return id.startsWith("00")
 }
 
-/** Record metadata that decides fragment coverage. */
+/** Record metadata that decides fragment coverage and history heads. */
 export type CoverageItem =
-  | Pick<LooseCommitRecord, "kind" | "id">
+  | Pick<LooseCommitRecord, "kind" | "id" | "parents">
   | Pick<FragmentRecord, "kind" | "head" | "checkpoints">
+
+/**
+ * Heads of `items`: each record head that no commit among them names as a
+ * parent, sorted. A fragment head inside a higher fragment remains: consumers
+ * check history inclusion, not equality of frontiers.
+ */
+export function headsOf(items: Iterable<CoverageItem>): CommitId[] {
+  const heads = new Set<CommitId>()
+  const parents = new Set<CommitId>()
+  for (const item of items) {
+    if (item.kind === "commit") {
+      heads.add(item.id)
+      for (const parent of item.parents) parents.add(parent)
+    } else heads.add(item.head)
+  }
+  return [...heads].filter(head => !parents.has(head)).sort()
+}
 
 /**
  * Boundary commits among `items` that no fragment among them covers, as head

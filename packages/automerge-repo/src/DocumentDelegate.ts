@@ -70,8 +70,11 @@ function whenIdle(run: () => void): () => void {
  */
 export class DocumentDelegate<T> {
   #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
-  /** Storage-scan bytes, applied together at the scan's local-load-complete. */
+  /** Storage-scan bytes (blobs or initial records), applied together at the
+   * scan's local-load-complete. */
   #blobs: Uint8Array[] = []
+  /** The session's first local-load-complete has arrived. */
+  #loaded = false
   #session?: SedimentreeSession
   #consumer: Promise<void> = Promise.resolve()
   #deleted = false
@@ -112,6 +115,7 @@ export class DocumentDelegate<T> {
     }
     this.#session = session
     this.#blobs = []
+    this.#loaded = false
     if (!this.query.pending) session.markComplete?.()
     this.#consumer = this.#consume(session).catch(error => {
       if (this.#session !== session) return
@@ -340,6 +344,13 @@ export class DocumentDelegate<T> {
               record => !A.hasHeads(current, [recordHead(record)])
             )
           : event.records
+        // The initial cut is applied in one load at local-load-complete.
+        if (event.phase === "initial" && !this.#loaded) {
+          for (const record of unknown) this.#blobs.push(record.blob)
+          for (const record of event.records)
+            if (record.kind === "fragment") this.#covered(record)
+          break
+        }
         if (unknown.length) {
           const next = applyRecords(this.document.doc, unknown)
           void this.document.applyMutation(() => next, {
@@ -357,6 +368,7 @@ export class DocumentDelegate<T> {
         break
       }
       case "local-load-complete":
+        this.#loaded = true
         this.#applyBlobs()
         if (event.marker) this.#marker("local", event.marker)
         else if (event.found && this.document.heads().length) this.#complete()

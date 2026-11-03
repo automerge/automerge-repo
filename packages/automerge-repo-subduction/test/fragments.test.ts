@@ -30,7 +30,7 @@ import {
   applyRecords,
   extractRecords,
 } from "@automerge/automerge-repo/sedimentree/automerge"
-import { TestStore, deferred, storedRecords } from "./storage.js"
+import { TestStore, deferred } from "./storage.js"
 import { corruptFrame } from "./frame.js"
 import type { TestSigner } from "./transport.js"
 import { repoFragmentFixture } from "./repoFixture.js"
@@ -74,12 +74,11 @@ function sameHeadVariants() {
     for (const index of order) [doc] = A.applyChanges(doc, [encoded[index]])
     return doc
   })
-  const variants = docs.map(
-    doc =>
-      extractRecords(doc).find(
-        (record): record is FragmentRecord =>
-          record.kind === "fragment" && record.head === head
-      )!
+  const variants = docs.map(doc =>
+    extractRecords(doc).find(
+      (record): record is FragmentRecord =>
+        record.kind === "fragment" && record.head === head
+    )!
   )
   return { variants, docs }
 }
@@ -88,16 +87,16 @@ async function next(iterator: AsyncIterator<SedimentreeEvent>) {
   if (result.done) throw new Error("Unexpected end")
   return result.value
 }
-let currentStorage: TestStore
-async function initial(backend: SubductionBackend, inspectRecords = true) {
+async function initial(backend: SubductionBackend) {
   const iterator = backend.open(tree).events[Symbol.asyncIterator]()
   const records: SedimentreeRecord[] = []
-  const blobs: Uint8Array[] = []
   for (;;) {
     const event = await next(iterator)
     if (event.type === "failure") throw event.error
-    if (event.type === "records") records.push(...event.records)
-    if (event.type === "blobs") blobs.push(...event.blobs)
+    if (event.type === "records") {
+      expect(event.phase).toBe("initial")
+      records.push(...event.records)
+    }
     if (event.type === "local-load-complete") {
       // An empty first load is settled by one confirmation round; peer
       // notifications may arrive first, nothing else should.
@@ -110,14 +109,7 @@ async function initial(backend: SubductionBackend, inspectRecords = true) {
           confirmed = await next(iterator)
         expect(confirmed).toMatchObject({ type: "synchronized" })
       }
-      if (!inspectRecords) return { records, blobs, event, iterator }
-      records.push(...(await storedRecords(currentStorage, tree)))
-      expect(
-        blobs.map(blob => Buffer.from(blob).toString("hex")).sort()
-      ).toEqual(
-        records.map(record => Buffer.from(record.blob).toString("hex")).sort()
-      )
-      return { records, blobs, event, iterator }
+      return { records, event, iterator }
     }
   }
 }
@@ -180,7 +172,6 @@ describe("local Subduction fragments", () => {
   }
   beforeEach(async () => {
     storage = new TestStore()
-    currentStorage = storage
     signer = N.createMemorySigner(new Uint8Array(32).fill(42))
     backends = []
   })
@@ -203,7 +194,7 @@ describe("local Subduction fragments", () => {
     const reloaded = create()
     const loaded = await initial(reloaded)
     expect(loaded.records).toEqual(records)
-    expect(loaded.event.marker).toBeUndefined()
+    expect(loaded.event.marker).toMatchObject({ heads: [cid(4)] })
     // Native hydrates on demand (not at open) and reads the stored fragment.
     const engine = (reloaded as unknown as { engine: N.Subduction }).engine
     const fragments = (await engine.getFragments(tree)) ?? []
@@ -248,7 +239,7 @@ describe("local Subduction fragments", () => {
   })
 
   // Tree/key relocation and blob damage are not re-checked on read (see the
-  // native hydration test below for blobs).
+  // native hydration test below for blob bytes).
   it.each(["signed", "missing-blob"] as const)(
     "detects persisted fragment %s corruption",
     async field => {
@@ -282,10 +273,6 @@ describe("local Subduction fragments", () => {
     const records = [loose(1), fragment(4)]
     await expect(backend.store(tree, records)).rejects.toThrow()
     // Native's recovery scan finds nothing to expose.
-    expect(await next(watching.iterator)).toMatchObject({
-      type: "local-load-complete",
-      found: false,
-    })
     expect((await initial(backend)).records).toEqual([])
     // Native may register the tree first; no record is stored.
     expect(
@@ -375,8 +362,9 @@ describe("local Subduction fragments", () => {
     await expect(backend.store(tree, [fragment(4)])).rejects.toThrow()
     // The committed fragment returns through native's recovery scan.
     expect(await next(watching.iterator)).toMatchObject({
-      type: "blobs",
-      blobs: [fragment(4).blob],
+      type: "records",
+      phase: "live",
+      records: [fragment(4)],
     })
     await backend.store(tree, [fragment(4)])
     expect((await initial(backend)).records).toEqual([fragment(4)])
@@ -391,7 +379,7 @@ describe("local Subduction fragments", () => {
     await backend.store(tree, [large, fragment(4)])
     await backend.close()
     // Compare bytes directly: a failing toEqual would try to print 17 MiB.
-    const blobs = (await initial(create(), false)).blobs
+    const blobs = (await initial(create())).records.map(record => record.blob)
     expect(blobs).toHaveLength(2)
     expect(blobs.some(blob => Buffer.compare(blob, large.blob) === 0)).toBe(
       true

@@ -157,14 +157,9 @@ describe("authenticated network failure and lifecycle barriers", () => {
     return { session, ...observed }
   }
   function initialRecords(events: SedimentreeEvent[]) {
-    const blobs = events.flatMap(e => (e.type === "blobs" ? e.blobs : []))
-    return blobs.map(blob => {
-      const found = persistedRecords.find(record =>
-        Buffer.from(record.blob).equals(blob)
-      )
-      if (!found) throw new Error("Unknown initial blob")
-      return found
-    })
+    return events.flatMap(e =>
+      e.type === "records" && e.phase === "initial" ? e.records : []
+    )
   }
   function delayIncoming(p: Peer) {
     const entered = deferred(),
@@ -243,9 +238,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
       b = peer()
     await connect(a, b)
     const observed = await observe(b)
-    expect(observed.events).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ type: "blobs" })])
-    )
+    expect(initialRecords(observed.events)).toEqual([])
     await a.backend.store(tree, records)
     await vi.waitFor(
       () =>
@@ -260,7 +253,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
         ),
       wait
     )
-    expect(observed.events.some(e => e.type === "blobs")).toBe(false)
+    expect(initialRecords(observed.events)).toEqual([])
   })
 
   it("reports the authenticated peer and timeout while store/flush stay local despite dropped responses", async () => {
@@ -568,13 +561,14 @@ describe("authenticated network failure and lifecycle barriers", () => {
     }
     await a.backend.store(tree, records)
     await bounded(persisted.promise, "persist then reject incoming save")
-    // Native's recovery scan delivers the committed record and the session
-    // survives. The recovery scan replays the whole tree, so the baseline repeats.
+    // Native's recovery scan delivers the committed record as live records
+    // and the session survives. The scan replays the whole tree, so the
+    // baseline repeats.
     await vi.waitFor(
       () =>
-        expect(initialRecords(right.events)).toEqual(
-          expect.arrayContaining(persistedRecords)
-        ),
+        expect(
+          right.events.flatMap(e => (e.type === "records" ? e.records : []))
+        ).toEqual(expect.arrayContaining(persistedRecords)),
       wait
     )
     // Native may already have dropped the peer whose message failed.

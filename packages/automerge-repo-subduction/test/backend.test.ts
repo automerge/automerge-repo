@@ -12,7 +12,7 @@ import {
   SubductionBackend,
   type SubductionBackendOptions,
 } from "../src/index.js"
-import { TestStore, deferred, savedKeys, storedRecords } from "./storage.js"
+import { TestStore, deferred, savedKeys } from "./storage.js"
 import { corruptFrame } from "./frame.js"
 import type { TestSigner } from "./transport.js"
 
@@ -26,37 +26,23 @@ const record = (n: number, parents: number[] = []): LooseCommitRecord => ({
   parents: parents.map(cid),
   blob: new Uint8Array([n, 42]),
 })
-let currentStorage: TestStore
-async function initial(session: SedimentreeSession, id = tree) {
+async function initial(session: SedimentreeSession) {
   const iterator = session.events[Symbol.asyncIterator]()
   const records: LooseCommitRecord[] = []
-  const blobs: Uint8Array[] = []
   for (;;) {
     const result = await iterator.next()
     if (result.done) throw new Error("Missing local load marker")
     if (result.value.type === "failure") throw result.value.error
-    if (result.value.type === "records")
+    if (result.value.type === "records") {
+      expect(result.value.phase).toBe("initial")
       records.push(...(result.value.records as LooseCommitRecord[]))
-    if (result.value.type === "blobs") blobs.push(...result.value.blobs)
+    }
     if (result.value.type === "local-load-complete") {
-      // Legacy metadata assertions below inspect the test store separately;
-      // open itself must deliver only Subduction's blobs.
-      const available = (await storedRecords(
-        currentStorage,
-        id
-      )) as LooseCommitRecord[]
-      for (const blob of blobs) {
-        const index = available.findIndex(record =>
-          Buffer.from(record.blob).equals(blob)
-        )
-        if (index < 0) throw new Error("Initial blob missing from test store")
-        records.push(available.splice(index, 1)[0])
-      }
       const complete = result.value
       const confirmed = complete.found
         ? undefined
         : await confirmation(iterator)
-      return { records, blobs, complete, confirmed, iterator }
+      return { records, complete, confirmed, iterator }
     }
   }
 }
@@ -96,7 +82,6 @@ describe("real local Subduction", () => {
   }
   beforeEach(async () => {
     storage = new TestStore()
-    currentStorage = storage
     signer = N.createMemorySigner(new Uint8Array(32).fill(42))
     backends = []
   })
@@ -115,12 +100,8 @@ describe("real local Subduction", () => {
     expect(first).toMatch(/^[0-9a-f]{64}$/)
     expect(second).toMatch(/^[0-9a-f]{64}$/)
     expect(second).not.toBe(first)
-    expect((await initial(backend.open(first), first)).records).toEqual([
-      record(1),
-    ])
-    expect((await initial(backend.open(second), second)).records).toEqual([
-      record(1),
-    ])
+    expect((await initial(backend.open(first))).records).toEqual([record(1)])
+    expect((await initial(backend.open(second))).records).toEqual([record(1)])
     await expect(backend.create([])).rejects.toMatchObject({
       operation: "create",
       code: "invalid-record",
@@ -134,7 +115,7 @@ describe("real local Subduction", () => {
     const id = await backend.create([record(1)])
     expect(id).toBe(keyhive)
     expect(mintDocumentId).toHaveBeenCalledWith([record(1)])
-    expect((await initial(backend.open(id), id)).records).toEqual([record(1)])
+    expect((await initial(backend.open(id))).records).toEqual([record(1)])
     // A supplied ID bypasses the hook.
     const supplied = sedimentreeId("ef".repeat(16) + "00".repeat(16))
     await expect(
@@ -175,7 +156,7 @@ describe("real local Subduction", () => {
     ;(input[0].blob as Uint8Array).fill(0)
     input.push(record(2))
     const id = await pending
-    expect((await initial(backend.open(id), id)).records).toEqual([record(1)])
+    expect((await initial(backend.open(id))).records).toEqual([record(1)])
   })
 
   it.each([
@@ -237,14 +218,17 @@ describe("real local Subduction", () => {
     const native = vi.spyOn(internals.engine, "loadAndWatch")
     const loaded = await initial(backend.open(tree))
     expect(native).toHaveBeenCalledOnce()
-    expect(loaded.blobs).toEqual([record(1).blob])
-    expect(loaded.complete).toMatchObject({ found: true })
-    expect(loaded.complete.marker).toBeUndefined()
+    expect(loaded.records).toEqual([record(1)])
+    expect(loaded.complete).toMatchObject({
+      found: true,
+      marker: { heads: [cid(1)] },
+    })
   })
 
-  it("passes each scanned item on as its own blobs event, unbatched", async () => {
+  it("passes each scanned item on as its own initial record, then the scanned heads", async () => {
     const backend = create()
-    await backend.store(tree, [record(1), record(2, [1]), record(3, [2])])
+    const records = [record(1), record(2, [1]), record(3, [2])]
+    await backend.store(tree, records)
     const iterator = backend.open(tree).events[Symbol.asyncIterator]()
     const events: SedimentreeEvent[] = []
     for (;;) {
@@ -253,24 +237,31 @@ describe("real local Subduction", () => {
       if (event.type === "local-load-complete") break
     }
     expect(events.map(event => event.type)).toEqual([
-      "blobs",
-      "blobs",
-      "blobs",
+      "records",
+      "records",
+      "records",
       "local-load-complete",
     ])
     for (const event of events.slice(0, 3))
-      expect(event).toMatchObject({ blobs: [expect.any(Uint8Array)] })
+      expect(event).toMatchObject({
+        phase: "initial",
+        records: [expect.anything()],
+      })
+    expect(
+      events.flatMap(event => (event.type === "records" ? event.records : []))
+    ).toEqual(expect.arrayContaining(records))
+    expect(events.at(-1)).toMatchObject({ marker: { heads: [cid(3)] } })
   })
 
-  it("delivers blobs isolated between sessions", async () => {
+  it("delivers record bytes isolated between sessions", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
     const first = await initial(backend.open(tree))
     const second = await initial(backend.open(tree))
-    expect(first.blobs[0]).not.toBe(second.blobs[0])
-    first.blobs[0].fill(0)
-    expect(second.blobs).toEqual([record(1).blob])
-    expect((await initial(backend.open(tree))).blobs).toEqual([record(1).blob])
+    expect(first.records[0].blob).not.toBe(second.records[0].blob)
+    first.records[0].blob.fill(0)
+    expect(second.records).toEqual([record(1)])
+    expect((await initial(backend.open(tree))).records).toEqual([record(1)])
   })
 
   it("starts unrelated opens while another initial scan is pending", async () => {
@@ -279,7 +270,7 @@ describe("real local Subduction", () => {
     const scan = blockScan()
     const first = backend.open(tree)
     await scan.entered
-    const other = await initial(backend.open(otherTree), otherTree)
+    const other = await initial(backend.open(otherTree))
     expect(other.complete.found).toBe(false)
     scan.release()
     expect((await initial(first)).complete.found).toBe(false)
@@ -303,7 +294,7 @@ describe("real local Subduction", () => {
   it("deletes while an initial scan is pending and keeps other sessions observing", async () => {
     const backend = create()
     const otherTree = sedimentreeId("cd".repeat(16) + "00".repeat(16))
-    const other = await initial(backend.open(otherTree), otherTree)
+    const other = await initial(backend.open(otherTree))
     const scan = blockScan()
     const iterator = backend.open(tree).events[Symbol.asyncIterator]()
     await scan.entered
@@ -314,11 +305,8 @@ describe("real local Subduction", () => {
     await backend.store(otherTree, [record(1)])
     // Live, or within the restarted stream's replay.
     let event = await next(other.iterator)
-    while (event.type !== "records" && event.type !== "blobs")
-      event = await next(other.iterator)
-    expect(
-      event.type === "records" ? event.records[0].blob : event.blobs[0]
-    ).toEqual(record(1).blob)
+    while (event.type !== "records") event = await next(other.iterator)
+    expect(event.records[0].blob).toEqual(record(1).blob)
     await backend.close()
   })
 
@@ -334,7 +322,6 @@ describe("real local Subduction", () => {
       const event = await next(iterator)
       if (event.type === "records")
         blobs.push(...event.records.map(r => r.blob))
-      else if (event.type === "blobs") blobs.push(...event.blobs)
     }
     expect(blobs).toEqual(expect.arrayContaining(records.map(r => r.blob)))
     await backend.close()
@@ -402,7 +389,7 @@ describe("real local Subduction", () => {
     const full = sedimentreeId("cd".repeat(32))
     for (const id of [tree, full]) {
       const empty = backend.open(id)
-      await initial(empty, id)
+      await initial(empty)
       await empty.close()
       // Concurrent creates are not fenced; only an already-stored ID conflicts.
       await expect(
@@ -413,7 +400,7 @@ describe("real local Subduction", () => {
         operation: "create",
         code: "conflict",
       })
-      expect((await initial(backend.open(id), id)).records).toEqual([record(1)])
+      expect((await initial(backend.open(id))).records).toEqual([record(1)])
       await backend.flush()
       await backend.deleteLocal(id)
       await expect(
@@ -451,14 +438,11 @@ describe("real local Subduction", () => {
       "getCommits"
     )
     const loaded = await initial(reload.open(tree))
-    // Native reads commits and fragments once each; the rest are the test
-    // helper's own scratch-node reads.
+    // Native reads commits and fragments once each.
     expect(hydration).not.toHaveBeenCalled()
-    const total = loadPrefix.mock.calls.length
-    await storedRecords(storage, tree)
-    expect(total - (loadPrefix.mock.calls.length - total)).toBe(2)
+    expect(loadPrefix).toHaveBeenCalledTimes(2)
     expect(loaded.records).toEqual([record(1), record(2, [1])])
-    expect(loaded.complete.marker).toBeUndefined()
+    expect(loaded.complete.marker).toMatchObject({ heads: [cid(2)] })
     // Native hydrates on demand from storage and finds both commits.
     await expect(nativeCommits(reload)).resolves.toBe(2)
   })
@@ -525,9 +509,7 @@ describe("real local Subduction", () => {
     await backend.store(tree, [record(1)])
     await backend.store(full, [record(2)])
     expect((await initial(backend.open(tree))).records).toEqual([record(1)])
-    expect((await initial(backend.open(full), full)).records).toEqual([
-      record(2),
-    ])
+    expect((await initial(backend.open(full))).records).toEqual([record(2)])
   })
 
   it("delivers writes accepted after open without a gap and copies inputs before await", async () => {
@@ -553,7 +535,7 @@ describe("real local Subduction", () => {
       })
       if (live.type === "records") live.records[0].blob.fill(0)
     } else expect(loaded.records).toEqual([record(1), record(2, [1])])
-    loaded.blobs.forEach(blob => blob.fill(0))
+    loaded.records.forEach(record => record.blob.fill(0))
     expect((await initial(backend.open(tree))).records).toEqual([
       record(1),
       record(2, [1]),
@@ -645,6 +627,7 @@ describe("real local Subduction", () => {
     const { complete, confirmed } = await initial(backend.open(tree))
     expect(complete).toEqual({
       type: "local-load-complete",
+      marker: { sequence: expect.any(Number), heads: [] },
       found: false,
       backendSyncs: true,
     })
@@ -668,7 +651,7 @@ describe("real local Subduction", () => {
     )
     const loaded = await initial(backend.open(tree))
     expect(loaded.records).toEqual(records)
-    expect(loaded.complete.marker).toBeUndefined()
+    expect(loaded.complete.marker).toMatchObject({ heads: [cid(200)] })
   })
 
   it("stores none of a batch after a mid-batch failure; a full retry completes it", async () => {
@@ -691,10 +674,6 @@ describe("real local Subduction", () => {
     // A failed batch stored nothing, so no round propagates it.
     expect(rounds).not.toHaveBeenCalled()
     // Native recovers by rescanning: nothing of the failed batch surfaces.
-    expect(await next(iterator)).toMatchObject({
-      type: "local-load-complete",
-      found: false,
-    })
     expect((await initial(backend.open(tree))).records).toEqual([])
     storage.beforeSave = undefined
     const save = vi.spyOn(storage, "saveBatch")
@@ -710,11 +689,11 @@ describe("real local Subduction", () => {
     ).toHaveLength(20)
     const reloaded = await initial(backend.open(tree))
     expect(reloaded.records).toEqual(records)
-    expect(reloaded.complete.marker).toBeUndefined()
+    expect(reloaded.complete.marker).toMatchObject({ heads: [cid(10)] })
   })
 
   it("has no total-history cap: a tree grown past any old budget reopens, enumerates and deletes", async () => {
-    // Legacy batch limit does not cap the initial native blob delivery.
+    // Legacy batch limit does not cap the initial native delivery.
     const backend = create()
     for (let n = 1; n <= 40; n++)
       await backend.store(tree, [record(n, n > 1 ? [n - 1] : [])])
@@ -722,7 +701,7 @@ describe("real local Subduction", () => {
     const reopened = create()
     const loaded = await initial(reopened.open(tree))
     expect(loaded.records).toHaveLength(40)
-    expect(loaded.complete.marker).toBeUndefined()
+    expect(loaded.complete.marker).toMatchObject({ heads: [cid(40)] })
     await reopened.deleteLocal(tree)
     expect(await storage.list("subduction-v2/")).toEqual([])
   })
@@ -835,7 +814,7 @@ describe("real local Subduction", () => {
     })
   })
 
-  it("reopening after a session closes reloads blobs and retains sync markers", async () => {
+  it("reopening after a session closes reloads records and retains sync markers", async () => {
     const backend = create()
     await backend.store(tree, [record(1), record(2, [1])])
     const first = backend.open(tree)
@@ -844,7 +823,7 @@ describe("real local Subduction", () => {
     await first.close()
     const second = backend.open(tree)
     const { iterator, complete } = await initial(second)
-    expect(complete.marker).toBeUndefined()
+    expect(complete.marker).toMatchObject({ heads: [cid(2)] })
     second.markComplete!()
     await backend.store(tree, [record(3, [2])])
     expect((await next(iterator)).type).toBe("records")
@@ -912,10 +891,6 @@ describe("real local Subduction", () => {
         throw new Error("disk failed")
     }
     await expect(backend.store(tree, [record(1), record(2)])).rejects.toThrow()
-    expect(await next(iterator)).toMatchObject({
-      type: "local-load-complete",
-      found: false,
-    })
     expect((await initial(backend.open(tree))).records).toEqual([])
     storage.beforeSave = undefined
     await backend.store(tree, [record(1), record(2)])
@@ -942,8 +917,9 @@ describe("real local Subduction", () => {
     await expect(backend.store(tree, [record(1)])).rejects.toThrow()
     // The committed bytes return through native's recovery scan.
     expect(await next(iterator)).toMatchObject({
-      type: "blobs",
-      blobs: [record(1).blob],
+      type: "records",
+      phase: "live",
+      records: [record(1)],
     })
     const retry = await initial(backend.open(tree))
     expect(retry.records).toEqual([record(1)])

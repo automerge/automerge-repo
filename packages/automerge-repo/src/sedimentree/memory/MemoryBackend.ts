@@ -10,12 +10,12 @@ import {
   type SedimentreeSession,
   type SyncRoundResult,
 } from "../backend.js"
-import type { CommitId, SedimentreeId } from "../ids.js"
+import type { SedimentreeId } from "../ids.js"
 import {
   copyRecord,
   fragmentRequests,
+  headsOf,
   isBoundary,
-  recordHead,
   type RecordBatch,
   type SedimentreeRecord,
 } from "../records.js"
@@ -433,17 +433,6 @@ class MemorySession implements SedimentreeSession {
     if (this.#closed)
       throw new BackendError(operation, "closed", "Session is closed")
   }
-}
-
-function headsOf(records: readonly SedimentreeRecord[]): CommitId[] {
-  const candidates = new Set(records.map(recordHead))
-  for (const record of records) {
-    if (record.kind === "commit")
-      for (const parent of record.parents) candidates.delete(parent)
-  }
-  // Fragment boundaries cannot prove inclusion in the opaque blob. Retain their
-  // targets: the consumer verifies history inclusion, not equality of frontiers.
-  return [...candidates].sort()
 }
 
 function copySyncResult(result: SyncRoundResult): SyncRoundResult {

@@ -358,12 +358,13 @@ in Automerge's WASM memory, which is exhausted long before a submission would
 strain Subduction's. Neither a single record nor a tree's total history is
 capped: whatever was accepted can always be reopened, enumerated, synced and
 deleted. Each open session consumes one native stored-data stream: its initial scan is
-delivered as a single blob event, so very large trees cost time and heap
-proportional to their size rather than being refused. This does not supply a
-source-head marker: Repo accepts nonempty document heads after the entire blob
-batch has been applied. Later stored items, local or from peers, follow as live
-records; recovery scans arrive as further blob events. Live delivery, initial
-blob size, total heap use, session count and queued operations are not bounded.
+delivered as initial records, one per stored item, so very large trees cost
+time and heap proportional to their size rather than being refused. Its
+`local-load-complete` marker holds the scanned heads, worked out from the
+records' metadata without another storage read; Repo applies the whole scan in
+one load and is ready once the document includes them. Later stored items, local
+or from peers, and recovery scans follow as live records. Live delivery, total
+heap use, session count and queued operations are not bounded.
 This is not a streaming or production large-history write path.
 
 ## Dependency and tests
