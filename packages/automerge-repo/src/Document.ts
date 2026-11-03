@@ -4,7 +4,7 @@ import { decodeHeads, encodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, PeerId, SyncInfo, UrlHeads } from "./types.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
-import { arraysAreEqual } from "./helpers/arraysAreEqual.js"
+import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
 import type { RootQuery } from "./DocumentQuery.js"
 
 /**
@@ -43,7 +43,7 @@ export class Document<T = unknown> {
     after: A.Doc<any>,
     options?: { compact?: boolean }
   ) => Promise<void>
-  /** Best-effort outbound ephemeral publication; unset without a backend. */
+  /** Best-effort outbound ephemeral publication; set by the delegate. */
   publishEphemeral?: (payload: Uint8Array) => Promise<void>
   #events: (() => void)[] = []
   #dispatching = false

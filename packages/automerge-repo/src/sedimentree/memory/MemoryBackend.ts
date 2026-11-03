@@ -9,16 +9,16 @@ import {
   type SedimentreeEvent,
   type SedimentreeSession,
   type SyncRoundResult,
-} from "../../src/sedimentree/index.js"
-import type { CommitId, SedimentreeId } from "../../src/sedimentree/index.js"
+} from "../backend.js"
+import type { CommitId, SedimentreeId } from "../ids.js"
 import {
   copyRecord,
   fragmentRequests,
+  isBoundary,
   recordHead,
   type RecordBatch,
   type SedimentreeRecord,
-} from "../../src/sedimentree/index.js"
-import { isBoundary } from "../../src/sedimentree/automerge/index.js"
+} from "../records.js"
 import { Observation } from "./Observation.js"
 import { equalRecords, recordBytes, recordKey } from "./records.js"
 
@@ -30,9 +30,10 @@ export interface MemoryBackendOptions {
   /** Hard limit on an individual record including metadata. */
   maxRecordBytes?: number
   /**
-   * Test seam run inside `store()` after the batch is copied and validated:
-   * await to hold the store in flight, throw to fail it. Either way the
-   * backend's acknowledgement order and flush see it, unlike a `vi.spyOn` wrapper.
+   * Runs inside `store()` after the batch is validated and copied, before it
+   * is applied. It is part of the store's acknowledgement, so `flush`,
+   * `deleteLocal` and `close` wait on it. Await to hold the store open (e.g.
+   * to simulate latency), throw to fail it.
    */
   beforeStore?: (id: SedimentreeId, batch: RecordBatch) => void | Promise<void>
   /** Mints IDs for `create()` without a supplied ID; see {@link MintDocumentId}. */
@@ -46,7 +47,9 @@ interface Tree {
 }
 
 /**
- * Deterministic test double, not Repo's default or a production store.
+ * In-memory, process-local backend: Repo's default when none is given, and the
+ * deterministic backend for tests. Nothing survives the process and there are
+ * no peers, so `synchronize()` always reports `no-peers`.
  *
  * Stores exact representations, without compaction or network simulation. A
  * different representation of a stored commit rejects. Like Subduction, valid

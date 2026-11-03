@@ -10,7 +10,7 @@ import {
   parseAutomergeUrl,
   stringifyAutomergeUrl,
 } from "../src/AutomergeUrl.js"
-import { MemoryBackend } from "./helpers/MemoryBackend.js"
+import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import { idBytes, sedimentreeId } from "../src/sedimentree/index.js"
 import { extractRecords } from "../src/sedimentree/automerge/index.js"
 import type {
@@ -99,14 +99,14 @@ describe("backend-driven Repo", () => {
     await expect(r.find(binaryToDocumentId(legacy))).rejects.toThrow()
   })
 
-  it("imports into a local-only lookup and announces it once", async () => {
+  it("imports into an unavailable lookup and announces it once", async () => {
     const r = repo()
     const id = parseAutomergeUrl(generateAutomergeUrl()).documentId
     const announced = vi.fn()
     r.on("document", announced)
     const query = r.findWithProgress<{ count: number }>(id)
     const handle = r.handles[id] as DocHandle<{ count: number }>
-    expect(query.peek().state).toBe("unavailable")
+    await vi.waitFor(() => expect(query.peek().state).toBe("unavailable"))
     expect(await r.import(A.save(A.from({ count: 1 })), { docId: id })).toBe(
       handle
     )
@@ -442,14 +442,39 @@ describe("backend-driven Repo", () => {
     expect(imported.doc()).toEqual({ count: 10 })
   })
 
-  it("deleting an unknown local-only ID is a no-op", async () => {
+  it("deleting an unknown ID still asks the backend and emits", async () => {
     const r = repo()
     const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
     const deleted = vi.fn()
     r.on("delete-document", deleted)
     await expect(r.delete(documentId)).resolves.toBeUndefined()
-    expect(deleted).not.toHaveBeenCalled()
+    // The backend cannot prove the ID held no history, so deletion is reported.
+    expect(deleted).toHaveBeenCalledWith({ documentId })
     expect(r.handles[documentId]).toBeUndefined()
+  })
+
+  describe("default backend", () => {
+    it("keeps history for find() after a document leaves the cache", async () => {
+      const r = repo()
+      const handle = await r.create({ count: 0 })
+      await handle.change(d => (d.count = 1))
+      await r.removeFromCache(handle.documentId)
+      expect(r.handles[handle.documentId]).toBeUndefined()
+      const found = await r.find<{ count: number }>(handle.url)
+      expect(found).not.toBe(handle)
+      expect(found.doc()).toEqual({ count: 1 })
+    })
+
+    it("reports an unknown document as unavailable", async () => {
+      const r = repo()
+      const id = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      await expect(r.find(id)).rejects.toThrow(/unavailable/)
+    })
+
+    it("does not share history between Repos", async () => {
+      const handle = await repo().create({ count: 0 })
+      await expect(repo().find(handle.url)).rejects.toThrow(/unavailable/)
+    })
   })
 
   it("shutdown cannot overtake an already accepted deletion", async () => {

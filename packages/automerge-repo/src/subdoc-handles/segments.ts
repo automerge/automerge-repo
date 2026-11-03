@@ -1,6 +1,6 @@
 import type { Prop } from "@automerge/automerge/slim"
 import type { UrlHeads } from "../types.js"
-import { arraysAreEqual } from "../helpers/arraysAreEqual.js"
+import { arraysAreEqual } from "../sedimentree/arraysAreEqual.js"
 import { KIND } from "./types.js"
 import type { PathSegment, Pattern, ResolvedPathSegment } from "./types.js"
 

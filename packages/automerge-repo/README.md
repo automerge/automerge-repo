@@ -35,7 +35,7 @@ await handle.change(doc => {
 const found = await repo.find<{ count: number }>(handle.url)
 ```
 
-`new Repo()` can function without a backend, but is _local-only_: nothing is stored or synced.
+`new Repo()` uses an in-memory `MemoryBackend`: documents survive `removeFromCache`, but nothing outlives the process or reaches other peers.
 
 When you are finished, close down the repo. This also closes the backend and flushes any pending writes.
 

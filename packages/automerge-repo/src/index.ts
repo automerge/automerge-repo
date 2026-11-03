@@ -6,8 +6,8 @@
  * format and sync protocol but doesn't provide the plumbing to use these tools
  * in a JS application. `automerge-repo` provides the plumbing.
  *
- * The main entry point is the {@link Repo} class, with an optional sedimentree
- * backend for storage and synchronization. Once you
+ * The main entry point is the {@link Repo} class, with a sedimentree backend
+ * for storage and synchronization ({@link MemoryBackend} by default). Once you
  * have a repo you can use it to create {@link DocHandle}s. {@link DocHandle}s
  * are a reference to a document, identified by a {@link AutomergeUrl}, a place to
  * listen for changes to the document, and to make new changes.
@@ -92,6 +92,8 @@ export type {
   RepoFindOptions,
 } from "./Repo.js"
 export type { MintDocumentId } from "./sedimentree/backend.js"
+export { MemoryBackend } from "./sedimentree/memory/MemoryBackend.js"
+export type { MemoryBackendOptions } from "./sedimentree/memory/MemoryBackend.js"
 
 export type { DocumentQuery, QueryState } from "./DocumentQuery.js"
 export type {

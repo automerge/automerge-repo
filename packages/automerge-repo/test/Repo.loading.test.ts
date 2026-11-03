@@ -13,9 +13,9 @@ import { encode } from "../src/helpers/cbor.js"
 import { Presence } from "../src/presence/Presence.js"
 import { PRESENCE_MESSAGE_MARKER } from "../src/presence/constants.js"
 import type { BinaryDocumentId, PeerId } from "../src/types.js"
-import { MemoryBackend } from "./helpers/MemoryBackend.js"
+import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import { BackendError, commitId } from "../src/sedimentree/index.js"
-import { recordKey } from "./helpers/records.js"
+import { recordKey } from "../src/sedimentree/memory/records.js"
 import {
   extractNewCommits,
   extractRecords,

@@ -10,6 +10,8 @@ import {
 } from "../index.js"
 import { concatBytes } from "../concatBytes.js"
 
+export { isBoundary } from "../records.js"
+
 /** Canonical metadata, without encoding any payloads. Not a coverage proof. */
 type RecordMetadata =
   | Omit<LooseCommitRecord, "blob">
@@ -53,11 +55,6 @@ export function extractRecords(doc: A.Doc<unknown>): SedimentreeRecord[] {
     ...project(meta),
     blob: new Uint8Array(blobs[index]),
   }))
-}
-
-/** Fragment boundary: a commit whose hash starts with a zero byte. */
-export function isBoundary(id: CommitId): boolean {
-  return id.startsWith("00")
 }
 
 /** Extract a local delta as loose commits, without scanning fragments.

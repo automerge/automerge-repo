@@ -28,6 +28,11 @@ export function recordHead(record: SedimentreeRecord): CommitId {
   return record.kind === "commit" ? record.id : record.head
 }
 
+/** Fragment boundary: a commit whose hash starts with a zero byte. */
+export function isBoundary(id: CommitId): boolean {
+  return id.startsWith("00")
+}
+
 /** Record metadata that decides fragment coverage. */
 export type CoverageItem =
   | Pick<LooseCommitRecord, "kind" | "id">

@@ -5,7 +5,7 @@ import type {
   SedimentreeId,
   SedimentreeSession,
 } from "../../src/sedimentree/index.js"
-import { MemoryBackend } from "./MemoryBackend.js"
+import { MemoryBackend } from "../../src/sedimentree/memory/MemoryBackend.js"
 
 interface HubSession {
   id: SedimentreeId

@@ -13,7 +13,7 @@ import {
   type SedimentreeId,
 } from "../src/sedimentree/index.js"
 import type { RepoId } from "../src/types.js"
-import { MemoryBackend } from "./helpers/MemoryBackend.js"
+import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 
 // Adapted from pinned 5fa3b25f: keep real history observation under injected traffic.
 class ControlledBackend extends MemoryBackend {

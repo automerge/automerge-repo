@@ -1,5 +1,5 @@
-import { arraysAreEqual } from "../../src/helpers/arraysAreEqual.js"
-import type { SedimentreeRecord } from "../../src/sedimentree/index.js"
+import { arraysAreEqual } from "../arraysAreEqual.js"
+import type { SedimentreeRecord } from "../records.js"
 
 /** Scoped to one sedimentree. This is NOT a representation/content fingerprint. */
 export function recordKey(record: SedimentreeRecord): string {

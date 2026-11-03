@@ -13,7 +13,11 @@ import {
   recordHead,
   type SedimentreeRecord,
 } from "../../src/sedimentree/index.js"
-import { equalRecords, recordBytes, recordKey } from "../helpers/records.js"
+import {
+  equalRecords,
+  recordBytes,
+  recordKey,
+} from "../../src/sedimentree/memory/records.js"
 import { cid, commit, fragment } from "./helpers.js"
 
 describe("plain record validation and ownership", () => {

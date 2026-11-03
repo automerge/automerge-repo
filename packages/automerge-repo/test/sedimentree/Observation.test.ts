@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { Observation } from "../helpers/Observation.js"
+import { Observation } from "../../src/sedimentree/memory/Observation.js"
 import { expectPending, next, settled } from "./helpers.js"
 
 describe("Observation resource release", () => {

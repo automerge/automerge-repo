@@ -20,10 +20,10 @@ import {
 import { toProgress, type DocumentProgress } from "./DocumentProgress.js"
 import { makeLogger } from "./Logger.js"
 import { extractRecords } from "./sedimentree/automerge/index.js"
+import { MemoryBackend } from "./sedimentree/memory/MemoryBackend.js"
 import {
   BackendError,
   idBytes,
-  mintDocumentId,
   sedimentreeId,
   type BackendIdentity,
   type SedimentreeBackend,
@@ -41,14 +41,14 @@ type Entry<T = any> = {
   document: Document<T>
   handle: DocHandle<T>
   query: RootQuery<T>
-  delegate?: DocumentDelegate<T>
+  delegate: DocumentDelegate<T>
 }
 
-/** Owns Automerge documents; an optional backend owns their storage and sync. */
+/** Owns Automerge documents; its backend owns their storage and sync. */
 export class Repo extends EventEmitter<RepoEvents> {
   #log = makeLogger("automerge-repo:repo")
   #entries = new Map<DocumentId, Entry>()
-  #backend?: SedimentreeBackend
+  #backend: SedimentreeBackend
   #operations = new Set<Promise<unknown>>()
   #closed = false
   #shutdown?: Promise<void>
@@ -65,7 +65,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     super()
     if (typeof id !== "string" || !id)
       throw new TypeError("id must be a nonempty string")
-    this.#backend = backend
+    this.#backend = backend ?? new MemoryBackend()
     this.#identity = Object.freeze({
       kind: "repo",
       id,
@@ -189,34 +189,18 @@ export class Repo extends EventEmitter<RepoEvents> {
     requested?: DocumentId
   ): Promise<DocHandle<T>> {
     if (!A.getHeads(doc).length) doc = A.emptyChange(doc)
-    let id: DocumentId
-    if (this.#backend) {
-      const allocated = await this.#backend.create(
-        extractRecords(doc),
-        requested ? { documentId: this.#backendId(requested) } : undefined
-      )
-      id = binaryToDocumentId(idBytes(allocated) as BinaryDocumentId)
-    } else if (requested) {
-      id = requested
-    } else {
-      id = binaryToDocumentId(idBytes(mintDocumentId()) as BinaryDocumentId)
-      if (this.#entries.has(id))
-        throw new BackendError("create", "conflict", "Document already exists")
-    }
+    const allocated = await this.#backend.create(
+      extractRecords(doc),
+      requested ? { documentId: this.#backendId(requested) } : undefined
+    )
+    const id = binaryToDocumentId(idBytes(allocated) as BinaryDocumentId)
     this.#checkOpen()
     const existing = this.#entries.get(id)
     if (existing) {
       // Loading can begin while backend creation is pending. Adopt that shared entry.
       if (existing.document.deleted || existing.document.closed)
         throw new Error("Document is no longer open")
-      if (existing.delegate) existing.delegate.adopt(doc)
-      else {
-        await existing.document.applyMutation(
-          current => A.merge(current, A.clone(doc)),
-          { incoming: true }
-        )
-        existing.query.ready()
-      }
+      existing.delegate.adopt(doc)
       return existing.handle
     }
     return this.#register<T>(id, doc).handle
@@ -233,23 +217,18 @@ export class Repo extends EventEmitter<RepoEvents> {
     const handle = new DocHandle(document)
     const query = new RootQuery(handle)
     document.query = query
-    if (!this.#backend) {
-      if (initial) query.ready()
-      else query.unavailable()
-    }
-    const entry: Entry<T> = { document, handle, query }
-    if (this.#backend)
-      entry.delegate = new DocumentDelegate(
-        this.#backendId(id),
-        document,
-        query,
-        this.#backend,
-        this.#identity,
-        !!initial
-      )
+    const delegate = new DocumentDelegate(
+      this.#backendId(id),
+      document,
+      query,
+      this.#backend,
+      this.#identity,
+      !!initial
+    )
+    const entry: Entry<T> = { document, handle, query, delegate }
     this.#entries.set(id, entry)
     let announced = false
-    entry.delegate?.start()
+    delegate.start()
     query.subscribe(state => {
       if (!announced && state.status === "ready") {
         announced = true
@@ -266,10 +245,9 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#entries.delete(id)
       // Shutdown releases sessions itself.
       if (this.#closed) return
-      if (entry.delegate)
-        void this.#track(entry.delegate.release()).catch(error =>
-          this.#log.error("failed to release a settled document", error)
-        )
+      void this.#track(delegate.release()).catch(error =>
+        this.#log.error("failed to release a settled document", error)
+      )
       if (state.status === "deleted")
         this.emit("delete-document", { documentId: id })
     })
@@ -290,14 +268,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     // A settled entry's subscriber ignores it once it leaves the map, so it
     // neither releases the session nor emits; this call does both.
     this.#entries.delete(documentId)
-    if (!this.#backend) {
-      // Without a backend an unopened ID has no history to delete.
-      if (!entry) return Promise.resolve()
-      entry.document.close()
-      entry.document.delete()
-      this.emit("delete-document", { documentId })
-      return Promise.resolve()
-    }
     // The backend fences the ID synchronously, so reentrant delete listeners
     // cannot reacquire it; it drains earlier stores before removal. Then stop
     // our own producer and release the session.
@@ -337,7 +307,6 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#checkOpen()
       const documents = ids?.map(interpretAsDocumentId)
       const backend = this.#backend
-      if (!backend) return Promise.resolve()
       const targets = documents
         ? documents.flatMap(id => this.#entries.get(id) ?? [])
         : [...this.#entries.values()]
@@ -345,7 +314,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         (async () => {
           // Compactions submit their stores synchronously, so the barrier
           // captured next covers them; a queued rerun is awaited directly.
-          const compactions = targets.map(entry => entry.delegate?.compactNow())
+          const compactions = targets.map(entry => entry.delegate.compactNow())
           const barrier = backend.flush(
             documents?.map(id => this.#backendId(id))
           )
@@ -375,10 +344,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     const entry = this.#entries.get(id)
     if (!entry) return
     const delegate = entry.delegate
-    if (!delegate)
-      throw new Error(
-        "Cannot evict a local-only document: its handle holds the only copy"
-      )
     // Stop edits before draining; otherwise retained handles can outlive eviction.
     delegate.close()
     await this.flush([id])
@@ -392,10 +357,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (this.#shutdown) return this.#shutdown
     this.#closed = true
     const entries = [...this.#entries.values()]
-    for (const entry of entries) {
-      if (entry.delegate) entry.delegate.close()
-      else entry.document.close()
-    }
+    for (const entry of entries) entry.delegate.close()
     const operations = [...this.#operations]
     const backend = this.#backend
     // Install the promise before notifying subscribers that may reenter shutdown.
@@ -403,18 +365,14 @@ export class Repo extends EventEmitter<RepoEvents> {
       for (const entry of entries)
         entry.query.fail(new Error("Repo is shut down"))
       const results = await Promise.allSettled(operations)
-      if (backend) {
-        results.push(
-          ...(await Promise.allSettled(
-            entries.map(entry => entry.delegate?.compactNow())
-          ))
-        )
-        results.push(...(await Promise.allSettled([backend.flush()])))
-        results.push(...(await Promise.allSettled([backend.close()])))
-        await Promise.allSettled(
-          entries.map(entry => entry.delegate?.settled())
-        )
-      }
+      results.push(
+        ...(await Promise.allSettled(
+          entries.map(entry => entry.delegate.compactNow())
+        ))
+      )
+      results.push(...(await Promise.allSettled([backend.flush()])))
+      results.push(...(await Promise.allSettled([backend.close()])))
+      await Promise.allSettled(entries.map(entry => entry.delegate.settled()))
       for (const error of collectErrors(results))
         this.#log.error("error during Repo shutdown", error)
     })
@@ -452,6 +410,10 @@ function collectErrors(results: PromiseSettledResult<unknown>[]): unknown[] {
 }
 
 export interface RepoConfig {
+  /**
+   * Owns storage and synchronization; closed by {@link Repo.shutdown}.
+   * Defaults to a {@link MemoryBackend}: no persistence and no peers.
+   */
   backend?: SedimentreeBackend
   /**
    * Identifies this Repo instance; a random UUID by default. Must be unique

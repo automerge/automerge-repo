@@ -57,15 +57,18 @@ The event's `sender` identifies the authenticated signed originator, not the
 immediate relay/transport peer. Application sender identity comes from `sender`,
 never from the envelope's claimed origin. Ephemeral data is not persisted.
 
-## Deterministic memory test double
+## In-memory backend
 
-`MemoryBackend` lives in `packages/automerge-repo/test/helpers/` and is not
-exported. It is **not a production default**. It retains exact records, creates no network
+`MemoryBackend` is exported from this entrypoint and is Repo's default backend
+when none is given; tests use it as the deterministic backend. It is process-local
+and non-durable: nothing survives the process. It retains exact records, creates no network
 connections, and performs no compaction or reclamation. Same logical key with
-conflicting metadata/blob bytes rejects explicitly. This is deliberately stricter
+conflicting metadata/blob bytes rejects explicitly; with Automerge input this
+does not arise, since a commit ID is the hash of its bytes and same-head
+fragment variants are kept side by side. This is deliberately stricter
 than Subduction's variant resolution and cannot validate cross-backend coverage.
 Empty/duplicate stores are no-ops. Neither exact conflict rejection nor batch
-atomicity is a requirement on other backends. The double currently stages its
+atomicity is a requirement on other backends. The backend currently stages its
 batch before writing as an implementation convenience, not a contract guarantee.
 A rejected store may have partially persisted; callers must be able to retry valid
 records without duplicate effects, rather than relying on rollback.
@@ -76,10 +79,10 @@ by record count and target bytes. A single record may exceed the batch target bu
 never the configured hard record-size limit. These are transport-buffer budgets,
 not a bound on the entire JS heap.
 Snapshot metadata is proportional to stored records, and marker computation
-is a simple metadata scan. This is a test double, not a production large-store
-implementation.
+is a simple metadata scan. It is not designed for large stores.
 
-Stores finish synchronously in memory, so `flush` has an immediate barrier.
+Stores finish synchronously in memory unless the `beforeStore` hook holds one
+open, so `flush` normally has an immediate barrier.
 `synchronize` reports `no-peers` with an ordered history marker. An already
 aborted signal rejects that caller only. Ephemeral publication has no recipients
 and is a best-effort no-op, not simulated transport delivery. Backend close

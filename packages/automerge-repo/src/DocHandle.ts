@@ -7,7 +7,7 @@ import {
 } from "./AutomergeUrl.js"
 import { Document } from "./Document.js"
 import { encode } from "./helpers/cbor.js"
-import { arraysAreEqual } from "./helpers/arraysAreEqual.js"
+import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
 import type {
   AutomergeUrl,
   DocumentId,
