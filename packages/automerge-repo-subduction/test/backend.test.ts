@@ -354,7 +354,7 @@ describe("real local Subduction", () => {
     else expect(loaded.records).toEqual([record(1), record(2, [1])])
   })
 
-  it("retries an initial scan overlapped by a same-document save", async () => {
+  it("delivers a save overlapping the initial scan without a gap", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
     const scan = blockScan()
@@ -364,7 +364,14 @@ describe("real local Subduction", () => {
     scan.release()
     const loaded = await initial(session)
     await write
-    expect(loaded.records).toEqual([record(1), record(2, [1])])
+    // Native may fold the save into the scan or deliver it live after.
+    if (loaded.records.length < 2)
+      expect(await next(loaded.iterator)).toMatchObject({
+        type: "records",
+        phase: "live",
+        records: [record(2, [1])],
+      })
+    else expect(loaded.records).toEqual([record(1), record(2, [1])])
     await backend.close()
   })
 

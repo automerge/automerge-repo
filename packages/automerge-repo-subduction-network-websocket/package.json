@@ -29,7 +29,7 @@
   "devDependencies": {
     "@automerge/automerge-repo": "workspace:*",
     "@automerge/automerge-repo-subduction": "workspace:*",
-    "@automerge/subduction": "0.25.0",
+    "@automerge/subduction": "catalog:",
     "@types/ws": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",

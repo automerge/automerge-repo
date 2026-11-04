@@ -24,7 +24,7 @@
     "@automerge/automerge-repo-subduction": "workspace:*",
     "@automerge/automerge-repo-subduction-network-websocket": "workspace:*",
     "@automerge/automerge-repo-subduction-storage-indexeddb": "workspace:*",
-    "@automerge/subduction": "0.25.0"
+    "@automerge/subduction": "catalog:"
   },
   "peerDependencies": {
     "react": "^18.0.0 || ^19.0.0",

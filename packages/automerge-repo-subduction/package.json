@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
-    "@automerge/subduction": "0.25.0",
+    "@automerge/subduction": "catalog:",
     "cbor-x": "catalog:"
   },
   "devDependencies": {
