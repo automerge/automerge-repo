@@ -71,7 +71,7 @@ function whenIdle(run: () => void): () => void {
  * moment, then the fragments are bundled and stored like any write. Flush
  * compacts at once.
  */
-export class DocumentDelegate<T> {
+export class Document<T> {
   #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
   /** Initial-cut records, applied together at local-load-complete. */
   #initial: SedimentreeRecord[] = []

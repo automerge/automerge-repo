@@ -8,7 +8,7 @@ import {
   parseAutomergeUrl,
 } from "./AutomergeUrl.js"
 import { DocHandle } from "./DocHandle.js"
-import { DocumentDelegate } from "./DocumentDelegate.js"
+import { Document } from "./Document.js"
 import { DocumentState } from "./DocumentState.js"
 import {
   RootQuery,
@@ -41,7 +41,7 @@ type Entry<T = any> = {
   state: DocumentState<T>
   handle: DocHandle<T>
   query: RootQuery<T>
-  document: DocumentDelegate<T>
+  document: Document<T>
 }
 
 /** Owns Automerge documents; its backend owns their storage and sync. */
@@ -217,7 +217,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const handle = new DocHandle(state)
     const query = new RootQuery(handle)
     state.query = query
-    const document = new DocumentDelegate(
+    const document = new Document(
       this.#backendId(id),
       state,
       query,
