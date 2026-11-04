@@ -7,199 +7,40 @@ import {
 import type { RecordBatch } from "./records.js"
 
 /**
- * Experimental, single-owner backend for storing and observing sedimentree
- * history. This boundary contains plain IDs, metadata and bytes: no document
- * handles, CRDT documents, transports or WASM objects. The owner is responsible
- * for closing the backend.
- *
- * ## Observation and readiness
- *
- * `open()` establishes initial local loading and live observation together,
- * before the first pull. Initial records reconstruct a pinned cut. Live
- * updates follow initial loading without a gap (duplicates are permitted).
- * Concurrent writes must not indefinitely extend initial loading. Opening
- * expresses interest, not a network connection, and does not by itself create
- * stored history or a public document handle.
- *
- * Each stream is single-consumer, with at most one outstanding `next()`.
- * Batches are bounded; live events queue until pulled. Overlap, duplicate
- * records and self-echoes are permitted; consumers must merge history
- * idempotently rather than treating each delivery as a new local edit.
- *
- * Session events report backend facts, not CRDT document readiness:
- *
- * - `records`: history to merge. `phase: "initial"` belongs to the pinned cut
- *   and may arrive over many events; the consumer may apply the whole cut at
- *   `local-load-complete`. `phase: "live"` follows it, including any later
- *   rescan of storage. Delivery is not a local-durability receipt: events may
- *   race a store promise or expose remote data before it is persisted.
- * - `local-load-complete`: sent once, after the initial records. Its marker
- *   holds the heads of the cut, to verify; empty heads mean local storage was
- *   empty. `found` says whether the cut contained data, not whether
- *   dependencies are materialized or any peer has data. Empty local storage is
- *   not global absence. Sync events follow this completion event, not precede it.
- *   After an empty cut the backend itself asks connected peers and then
- *   delivers a `synchronized` result (`no-peers` if none); the consumer does
- *   not start a round on load.
- * - `history-marker`: a position and history heads, ordered after associated record
- *   deliveries. The consumer must process those records and verify history
- *   inclusion using its CRDT; nonempty heads are not enough.
- * - `synchronized`: the result of a bounded synchronization round. Its marker
- *   names the heads the round left in local history: a target to verify, not
- *   a receipt. Records it names may still be in flight on the stream, and a
- *   local store concurrent with the round may or may not be included.
- *   Resolving the matching `synchronize()` promise does not mean the stream
- *   has been consumed. Neither `complete` nor `no-peers` proves global
- *   convergence or remote durability; per-peer outcomes retain identity.
- * - `remote-heads`: a peer's advertised history, not proof that we have it or
- *   that the peer has durably stored our writes.
- * - `ephemeral`: best-effort, nonpersistent application data. The envelope's
- *   claimed origin is distinct from `sender`, the authenticated signed originator
- *   (not necessarily the immediate relay/transport peer). Consumers use `sender`
- *   for application sender identity; claimed origin is untrusted loop metadata.
- * - `failure`: an operation-scoped error, not an empty lookup. Retryable failures
- *   leave the watch usable. A nonretryable failure ends the watch rather than
- *   leave a pending read hanging; like `deleted`, it supersedes queued events.
- *   `ephemeral` failures are never terminal. Neither proves global absence.
- *   Explicit operations can also reject their promises.
- * - `deleted`: invalidates the old local generation and ends its stream,
- *   superseding queued old-generation data. This is not a replicated tombstone.
- *
- * Readiness verifies a complete initial snapshot against a delivered marker.
- * Other sources may continue loading. A lookup failure or timeout is never
- * proof of absence.
- * Sequence positions are process-local, scoped to their log and lifetime, not
- * portable cursors or comparable across backends/documents/generations. Initial
- * batches can share the cut's sequence; it is not a unique ID for each batch.
- *
- * ## Ownership and lifetime
- *
- * Calls must snapshot mutable inputs they retain before returning control to
- * the caller, without waiting for the returned promise. In particular, a caller
- * can reuse input byte buffers or metadata arrays immediately after `store()`.
- * Returned metadata is readonly; implementations may freeze/share immutable
- * metadata. Delivered byte buffers are separately owned by each consumer and
- * must not alias retained storage or another consumer's writable buffers.
- *
- * Session lifetimes are independent, even if the backend shares underlying work.
- * Breaking iteration, iterator `return()`, or session close releases that watch
- * and wakes a pending pull. None deletes history or cancels accepted persistence.
- * Cancellation of a synchronization wait affects only that caller; release the
- * session explicitly to end interest. Backend close ends all its watches.
- *
- * This is a provisional scaffold, not the final network/composition contract.
- * Inbound-demand resolution, generic coverage operations and composite child
- * observations still need validation against real backends.
+ * An interface for storing and syncing sedimentrees
  */
 export interface SedimentreeBackend {
-  /**
-   * Use the requested ID or mint one, then store initial history locally.
-   * An ID that already holds records rejects with a create/conflict error;
-   * an empty ID is available. Repo supplies an ID only for
-   * `Repo.import({ docId })`; `Repo.create` always mints.
-   * IDs are 32 bytes; anything else rejects with an invalid-id error, as do
-   * the other operations.
-   */
   create(
     initialRecords: RecordBatch,
     options?: { documentId?: SedimentreeId }
   ): Promise<SedimentreeId>
 
-  /**
-   * Establish initial loading and live observation of one ID without a race,
-   * and register interest for automatic synchronization under backend policy.
-   * An empty local load leaves the session open for future data. No explicit
-   * synchronization call is required after each local store.
-   */
   open(id: SedimentreeId): SedimentreeSession
 
-  /**
-   * Resolve when ALL submitted history is recoverable under the backend's
-   * documented local durability guarantee, not when a peer receives it or an
-   * observer consumes it. Schedule propagation according to backend policy even
-   * when there is no open session for the ID: a push to subscribed peers or a
-   * synchronization round, at the backend's discretion.
-   *
-   * Acknowledge stores to one ID in submission order: resolve only once every
-   * earlier store to that ID has resolved, and reject if any of them rejected.
-   * Saves themselves may run concurrently. An acknowledged record is therefore
-   * never recoverable without the locally submitted history before it.
-   *
-   * A batch is NOT a transaction: rejection may leave some records persisted
-   * and observed. No rollback is required. Retrying the whole equivalent batch
-   * must be safe. Acknowledging a replacement must not lose both old and new data.
-   * Invalid/unsupported records reject rather than silently becoming missing data.
-   *
-   * Logical record identity does not establish representation equality or history
-   * equivalence. Variant handling is backend-specific; the memory double's exact
-   * conflict rejection is not required of other backends. Coverage-based removal
-   * or deduplication requires separate evidence, not just a matching logical key.
-   */
   store(id: SedimentreeId, batch: RecordBatch): Promise<void>
 
-  /**
-   * Capture and drain accepted local persistence for these IDs (all if omitted).
-   * Work accepted before the call is included; later work need not hold this
-   * barrier open. Drain all targeted work before reporting errors, and report
-   * failures of the captured work. Failures need not be retained for later
-   * flushes: Repo keeps each document's first failure itself. Do not wait
-   * for network delivery or stream consumers. Work buffered by the caller but
-   * not yet submitted is outside this barrier and must be submitted first.
-   */
   flush(ids?: readonly SedimentreeId[]): Promise<void>
 
-  /**
-   * Invalidate this ID's sessions, order/drain earlier work, and remove local
-   * history and protocol state. Fence callbacks from the old generation so they
-   * cannot resurrect it, and reject stores while the deletion barrier is active.
-   * Resolve only after removal, or reject on failure. The caller must also stop
-   * its own producers. A later explicit open/store or remote request can reacquire
-   * the ID; permanent refusal requires separate policy, not a local tombstone.
-   */
   deleteLocal(id: SedimentreeId): Promise<void>
 
-  /**
-   * Idempotently reject new work, quiesce producers, drain accepted persistence,
-   * end watches and release resources. Attempt all cleanup before reporting
-   * failures. There is no unconditional timeout: an uncancellable hanging write
-   * can keep close pending. Session close is not a substitute for this barrier.
-   */
   close(): Promise<void>
 }
 
-/** Independent interest in one sedimentree; not a transport connection. */
 export interface SedimentreeSession {
-  /** Initial cut and subsequent observations, as described by SedimentreeBackend. */
   readonly events: AsyncIterable<SedimentreeEvent>
 
-  /**
-   * Request a bounded round under backend policy, e.g. for an explicit retry.
-   * The result correlates with a `synchronized` event, whose marker is a target:
-   * the records it names may not have been delivered yet. Completion does not
-   * imply those records were applied by the consumer, all peers were
-   * contacted, or remote durability was obtained.
-   * Aborting cancels only this wait, not other sessions or accepted persistence.
-   */
   synchronize(options?: { signal?: AbortSignal }): Promise<SyncRoundResult>
 
-  /**
-   * Best-effort publication, with no persistence or delivery guarantee. Allocate
-   * message identity once before fanout and preserve it and claimed origin while
-   * forwarding; receiving backends/bridges deduplicate loops. No peers is a no-op.
-   * Rescan cannot recover missed ephemeral messages.
-   */
   publishEphemeral(message: EphemeralEnvelope): Promise<void>
 
   /**
-   * The consumer has verified a snapshot against a marker and is ready. It is
-   * not a claim that history is complete. Afterwards the backend may stop work
-   * it runs only to establish readiness, such as live `history-marker`s and
-   * confirmation rounds. Records, sync results and failures continue
-   * unchanged. Idempotent; a no-op for backends without such work.
+   * The consumer has verified its initial load; the backend may stop work done
+   * only for readiness. Likely to change
+   *
+   * @experimental
    */
   markReady(): void
 
-  /** Release this watch/interest and wake pending pulls, idempotently; do not delete data. */
   close(): Promise<void>
 }
 
@@ -233,7 +74,6 @@ export class BackendError extends Error {
   }
 }
 
-/** sedimentreeId(), rejecting with an `invalid-id` BackendError. */
 export function backendId(
   operation: BackendOperation,
   value: string | Uint8Array
@@ -251,15 +91,10 @@ export function backendId(
   }
 }
 
-/** Mints the 32-byte ID of a new document unless a caller supplies its own. */
 export type MintDocumentId = (
   initialRecords: RecordBatch
 ) => Uint8Array | Promise<Uint8Array>
 
-/**
- * Run a caller's minter, or the default {@link mintDocumentId}. A minter that
- * fails or yields anything but 32 bytes rejects with a create/invalid-id error.
- */
 export async function mintBackendId(
   initialRecords: RecordBatch,
   mint?: MintDocumentId
@@ -280,26 +115,20 @@ export async function mintBackendId(
   return backendId("create", minted)
 }
 
-/** Namespace/kind and child provenance are kept separate from record IDs. */
+/** Identifies a peer or Repo. */
 export interface BackendIdentity {
   readonly kind: string
   readonly id: string
   readonly path: readonly string[]
 }
 
-/** Globally unique message ID, allocated once before fanout. Forwarders preserve
- * ID and claimed origin, even when forwarding under a different signing identity.
- */
 export interface EphemeralEnvelope {
   readonly messageId: string
   readonly origin: BackendIdentity
   readonly payload: Uint8Array
 }
 
-/**
- * A process-local position in one log/lifetime, not a portable/durable cursor.
- * A result's position orders delivery, not application by the stream consumer.
- */
+/** Heads to verify, at a process-local stream position. */
 export interface HistoryMarker {
   readonly sequence: number
   readonly heads: readonly CommitId[]
@@ -308,29 +137,35 @@ export interface HistoryMarker {
 export interface SyncRoundResult {
   readonly roundId: string
   readonly marker: HistoryMarker
-  /** `failed` if any peer failed; `complete` otherwise, even if none had it. */
+  /** `failed` if any peer failed. */
   readonly outcome: "complete" | "no-peers" | "failed"
   readonly peers: readonly {
     peer: BackendIdentity
-    /** `unavailable`: the round succeeded but the peer had no history for it. */
+    /** `unavailable`: peer has no history for this ID. */
     outcome: "complete" | "unavailable" | "failed"
     error?: BackendError
   }[]
 }
 
 export type SedimentreeEvent =
+  /** `initial` records form the local load; `live` records follow. */
   | {
       readonly type: "records"
       readonly sequence: number
       readonly phase: "initial" | "live"
       readonly records: RecordBatch
     }
+  /**
+   * End of the local load. If it was empty, the backend runs a sync round
+   * itself and reports it as `synchronized`.
+   */
   | {
       readonly type: "local-load-complete"
       readonly marker: HistoryMarker
       readonly found: boolean
     }
   | { readonly type: "history-marker"; readonly marker: HistoryMarker }
+  /** Its marker is a target: named records may arrive afterwards. */
   | { readonly type: "synchronized"; readonly result: SyncRoundResult }
   | {
       readonly type: "remote-heads"
@@ -342,12 +177,14 @@ export type SedimentreeEvent =
       readonly type: "ephemeral"
       readonly sequence: number
       readonly message: EphemeralEnvelope
-      /** Authenticated signed originator, not the claimed origin or relay peer. */
+      /** Verified sender. */
       readonly sender: BackendIdentity
     }
+  /** A nonretryable failure ends the stream. */
   | {
       readonly type: "failure"
       readonly sequence: number
       readonly error: BackendError
     }
+  /** Ends the stream. */
   | { readonly type: "deleted"; readonly sequence: number }
