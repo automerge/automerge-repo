@@ -13,6 +13,7 @@ import {
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import { idBytes, sedimentreeId } from "../src/sedimentree/index.js"
 import { extractRecords } from "../src/sedimentree/automerge/index.js"
+import { commitStores } from "./helpers/commitStores.js"
 import type {
   AnyDocumentId,
   AutomergeUrl,
@@ -348,11 +349,14 @@ describe("backend-driven Repo", () => {
     const r = repo(backend)
     const handle = await r.create({ count: 0, local: false })
     let fork = A.clone(handle.fullDoc())
-    for (let count = 1; count <= 1200; count++)
+    let count = 0
+    // Hashes are random: keep going until some commit is a fragment boundary.
+    const fragmented = () =>
+      A.getFragmentMetadata(fork).some(meta => meta.level > 0)
+    while (count < 1200 || !fragmented())
       fork = A.change(fork, { time: 0 }, doc => {
-        doc.count = count
+        doc.count = ++count
       })
-    expect(A.getFragmentMetadata(fork).some(meta => meta.level > 0)).toBe(true)
     await handle.change(doc => {
       doc.local = true
     })
@@ -361,8 +365,9 @@ describe("backend-driven Repo", () => {
       handle
     )
     // A merge stores its commits and their fragments in one batch.
-    expect(store).toHaveBeenCalledOnce()
-    const kinds = new Set(store.mock.calls[0][1].map(record => record.kind))
+    const stores = commitStores(store)
+    expect(stores).toHaveLength(1)
+    const kinds = new Set(stores[0][1].map(record => record.kind))
     expect(kinds).toEqual(new Set(["commit", "fragment"]))
     const heads = A.getHeads(handle.fullDoc())
     const historyLength = A.getAllChanges(handle.fullDoc()).length
@@ -370,7 +375,7 @@ describe("backend-driven Repo", () => {
     const reloaded = await r.find<{ count: number; local: boolean }>(
       handle.documentId
     )
-    expect(reloaded.doc()).toEqual({ count: 1200, local: true })
+    expect(reloaded.doc()).toEqual({ count, local: true })
     expect(A.getHeads(reloaded.fullDoc())).toEqual(heads)
     expect(A.getAllChanges(reloaded.fullDoc())).toHaveLength(historyLength)
   })

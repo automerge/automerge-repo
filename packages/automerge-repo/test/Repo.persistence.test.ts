@@ -9,6 +9,7 @@ import { sedimentreeId, type SedimentreeId } from "../src/sedimentree/index.js"
 import { applyRecords } from "../src/sedimentree/automerge/index.js"
 import type { DocumentId } from "../src/types.js"
 import { scriptedBackend } from "./helpers/scriptedBackend.js"
+import { commitStores, hasCommits } from "./helpers/commitStores.js"
 
 type Doc = { count: number; nested?: { value: number } }
 
@@ -114,7 +115,7 @@ describe("Repo persistence", () => {
       await handle.change(doc => {
         doc.count = 1
       })
-      expect(store).toHaveBeenCalledTimes(1)
+      expect(commitStores(store)).toHaveLength(1)
     })
 
     it("captures change, changeAt, merge, and scoped removal", async () => {
@@ -136,7 +137,7 @@ describe("Repo persistence", () => {
       ).handle
       await handle.merge(other)
       await handle.sub("nested").remove()
-      expect(store).toHaveBeenCalledTimes(4)
+      expect(commitStores(store)).toHaveLength(4)
       expect(handle.doc()?.nested).toBeUndefined()
     })
 
@@ -259,20 +260,18 @@ describe("Repo persistence", () => {
       const store = backend.store.bind(backend)
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
+      const gates = [firstGate, laterGate]
+      // Gate commit stores only: a flush compaction must not take a gate.
       const spy = vi
         .spyOn(backend, "store")
-        .mockImplementationOnce(async (id, batch) => {
-          await firstGate.promise
-          return store(id, batch)
-        })
-        .mockImplementationOnce(async (id, batch) => {
-          await laterGate.promise
+        .mockImplementation(async (id, batch) => {
+          if (hasCommits(batch)) await gates.shift()?.promise
           return store(id, batch)
         })
       const first = handle.change(d => {
         d.count = 1
       })
-      await vi.waitFor(() => expect(spy).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(commitStores(spy)).toHaveLength(1))
       const flushed = r.flush()
       const later = handle.change(d => {
         d.count = 2
@@ -280,7 +279,7 @@ describe("Repo persistence", () => {
       firstGate.resolve()
       await flushed
       await first
-      expect(spy).toHaveBeenCalledTimes(2)
+      expect(commitStores(spy)).toHaveLength(2)
       laterGate.resolve()
       await later
     })
