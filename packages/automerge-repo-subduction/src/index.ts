@@ -255,7 +255,15 @@ export class SubductionBackend implements SedimentreeBackend {
     return this.sessions.get(id) ?? []
   }
   private broadcast(id: SedimentreeId, event: SedimentreeEvent): void {
-    for (const { watch } of this.sessionsFor(id)) watch.push(event)
+    for (const { watch } of this.sessionsFor(id)) this.deliver(watch, event)
+  }
+  /** A nonretryable failure ends the watch; everything else queues. */
+  private deliver(
+    watch: Watch<SedimentreeEvent>,
+    event: SedimentreeEvent
+  ): void {
+    if (event.type === "failure" && !event.error.retryable) watch.finish(event)
+    else watch.push(event)
   }
   private failure(
     operation: BackendOperation,
@@ -327,7 +335,9 @@ export class SubductionBackend implements SedimentreeBackend {
     if (session.confirming || session.ready) return
     session.confirming = true
     void this.syncRound(session.id, session)
-      .catch(cause => session.watch.push(this.failure("synchronize", cause)))
+      .catch(cause =>
+        this.deliver(session.watch, this.failure("synchronize", cause))
+      )
       .finally(() => {
         session.confirming = false
       })
@@ -549,7 +559,7 @@ export class SubductionBackend implements SedimentreeBackend {
           sessionCheck("synchronize")
           const work = this.syncRound(id, session).catch(cause => {
             const failure = this.failure("synchronize", cause)
-            watch.push(failure)
+            this.deliver(watch, failure)
             throw failure.error
           })
           // An aborted wait leaves the round's own rejection unobserved.

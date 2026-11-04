@@ -47,6 +47,9 @@ A consumer compacts the boundary commits it stores. It also compacts those its
 initial cut holds without a covering fragment, which `fragmentRequests`
 derives from the cut's metadata.
 
+A nonretryable `failure` is the final event of its session, superseding queued
+events; retryable ones leave it open.
+
 Deletion invalidates existing sessions and supersedes queued old-generation
 records with a final `deleted` event. A later explicit open/store can reacquire
 the ID. Deletion is not a replicated tombstone. A closed backend rejects new work.

@@ -56,8 +56,10 @@ import type { RecordBatch } from "./records.js"
  *   (not necessarily the immediate relay/transport peer). Consumers use `sender`
  *   for application sender identity; claimed origin is untrusted loop metadata.
  * - `failure`: an operation-scoped error, not an empty lookup. Retryable failures
- *   leave the watch usable; nonretryable failures may end it. Neither proves
- *   global absence. Explicit operations can also reject their promises.
+ *   leave the watch usable. A nonretryable failure ends the watch rather than
+ *   leave a pending read hanging; like `deleted`, it supersedes queued events.
+ *   `ephemeral` failures are never terminal. Neither proves global absence.
+ *   Explicit operations can also reject their promises.
  * - `deleted`: invalidates the old local generation and ends its stream,
  *   superseding queued old-generation data. This is not a replicated tombstone.
  *

@@ -2,6 +2,7 @@
 import * as N from "@automerge/subduction"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  BackendError,
   commitId,
   sedimentreeId,
   type LooseCommitRecord,
@@ -625,6 +626,31 @@ describe("real local Subduction", () => {
     })
     // The session keeps working after the failed round.
     expect(await session.synchronize()).toMatchObject({ outcome: "no-peers" })
+  })
+
+  it("ends the watch after a nonretryable round failure, superseding queued events", async () => {
+    const backend = create()
+    const session = backend.open(tree)
+    const { iterator } = await initial(session)
+    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    vi.spyOn(engine, "getConnectedPeerIds").mockResolvedValue([somePeer])
+    // Either the store's propagation round or ours fails first.
+    vi.spyOn(engine, "syncWithAllPeers").mockRejectedValue(
+      new BackendError("synchronize", "unsupported", "fatal", false)
+    )
+    await backend.store(tree, [record(1)])
+    await expect(session.synchronize()).rejects.toMatchObject({
+      retryable: false,
+    })
+    // The record queued before the failure is superseded.
+    expect(await next(iterator)).toMatchObject({
+      type: "failure",
+      error: { code: "unsupported", retryable: false },
+    })
+    expect((await iterator.next()).done).toBe(true)
+    await expect(session.synchronize()).rejects.toMatchObject({
+      code: "closed",
+    })
   })
 
   it("settles an empty load without peers through a confirmation result, without a native round", async () => {
