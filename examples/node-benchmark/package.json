@@ -12,5 +12,5 @@
     "@automerge/automerge-repo-subduction": "workspace:*",
     "@automerge/subduction": "catalog:"
   },
-  "version": "3.0.0-experimental.2"
+  "version": "3.0.0-alpha.0"
 }
