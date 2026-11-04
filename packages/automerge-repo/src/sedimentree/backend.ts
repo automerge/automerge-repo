@@ -45,10 +45,12 @@ import type { RecordBatch } from "./records.js"
  *   deliveries. The consumer must process those records and verify history
  *   inclusion using its CRDT; nonempty heads are not enough.
  * - `synchronized`: the result of a bounded synchronization round. Its marker
- *   covers history the round ingested; it is not ordered after concurrent
- *   local stores, and the stream may deliver records after it. Resolving the matching `synchronize()` promise does not
- *   mean the stream has been consumed. Neither `complete` nor `no-peers` proves
- *   global convergence or remote durability; per-peer outcomes retain identity.
+ *   names the heads the round left in local history: a target to verify, not
+ *   a receipt. Records it names may still be in flight on the stream, and a
+ *   local store concurrent with the round may or may not be included.
+ *   Resolving the matching `synchronize()` promise does not mean the stream
+ *   has been consumed. Neither `complete` nor `no-peers` proves global
+ *   convergence or remote durability; per-peer outcomes retain identity.
  * - `remote-heads`: a peer's advertised history, not proof that we have it or
  *   that the peer has durably stored our writes.
  * - `ephemeral`: best-effort, nonpersistent application data. The envelope's
@@ -93,7 +95,8 @@ export interface SedimentreeBackend {
   /**
    * Use the requested ID or mint one, then store initial history locally.
    * An ID that already holds records rejects with a create/conflict error;
-   * an empty ID is available. Supplied IDs are a backend-only option, not Repo.create.
+   * an empty ID is available. Repo supplies an ID only for
+   * `Repo.import({ docId })`; `Repo.create` always mints.
    * IDs are 32 bytes; anything else rejects with an invalid-id error, as do
    * the other operations.
    */
@@ -171,9 +174,10 @@ export interface SedimentreeSession {
 
   /**
    * Request a bounded round under backend policy, e.g. for an explicit retry.
-   * The result correlates with a `synchronized` event (see its ordering
-   * caveats above). Completion does not imply those records were applied
-   * by the consumer, all peers were contacted, or remote durability was obtained.
+   * The result correlates with a `synchronized` event, whose marker is a target:
+   * the records it names may not have been delivered yet. Completion does not
+   * imply those records were applied by the consumer, all peers were
+   * contacted, or remote durability was obtained.
    * Aborting cancels only this wait, not other sessions or accepted persistence.
    */
   synchronize(options?: { signal?: AbortSignal }): Promise<SyncRoundResult>

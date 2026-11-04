@@ -36,7 +36,8 @@ updates. Initial records precede `local-load-complete`, whose marker holds the
 heads of the initial cut; Repo applies the cut in one load and checks history
 inclusion against it. An empty load is not a readiness proof. After an empty
 cut the backend asks connected peers itself and delivers a `synchronized`
-result; Repo never starts a round on load.
+result; Repo never starts a round on load. A `synchronized` marker is a target,
+not a receipt: the records it names may arrive on the stream after it.
 
 Streams have one consumer and allow only one outstanding `next()`. Closing a
 session, ending iteration, or closing the backend wakes a pending pull. Multiple
