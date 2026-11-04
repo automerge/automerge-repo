@@ -5,13 +5,20 @@ import type { DocumentId, PeerId, SyncInfo, UrlHeads } from "./types.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
 import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
-import type { RootQuery } from "./DocumentQuery.js"
+import { DocHandle } from "./DocHandle.js"
+import { RootQuery } from "./DocumentQuery.js"
+import type { Document } from "./Document.js"
+
+/** What a {@link DocumentState} asks of the {@link Document} that owns it. */
+type Owner = Pick<Document<any>, "commit" | "publishEphemeral">
 
 /**
  * Per-document shared state - one per `documentId`, referenced by every
  * `DocHandle` (root, sub, view) into that document. Owns the Automerge
- * snapshot and the {@link HandleRegistry} (identity, pattern resolution,
- * listeners, dispatch). Not part of the public API.
+ * snapshot, the root handle, its readiness query and the
+ * {@link HandleRegistry} (identity, pattern resolution, listeners, dispatch).
+ * Local edits and ephemeral messages go out through its owning
+ * {@link Document}. Not part of the public API.
  *
  * @internal
  */
@@ -19,12 +26,14 @@ export class DocumentState<T = unknown> {
   readonly documentId: DocumentId
   readonly registry: HandleRegistry
   readonly log: Logger
+  /** The root handle Repo hands out. */
+  readonly handle: DocHandle<T>
+  /** Owns readiness. */
+  readonly query: RootQuery<T>
+  readonly #owner: Owner
 
   /** No WASM document until storage, peer history, or a caller needs one. */
   #doc?: A.Doc<T>
-
-  /** Owns readiness; set by Repo right after construction. */
-  query!: RootQuery<any>
 
   /** Set by {@link DocumentState.delete}. */
   deleted = false
@@ -36,15 +45,6 @@ export class DocumentState<T = unknown> {
   /** Peers whose reports arrived before ready; their latest is in `#syncInfo`. */
   #pendingRemoteHeads = new Set<PeerId>()
 
-  /** Capture local history synchronously, before reentrant listeners run.
-   * `compact` stores the fragments of new boundary commits in the same batch. */
-  commit?: (
-    before: A.Doc<any>,
-    after: A.Doc<any>,
-    options?: { compact?: boolean }
-  ) => Promise<void>
-  /** Best-effort outbound ephemeral publication; set by the delegate. */
-  publishEphemeral?: (payload: Uint8Array) => Promise<void>
   #events: (() => void)[] = []
   #dispatching = false
 
@@ -59,11 +59,20 @@ export class DocumentState<T = unknown> {
    */
   #viewCache = new WeakValueMap<string, A.Doc<T>>()
 
-  constructor(documentId: DocumentId, initialDoc?: A.Doc<T>) {
+  /** The owner is only stored here, not called, so it may still be constructing. */
+  constructor(documentId: DocumentId, owner: Owner, initialDoc?: A.Doc<T>) {
     this.documentId = documentId
+    this.#owner = owner
     this.#doc = initialDoc
     this.registry = new HandleRegistry(this)
     this.log = makeLogger(`automerge-repo:doc:${documentId.slice(0, 5)}`)
+    this.handle = new DocHandle(this)
+    this.query = new RootQuery(this.handle)
+  }
+
+  /** Best-effort; failures are logged by the owner, never rejected. */
+  publishEphemeral(payload: Uint8Array): Promise<void> {
+    return this.#owner.publishEphemeral(payload)
   }
 
   get doc(): A.Doc<T> {
@@ -201,8 +210,7 @@ export class DocumentState<T = unknown> {
     const stored =
       options.incoming || !before
         ? Promise.resolve()
-        : (this.commit?.(before, after, { compact: options.compact }) ??
-          Promise.resolve())
+        : this.#owner.commit(before, after, { compact: options.compact })
     void stored.catch(() => {})
     if (arraysAreEqual(beforeHeads, afterHeads)) return stored
     const initial =

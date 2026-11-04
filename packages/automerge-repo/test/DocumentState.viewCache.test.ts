@@ -2,6 +2,7 @@ import { next as A } from "@automerge/automerge"
 import { describe, expect, it } from "vitest"
 import { encodeHeads } from "../src/AutomergeUrl.js"
 import { DocumentState } from "../src/DocumentState.js"
+import { noopOwner } from "./helpers/testHandle.js"
 import type { DocumentId, UrlHeads } from "../src/types.js"
 import { flushGC, gcAvailable, waitForGC } from "./helpers/flushGC.js"
 
@@ -17,7 +18,7 @@ const setup = (): { document: DocumentState<TestDoc>; oldHeads: UrlHeads } => {
     d.count = 2
   })
   return {
-    document: new DocumentState("test-doc-id" as DocumentId, doc),
+    document: new DocumentState("test-doc-id" as DocumentId, noopOwner, doc),
     oldHeads,
   }
 }

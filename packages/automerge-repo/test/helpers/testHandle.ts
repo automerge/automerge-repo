@@ -1,13 +1,19 @@
 import { next as A } from "@automerge/automerge/slim"
-import { DocHandle } from "../../src/DocHandle.js"
+import type { DocHandle } from "../../src/DocHandle.js"
 import { DocumentState } from "../../src/DocumentState.js"
-import { RootQuery } from "../../src/DocumentQuery.js"
+import type { RootQuery } from "../../src/DocumentQuery.js"
 import type { DocumentId } from "../../src/types.js"
 
 const states = new WeakMap<DocHandle<any>, DocumentState<any>>()
 
+/** Stands in for the owning Document: edits are accepted and stored nowhere. */
+export const noopOwner = {
+  commit: async () => {},
+  publishEphemeral: async () => {},
+}
+
 /**
- * Wire a DocumentState, root handle and query as Repo does. Ready unless
+ * A DocumentState with its root handle and query, without a backend. Ready unless
  * `ready: false`, for tests driving the query themselves.
  */
 export function createTestDocument<T>(
@@ -15,10 +21,8 @@ export function createTestDocument<T>(
   doc: A.Doc<T> = A.init<T>(),
   { ready = true }: { ready?: boolean } = {}
 ): { state: DocumentState<T>; handle: DocHandle<T>; query: RootQuery<T> } {
-  const state = new DocumentState<T>(documentId, doc)
-  const handle = new DocHandle<T>(state)
-  const query = new RootQuery<T>(handle)
-  state.query = query
+  const state = new DocumentState<T>(documentId, noopOwner, doc)
+  const { handle, query } = state
   if (ready) query.ready()
   states.set(handle, state)
   return { state, handle, query }

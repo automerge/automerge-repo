@@ -9,9 +9,7 @@ import {
 } from "./AutomergeUrl.js"
 import { DocHandle } from "./DocHandle.js"
 import { Document } from "./Document.js"
-import { DocumentState } from "./DocumentState.js"
 import {
-  RootQuery,
   queryAtHeads,
   queryAtPath,
   waitUntilReady,
@@ -37,17 +35,10 @@ import type {
 } from "./types.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
 
-type Entry<T = any> = {
-  state: DocumentState<T>
-  handle: DocHandle<T>
-  query: RootQuery<T>
-  document: Document<T>
-}
-
 /** Owns Automerge documents; its backend owns their storage and sync. */
 export class Repo extends EventEmitter<RepoEvents> {
   #log = makeLogger("automerge-repo:repo")
-  #entries = new Map<DocumentId, Entry>()
+  #documents = new Map<DocumentId, Document<any>>()
   #backend: SedimentreeBackend
   #operations = new Set<Promise<unknown>>()
   #closed = false
@@ -80,7 +71,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   get handles(): Record<DocumentId, DocHandle<any>> {
     return Object.fromEntries(
-      [...this.#entries].map(([id, entry]) => [id, entry.handle])
+      [...this.#documents].map(([id, document]) => [id, document.handle])
     ) as Record<DocumentId, DocHandle<any>>
   }
 
@@ -134,9 +125,9 @@ export class Repo extends EventEmitter<RepoEvents> {
           segments: undefined,
         }
     const { documentId, heads, segments } = parsed
-    const entry: Entry<T> =
-      this.#entries.get(documentId) ?? this.#register<T>(documentId)
-    let query: DocumentQuery<T> = entry.query
+    const document: Document<T> =
+      this.#documents.get(documentId) ?? this.#register<T>(documentId)
+    let query: DocumentQuery<T> = document.query
     if (heads) query = queryAtHeads(query, heads)
     if (segments?.length) query = queryAtPath(query, segments)
     return query
@@ -158,7 +149,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     id?: DocumentId
   ): Promise<DocHandle<T>> {
     if (!id) return this.#createDocument(doc)
-    const existing = this.#entries.get(id)
+    const existing = this.#documents.get(id)
     if (existing?.query.state().status === "ready") {
       await existing.state.applyMutation(
         current => A.merge(current, A.clone(doc)),
@@ -174,7 +165,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       if (!(error instanceof BackendError && error.code === "conflict"))
         throw error
       const handle = await this.find<T>(id)
-      await this.#entries
+      await this.#documents
         .get(id)!
         .state.applyMutation(current => A.merge(current, A.clone(doc)), {
           compact: true,
@@ -195,12 +186,12 @@ export class Repo extends EventEmitter<RepoEvents> {
     )
     const id = binaryToDocumentId(idBytes(allocated) as BinaryDocumentId)
     this.#checkOpen()
-    const existing = this.#entries.get(id)
+    const existing = this.#documents.get(id)
     if (existing) {
       // Loading can begin while backend creation is pending. Adopt that shared entry.
       if (existing.state.deleted || existing.state.closed)
         throw new Error("Document is no longer open")
-      existing.document.adopt(doc)
+      existing.adopt(doc)
       return existing.handle
     }
     return this.#register<T>(id, doc).handle
@@ -212,24 +203,19 @@ export class Repo extends EventEmitter<RepoEvents> {
     return sedimentreeId(bytes)
   }
 
-  #register<T>(id: DocumentId, initial?: A.Doc<T>): Entry<T> {
-    const state = new DocumentState<T>(id, initial)
-    const handle = new DocHandle(state)
-    const query = new RootQuery(handle)
-    state.query = query
-    const document = new Document(
+  #register<T>(id: DocumentId, initial?: A.Doc<T>): Document<T> {
+    const document = new Document<T>(
       this.#backendId(id),
-      state,
-      query,
+      id,
       this.#backend,
       this.#identity,
-      !!initial
+      initial
     )
-    const entry: Entry<T> = { state, handle, query, document }
-    this.#entries.set(id, entry)
+    const { handle } = document
+    this.#documents.set(id, document)
     let announced = false
     document.start()
-    query.subscribe(state => {
+    document.query.subscribe(state => {
       if (!announced && state.status === "ready") {
         announced = true
         this.emit("document", { handle })
@@ -238,11 +224,11 @@ export class Repo extends EventEmitter<RepoEvents> {
         this.emit("unavailable-document", { documentId: id })
       if (
         (state.status !== "deleted" && state.status !== "failed") ||
-        this.#entries.get(id) !== entry
+        this.#documents.get(id) !== document
       )
         return
-      // A settled query is final; a later lookup starts a fresh entry.
-      this.#entries.delete(id)
+      // A settled query is final; a later lookup starts a fresh document.
+      this.#documents.delete(id)
       // Shutdown releases sessions itself.
       if (this.#closed) return
       void this.#track(document.release()).catch(error =>
@@ -251,7 +237,7 @@ export class Repo extends EventEmitter<RepoEvents> {
       if (state.status === "deleted")
         this.emit("delete-document", { documentId: id })
     })
-    return entry
+    return document
   }
 
   async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
@@ -264,10 +250,10 @@ export class Repo extends EventEmitter<RepoEvents> {
   delete(id: AnyDocumentId): Promise<void> {
     this.#checkOpen()
     const documentId = interpretAsDocumentId(id)
-    const entry = this.#entries.get(documentId)
-    // A settled entry's subscriber ignores it once it leaves the map, so it
+    const document = this.#documents.get(documentId)
+    // A settled document's subscriber ignores it once it leaves the map, so it
     // neither releases the session nor emits; this call does both.
-    this.#entries.delete(documentId)
+    this.#documents.delete(documentId)
     // The backend fences the ID synchronously, so reentrant delete listeners
     // cannot reacquire it; it drains earlier stores before removal. Then stop
     // our own producer and release the session.
@@ -277,7 +263,6 @@ export class Repo extends EventEmitter<RepoEvents> {
     } catch (error) {
       removal = Promise.reject(error)
     }
-    const document = entry?.document
     const release = (async () => {
       document?.markDeleted()
       await document?.release()
@@ -308,13 +293,13 @@ export class Repo extends EventEmitter<RepoEvents> {
       const documents = ids?.map(interpretAsDocumentId)
       const backend = this.#backend
       const targets = documents
-        ? documents.flatMap(id => this.#entries.get(id) ?? [])
-        : [...this.#entries.values()]
+        ? documents.flatMap(id => this.#documents.get(id) ?? [])
+        : [...this.#documents.values()]
       return this.#track(
         (async () => {
           // Compactions submit their stores synchronously, so the barrier
           // captured next covers them; a queued rerun is awaited directly.
-          const compactions = targets.map(entry => entry.document.compactNow())
+          const compactions = targets.map(document => document.compactNow())
           const barrier = backend.flush(
             documents?.map(id => this.#backendId(id))
           )
@@ -324,9 +309,9 @@ export class Repo extends EventEmitter<RepoEvents> {
               error instanceof AggregateError ? error.errors : [error]
             )
           )
-          for (const entry of targets) {
-            const failure = entry.state.writeFailure
-            if (failure && !entry.state.deleted) errors.add(failure.error)
+          for (const document of targets) {
+            const failure = document.state.writeFailure
+            if (failure && !document.state.deleted) errors.add(failure.error)
           }
           if (errors.size)
             throw new AggregateError([...errors], "Repo flush failed")
@@ -341,38 +326,37 @@ export class Repo extends EventEmitter<RepoEvents> {
   async removeFromCache(input: DocumentId): Promise<void> {
     this.#checkOpen()
     const id = interpretAsDocumentId(input)
-    const entry = this.#entries.get(id)
-    if (!entry) return
-    const document = entry.document
+    const document = this.#documents.get(id)
+    if (!document) return
     // Stop edits before draining; otherwise retained handles can outlive eviction.
     document.close()
     await this.flush([id])
     await this.#track(document.release())
-    if (this.#entries.get(id) === entry) this.#entries.delete(id)
-    entry.query.fail(new Error("Document removed from cache"))
+    if (this.#documents.get(id) === document) this.#documents.delete(id)
+    document.query.fail(new Error("Document removed from cache"))
   }
 
   /** Best-effort teardown. Use flush() first when persistence failures must reject. */
   shutdown(): Promise<void> {
     if (this.#shutdown) return this.#shutdown
     this.#closed = true
-    const entries = [...this.#entries.values()]
-    for (const entry of entries) entry.document.close()
+    const documents = [...this.#documents.values()]
+    for (const document of documents) document.close()
     const operations = [...this.#operations]
     const backend = this.#backend
     // Install the promise before notifying subscribers that may reenter shutdown.
     this.#shutdown = Promise.resolve().then(async () => {
-      for (const entry of entries)
-        entry.query.fail(new Error("Repo is shut down"))
+      for (const document of documents)
+        document.query.fail(new Error("Repo is shut down"))
       const results = await Promise.allSettled(operations)
       results.push(
         ...(await Promise.allSettled(
-          entries.map(entry => entry.document.compactNow())
+          documents.map(document => document.compactNow())
         ))
       )
       results.push(...(await Promise.allSettled([backend.flush()])))
       results.push(...(await Promise.allSettled([backend.close()])))
-      await Promise.allSettled(entries.map(entry => entry.document.settled()))
+      await Promise.allSettled(documents.map(document => document.settled()))
       for (const error of collectErrors(results))
         this.#log.error("error during Repo shutdown", error)
     })
@@ -384,7 +368,10 @@ export class Repo extends EventEmitter<RepoEvents> {
   } {
     return {
       documents: Object.fromEntries(
-        [...this.#entries].map(([id, entry]) => [id, entry.handle.metrics()])
+        [...this.#documents].map(([id, document]) => [
+          id,
+          document.handle.metrics(),
+        ])
       ),
     }
   }

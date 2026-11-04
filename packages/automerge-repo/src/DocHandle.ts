@@ -5,7 +5,7 @@ import {
   encodeHeads,
   stringifyAutomergeUrl,
 } from "./AutomergeUrl.js"
-import { DocumentState } from "./DocumentState.js"
+import type { DocumentState } from "./DocumentState.js"
 import { encode } from "./helpers/cbor.js"
 import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
 import type {
@@ -93,8 +93,9 @@ export class DocHandle<T> {
   /** If set, this handle will only show the document at these heads */
   #fixedHeads?: UrlHeads
 
-  /** Shared per-document state. Every handle into the same doc shares one. */
-  readonly #state: DocumentState<T>
+  /** Shared per-document state. Every handle into the same doc shares one;
+   * a sub-handle's `T` is its scoped value's type, not the document's. */
+  readonly #state: DocumentState<any>
 
   /** Symbolic path. Empty on root handles; pattern segments resolved via the registry. */
   #path: PathSegment[] = []
@@ -107,7 +108,7 @@ export class DocHandle<T> {
   }
 
   /** @internal Handles are obtained from a {@link Repo} or another handle. */
-  constructor(state: DocumentState<T>, options: DocHandleOptions = {}) {
+  constructor(state: DocumentState<any>, options: DocHandleOptions = {}) {
     this.#state = state
     this.#fixedHeads = options.heads
     this.#path = options.pathSegments ?? []
@@ -469,7 +470,7 @@ export class DocHandle<T> {
    * the root and every other handle of it.
    */
   broadcast(message: unknown) {
-    void this.#state.publishEphemeral?.(encode(message))
+    void this.#state.publishEphemeral(encode(message))
   }
 
   metrics(): { numOps: number; numChanges: number } {

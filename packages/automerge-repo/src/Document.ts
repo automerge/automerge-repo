@@ -1,8 +1,9 @@
 import { next as A } from "@automerge/automerge/slim"
-import type { DocumentState } from "./DocumentState.js"
+import type { DocHandle } from "./DocHandle.js"
+import { DocumentState } from "./DocumentState.js"
 import type { RootQuery } from "./DocumentQuery.js"
 import { decode } from "./helpers/cbor.js"
-import type { RepoId, PeerId } from "./types.js"
+import type { DocumentId, RepoId, PeerId } from "./types.js"
 import {
   checkpointForCommit,
   fragmentRequests,
@@ -86,27 +87,38 @@ export class Document<T> {
   #cancelIdle?: () => void
   #compacting: Promise<void> = Promise.resolve()
   #running = false
+  /** Created locally with initial history: ready as soon as it starts. */
+  #created: boolean
+  readonly state: DocumentState<T>
 
   constructor(
     readonly sedimentreeId: SedimentreeId,
-    readonly state: DocumentState<T>,
-    readonly query: RootQuery<T>,
+    documentId: DocumentId,
     private backend: SedimentreeBackend,
     /** The owning Repo's identity, e.g. as the origin of its ephemerals. */
     private repoIdentity: BackendIdentity,
-    created = false
+    initial?: A.Doc<T>
   ) {
-    state.commit = (before, after, options) =>
-      this.commit(before, after, options)
-    state.publishEphemeral = payload =>
-      this.publishEphemeral(payload).catch(error =>
-        this.#log("ephemeral publication failed: %o", error)
-      )
-    if (created) this.#complete()
+    this.#created = !!initial
+    this.state = new DocumentState(documentId, this, initial)
+  }
+
+  /** The root handle. */
+  get handle(): DocHandle<T> {
+    return this.state.handle
+  }
+
+  get query(): RootQuery<T> {
+    return this.state.query
   }
 
   /** Open the backend session and start consuming its events. */
   start(): void {
+    // Before the session opens, so it is told the snapshot is complete.
+    if (this.#created) {
+      this.#created = false
+      this.#complete()
+    }
     if (this.state.closed || this.#session) return
     let session: SedimentreeSession
     try {
@@ -151,8 +163,9 @@ export class Document<T> {
 
   // -- Writes --
 
-  /** Store new changes as loose commits. Boundaries among them are compacted
-   * later, or with `compact` (merges and imports) bundled into this batch. */
+  /** Store new changes as loose commits, capturing them synchronously before
+   * reentrant listeners run. Boundaries among them are compacted later, or
+   * with `compact` (merges and imports) bundled into this batch. */
   commit(
     before: A.Doc<T>,
     after: A.Doc<T>,
@@ -286,14 +299,19 @@ export class Document<T> {
     this.#complete()
   }
 
+  /** Best-effort: failures are logged, never rejected. */
   async publishEphemeral(payload: Uint8Array): Promise<void> {
-    const session = this.#session
-    if (!session || this.state.closed) throw new Error("No active session")
-    await session.publishEphemeral({
-      messageId: crypto.randomUUID(),
-      origin: this.repoIdentity,
-      payload,
-    })
+    try {
+      const session = this.#session
+      if (!session || this.state.closed) throw new Error("No active session")
+      await session.publishEphemeral({
+        messageId: crypto.randomUUID(),
+        origin: this.repoIdentity,
+        payload,
+      })
+    } catch (error) {
+      this.#log("ephemeral publication failed: %o", error)
+    }
   }
 
   /** Stop edits; stores in flight can still be awaited with the backend's flush. */
