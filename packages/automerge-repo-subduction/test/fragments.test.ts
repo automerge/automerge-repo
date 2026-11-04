@@ -74,11 +74,12 @@ function sameHeadVariants() {
     for (const index of order) [doc] = A.applyChanges(doc, [encoded[index]])
     return doc
   })
-  const variants = docs.map(doc =>
-    extractRecords(doc).find(
-      (record): record is FragmentRecord =>
-        record.kind === "fragment" && record.head === head
-    )!
+  const variants = docs.map(
+    doc =>
+      extractRecords(doc).find(
+        (record): record is FragmentRecord =>
+          record.kind === "fragment" && record.head === head
+      )!
   )
   return { variants, docs }
 }
