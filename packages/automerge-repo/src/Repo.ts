@@ -3,6 +3,7 @@ import { makeLogger } from "./Logger.js"
 import { EventEmitter } from "eventemitter3"
 import {
   binaryToDocumentId,
+  encodeHeads,
   generateAutomergeUrl,
   interpretAsDocumentId,
   isValidAutomergeUrl,
@@ -42,8 +43,16 @@ import { Document } from "./Document.js"
 import { truePromiseFactory } from "./helpers/truePromiseFactory.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
 import { hasAtLeastOneKey } from "./helpers/has-at-least-one-key.js"
+import { headsAreSame } from "./helpers/headsAreSame.js"
 import { noop } from "./helpers/noop.js"
 import { semaphore } from "./helpers/semaphore.js"
+import { WeakValueMap } from "./helpers/WeakValueMap.js"
+import { KeepAlive } from "./helpers/KeepAlive.js"
+import {
+  kOnHeadsChanged,
+  kOnRetainChange,
+  kSeverRetention,
+} from "./internals.js"
 
 /**
  * Default for {@link RepoConfig.flushConcurrency}: the number of documents
@@ -52,6 +61,13 @@ import { semaphore } from "./helpers/semaphore.js"
  * adapter's connections / file descriptors / memory, so the fan-out is bounded.
  */
 const DEFAULT_FLUSH_CONCURRENCY = 20
+
+/**
+ * Default for {@link RepoConfig.releaseUnobservedAfterMs} when the repo has
+ * storage: an unobserved document is released 30 to 60 seconds after its last
+ * activity. Without storage the default is `Infinity`.
+ */
+export const DEFAULT_RELEASE_UNOBSERVED_AFTER_MS = 30_000
 
 export type { DocumentProgress } from "./DocumentQuery.js"
 export { DocumentQuery } from "./DocumentQuery.js"
@@ -76,7 +92,38 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** @hidden */
   storageSubsystem?: StorageSubsystem
 
-  #queries: Record<DocumentId, DocumentQuery<any>> = {}
+  /**
+   * Per-document queries, held weakly. The document cluster itself retains
+   * the query (its heads-changed listener on the root handle closes over
+   * it), so an entry lives exactly as long as something keeps the document
+   * alive - a consumer handle or progress, an external listener (via
+   * #retainedDocuments), a pending `whenReady`, in-flight repo work, or
+   * recent activity (via #keepAlive) - and evicts itself afterwards.
+   */
+  #queries = new WeakValueMap<DocumentId, DocumentQuery<any>>()
+
+  /**
+   * Documents with at least one external retainer (public listener, query
+   * subscriber, or pending `whenReady`), driven by the document's
+   * `kOnRetainChange` callback. This strong root keeps events flowing
+   * for subscribed consumers even after they drop every handle.
+   */
+  #retainedDocuments = new Set<Document<unknown>>()
+
+  /**
+   * Queries held after their last activity, per
+   * {@link RepoConfig.releaseUnobservedAfterMs}. Undefined when that is 0.
+   */
+  #keepAlive?: KeepAlive<DocumentQuery<unknown>>
+  #releaseUnobservedAfterMs: number
+  #maxUnobservedBytes: number
+  /**
+   * Documents whose last save failed, held until a save at their current
+   * heads succeeds. Used only with {@link RepoConfig.retainUntilSaved}.
+   */
+  #unsaved = new Set<DocumentQuery<unknown>>()
+  /** Each query's document, to tell whether it is externally retained. */
+  #documents = new WeakMap<DocumentQuery<unknown>, Document<unknown>>()
 
   /** @hidden */
   synchronizer: CollectionSynchronizer
@@ -111,6 +158,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     flushConcurrency = DEFAULT_FLUSH_CONCURRENCY,
     syncStateLoadConcurrency,
     sharePolicyConcurrency,
+    maxPinnedRequestsPerPeer,
+    releaseUnobservedAfterMs,
+    maxUnobservedBytes = Infinity,
+    retainUntilSaved = false,
     idFactory,
   }: RepoConfig = {}) {
     super()
@@ -147,6 +198,53 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
 
     this.storageSubsystem = storageSubsystem
+
+    this.#releaseUnobservedAfterMs =
+      releaseUnobservedAfterMs ??
+      (storageSubsystem ? DEFAULT_RELEASE_UNOBSERVED_AFTER_MS : Infinity)
+    if (!(this.#releaseUnobservedAfterMs >= 0)) {
+      throw new RangeError(
+        `releaseUnobservedAfterMs must be a number >= 0, got ${releaseUnobservedAfterMs}`
+      )
+    }
+    if (this.#releaseUnobservedAfterMs > 0) {
+      this.#keepAlive = new KeepAlive(this.#releaseUnobservedAfterMs)
+    }
+    this.#maxUnobservedBytes = maxUnobservedBytes
+    if (!(maxUnobservedBytes >= 0)) {
+      throw new RangeError(
+        `maxUnobservedBytes must be a number >= 0, got ${maxUnobservedBytes}`
+      )
+    }
+    storageSubsystem?.on("doc-stored", ({ documentId, savedHeads }) => {
+      const query = this.#queries.get(documentId)
+      if (!query) return
+      if (
+        this.#unsaved.has(query) &&
+        headsAreSame(
+          encodeHeads(savedHeads),
+          encodeHeads(Automerge.getHeads(query.handle.fullDoc()))
+        )
+      ) {
+        this.#unsaved.delete(query)
+      }
+      if (!this.#keepAlive) return
+      this.#keepAlive.resize(query, storageSubsystem.storedSize(documentId))
+      this.#enforceByteCap()
+    })
+    if (retainUntilSaved) {
+      storageSubsystem?.on("doc-save-failed", ({ documentId, savedHeads }) => {
+        const query = this.#queries.get(documentId)
+        if (!query) return
+        // Nothing is left unsaved if the failed save was for other heads (a
+        // later save covers the current ones) or another save has already
+        // stored the current heads.
+        const heads = Automerge.getHeads(query.handle.fullDoc())
+        if (!headsAreSame(encodeHeads(savedHeads), encodeHeads(heads))) return
+        if (storageSubsystem.hasStoredHeads(documentId, heads)) return
+        this.#unsaved.add(query)
+      })
+    }
     this.#syncStateTracker = new SyncStateTracker(
       this.storageSubsystem,
       saveDebounceRate
@@ -198,6 +296,7 @@ export class Repo extends EventEmitter<RepoEvents> {
           ),
         syncStateLoadConcurrency,
         sharePolicyConcurrency,
+        maxPinnedRequestsPerPeer,
         stampEphemeralMessage: () => networkSubsystem.stampEphemeralMessage(),
       },
       denylist
@@ -212,6 +311,11 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // Forward sync metrics events
     this.synchronizer.on("metrics", event => this.emit("doc-metrics", event))
+
+    this.synchronizer.on("activity", documentId => {
+      const query = this.#queries.get(documentId)
+      if (query) this.#markActive(query)
+    })
 
     // Track which peers have which documents open (for remote heads gossiping)
     this.synchronizer.on("open-doc", ({ peerId, documentId }) => {
@@ -268,7 +372,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     })
 
     this.synchronizer.on("sync-state", message => {
-      const handle = this.#queries[message.documentId]?.handle
+      const handle = this.#queries.get(message.documentId)?.handle
       if (!handle) return
 
       const peerMeta = this.peerMetadataByPeerId[message.peerId]
@@ -317,10 +421,9 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#remoteHeadsSubscriptions.on(
         "remote-heads-changed",
         ({ documentId, storageId, remoteHeads, timestamp }) => {
-          const handle = this.#queries[documentId]?.handle
+          const handle = this.#queries.get(documentId)?.handle
           if (!handle) return
           this.#syncStateTracker.handleRemoteHeadsChanged(
-            documentId,
             storageId,
             remoteHeads,
             timestamp,
@@ -345,19 +448,31 @@ export class Repo extends EventEmitter<RepoEvents> {
     documentId: DocumentId,
     initialDoc?: Automerge.Doc<unknown>
   ): DocumentQuery<unknown> {
-    const existing = this.#queries[documentId]
+    const existing = this.#queries.get(documentId)
     if (existing) {
       return existing
     }
 
-    const document = new Document(
-      documentId,
-      initialDoc ?? Automerge.init(),
-      storageId => this.#syncStateTracker.getSyncInfo(documentId, storageId)
-    )
+    const document = new Document(documentId, initialDoc ?? Automerge.init())
+    document[kOnRetainChange] = retained => {
+      if (retained) this.#retainedDocuments.add(document)
+      else this.#retainedDocuments.delete(document)
+      // An observed document is held by its observers, not the release
+      // setting; its period starts when it becomes unobserved.
+      if (retained) this.#keepAlive?.delete(query)
+      else this.#markActive(query)
+    }
     const handle = new DocHandle(document, {})
+    // Assigned after handle creation (not via the Document constructor):
+    // the lookup closes over the root handle.
+    document.syncInfoLookup = storageId =>
+      this.#syncStateTracker.getSyncInfo(handle, storageId)
     const query = new DocumentQuery(handle, this.#sources)
-    this.#queries[documentId] = query
+    this.#queries.set(documentId, query)
+    this.#documents.set(query, document)
+    if (this.#keepAlive) {
+      document[kOnHeadsChanged] = () => this.#markActive(query)
+    }
 
     // Attach all sources. Each source calls sourcePending/sourceUnavailable
     // as appropriate and sets up its own listeners. When initialDoc is
@@ -367,7 +482,42 @@ export class Repo extends EventEmitter<RepoEvents> {
       source.attach(query)
     }
 
+    this.#markActive(query)
+
     return query
+  }
+
+  /**
+   * Record activity on a document for {@link RepoConfig.releaseUnobservedAfterMs}.
+   * With a finite period, an empty document (one we do not have) is not kept.
+   */
+  #markActive(query: DocumentQuery<unknown>): void {
+    if (!this.#keepAlive) return
+    // A removed or deleted document must not be kept again.
+    if (this.#queries.get(query.documentId) !== query) return
+    if (
+      this.#releaseUnobservedAfterMs !== Infinity &&
+      query.handle.heads().length === 0
+    ) {
+      return
+    }
+    const document = this.#documents.get(query)
+    if (document && this.#retainedDocuments.has(document)) return
+    this.#keepAlive.touch(
+      query,
+      this.storageSubsystem?.storedSize(query.documentId) ?? 0
+    )
+    this.#enforceByteCap()
+  }
+
+  /**
+   * Release the least recently active documents held by the release setting
+   * until their stored size fits {@link RepoConfig.maxUnobservedBytes}.
+   */
+  #enforceByteCap(): void {
+    if (!this.#keepAlive) return
+    if (this.#keepAlive.totalSize <= this.#maxUnobservedBytes) return
+    this.#keepAlive.trimTo(this.#maxUnobservedBytes)
   }
 
   #receiveMessage(message: RepoMessage) {
@@ -394,9 +544,9 @@ export class Repo extends EventEmitter<RepoEvents> {
   /** Returns all the handles we have cached. */
   get handles(): Record<DocumentId, DocHandle<any>> {
     const result: Record<DocumentId, DocHandle<any>> = {}
-    for (const [id, query] of Object.entries(this.#queries)) {
+    for (const [id, query] of this.#queries) {
       if (query.handle) {
-        result[id as DocumentId] = query.handle
+        result[id] = query.handle
       }
     }
     return result
@@ -541,10 +691,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     // ensureQuery creates the query, handle, sets up all sources, and
     // registers with the sync layer (no-ops if already added).
-    if (!this.#queries[documentId]) {
-      this.#ensureQuery(documentId)
-    }
-    const query = this.#queries[documentId] as DocumentQuery<T>
+    const query = this.#ensureQuery(documentId) as DocumentQuery<T>
 
     // A URL can carry both fixed heads (`#h1|h2`) and a path suffix
     // (`/a/@0/b`). Layer the heads projection first (it gates readiness on
@@ -594,7 +741,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   delete(id: AnyDocumentId) {
     const documentId = interpretAsDocumentId(id)
 
-    const query = this.#queries[documentId]
+    const query = this.#queries.get(documentId)
     if (query?.handle) {
       // Fans out to all retained handles (root + subs) via the registry
       // and flips the document's `deleted` flag.
@@ -602,13 +749,20 @@ export class Repo extends EventEmitter<RepoEvents> {
     }
     if (query) {
       query.fail(new Error(`Document ${documentId} was deleted`))
+      // Explicit teardown: drop external retention so lingering listeners
+      // can't keep the deleted document rooted in the Repo.
+      query.handle[kSeverRetention]()
+      this.#keepAlive?.delete(query)
+      this.#unsaved.delete(query)
     }
-    delete this.#queries[documentId]
+    this.#queries.delete(documentId)
 
     for (const source of this.#sources.values()) {
       source.detach(documentId)
     }
-    this.#syncStateTracker.delete(documentId)
+    if (query) {
+      this.#syncStateTracker.delete(query.handle)
+    }
 
     if (this.storageSubsystem) {
       this.storageSubsystem.removeDoc(documentId).catch(err => {
@@ -654,7 +808,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const docId = args?.docId
     if (docId != null) {
       // Check if we already have a handle for this document
-      const existing = this.#queries[docId]?.handle as DocHandle<T> | null
+      const existing = this.#queries.get(docId)?.handle as DocHandle<T> | null
       if (existing) {
         existing.update(doc => Automerge.loadIncremental(doc, binary))
         return existing
@@ -717,15 +871,15 @@ export class Repo extends EventEmitter<RepoEvents> {
       return
     }
 
-    const ids = documents ?? (Object.keys(this.#queries) as DocumentId[])
+    const ids = documents ?? Array.from(this.#queries.keys())
     // Bound the fan-out so flushing a large collection doesn't open every
     // storage write at once. State is re-read inside the limited task because a
-    // query may have changed between enqueue and execution.
+    // query may have changed (or been collected) between enqueue and execution.
     const limit = semaphore(this.#flushConcurrency)
     const results = await Promise.allSettled(
       ids.map(id =>
         limit(async () => {
-          const state = this.#queries[id]?.peek()
+          const state = this.#queries.get(id)?.peek()
           if (state?.state === "ready") {
             await this.storageSubsystem!.saveDoc(id, state.handle.fullDoc())
           }
@@ -748,15 +902,22 @@ export class Repo extends EventEmitter<RepoEvents> {
 
   /**
    * Removes a DocHandle from the handleCache.
-   * @hidden this API is experimental and may change.
    * @param documentId - documentId of the DocHandle to remove from handleCache, if present in cache.
    */
   async removeFromCache(documentId: DocumentId): Promise<void> {
     for (const source of this.#sources.values()) {
       source.detach(documentId)
     }
-    delete this.#queries[documentId]
-    this.#syncStateTracker.delete(documentId)
+    const query = this.#queries.get(documentId)
+    if (query) {
+      // Explicit teardown: drop external retention so lingering listeners
+      // can't keep the removed document rooted in the Repo.
+      query.handle[kSeverRetention]()
+      this.#keepAlive?.delete(query)
+      this.#unsaved.delete(query)
+      this.#syncStateTracker.delete(query.handle)
+    }
+    this.#queries.delete(documentId)
   }
 
   async shutdown(): Promise<void> {
@@ -780,6 +941,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     } catch (err) {
       this.#log.error("error closing storage during shutdown", err)
     }
+    this.#keepAlive?.clear()
+    this.#unsaved.clear()
   }
 
   metrics(): { documents: { [key: string]: any } } {
@@ -881,6 +1044,70 @@ export interface RepoConfig {
    * call per peer-document pair at once; this caps how many run together.
    */
   sharePolicyConcurrency?: number
+
+  /**
+   * Maximum number of documents one peer's unanswered requests keep loaded
+   * while this repo asks other peers on its behalf. Defaults to 1000 (about
+   * 16 MB per peer at worst); `Infinity` disables the cap.
+   *
+   * @remarks
+   * Requests over the cap are still served, but their documents are not
+   * pinned. The cap bounds what a broken or hostile peer can pin. The
+   * default is generous for well-behaved peers.
+   */
+  maxPinnedRequestsPerPeer?: number
+
+  /**
+   * How long, in milliseconds, the repo keeps an unobserved document loaded
+   * after its last activity. `0` releases it at the next garbage collection
+   * once nothing observes it; `Infinity` never releases it.
+   *
+   * Defaults to {@link DEFAULT_RELEASE_UNOBSERVED_AFTER_MS} with storage and
+   * `Infinity` without storage.
+   *
+   * @remarks
+   * A document is observed while a consumer holds a handle, progress or
+   * listener for it. Activity is a change (local or from a peer), a load,
+   * or a peer's sync or request message; ephemeral messages do not count.
+   * An unobserved document is released 1 to 2 periods after its last
+   * activity and reloads on next use. {@link Repo.removeFromCache} and
+   * {@link Repo.delete} release a document at once in every mode.
+   *
+   * Apps and sync servers: keep the default. Without storage, keep
+   * `Infinity` unless another peer holds your data, and release documents
+   * by hand with {@link Repo.removeFromCache}.
+   */
+  releaseUnobservedAfterMs?: number
+
+  /**
+   * Upper bound, in bytes of stored size, on the documents kept loaded by
+   * {@link RepoConfig.releaseUnobservedAfterMs}. When they exceed
+   * it, the least recently active are released first. Defaults to
+   * `Infinity` (no cap).
+   *
+   * @remarks
+   * The size is what the document occupies in storage, a proxy for its
+   * memory use, so the cap applies only to a repo with storage. Documents
+   * with listeners or progress subscriptions are not counted; documents
+   * whose handles you hold without a listener are, since the repo cannot
+   * see those references.
+   *
+   * Sync servers: set it to bound memory, sized from your own measurements,
+   * since a loaded document takes more memory than its stored size.
+   */
+  maxUnobservedBytes?: number
+
+  /**
+   * Keep a document loaded after a failed save until a later save at its
+   * current heads succeeds. Defaults to `false`.
+   *
+   * @remarks
+   * Without it, a document whose save failed is released like any other,
+   * and its unsaved changes survive only on peers that synced them. With
+   * it, those documents stay in memory until storage recovers, so enable it
+   * only if yours does. The next change or `repo.flush()` retries the save.
+   */
+  retainUntilSaved?: boolean
 
   // This is hidden for now because it's an experimental API, mostly here in order
   // for keyhive to be able to control the ID generation

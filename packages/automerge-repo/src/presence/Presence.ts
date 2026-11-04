@@ -178,11 +178,21 @@ export class Presence<
    * peers will immediately forget the sender), stop sending heartbeats, and
    * stop listening to ephemeral-messages broadcast from peers.
    *
+   * Calling `stop()` is the only way to release a `Presence` (and its
+   * associated handle) — garbage collection alone will not do it. The
+   * heartbeat and peer-pruning intervals scheduled in {@link Presence.start}
+   * live in the host timer queue, which is a GC root: each interval callback
+   * captures `this`, so the timer queue keeps the `Presence` alive, and the
+   * `Presence` keeps its `DocHandle` (and through it the whole document)
+   * alive via `this.#handle`.
+   *
    * This can be used with browser events like
    * {@link https://developer.mozilla.org/en-US/docs/Web/API/Window/pagehide_event | "pagehide"}
    * or
    * {@link https://developer.mozilla.org/en-US/docs/Web/API/Document/visibilitychange_event | "visibilitychange"}
-   * to stop sending and receiving updates when not active.
+   * to stop sending and receiving updates when not active. Longer-running
+   * JS processes that create and tear down `Presence` instances need a
+   * deterministic `stop()` call in their own teardown path.
    */
   stop() {
     if (!this.#running) {
