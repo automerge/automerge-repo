@@ -236,7 +236,7 @@ describe("Repo loading", () => {
       expect(progress.state().status).toBe("ready")
       // Ready from local storage: no synchronization round is requested.
       expect(session.synchronize).not.toHaveBeenCalled()
-      expect(session.markComplete).toHaveBeenCalledOnce()
+      expect(session.markReady).toHaveBeenCalledOnce()
     })
 
     it("does not trust an initial cut that misses its marker", async () => {
@@ -349,7 +349,7 @@ describe("Repo loading", () => {
 
     it("tells the session once Repo has a verified snapshot, and immediately for created documents", async () => {
       const { session } = await created()
-      expect(session.markComplete).toHaveBeenCalledOnce()
+      expect(session.markReady).toHaveBeenCalledOnce()
       const remote = A.from({ count: 3 })
       const empty = await lookup()
       await empty.session.push({
@@ -357,7 +357,7 @@ describe("Repo loading", () => {
         found: false,
         marker: { sequence: 0, heads: [] },
       })
-      expect(empty.session.markComplete).not.toHaveBeenCalled()
+      expect(empty.session.markReady).not.toHaveBeenCalled()
       await empty.session.push({
         type: "records",
         phase: "live",
@@ -369,7 +369,7 @@ describe("Repo loading", () => {
         marker: { sequence: 1, heads: heads(remote) },
       })
       expect(empty.progress.state().status).toBe("ready")
-      expect(empty.session.markComplete).toHaveBeenCalledOnce()
+      expect(empty.session.markReady).toHaveBeenCalledOnce()
     })
 
     it("gates a nonempty prefix on a complete history marker", async () => {

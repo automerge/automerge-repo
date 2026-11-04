@@ -185,12 +185,13 @@ export interface SedimentreeSession {
   publishEphemeral(message: EphemeralEnvelope): Promise<void>
 
   /**
-   * Optional hint that the consumer has verified a complete initial snapshot.
-   * Afterwards a backend may stop computing `history-marker` heads from storage
-   * for this session and may report sync-round markers from the heads it
-   * last delivered. Records, sync results and failures continue unchanged.
+   * The consumer has verified a snapshot against a marker and is ready. It is
+   * not a claim that history is complete. Afterwards the backend may stop work
+   * it runs only to establish readiness, such as live `history-marker`s and
+   * confirmation rounds. Records, sync results and failures continue
+   * unchanged. Idempotent; a no-op for backends without such work.
    */
-  markComplete?(): void
+  markReady(): void
 
   /** Release this watch/interest and wake pending pulls, idempotently; do not delete data. */
   close(): Promise<void>

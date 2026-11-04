@@ -12,8 +12,8 @@ export interface SessionState {
   /** The native stream feeding this session, once started. */
   stream?: N.StoredUpdates
   released: boolean
-  /** The consumer verified a complete snapshot (markComplete). */
-  completed: boolean
+  /** The consumer is ready (markReady); readiness work stops. */
+  ready: boolean
   /** A confirmation round is in flight. */
   confirming: boolean
 }

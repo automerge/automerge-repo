@@ -12,7 +12,7 @@ export interface ScriptedSession {
   readonly id: SedimentreeId
   readonly synchronize: Mock<SedimentreeSession["synchronize"]>
   readonly publishEphemeral: Mock<SedimentreeSession["publishEphemeral"]>
-  readonly markComplete: Mock<() => void>
+  readonly markReady: Mock<() => void>
   readonly close: Mock<SedimentreeSession["close"]>
   readonly closed: boolean
   /** Deliver one event and wait until the consumer has processed it. */
@@ -83,7 +83,7 @@ export function scriptedBackend() {
       },
       synchronize: vi.fn(async () => noPeers()),
       publishEphemeral: vi.fn(async () => {}),
-      markComplete: vi.fn(),
+      markReady: vi.fn(),
       close: vi.fn(async () => {
         closed = true
         wake?.()

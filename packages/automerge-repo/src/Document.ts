@@ -130,7 +130,7 @@ export class Document<T> {
     this.#session = session
     this.#initial = []
     this.#loaded = false
-    if (!this.query.pending) session.markComplete?.()
+    if (!this.query.pending) session.markReady()
     this.#consumer = this.#consume(session).catch(error => {
       if (this.#session !== session) return
       this.#session = undefined
@@ -502,7 +502,7 @@ export class Document<T> {
     this.query.ready()
     this.state.flushRemoteHeads()
     // Let the backend skip history-marker work once Repo has a verified snapshot.
-    this.#session?.markComplete?.()
+    this.#session?.markReady()
   }
 
   #unavailable(): void {

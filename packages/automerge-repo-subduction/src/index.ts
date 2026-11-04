@@ -320,11 +320,11 @@ export class SubductionBackend implements SedimentreeBackend {
     ).catch(() => {})
   }
   /**
-   * One confirmation round for an incomplete session whose local load was empty,
+   * One confirmation round for a session not yet ready whose local load was empty,
    * at most one in flight. Its marker covers everything each peer had.
    */
   private confirm(session: SessionState): void {
-    if (session.confirming || session.completed) return
+    if (session.confirming || session.ready) return
     session.confirming = true
     void this.syncRound(session.id, session)
       .catch(cause => session.watch.push(this.failure("synchronize", cause)))
@@ -420,8 +420,8 @@ export class SubductionBackend implements SedimentreeBackend {
   }
   /** Stream items follow native's cache update, so native heads include them. */
   private async liveMarker(session: SessionState): Promise<void> {
-    // Markers only establish readiness; completed sessions no longer need them.
-    if (session.completed) return
+    // Markers only establish readiness; ready sessions no longer need them.
+    if (session.ready) return
     const target = await this.headsMarker(session.id)
     session.watch.push({ type: "history-marker", marker: target })
   }
@@ -527,7 +527,7 @@ export class SubductionBackend implements SedimentreeBackend {
       id,
       watch: new Watch<SedimentreeEvent>(() => this.release(session)),
       released: false,
-      completed: false,
+      ready: false,
       confirming: false,
     }
     const { watch } = session
@@ -568,8 +568,8 @@ export class SubductionBackend implements SedimentreeBackend {
           throw error("ephemeral", cause)
         }
       },
-      markComplete: () => {
-        session.completed = true
+      markReady: () => {
+        session.ready = true
       },
       close: async () => {
         await watch.return()

@@ -712,14 +712,14 @@ describe("real local Subduction", () => {
     expect(await storage.list("subduction-v2/")).toEqual([])
   })
 
-  it("stores with constant storage work and no live marker rescans once complete", async () => {
+  it("stores with constant storage work and no live marker rescans once ready", async () => {
     const backend = create()
     const engine = (backend as unknown as { engine: N.Subduction }).engine
     const getHeads = vi.spyOn(engine, "getHeads")
     await backend.store(tree, [record(1)])
     const session = backend.open(tree)
     const { iterator } = await initial(session)
-    session.markComplete!()
+    session.markReady()
     const list = vi.spyOn(storage, "list")
     const load = vi.spyOn(storage, "loadMany")
     await backend.store(tree, [record(2, [1])])
@@ -743,14 +743,14 @@ describe("real local Subduction", () => {
     ])
   })
 
-  it("emits storage markers only to incomplete sessions", async () => {
+  it("emits storage markers only to sessions not yet ready", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
     const done = backend.open(tree)
     const loading = backend.open(tree)
     const a = await initial(done)
     const b = await initial(loading)
-    done.markComplete!()
+    done.markReady()
     await backend.store(tree, [record(2, [1])])
     expect(await next(a.iterator)).toMatchObject({ type: "records" })
     expect(await next(b.iterator)).toMatchObject({ type: "records" })
@@ -765,7 +765,7 @@ describe("real local Subduction", () => {
     })
   })
 
-  it("waits past a delayed save before publishing native heads to an incomplete session", async () => {
+  it("waits past a delayed save before publishing native heads to a session not yet ready", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
     const { iterator } = await initial(backend.open(tree))
@@ -825,12 +825,12 @@ describe("real local Subduction", () => {
     await backend.store(tree, [record(1), record(2, [1])])
     const first = backend.open(tree)
     await initial(first)
-    first.markComplete!()
+    first.markReady()
     await first.close()
     const second = backend.open(tree)
     const { iterator, complete } = await initial(second)
     expect(complete.marker).toMatchObject({ heads: [cid(2)] })
-    second.markComplete!()
+    second.markReady()
     await backend.store(tree, [record(3, [2])])
     expect((await next(iterator)).type).toBe("records")
     await second.synchronize()

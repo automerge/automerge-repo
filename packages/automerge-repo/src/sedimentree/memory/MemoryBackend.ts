@@ -433,6 +433,9 @@ class MemorySession implements SedimentreeSession {
     // Best effort with no peers: there is no delivery or retained payload.
   }
 
+  /** No readiness work to stop: markers are computed from memory as it changes. */
+  markReady(): void {}
+
   async close(): Promise<void> {
     this.end()
   }
