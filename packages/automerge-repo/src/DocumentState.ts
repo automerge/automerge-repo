@@ -15,7 +15,7 @@ import type { RootQuery } from "./DocumentQuery.js"
  *
  * @internal
  */
-export class Document<T = unknown> {
+export class DocumentState<T = unknown> {
   readonly documentId: DocumentId
   readonly registry: HandleRegistry
   readonly log: Logger
@@ -26,7 +26,7 @@ export class Document<T = unknown> {
   /** Owns readiness; set by Repo right after construction. */
   query!: RootQuery<any>
 
-  /** Set by {@link Document.delete}. */
+  /** Set by {@link DocumentState.delete}. */
   deleted = false
   #closed = false
   /** The first failed local write; once set, local edits are rejected. */
@@ -70,7 +70,7 @@ export class Document<T = unknown> {
     return (this.#doc ??= A.init<T>())
   }
 
-  /** Set by {@link Document.close}; edits and inbound data are then rejected. */
+  /** Set by {@link DocumentState.close}; edits and inbound data are then rejected. */
   get closed(): boolean {
     return this.#closed
   }

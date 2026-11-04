@@ -1,27 +1,27 @@
 import { next as A } from "@automerge/automerge/slim"
 import { DocHandle } from "../../src/DocHandle.js"
-import { Document } from "../../src/Document.js"
+import { DocumentState } from "../../src/DocumentState.js"
 import { RootQuery } from "../../src/DocumentQuery.js"
 import type { DocumentId } from "../../src/types.js"
 
-const documents = new WeakMap<DocHandle<any>, Document<any>>()
+const states = new WeakMap<DocHandle<any>, DocumentState<any>>()
 
 /**
- * Wire a Document, root handle and query as Repo does. Ready unless
+ * Wire a DocumentState, root handle and query as Repo does. Ready unless
  * `ready: false`, for tests driving the query themselves.
  */
 export function createTestDocument<T>(
   documentId: DocumentId,
   doc: A.Doc<T> = A.init<T>(),
   { ready = true }: { ready?: boolean } = {}
-): { document: Document<T>; handle: DocHandle<T>; query: RootQuery<T> } {
-  const document = new Document<T>(documentId, doc)
-  const handle = new DocHandle<T>(document)
+): { state: DocumentState<T>; handle: DocHandle<T>; query: RootQuery<T> } {
+  const state = new DocumentState<T>(documentId, doc)
+  const handle = new DocHandle<T>(state)
   const query = new RootQuery<T>(handle)
-  document.query = query
+  state.query = query
   if (ready) query.ready()
-  documents.set(handle, document)
-  return { document, handle, query }
+  states.set(handle, state)
+  return { state, handle, query }
 }
 
 /** Construct a fresh, ready DocHandle suitable for use in tests. */
@@ -45,7 +45,7 @@ export function applyInbound<T>(
   handle: DocHandle<T>,
   fn: (doc: A.Doc<T>) => A.Doc<T>
 ): Promise<void> {
-  const document = documents.get(handle)
-  if (!document) throw new Error("Not a test handle")
-  return document.applyMutation(fn, { incoming: true })
+  const state = states.get(handle)
+  if (!state) throw new Error("Not a test handle")
+  return state.applyMutation(fn, { incoming: true })
 }

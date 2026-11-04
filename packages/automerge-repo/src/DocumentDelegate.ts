@@ -1,5 +1,5 @@
 import { next as A } from "@automerge/automerge/slim"
-import type { Document } from "./Document.js"
+import type { DocumentState } from "./DocumentState.js"
 import type { RootQuery } from "./DocumentQuery.js"
 import { decode } from "./helpers/cbor.js"
 import type { RepoId, PeerId } from "./types.js"
@@ -88,17 +88,17 @@ export class DocumentDelegate<T> {
   #running = false
 
   constructor(
-    readonly id: SedimentreeId,
-    readonly document: Document<T>,
+    readonly sedimentreeId: SedimentreeId,
+    readonly state: DocumentState<T>,
     readonly query: RootQuery<T>,
     private backend: SedimentreeBackend,
     /** The owning Repo's identity, e.g. as the origin of its ephemerals. */
     private repoIdentity: BackendIdentity,
     created = false
   ) {
-    document.commit = (before, after, options) =>
+    state.commit = (before, after, options) =>
       this.commit(before, after, options)
-    document.publishEphemeral = payload =>
+    state.publishEphemeral = payload =>
       this.publishEphemeral(payload).catch(error =>
         this.#log("ephemeral publication failed: %o", error)
       )
@@ -107,10 +107,10 @@ export class DocumentDelegate<T> {
 
   /** Open the backend session and start consuming its events. */
   start(): void {
-    if (this.document.closed || this.#session) return
+    if (this.state.closed || this.#session) return
     let session: SedimentreeSession
     try {
-      session = this.backend.open(this.id)
+      session = this.backend.open(this.sedimentreeId)
     } catch (error) {
       this.fail(error)
       return
@@ -145,7 +145,7 @@ export class DocumentDelegate<T> {
       }
       this.onEvent(event)
     }
-    if (this.#session === session && !this.document.closed)
+    if (this.#session === session && !this.state.closed)
       this.fail(new Error("Backend observation ended"))
   }
 
@@ -158,7 +158,7 @@ export class DocumentDelegate<T> {
     after: A.Doc<T>,
     options: { compact?: boolean } = {}
   ): Promise<void> {
-    const failure = this.document.writeFailure
+    const failure = this.state.writeFailure
     if (failure) return Promise.reject(failure.error)
     if (this.#deleted) return Promise.reject(new Error("Document deleted"))
     // The document has already adopted `after`: a failure to prepare its
@@ -183,13 +183,13 @@ export class DocumentDelegate<T> {
     try {
       const records = prepare()
       stored = records.length
-        ? this.backend.store(this.id, records)
+        ? this.backend.store(this.sedimentreeId, records)
         : Promise.resolve()
     } catch (error) {
       stored = Promise.reject(error)
     }
     return stored.catch(error => {
-      if (!this.#deleted) this.document.writeFailure ??= { error }
+      if (!this.#deleted) this.state.writeFailure ??= { error }
       throw error
     })
   }
@@ -216,7 +216,7 @@ export class DocumentDelegate<T> {
 
   async #compact(): Promise<void> {
     if (!this.#due.size || this.#stopped) return
-    const doc = this.document.peekDoc()
+    const doc = this.state.peekDoc()
     if (!doc) return
     let fragments: FragmentRecord[] = []
     await this.#store(() => {
@@ -232,9 +232,7 @@ export class DocumentDelegate<T> {
 
   /** Deleted (through Repo or a handle) or fail-stopped: no more stores. */
   get #stopped(): boolean {
-    return (
-      this.#deleted || this.document.deleted || !!this.document.writeFailure
-    )
+    return this.#deleted || this.state.deleted || !!this.state.writeFailure
   }
 
   #markDue(head: CommitId): void {
@@ -245,7 +243,7 @@ export class DocumentDelegate<T> {
   /** Throttle per document: the first due boundary starts the timer. */
   #schedule(): void {
     if (this.#timer || this.#cancelIdle || !this.#due.size) return
-    if (this.#stopped || this.document.closed) return
+    if (this.#stopped || this.state.closed) return
     const delay = COMPACTION_DELAY_MS + Math.random() * COMPACTION_JITTER_MS
     this.#timer = setTimeout(() => {
       this.#timer = undefined
@@ -281,16 +279,16 @@ export class DocumentDelegate<T> {
 
   /** Creation finished while a lookup was already observing this document. */
   adopt(doc: A.Doc<T>): void {
-    void this.document.applyMutation(
-      current => A.merge(current, A.clone(doc)),
-      { incoming: true, initial: this.query.pending }
-    )
+    void this.state.applyMutation(current => A.merge(current, A.clone(doc)), {
+      incoming: true,
+      initial: this.query.pending,
+    })
     this.#complete()
   }
 
   async publishEphemeral(payload: Uint8Array): Promise<void> {
     const session = this.#session
-    if (!session || this.document.closed) throw new Error("No active session")
+    if (!session || this.state.closed) throw new Error("No active session")
     await session.publishEphemeral({
       messageId: crypto.randomUUID(),
       origin: this.repoIdentity,
@@ -301,7 +299,7 @@ export class DocumentDelegate<T> {
   /** Stop edits; stores in flight can still be awaited with the backend's flush. */
   close(): void {
     this.#cancelScheduled()
-    this.document.close()
+    this.state.close()
   }
 
   /** Stop edits and stores, settle the query as deleted, and notify handles. */
@@ -310,7 +308,7 @@ export class DocumentDelegate<T> {
     this.#deleted = true
     this.#due.clear()
     this.#initial = []
-    this.document.delete()
+    this.state.delete()
   }
 
   /** Close the session, keeping it for a retry if closing fails. Interest
@@ -331,7 +329,7 @@ export class DocumentDelegate<T> {
   // -- Events --
 
   onEvent(event: SedimentreeEvent): void {
-    if (this.document.closed || this.query.terminal) return
+    if (this.state.closed || this.query.terminal) return
     switch (event.type) {
       case "records": {
         // The initial cut is applied in one load at local-load-complete.
@@ -341,8 +339,8 @@ export class DocumentDelegate<T> {
         }
         const unknown = this.#unknown(event.records)
         if (unknown.length) {
-          const next = applyRecords(this.document.doc, unknown)
-          void this.document.applyMutation(() => next, {
+          const next = applyRecords(this.state.doc, unknown)
+          void this.state.applyMutation(() => next, {
             incoming: true,
             initial: this.query.pending,
           })
@@ -376,7 +374,7 @@ export class DocumentDelegate<T> {
           this.query.pending &&
           this.#targets.size === 0 &&
           marker.heads.length === 0 &&
-          this.document.heads().length === 0 &&
+          this.state.heads().length === 0 &&
           (outcome === "no-peers" ||
             (peers.length > 0 &&
               peers.every(peer => peer.outcome !== "complete")))
@@ -393,12 +391,12 @@ export class DocumentDelegate<T> {
         else this.fail(event.error)
         break
       case "remote-heads":
-        this.document.recordRemoteHeads(event.remote.id as PeerId, event.heads)
+        this.state.recordRemoteHeads(event.remote.id as PeerId, event.heads)
         break
       case "ephemeral":
         if (event.message.origin.id === this.repoIdentity.id) break
         try {
-          this.document.registry.dispatchEphemeral(
+          this.state.registry.dispatchEphemeral(
             event.sender.id as PeerId,
             event.message.origin.id as RepoId,
             decode(event.message.payload)
@@ -412,7 +410,7 @@ export class DocumentDelegate<T> {
 
   /** Terminal: stop edits and surface the error through the query. */
   fail(reason: unknown): void {
-    if (this.document.closed) return
+    if (this.state.closed) return
     this.#log("backend observation failed: %o", reason)
     this.close()
     this.query.fail(
@@ -423,7 +421,7 @@ export class DocumentDelegate<T> {
   /** Application logging must not interrupt durable observation. */
   #log(message: string, detail: unknown): void {
     try {
-      this.document.log.error(message, detail)
+      this.state.log.error(message, detail)
     } catch {}
   }
 
@@ -434,7 +432,7 @@ export class DocumentDelegate<T> {
    * materialization shortcut, not a persistence receipt.
    */
   #unknown(records: RecordBatch): RecordBatch {
-    const current = this.document.peekDoc()
+    const current = this.state.peekDoc()
     if (!current) return records
     return records.filter(record => !A.hasHeads(current, [recordHead(record)]))
   }
@@ -450,16 +448,16 @@ export class DocumentDelegate<T> {
     this.#schedule()
     const input = concatBytes(this.#unknown(records).map(record => record.blob))
     if (!input.byteLength) return
-    const current = this.document.peekDoc()
+    const current = this.state.peekDoc()
     if (!current) {
       // The first scan can become the document directly. A crash mid-flush
       // or an interrupted sync can leave a record on disk without its
       // parents; load the complete prefix and keep the rest pending.
       const next = A.load<T>(input, { allowMissingChanges: true })
-      void this.document.applyLoaded(next, this.query.pending)
+      void this.state.applyLoaded(next, this.query.pending)
     } else {
       const next = A.loadIncremental(current, input)
-      void this.document.applyMutation(() => next, {
+      void this.state.applyMutation(() => next, {
         incoming: true,
         initial: this.query.pending,
       })
@@ -474,7 +472,7 @@ export class DocumentDelegate<T> {
 
   #checkTargets(): void {
     if (!this.query.pending) return
-    const doc = this.document.peekDoc()
+    const doc = this.state.peekDoc()
     if (!doc) return
     for (const target of this.#targets.values()) {
       if (satisfiesMarker(doc, target.heads)) {
@@ -487,14 +485,14 @@ export class DocumentDelegate<T> {
   #complete(): void {
     this.#targets.clear()
     this.query.ready()
-    this.document.flushRemoteHeads()
+    this.state.flushRemoteHeads()
     // Let the backend skip history-marker work once Repo has a verified snapshot.
     this.#session?.markComplete?.()
   }
 
   #unavailable(): void {
     if (!this.query.pending) return
-    this.document.discardRemoteHeads()
+    this.state.discardRemoteHeads()
     this.query.unavailable()
   }
 }

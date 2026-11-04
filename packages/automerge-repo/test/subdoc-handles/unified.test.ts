@@ -672,7 +672,7 @@ describe("unified DocHandle / Ref", () => {
     beforeEach(() => {
       const created = createTestDocument<any>(handle.documentId)
       handle = created.handle
-      registry = created.document.registry
+      registry = created.state.registry
       baseline = registry.retainedCount
     })
 

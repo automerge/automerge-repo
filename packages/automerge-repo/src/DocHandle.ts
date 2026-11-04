@@ -5,7 +5,7 @@ import {
   encodeHeads,
   stringifyAutomergeUrl,
 } from "./AutomergeUrl.js"
-import { Document } from "./Document.js"
+import { DocumentState } from "./DocumentState.js"
 import { encode } from "./helpers/cbor.js"
 import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
 import type {
@@ -94,7 +94,7 @@ export class DocHandle<T> {
   #fixedHeads?: UrlHeads
 
   /** Shared per-document state. Every handle into the same doc shares one. */
-  readonly #document: Document<T>
+  readonly #state: DocumentState<T>
 
   /** Symbolic path. Empty on root handles; pattern segments resolved via the registry. */
   #path: PathSegment[] = []
@@ -103,24 +103,19 @@ export class DocHandle<T> {
   #range?: CursorRange
 
   get documentId(): DocumentId {
-    return this.#document.documentId
+    return this.#state.documentId
   }
 
   /** @internal Handles are obtained from a {@link Repo} or another handle. */
-  constructor(document: Document<T>, options: DocHandleOptions = {}) {
-    this.#document = document
+  constructor(state: DocumentState<T>, options: DocHandleOptions = {}) {
+    this.#state = state
     this.#fixedHeads = options.heads
     this.#path = options.pathSegments ?? []
     this.#range = options.range
 
     // Register in the per-document trie so dispatch can find us.
-    const node = this.#document.registry.getOrCreateNode(this.#path)
-    this.#document.registry.cacheHandle(
-      node,
-      this.#range,
-      this.#fixedHeads,
-      this
-    )
+    const node = this.#state.registry.getOrCreateNode(this.#path)
+    this.#state.registry.cacheHandle(node, this.#range, this.#fixedHeads, this)
   }
 
   /**
@@ -145,12 +140,12 @@ export class DocHandle<T> {
   /**
    * @returns true once the first snapshot is ready, unless deleted.
    */
-  isReady = () => this.#document.ready && !this.#document.deleted
+  isReady = () => this.#state.ready && !this.#state.deleted
 
   /**
    * @returns true if the document has been marked as deleted.
    */
-  isDeleted = () => this.#document.deleted
+  isDeleted = () => this.#state.deleted
 
   /**
    * The document (or subtree of one) that this handle is pointing at.
@@ -159,7 +154,7 @@ export class DocHandle<T> {
    * @remarks In past releases, this was asynchronous and could be undefined.
    */
   doc(): A.Doc<T> | undefined {
-    return this.#scopedValue(this.#document.viewAt(this.#fixedHeads)) as
+    return this.#scopedValue(this.#state.viewAt(this.#fixedHeads)) as
       | A.Doc<T>
       | undefined
   }
@@ -169,7 +164,7 @@ export class DocHandle<T> {
    * this handle's fixed heads if it is view-pinned.
    */
   fullDoc(): A.Doc<T> {
-    return this.#document.viewAt(this.#fixedHeads) as A.Doc<T>
+    return this.#state.viewAt(this.#fixedHeads) as A.Doc<T>
   }
 
   /**
@@ -179,7 +174,7 @@ export class DocHandle<T> {
    */
   heads(): UrlHeads {
     if (this.#fixedHeads) return this.#fixedHeads
-    return encodeHeads(this.#document.heads())
+    return encodeHeads(this.#state.heads())
   }
 
   /**
@@ -188,7 +183,7 @@ export class DocHandle<T> {
    */
   hasHeads(heads: UrlHeads): boolean {
     const decoded = decodeHeads(heads)
-    const doc = this.#document.doc
+    const doc = this.#state.doc
     if (!A.hasHeads(doc, decoded)) return false
     if (!this.#fixedHeads) return true
     // A.hasHeads ignores a view's heads, so check ancestry of the fixed heads:
@@ -214,13 +209,13 @@ export class DocHandle<T> {
    * @remarks This API is currently unusably slow for subdocuments with long history. We plan to fix this during alpha.
    */
   history(): UrlHeads[] {
-    const topo = A.topoHistoryTraversal(this.#document.doc)
+    const topo = A.topoHistoryTraversal(this.#state.doc)
 
     if (this.#path.length === 0 && !this.#range) {
       return topo.map(h => encodeHeads([h])) as UrlHeads[]
     }
 
-    const doc = this.#document.doc
+    const doc = this.#state.doc
     const out: UrlHeads[] = []
     for (let i = 0; i < topo.length; i++) {
       const after = [topo[i]]
@@ -298,15 +293,15 @@ export class DocHandle<T> {
       toHeads = otherHeads
       if (this.documentId === first.documentId) {
         // Same document - share the doc, no clone needed.
-        diffDoc = this.#document.doc
+        diffDoc = this.#state.doc
       } else {
         // Different documents: merge so both handles' heads are in one doc.
-        diffDoc = A.merge(A.clone(this.#document.doc), first.fullDoc())
+        diffDoc = A.merge(A.clone(this.#state.doc), first.fullDoc())
       }
     } else {
       fromHeads = second ? first : this.heads()
       toHeads = second ? second : first
-      diffDoc = this.#document.doc
+      diffDoc = this.#state.doc
     }
 
     const allPatches = A.diff(
@@ -341,7 +336,7 @@ export class DocHandle<T> {
 
   /** Returns the heads and the timestamp of the last update from the given peer. */
   getSyncInfo(peerId: PeerId): SyncInfo | undefined {
-    return this.#document.getSyncInfo(peerId)
+    return this.#state.getSyncInfo(peerId)
   }
 
   /**
@@ -376,11 +371,11 @@ export class DocHandle<T> {
   ): Promise<void> {
     this.#throwIfFixedHeads("change")
     if (this.#path.length === 0 && !this.#range) {
-      return this.#document.applyMutation(doc =>
+      return this.#state.applyMutation(doc =>
         A.change(doc as A.Doc<T>, options, callbackOrValue as A.ChangeFn<T>)
       )
     }
-    return this.#document.applyMutation(doc =>
+    return this.#state.applyMutation(doc =>
       A.change(doc as A.Doc<T>, options, mutable => {
         this.#applyScopedChange(mutable as A.Doc<any>, callbackOrValue)
       })
@@ -411,7 +406,7 @@ export class DocHandle<T> {
             this.#applyScopedChange(d as A.Doc<any>, callback as SubChangeFn<T>)
           }) as A.ChangeFn<T>)
 
-    return this.#document
+    return this.#state
       .applyMutation(doc => {
         const result = A.changeAt(doc as A.Doc<T>, decoded, options, inner)
         resultHeads = result.newHeads ? encodeHeads(result.newHeads) : undefined
@@ -448,7 +443,7 @@ export class DocHandle<T> {
   ) {
     this.#throwIfFixedHeads("merge")
     // A merge can bring many boundaries at once; store their fragments with it.
-    return this.#document.applyMutation(
+    return this.#state.applyMutation(
       doc => A.merge(doc, otherHandle.fullDoc()),
       { compact: true }
     )
@@ -461,7 +456,7 @@ export class DocHandle<T> {
    * Prefer {@link Repo.delete} from user code.
    */
   delete() {
-    this.#document.delete()
+    this.#state.delete()
   }
 
   /**
@@ -474,11 +469,11 @@ export class DocHandle<T> {
    * the root and every other handle of it.
    */
   broadcast(message: unknown) {
-    void this.#document.publishEphemeral?.(encode(message))
+    void this.#state.publishEphemeral?.(encode(message))
   }
 
   metrics(): { numOps: number; numChanges: number } {
-    return A.stats(this.#document.doc)
+    return A.stats(this.#state.doc)
   }
 
   /** Remove the value at this sub-handle's path from the underlying document. */
@@ -487,7 +482,7 @@ export class DocHandle<T> {
       throw new Error("Cannot remove the root document")
     }
     this.#throwIfFixedHeads("remove")
-    return this.#document.applyMutation(doc =>
+    return this.#state.applyMutation(doc =>
       A.change(doc as A.Doc<T>, mutable => {
         this.#applyScopedRemove(mutable as A.Doc<any>)
       })
@@ -528,7 +523,7 @@ export class DocHandle<T> {
     if (this.#path.length === 0) return []
     // Routes through the registry's resolver so pattern caching is shared
     // with reads/writes. Unresolved trailing segments carry `prop: undefined`.
-    const resolved = this.#document.registry.resolvePropPath(
+    const resolved = this.#state.registry.resolvePropPath(
       this.#path,
       this.fullDoc(),
       this.#fixedHeads
@@ -628,12 +623,12 @@ export class DocHandle<T> {
     // is scoped to this handle's path.)
     const { path, range } = this.#normalizePath(this.fullDoc(), combined)
 
-    const registry = this.#document.registry
+    const registry = this.#state.registry
     const node = registry.getOrCreateNode(path)
     const cached = registry.cachedHandle(node, range, heads)
     if (cached) return cached
 
-    return new DocHandle<unknown>(this.#document, {
+    return new DocHandle<unknown>(this.#state, {
       pathSegments: path,
       range,
       heads,
@@ -748,7 +743,7 @@ export class DocHandle<T> {
     if (doc !== undefined) {
       return resolvePropPath(doc, this.#path)
     }
-    return this.#document.registry.resolvePropPath(
+    return this.#state.registry.resolvePropPath(
       this.#path,
       this.fullDoc(),
       this.#fixedHeads
@@ -835,7 +830,7 @@ export class DocHandle<T> {
     event: E,
     fn: DocHandleEvents<T>[E]
   ): this {
-    this.#document.registry.addListener(this, event as string, fn as any)
+    this.#state.registry.addListener(this, event as string, fn as any)
     return this
   }
 
@@ -850,7 +845,7 @@ export class DocHandle<T> {
     event: E,
     fn: DocHandleEvents<T>[E]
   ): this {
-    const reg = this.#document.registry
+    const reg = this.#state.registry
     const wrapper = (payload: unknown) => {
       reg.removeListener(this, event as string, wrapper)
       ;(fn as any)(payload)
@@ -863,7 +858,7 @@ export class DocHandle<T> {
     event: E,
     fn?: DocHandleEvents<T>[E]
   ): this {
-    const reg = this.#document.registry
+    const reg = this.#state.registry
     if (fn === undefined) reg.removeAllListenersForEvent(this, event as string)
     else reg.removeListener(this, event as string, fn as any)
     return this
@@ -877,7 +872,7 @@ export class DocHandle<T> {
   }
 
   removeAllListeners<E extends keyof DocHandleEvents<T>>(event?: E): this {
-    const reg = this.#document.registry
+    const reg = this.#state.registry
     if (event === undefined) reg.removeAllListenersForHandle(this)
     else reg.removeAllListenersForEvent(this, event as string)
     return this
@@ -885,14 +880,14 @@ export class DocHandle<T> {
 
   /** Number of listeners attached for the given event. */
   listenerCount<E extends keyof DocHandleEvents<T>>(event: E): number {
-    return this.#document.registry.listenerCountFor(this, event as string)
+    return this.#state.registry.listenerCountFor(this, event as string)
   }
 
   /** Snapshot of currently-registered listener functions for the given event. */
   listeners<E extends keyof DocHandleEvents<T>>(
     event: E
   ): DocHandleEvents<T>[E][] {
-    return this.#document.registry.listenersFor(
+    return this.#state.registry.listenersFor(
       this,
       event as string
     ) as DocHandleEvents<T>[E][]
@@ -900,7 +895,7 @@ export class DocHandle<T> {
 
   /** Names of events with at least one listener attached. */
   eventNames(): (keyof DocHandleEvents<T>)[] {
-    return this.#document.registry.eventNamesFor(
+    return this.#state.registry.eventNamesFor(
       this
     ) as (keyof DocHandleEvents<T>)[]
   }
@@ -914,6 +909,6 @@ export class DocHandle<T> {
     event: E,
     payload: Parameters<DocHandleEvents<T>[E] & ((p: any) => any)>[0]
   ): boolean {
-    return this.#document.registry.emit(this, event as string, payload)
+    return this.#state.registry.emit(this, event as string, payload)
   }
 }

@@ -2,7 +2,7 @@ import { next as A } from "@automerge/automerge/slim"
 import type { Prop } from "@automerge/automerge/slim"
 import type { UrlHeads, PeerId, RepoId } from "../types.js"
 import { scopedValueAt } from "./path-ops.js"
-import type { Document } from "../Document.js"
+import type { DocumentState } from "../DocumentState.js"
 import type { DocHandle } from "../DocHandle.js"
 import { KIND } from "./types.js"
 import type { CursorRange, PathSegment, Pattern } from "./types.js"
@@ -62,7 +62,7 @@ export class HandleRegistry {
     { path: readonly PathSegment[]; range: CursorRange | undefined }
   >()
 
-  constructor(readonly document: Document<any>) {}
+  constructor(readonly state: DocumentState<any>) {}
 
   // Identity (trie-as-handle-cache)
 
@@ -287,7 +287,7 @@ export class HandleRegistry {
         ;(fn as any)(payload)
       } catch (e) {
         try {
-          this.document.log.error("error in handle listener: %o", e)
+          this.state.log.error("error in handle listener: %o", e)
         } catch {
           // Application logging must not prevent remaining listeners from running.
         }

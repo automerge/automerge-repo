@@ -1,7 +1,7 @@
 import { next as A } from "@automerge/automerge"
 import { describe, expect, it } from "vitest"
 import { encodeHeads } from "../src/AutomergeUrl.js"
-import { Document } from "../src/Document.js"
+import { DocumentState } from "../src/DocumentState.js"
 import type { DocumentId, UrlHeads } from "../src/types.js"
 import { flushGC, gcAvailable, waitForGC } from "./helpers/flushGC.js"
 
@@ -10,16 +10,19 @@ const itGC = gcAvailable ? it : it.skip
 type TestDoc = { count: number }
 
 /** A document with two states: `oldHeads` (count: 1) and the live doc (count: 2). */
-const setup = (): { document: Document<TestDoc>; oldHeads: UrlHeads } => {
+const setup = (): { document: DocumentState<TestDoc>; oldHeads: UrlHeads } => {
   let doc = A.from<TestDoc>({ count: 1 })
   const oldHeads = encodeHeads(A.getHeads(doc))
   doc = A.change(doc, d => {
     d.count = 2
   })
-  return { document: new Document("test-doc-id" as DocumentId, doc), oldHeads }
+  return {
+    document: new DocumentState("test-doc-id" as DocumentId, doc),
+    oldHeads,
+  }
 }
 
-describe("Document view cache", () => {
+describe("DocumentState view cache", () => {
   it("returns the live doc when no heads are given", () => {
     const { document } = setup()
     expect(document.viewAt(undefined)).toBe(document.doc)

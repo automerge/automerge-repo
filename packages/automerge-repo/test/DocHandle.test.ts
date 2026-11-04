@@ -8,7 +8,7 @@ import {
 } from "../src/AutomergeUrl.js"
 import { eventPromise } from "./helpers/eventPromise.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
-import type { Document } from "../src/Document.js"
+import type { DocumentState } from "../src/DocumentState.js"
 import { createTestDocument } from "./helpers/testHandle.js"
 import type { PeerId } from "../src/types.js"
 import { TestDoc } from "./types.js"
@@ -16,24 +16,24 @@ import { TestDoc } from "./types.js"
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
-  const documents = new WeakMap<DocHandle<any>, Document<any>>()
+  const states = new WeakMap<DocHandle<any>, DocumentState<any>>()
   const setup = (options?: any) => {
     const { quick, documentId, doc, ...rest } = options ?? {}
-    const { document, handle: root } = createTestDocument<TestDoc>(
+    const { state, handle: root } = createTestDocument<TestDoc>(
       documentId ?? TEST_ID,
       doc
     )
     const handle = Object.keys(rest).length
-      ? new DocHandle<TestDoc>(document, rest)
+      ? new DocHandle<TestDoc>(state, rest)
       : root
-    documents.set(handle, document)
+    states.set(handle, state)
     return handle
   }
-  /** Inbound (storage/peer) data path: mutate the Document directly. */
+  /** Inbound (storage/peer) data path: mutate the DocumentState directly. */
   const update = (
     handle: DocHandle<TestDoc>,
     fn: (doc: A.Doc<TestDoc>) => A.Doc<TestDoc>
-  ) => documents.get(handle)!.applyMutation(fn, { incoming: true })
+  ) => states.get(handle)!.applyMutation(fn, { incoming: true })
 
   it("should take the UUID passed into it", () => {
     const handle = setup({ quick: true })
@@ -41,10 +41,10 @@ describe("DocHandle", () => {
   })
 
   it("shares document-owned remote sync info across root and sub-handles", () => {
-    const { document, handle } = createTestDocument<TestDoc>(TEST_ID)
+    const { state, handle } = createTestDocument<TestDoc>(TEST_ID)
     const peer = "peer" as PeerId
     const heads = A.getHeads(A.from({ count: 1 }))
-    document.recordRemoteHeads(peer, heads)
+    state.recordRemoteHeads(peer, heads)
     expect(handle.getSyncInfo(peer)?.lastHeads).toEqual(encodeHeads(heads))
     expect(handle.sub("foo").getSyncInfo(peer)).toEqual(
       handle.getSyncInfo(peer)
@@ -654,9 +654,9 @@ describe("DocHandle", () => {
       }
     })
 
-    it("getSyncInfo reads remote heads recorded by Document", () => {
-      const { document, handle } = createTestDocument<TestDoc>(TEST_ID)
-      document.recordRemoteHeads("peer-1" as PeerId, ["abcd"])
+    it("getSyncInfo reads remote heads recorded by DocumentState", () => {
+      const { state, handle } = createTestDocument<TestDoc>(TEST_ID)
+      state.recordRemoteHeads("peer-1" as PeerId, ["abcd"])
       expect(handle.getSyncInfo("peer-1" as PeerId)).toMatchObject({
         lastHeads: encodeHeads(["abcd"]),
         lastSyncTimestamp: expect.any(Number),
@@ -664,10 +664,10 @@ describe("DocHandle", () => {
       assert.equal(handle.getSyncInfo("peer-2" as PeerId), undefined)
     })
 
-    it("view handles share Document sync info", () => {
-      const { document, handle } = createTestDocument<TestDoc>(TEST_ID)
-      document.recordRemoteHeads("peer-1" as PeerId, ["abcd"])
-      document.applyMutation(d => A.change(d, x => (x.foo = "bar")))
+    it("view handles share DocumentState sync info", () => {
+      const { state, handle } = createTestDocument<TestDoc>(TEST_ID)
+      state.recordRemoteHeads("peer-1" as PeerId, ["abcd"])
+      state.applyMutation(d => A.change(d, x => (x.foo = "bar")))
       const view = handle.view(handle.heads())
       assert.deepEqual(
         view.getSyncInfo("peer-1" as PeerId),
