@@ -14,6 +14,7 @@ import { corruptFrame } from "./frame.js"
 import { repoFragmentFixture } from "./repoFixture.js"
 import { RepoTransport } from "./repoTransport.js"
 import { connectBackends, type TestSigner } from "./transport.js"
+import { nodeOf } from "./native.js"
 
 type State = { count: number; left?: number; right?: number }
 type Peer = {
@@ -68,7 +69,7 @@ describe("public Repo with native Subduction", () => {
   }
 
   function failAfterLocalScan(p: Peer, failures: number): () => number {
-    const engine = (p.backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(p.backend)
     const nativeLoad = engine.loadAndWatch.bind(engine)
     let openings = 0
     vi.spyOn(engine, "loadAndWatch").mockImplementation((...args) => {
@@ -246,7 +247,7 @@ describe("public Repo with native Subduction", () => {
     await connect(a, b)
     const receiver = await b.repo.find<State>(source.url)
     await ready(receiver, { count: 0 })
-    const engine = (a.backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(a.backend)
     const rounds = vi.spyOn(engine, "syncWithAllPeers")
     const pushedFragments = vi.spyOn(engine, "addFragment")
     // Edit until exactly one boundary commit is due for compaction.
@@ -284,7 +285,7 @@ describe("public Repo with native Subduction", () => {
       fork = A.change(fork, doc => {
         doc.left = i
       })
-    const engine = (a.backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(a.backend)
     const rounds = vi.spyOn(engine, "syncWithAllPeers")
     const { documentId } = parseAutomergeUrl(source.url)
     await a.repo.import<State>(A.save(fork), { docId: documentId })
@@ -556,7 +557,7 @@ describe("public Repo with native Subduction", () => {
     await writer.repo.flush()
     await writer.repo.shutdown()
     const p = peer(writer.storage)
-    const engine = (p.backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(p.backend)
     const watch = vi.spyOn(engine, "loadAndWatch")
     const open = vi.spyOn(p.backend, "open")
     await p.repo.delete(handle.url)
@@ -645,7 +646,7 @@ describe("public Repo with native Subduction", () => {
     const a = peer(),
       b = peer()
     await connect(a, b)
-    const engine = (b.backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(b.backend)
     const sync = engine.syncWithAllPeers.bind(engine)
     vi.spyOn(engine, "syncWithAllPeers").mockImplementation(async (...args) => {
       const results = await sync(...args)
@@ -681,7 +682,7 @@ describe("public Repo with native Subduction", () => {
     const source = await a.repo.create<State>({ count: 3 })
     await a.repo.flush()
     await connect(a, b)
-    const engine = (b.backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(b.backend)
     const rounds = vi.spyOn(engine, "syncWithAllPeers")
     const receiver = await b.repo.find<State>(source.url)
     expect(receiver.doc()).toEqual({ count: 3 })
@@ -709,8 +710,7 @@ describe("public Repo with native Subduction", () => {
     await b.repo.shutdown()
     const reader = peer(b.storage)
     await connect(a, reader)
-    const engine = (reader.backend as unknown as { engine: N.Subduction })
-      .engine
+    const engine = nodeOf(reader.backend)
     const rounds = vi.spyOn(engine, "syncWithAllPeers")
     const loaded = await reader.repo.find<State>(source.url)
     expect(loaded.doc()?.count).toBeGreaterThanOrEqual(1)

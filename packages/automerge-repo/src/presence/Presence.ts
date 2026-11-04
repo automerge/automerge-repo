@@ -93,7 +93,7 @@ export class Presence<
       const { senderId, originId } = e
 
       if (!this.#peers.has(originId)) {
-        this.announce()
+        this.#announce()
       }
 
       switch (message.type) {
@@ -136,8 +136,8 @@ export class Presence<
     }
     this.#handle.on("ephemeral-message", this.#handleEphemeralMessage)
 
-    this.broadcastLocalState() // also starts heartbeats
-    this.startPruningPeers()
+    this.#broadcastLocalState() // also starts heartbeats
+    this.#startPruningPeers()
   }
 
   /**
@@ -168,7 +168,7 @@ export class Presence<
     this.#localState = Object.assign({}, this.#localState, {
       [channel]: value,
     })
-    this.broadcastChannelState(channel)
+    this.#broadcastChannelState(channel)
   }
 
   /**
@@ -199,53 +199,50 @@ export class Presence<
     })
     this.#hellos = []
     this.#handle.off("ephemeral-message", this.#handleEphemeralMessage)
-    this.stopHeartbeats()
-    this.stopPruningPeers()
-    this.send({ type: "goodbye" })
+    this.#stopHeartbeats()
+    this.#stopPruningPeers()
+    this.#send({ type: "goodbye" })
     this.#running = false
   }
 
-  private announce() {
+  #announce() {
     // Broadcast our current state whenever we see new peers
     // TODO: We currently need to wait for the peer to be ready, but waiting
     // some arbitrary amount of time is brittle
     const helloId = setTimeout(() => {
-      this.broadcastLocalState()
+      this.#broadcastLocalState()
       this.#hellos = this.#hellos.filter(id => id !== helloId)
     }, 500)
     this.#hellos.push(helloId)
   }
 
-  private broadcastLocalState() {
-    this.doBroadcast("snapshot", { state: this.#localState })
-    this.resetHeartbeats()
+  #broadcastLocalState() {
+    this.#doBroadcast("snapshot", { state: this.#localState })
+    this.#resetHeartbeats()
   }
 
-  private broadcastChannelState<Channel extends keyof State>(channel: Channel) {
+  #broadcastChannelState<Channel extends keyof State>(channel: Channel) {
     const value = this.#localState[channel]
-    this.doBroadcast("update", { channel, value })
-    this.resetHeartbeats()
+    this.#doBroadcast("update", { channel, value })
+    this.#resetHeartbeats()
   }
 
-  private resetHeartbeats() {
+  #resetHeartbeats() {
     // Reset heartbeats every time we broadcast a message to avoid sending
     // unnecessary heartbeats when there is plenty of actual update activity
     // happening.
-    this.stopHeartbeats()
-    this.startHeartbeats()
+    this.#stopHeartbeats()
+    this.#startHeartbeats()
   }
 
-  private doBroadcast(
-    type: PresenceMessageType,
-    extra?: Record<string, unknown>
-  ) {
-    this.send({
+  #doBroadcast(type: PresenceMessageType, extra?: Record<string, unknown>) {
+    this.#send({
       type,
       ...extra,
     })
   }
 
-  private send(message: Record<string, unknown>) {
+  #send(message: Record<string, unknown>) {
     if (!this.#running) {
       return
     }
@@ -254,16 +251,16 @@ export class Presence<
     })
   }
 
-  private startHeartbeats() {
+  #startHeartbeats() {
     if (this.#heartbeatInterval !== undefined) {
       return
     }
     this.#heartbeatInterval = setInterval(() => {
-      this.send({ type: "heartbeat" })
+      this.#send({ type: "heartbeat" })
     }, this.#heartbeatMs)
   }
 
-  private stopHeartbeats() {
+  #stopHeartbeats() {
     if (this.#heartbeatInterval === undefined) {
       return
     }
@@ -271,7 +268,7 @@ export class Presence<
     this.#heartbeatInterval = undefined
   }
 
-  private startPruningPeers() {
+  #startPruningPeers() {
     if (this.#pruningInterval !== undefined) {
       return
     }
@@ -286,7 +283,7 @@ export class Presence<
     }, this.#heartbeatMs)
   }
 
-  private stopPruningPeers() {
+  #stopPruningPeers() {
     if (this.#pruningInterval === undefined) {
       return
     }

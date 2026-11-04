@@ -16,6 +16,7 @@ import {
 import { TestStore, deferred, savedKeys } from "./storage.js"
 import { corruptFrame } from "./frame.js"
 import type { TestSigner } from "./transport.js"
+import { nodeOf } from "./native.js"
 
 const tree = sedimentreeId("ab".repeat(16) + "00".repeat(16))
 const somePeer = "cd".repeat(32)
@@ -57,11 +58,9 @@ async function confirmation(iterator: AsyncIterator<SedimentreeEvent>) {
     throw new Error(`Expected a confirmation round, got ${event.type}`)
   return event.result
 }
-/** Loose commits native holds for `tree`, hydrating on demand. Reaches the
- * private engine: the backend deliberately exposes no native accessor. */
+/** Loose commits native holds for `tree`, hydrating on demand. */
 async function nativeCommits(backend: SubductionBackend): Promise<number> {
-  const engine = (backend as unknown as { engine: N.Subduction }).engine
-  return ((await engine.getCommits(tree)) ?? []).length
+  return ((await nodeOf(backend).getCommits(tree)) ?? []).length
 }
 async function next(iterator: AsyncIterator<SedimentreeEvent>) {
   const value = await iterator.next()
@@ -127,7 +126,7 @@ describe("real local Subduction", () => {
 
   it("checks for an existing document only when the ID could collide", async () => {
     const backend = create()
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(backend)
     const reads = vi.spyOn(engine, "getHeads")
     await backend.create([record(1)])
     expect(reads).not.toHaveBeenCalled()
@@ -201,7 +200,7 @@ describe("real local Subduction", () => {
     expect(() => create({ syncTimeoutMilliseconds: -1 })).toThrow(TypeError)
     expect(() => create({ syncTimeoutMilliseconds: 1.5 })).toThrow(TypeError)
     const backend = create({ syncTimeoutMilliseconds: 1234 })
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(backend)
     const rounds = vi.spyOn(engine, "syncWithAllPeers")
     const session = backend.open(tree)
     await initial(session)
@@ -215,8 +214,7 @@ describe("real local Subduction", () => {
   it("opens via a native stored stream", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
-    const internals = backend as unknown as { engine: N.Subduction }
-    const native = vi.spyOn(internals.engine, "loadAndWatch")
+    const native = vi.spyOn(nodeOf(backend), "loadAndWatch")
     const loaded = await initial(backend.open(tree))
     expect(native).toHaveBeenCalledOnce()
     expect(loaded.records).toEqual([record(1)])
@@ -280,7 +278,7 @@ describe("real local Subduction", () => {
 
   it("closes while an initial scan is pending", async () => {
     const backend = create()
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(backend)
     const scan = blockScan()
     const freed = vi.spyOn(engine, "free")
     const iterator = backend.open(tree).events[Symbol.asyncIterator]()
@@ -426,7 +424,7 @@ describe("real local Subduction", () => {
     const keys = await storage.list("subduction-v2/")
     const key = keys.find(k => k.endsWith(`/signed/${cid(2)}`))!
     expect((await storage.load(key))!.length).toBeGreaterThan(0)
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(backend)
     const commit = ((await engine.getCommits(tree)) ?? []).find(
       c => c.head === cid(2)
     )!
@@ -441,10 +439,7 @@ describe("real local Subduction", () => {
     expect((await signer.sign(new Uint8Array([1]))).length).toBe(64)
     const loadPrefix = vi.spyOn(storage, "loadPrefix")
     const reload = create()
-    const hydration = vi.spyOn(
-      (reload as unknown as { engine: N.Subduction }).engine,
-      "getCommits"
-    )
+    const hydration = vi.spyOn(nodeOf(reload), "getCommits")
     const loaded = await initial(reload.open(tree))
     // Native reads commits and fragments once each.
     expect(hydration).not.toHaveBeenCalled()
@@ -609,7 +604,7 @@ describe("real local Subduction", () => {
     const backend = create()
     const session = backend.open(tree)
     const { iterator } = await initial(session)
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(backend)
     // Rounds skip native without a connected peer.
     vi.spyOn(engine, "getConnectedPeerIds").mockResolvedValue([somePeer])
     vi.spyOn(engine, "syncWithAllPeers").mockRejectedValueOnce(
@@ -632,7 +627,7 @@ describe("real local Subduction", () => {
     const backend = create()
     const session = backend.open(tree)
     const { iterator } = await initial(session)
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(backend)
     vi.spyOn(engine, "getConnectedPeerIds").mockResolvedValue([somePeer])
     // Either the store's propagation round or ours fails first.
     vi.spyOn(engine, "syncWithAllPeers").mockRejectedValue(
@@ -655,7 +650,7 @@ describe("real local Subduction", () => {
 
   it("settles an empty load without peers through a confirmation result, without a native round", async () => {
     const backend = create()
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(backend)
     const rounds = vi.spyOn(engine, "syncWithAllPeers")
     const { complete, confirmed } = await initial(backend.open(tree))
     expect(complete).toEqual({
@@ -698,7 +693,7 @@ describe("real local Subduction", () => {
       if (key.includes("/commits/") && ++writes === 5)
         throw new Error("disk failed")
     }
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(backend)
     // With a peer reported connected, a scheduled round would reach native.
     vi.spyOn(engine, "getConnectedPeerIds").mockResolvedValue([somePeer])
     const rounds = vi.spyOn(engine, "syncWithAllPeers")
@@ -740,7 +735,7 @@ describe("real local Subduction", () => {
 
   it("stores with constant storage work and no live marker rescans once ready", async () => {
     const backend = create()
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(backend)
     const getHeads = vi.spyOn(engine, "getHeads")
     await backend.store(tree, [record(1)])
     const session = backend.open(tree)
@@ -795,7 +790,7 @@ describe("real local Subduction", () => {
     const backend = create()
     await backend.store(tree, [record(1)])
     const { iterator } = await initial(backend.open(tree))
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(backend)
     const native = tree
     const entered = deferred(),
       release = deferred()
@@ -1091,7 +1086,7 @@ describe("real local Subduction", () => {
     const otherTree = sedimentreeId("cd".repeat(16) + "00".repeat(16))
     await backend.store(tree, [record(1)])
     const gate = deferred()
-    const engine = (backend as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(backend)
     const remove = engine.removeSedimentree.bind(engine)
     vi.spyOn(engine, "removeSedimentree").mockImplementationOnce(async id => {
       await gate.promise
@@ -1114,8 +1109,7 @@ describe("real local Subduction", () => {
   it("flush reports a failed deletion once; later stores start fresh", async () => {
     const backend = create()
     await backend.store(tree, [record(1)])
-    const internals = backend as unknown as { engine: N.Subduction }
-    vi.spyOn(internals.engine, "removeSedimentree").mockRejectedValueOnce(
+    vi.spyOn(nodeOf(backend), "removeSedimentree").mockRejectedValueOnce(
       new Error("removal failed")
     )
     const deleting = backend.deleteLocal(tree)

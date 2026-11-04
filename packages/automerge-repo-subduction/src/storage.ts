@@ -37,7 +37,7 @@ const EMPTY = new Uint8Array(0)
 export class StorageBridge implements N.SedimentreeStorage {
   constructor(private readonly storage: SubductionStorageAdapterInterface) {}
 
-  private async loadRecord(
+  async #loadRecord(
     tree: string,
     kind: Kind,
     head: string
@@ -51,14 +51,14 @@ export class StorageBridge implements N.SedimentreeStorage {
     return { signed, blob }
   }
 
-  private async listHeads(tree: string, kind: Kind): Promise<string[]> {
+  async #listHeads(tree: string, kind: Kind): Promise<string[]> {
     const prefix = partPrefix(tree, kind, "signed")
     return (await this.storage.list(prefix)).map(key =>
       key.slice(prefix.length)
     )
   }
 
-  private async loadAll(tree: string, kind: Kind): Promise<N.StoredCommit[]> {
+  async #loadAll(tree: string, kind: Kind): Promise<N.StoredCommit[]> {
     const signedPrefix = partPrefix(tree, kind, "signed")
     const blobPrefix = partPrefix(tree, kind, "blob")
     const records = new Map<string, Partial<N.StoredCommit>>()
@@ -85,7 +85,7 @@ export class StorageBridge implements N.SedimentreeStorage {
     })
   }
 
-  private removeRecord(tree: string, kind: Kind, head: string) {
+  #removeRecord(tree: string, kind: Kind, head: string) {
     return this.storage.removeBatch(recordKeys(tree, kind, head))
   }
 
@@ -114,16 +114,16 @@ export class StorageBridge implements N.SedimentreeStorage {
     )
   }
   loadCommit(tree: N.SedimentreeId, head: N.CommitId) {
-    return this.loadRecord(tree, "commits", head)
+    return this.#loadRecord(tree, "commits", head)
   }
   listCommitIds(tree: N.SedimentreeId) {
-    return this.listHeads(tree, "commits")
+    return this.#listHeads(tree, "commits")
   }
   loadAllCommits(tree: N.SedimentreeId) {
-    return this.loadAll(tree, "commits")
+    return this.#loadAll(tree, "commits")
   }
   deleteCommit(tree: N.SedimentreeId, head: N.CommitId) {
-    return this.removeRecord(tree, "commits", head)
+    return this.#removeRecord(tree, "commits", head)
   }
   deleteAllCommits(tree: N.SedimentreeId) {
     return this.storage.removeRange(kindPrefix(tree, "commits"))
@@ -140,16 +140,16 @@ export class StorageBridge implements N.SedimentreeStorage {
     )
   }
   loadFragment(tree: N.SedimentreeId, head: N.CommitId) {
-    return this.loadRecord(tree, "fragments", head)
+    return this.#loadRecord(tree, "fragments", head)
   }
   listFragmentIds(tree: N.SedimentreeId) {
-    return this.listHeads(tree, "fragments")
+    return this.#listHeads(tree, "fragments")
   }
   loadAllFragments(tree: N.SedimentreeId) {
-    return this.loadAll(tree, "fragments")
+    return this.#loadAll(tree, "fragments")
   }
   deleteFragment(tree: N.SedimentreeId, head: N.CommitId) {
-    return this.removeRecord(tree, "fragments", head)
+    return this.#removeRecord(tree, "fragments", head)
   }
   deleteAllFragments(tree: N.SedimentreeId) {
     return this.storage.removeRange(kindPrefix(tree, "fragments"))

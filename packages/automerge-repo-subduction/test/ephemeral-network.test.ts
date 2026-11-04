@@ -16,21 +16,8 @@ import {
   type TestSigner,
 } from "./transport.js"
 import { deferred } from "./storage.js"
+import { nodeOf, optionsOf } from "./native.js"
 import { extractRecords } from "@automerge/automerge-repo/sedimentree/automerge"
-
-const { callbacks } = vi.hoisted(() => ({ callbacks: [] as Function[] }))
-vi.mock("@automerge/subduction/slim", async importOriginal => {
-  const native = await importOriginal<typeof N>()
-  return {
-    ...native,
-    Subduction: class extends native.Subduction {
-      constructor(options: N.SubductionOptions) {
-        super(options)
-        callbacks.push(options.onEphemeral!)
-      }
-    },
-  }
-})
 
 const tree = sedimentreeId("71".repeat(16) + "00".repeat(16))
 // Same shortened native Topic.toString(), different complete topic.
@@ -63,9 +50,6 @@ describe("real native ephemerals", () => {
     const result = { signer, storage, backend }
     peers.push(result)
     return result
-  }
-  function engine(p: ReturnType<typeof peer>): N.Subduction {
-    return (p.backend as unknown as { engine: N.Subduction }).engine
   }
   async function observe(p: ReturnType<typeof peer>, id = tree) {
     const session = p.backend.open(id)
@@ -100,8 +84,8 @@ describe("real native ephemerals", () => {
     await connectBackends(a, b, pair)
     // Ordered sends ensure native interest announcements have arrived.
     await Promise.all([
-      engine(a).getConnectedPeerIds(),
-      engine(b).getConnectedPeerIds(),
+      nodeOf(a.backend).getConnectedPeerIds(),
+      nodeOf(b.backend).getConnectedPeerIds(),
     ])
     return pair
   }
@@ -120,7 +104,6 @@ describe("real native ephemerals", () => {
     await Promise.allSettled(iterators.splice(0).map(i => i.return?.()))
     await Promise.allSettled(repos.splice(0).map(r => r.shutdown()))
     await Promise.allSettled(peers.splice(0).map(p => p.backend.close()))
-    callbacks.length = 0
     vi.restoreAllMocks()
   })
 
@@ -264,7 +247,7 @@ describe("real native ephemerals", () => {
     const unsubscribed = deferred(),
       release = deferred()
     releases.push(release.resolve)
-    const native = engine(a)
+    const native = nodeOf(a.backend)
     const unsubscribe = native.unsubscribeEphemeral.bind(native)
     vi.spyOn(native, "unsubscribeEphemeral").mockImplementation(
       async topics => {
@@ -357,7 +340,7 @@ describe("real native ephemerals", () => {
     const one = await observe(b),
       two = await observe(b)
     const sent = message()
-    deliver(callbacks[1], a, sent)
+    deliver(optionsOf(b.backend).onEphemeral!, a, sent)
     await vi.waitFor(() => {
       expect(ephemerals(one.events)).toHaveLength(1)
       expect(ephemerals(two.events)).toHaveLength(1)
@@ -381,7 +364,7 @@ describe("real native ephemerals", () => {
     const a = peer(),
       b = peer()
     const observed = await observe(b)
-    const callback = callbacks[1]
+    const callback = optionsOf(b.backend).onEphemeral!
     deliver(callback, a, message(), tree, new Uint8Array([255]))
     deliver(callback, a, message(), tree, new Uint8Array(65537))
     deliver(callback, a, message(), other)
@@ -395,7 +378,7 @@ describe("real native ephemerals", () => {
 
   it("releases interests on iterator return and session close", async () => {
     const a = peer()
-    const native = engine(a)
+    const native = nodeOf(a.backend)
     const subscribe = vi.spyOn(native, "subscribeEphemeral")
     const unsubscribe = vi.spyOn(native, "unsubscribeEphemeral")
     const first = await observe(a)
@@ -443,7 +426,7 @@ describe("real native ephemerals", () => {
     const a = peer(),
       b = peer()
     const observed = await observe(a)
-    const callback = callbacks[0]
+    const callback = optionsOf(a.backend).onEphemeral!
     const deleting = a.backend.deleteLocal(other)
     const publishing = observed.session.publishEphemeral(message())
     deliver(callback, b, message())

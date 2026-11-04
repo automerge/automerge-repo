@@ -12,21 +12,22 @@ import { runSubductionNetworkAdapterTests } from "../src/helpers/tests/subductio
 import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
 import { PairedTransport } from "./transport.js"
 import { deferred } from "./storage.js"
+import { nodeOf } from "./native.js"
 
 const serviceName = "linked.test"
 
 /** Dials `remote` in-process once `hold` resolves; no reconnection. */
 class LinkedAdapter implements SubductionNetworkAdapterInterface {
   readonly wires: PairedTransport[] = []
-  private stopped = deferred()
-  private isStopped = false
+  #stopped = deferred()
+  #isStopped = false
   constructor(
     private readonly remote?: SubductionBackend,
     private readonly hold?: Promise<void>
   ) {}
   async start(connect: SubductionConnect): Promise<void> {
-    await Promise.race([this.hold, this.stopped.promise])
-    if (this.isStopped) throw new Error("Adapter stopped")
+    await Promise.race([this.hold, this.#stopped.promise])
+    if (this.#isStopped) throw new Error("Adapter stopped")
     if (!this.remote) throw new Error("Remote unreachable")
     const [local, remote] = PairedTransport.pair()
     this.wires.push(local)
@@ -34,8 +35,8 @@ class LinkedAdapter implements SubductionNetworkAdapterInterface {
     await connect(local, { serviceName })
   }
   async stop(): Promise<void> {
-    this.isStopped = true
-    this.stopped.resolve()
+    this.#isStopped = true
+    this.#stopped.resolve()
     await Promise.all(this.wires.map(wire => wire.disconnect()))
   }
 }
@@ -134,7 +135,7 @@ describe("backend-owned network adapters", () => {
     const adapter = new LinkedAdapter(remote)
     const local = backend([adapter])
     const localRepo = repo(local)
-    const engine = (local as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(local)
     await vi.waitFor(async () =>
       expect(await engine.getConnectedPeerIds()).toHaveLength(1)
     )

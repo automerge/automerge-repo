@@ -5,5 +5,6 @@ export default defineConfig({
     name: "repo-subduction",
     environment: "node",
     include: ["test/**/*.test.ts"],
+    setupFiles: ["test/setup.ts"],
   },
 })

@@ -33,6 +33,7 @@ import {
 import { TestStore, deferred } from "./storage.js"
 import { corruptFrame } from "./frame.js"
 import type { TestSigner } from "./transport.js"
+import { nodeOf } from "./native.js"
 import { repoFragmentFixture } from "./repoFixture.js"
 
 const tree = sedimentreeId("ab".repeat(16) + "00".repeat(16))
@@ -197,7 +198,7 @@ describe("local Subduction fragments", () => {
     expect(loaded.records).toEqual(records)
     expect(loaded.event.marker).toMatchObject({ heads: [cid(4)] })
     // Native hydrates on demand (not at open) and reads the stored fragment.
-    const engine = (reloaded as unknown as { engine: N.Subduction }).engine
+    const engine = nodeOf(reloaded)
     const fragments = (await engine.getFragments(tree)) ?? []
     expect(fragments).toHaveLength(1)
     expect(fragments[0].checkpoints).toEqual(fragment(4).checkpoints)
@@ -470,7 +471,7 @@ describe("local Subduction fragments", () => {
     "rejects wire-unencodable %s before writing or syncing",
     async (_, record) => {
       const backend = create()
-      const engine = (backend as unknown as { engine: N.Subduction }).engine
+      const engine = nodeOf(backend)
       const rounds = vi.spyOn(engine, "syncWithAllPeers")
       await expect(backend.store(tree, [record()])).rejects.toMatchObject({
         operation: "store",
