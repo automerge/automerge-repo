@@ -376,9 +376,6 @@ export class Document<T> {
         this.#loaded = true
         this.#applyInitial()
         this.#marker("local", event.marker)
-        if (event.noPeers) this.#unavailable()
-        if (this.query.pending && !event.backendSyncs)
-          void this.#session?.synchronize().catch(error => this.fail(error))
         break
       case "history-marker":
         this.#marker("live", event.marker)

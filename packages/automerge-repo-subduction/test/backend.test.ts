@@ -636,7 +636,6 @@ describe("real local Subduction", () => {
       type: "local-load-complete",
       marker: { sequence: expect.any(Number), heads: [] },
       found: false,
-      backendSyncs: true,
     })
     expect(confirmed).toMatchObject({
       outcome: "no-peers",

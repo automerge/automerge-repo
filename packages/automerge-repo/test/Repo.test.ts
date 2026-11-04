@@ -14,6 +14,7 @@ import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import { idBytes, sedimentreeId } from "../src/sedimentree/index.js"
 import { extractRecords } from "../src/sedimentree/automerge/index.js"
 import { commitStores } from "./helpers/commitStores.js"
+import { scriptedBackend } from "./helpers/scriptedBackend.js"
 import type {
   AnyDocumentId,
   AutomergeUrl,
@@ -134,8 +135,10 @@ describe("backend-driven Repo", () => {
 
     const source = A.from({ count: 1 })
     await backend.store(backendIdOf(id), extractRecords(source))
+    await vi.waitFor(() =>
+      expect(query.state()).toEqual({ status: "ready", handle })
+    )
     expect(await r.find(id)).toBe(handle)
-    expect(query.state()).toEqual({ status: "ready", handle })
     expect(handle.isReady()).toBe(true)
     expect(handle.doc()).toEqual({ count: 1 })
     expect(announced).toHaveBeenCalledOnce()
@@ -585,20 +588,8 @@ describe("backend-driven Repo", () => {
   })
 
   it("aborts only one caller's wait and retains progress during loading", async () => {
-    const backend = new MemoryBackend()
-    const r = repo(backend)
-    const synchronize = gate()
-    releases.push(synchronize.resolve)
-    const open = backend.open.bind(backend)
-    vi.spyOn(backend, "open").mockImplementation(id => {
-      const session = open(id)
-      const sync = session.synchronize.bind(session)
-      session.synchronize = async () => {
-        await synchronize.promise
-        return sync()
-      }
-      return session
-    })
+    const scripted = scriptedBackend()
+    const r = repo(scripted.backend)
     const url = generateAutomergeUrl()
     const controller = new AbortController()
     const one = r.find(url, { signal: controller.signal })
@@ -609,7 +600,12 @@ describe("backend-driven Repo", () => {
     controller.abort("cancelled")
     await rejected
     expect(r.query(url).state().status).toBe("loading")
-    synchronize.resolve()
+    const session = await scripted.session()
+    await session.push({
+      type: "local-load-complete",
+      marker: { sequence: 0, heads: [] },
+      found: false,
+    })
     expect(stillWaiting).not.toHaveBeenCalled()
     expect(r.query(url).state().status).toBe("loading")
   })

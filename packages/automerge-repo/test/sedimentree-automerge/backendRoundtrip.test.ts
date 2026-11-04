@@ -118,7 +118,11 @@ describe("Automerge through the plain backend boundary", () => {
     while (true) {
       const event = await next(empty.iterator)
       if (event.type === "records") doc = applyRecords(doc, event.records)
-      if (event.type === "synchronized") {
+      // Skip the round that settles the empty initial cut.
+      if (
+        event.type === "synchronized" &&
+        event.result.roundId === round.roundId
+      ) {
         expect(event.result).toEqual(round)
         expect(satisfiesMarker(doc, round.marker.heads)).toBe(true)
         break

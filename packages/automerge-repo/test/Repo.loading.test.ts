@@ -96,7 +96,6 @@ describe("Repo loading", () => {
       type: "local-load-complete",
       marker: { sequence: 1, heads: headsOf(records) },
       found: records.length > 0,
-      backendSyncs: true,
     })
   }
 
@@ -256,7 +255,6 @@ describe("Repo loading", () => {
         type: "local-load-complete",
         found: true,
         marker: { sequence: 1, heads: heads(second) },
-        backendSyncs: true,
       })
       expect(handle.doc()).toEqual({ count: 1 })
       expect(progress.state().status).toBe("loading")
@@ -338,7 +336,7 @@ describe("Repo loading", () => {
   })
 
   describe("readiness", () => {
-    it("asks for synchronization after an empty local load unless the backend syncs", async () => {
+    it("leaves synchronization after an empty local load to the backend", async () => {
       const { session, progress } = await lookup()
       await session.push({
         type: "local-load-complete",
@@ -346,15 +344,7 @@ describe("Repo loading", () => {
         found: false,
       })
       expect(progress.state().status).toBe("loading")
-      expect(session.synchronize).toHaveBeenCalledOnce()
-      const other = await lookup()
-      await other.session.push({
-        type: "local-load-complete",
-        marker: { sequence: 0, heads: [] },
-        found: false,
-        backendSyncs: true,
-      })
-      expect(other.session.synchronize).not.toHaveBeenCalled()
+      expect(session.synchronize).not.toHaveBeenCalled()
     })
 
     it("tells the session once Repo has a verified snapshot, and immediately for created documents", async () => {
@@ -419,7 +409,6 @@ describe("Repo loading", () => {
         type: "local-load-complete",
         found: false,
         marker: { sequence: 0, heads: [] },
-        backendSyncs: true,
       })
       await session.push({ type: "synchronized", result: noPeers() })
       expect(progress.state().status).toBe("unavailable")
@@ -446,7 +435,6 @@ describe("Repo loading", () => {
         type: "local-load-complete",
         found: false,
         marker: { sequence: 0, heads: [] },
-        backendSyncs: true,
       })
       await session.push({
         type: "synchronized",
@@ -454,18 +442,6 @@ describe("Repo loading", () => {
       })
       expect(progress.state().status).toBe("loading")
       await session.push({ type: "synchronized", result: noPeers() })
-      expect(progress.state().status).toBe("unavailable")
-    })
-
-    it("treats an empty load with no connected peers as unavailable", async () => {
-      const { session, progress } = await lookup()
-      await session.push({
-        type: "local-load-complete",
-        marker: { sequence: 0, heads: [] },
-        found: false,
-        backendSyncs: true,
-        noPeers: true,
-      })
       expect(progress.state().status).toBe("unavailable")
     })
 
@@ -829,9 +805,8 @@ describe("Repo loading", () => {
         type: "local-load-complete",
         marker: { sequence: 0, heads: [] },
         found: false,
-        backendSyncs: true,
-        noPeers: true,
       })
+      await session.push({ type: "synchronized", result: noPeers() })
       expect(progress.state().status).toBe("unavailable")
       const remote = A.from({ count: 3 })
       await session.push({

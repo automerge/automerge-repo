@@ -34,7 +34,9 @@ and must not alias storage or another observer's buffers.
 `open` establishes initial loading **before the first pull**, followed by live
 updates. Initial records precede `local-load-complete`, whose marker holds the
 heads of the initial cut; Repo applies the cut in one load and checks history
-inclusion against it. An empty load is not a readiness proof.
+inclusion against it. An empty load is not a readiness proof. After an empty
+cut the backend asks connected peers itself and delivers a `synchronized`
+result; Repo never starts a round on load.
 
 Streams have one consumer and allow only one outstanding `next()`. Closing a
 session, ending iteration, or closing the backend wakes a pending pull. Multiple
@@ -80,7 +82,8 @@ is a simple metadata scan. It is not designed for large stores.
 
 Stores finish synchronously in memory unless the `beforeStore` hook holds one
 open, so `flush` normally has an immediate barrier.
-`synchronize` reports `no-peers` with an ordered history marker. An already
+`synchronize` reports `no-peers` with an ordered history marker, and an empty
+initial cut is followed by such a result. An already
 aborted signal rejects that caller only. Ephemeral publication has no recipients
 and is a best-effort no-op, not simulated transport delivery. Backend close
 releases watches and memory; its process-local state cannot be reopened afterward.

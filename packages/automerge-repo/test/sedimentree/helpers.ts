@@ -67,8 +67,11 @@ export async function initial(iterator: AsyncIterator<SedimentreeEvent>) {
   const records = []
   for (let i = 0; i < 100; i++) {
     const value = await next(iterator)
-    if (value.type === "local-load-complete")
+    if (value.type === "local-load-complete") {
+      // An empty cut is settled by the backend's own round.
+      if (!value.found) await event(iterator, "synchronized")
       return { records, complete: value }
+    }
     expect(value.type).toBe("records")
     if (value.type !== "records") throw new Error("Unexpected initial event")
     expect(value.phase).toBe("initial")

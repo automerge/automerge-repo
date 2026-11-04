@@ -492,7 +492,6 @@ export class SubductionBackend implements SedimentreeBackend {
             type: "local-load-complete",
             marker: { sequence: ++this.sequence, heads: headsOf(scanned) },
             found,
-            backendSyncs: true,
           } as const
           scanned = []
           // Peers still connecting may have the document.

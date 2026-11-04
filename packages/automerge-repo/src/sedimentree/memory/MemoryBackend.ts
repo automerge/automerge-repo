@@ -47,7 +47,8 @@ interface Tree {
 /**
  * In-memory, process-local backend: Repo's default when none is given, and the
  * deterministic backend for tests. Nothing survives the process and there are
- * no peers, so `synchronize()` always reports `no-peers`.
+ * no peers, so `synchronize()` always reports `no-peers`, as does the round
+ * that follows an empty initial cut.
  *
  * Stores exact representations, without compaction or network simulation. A
  * different representation of a stored commit rejects. Like Subduction, valid
@@ -136,14 +137,27 @@ export class MemoryBackend implements SedimentreeBackend {
     const heads = headsOf(snapshot)
     const sequence = tree.sequence
     const batches = this.#batches(snapshot)
+    const found = snapshot.length > 0
+    // An empty cut is settled at once: there are never peers to ask.
+    const roundId = found ? undefined : String(++this.#round)
     function* initial(): Generator<SedimentreeEvent> {
       for (const records of batches)
         yield { type: "records", phase: "initial", sequence, records }
       yield {
         type: "local-load-complete",
         marker: { sequence, heads },
-        found: snapshot.length > 0,
+        found,
       }
+      if (roundId !== undefined)
+        yield {
+          type: "synchronized",
+          result: {
+            roundId,
+            marker: { sequence, heads },
+            outcome: "no-peers",
+            peers: [],
+          },
+        }
     }
     const watch = new Observation<SedimentreeEvent>(
       initial(),

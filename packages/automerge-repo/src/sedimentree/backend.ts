@@ -38,6 +38,9 @@ import type { RecordBatch } from "./records.js"
  *   empty. `found` says whether the cut contained data, not whether
  *   dependencies are materialized or any peer has data. Empty local storage is
  *   not global absence. Sync events follow this completion event, not precede it.
+ *   After an empty cut the backend itself asks connected peers and then
+ *   delivers a `synchronized` result (`no-peers` if none); the consumer does
+ *   not start a round on load.
  * - `history-marker`: a position and history heads, ordered after associated record
  *   deliveries. The consumer must process those records and verify history
  *   inclusion using its CRDT; nonempty heads are not enough.
@@ -319,10 +322,6 @@ export type SedimentreeEvent =
       readonly type: "local-load-complete"
       readonly marker: HistoryMarker
       readonly found: boolean
-      /** The backend owns peer synchronization; do not start a second round. */
-      readonly backendSyncs?: boolean
-      /** No peer was connected when an empty local scan completed. */
-      readonly noPeers?: boolean
     }
   | { readonly type: "history-marker"; readonly marker: HistoryMarker }
   | { readonly type: "synchronized"; readonly result: SyncRoundResult }
