@@ -105,7 +105,6 @@ describe("plain record validation and ownership", () => {
 describe("fragmentRequests", () => {
   const boundary = (n: number) =>
     commitId("00" + n.toString(16).padEnd(62, "0"))
-  const isBoundary = (id: CommitId) => id.startsWith("00")
 
   it("requests boundary commits no fragment among the items covers", () => {
     const [covered, absorbed, loose] = [1, 2, 3].map(boundary)
@@ -122,8 +121,9 @@ describe("fragmentRequests", () => {
         checkpoints: [checkpointForCommit(absorbed)],
       },
     ]
-    expect(fragmentRequests(items, isBoundary)).toEqual([loose])
-    expect(fragmentRequests(items, () => false)).toEqual([])
+    expect(fragmentRequests(items)).toEqual([loose])
+    // Commits that aren't boundaries are never requested.
+    expect(fragmentRequests([items[0]])).toEqual([])
   })
 
   it("reports record heads that no commit names as a parent", () => {

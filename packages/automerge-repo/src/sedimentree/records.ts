@@ -28,7 +28,11 @@ export function recordHead(record: SedimentreeRecord): CommitId {
   return record.kind === "commit" ? record.id : record.head
 }
 
-/** Fragment boundary: a commit whose hash starts with a zero byte. */
+/**
+ * Sedimentree's fragment boundary: a commit whose hash starts with a zero
+ * byte (depth > 0 under the default hash metric). The only boundary rule;
+ * Repo and every backend use it.
+ */
 export function isBoundary(id: CommitId): boolean {
   return id.startsWith("00")
 }
@@ -60,10 +64,7 @@ export function headsOf(items: Iterable<CoverageItem>): CommitId[] {
  * or checkpoint. Stateless: coverage outside `items` is not known, so a
  * consumer may also be told of heads a fragment it saw earlier covers.
  */
-export function fragmentRequests(
-  items: Iterable<CoverageItem>,
-  isBoundary: (id: CommitId) => boolean
-): CommitId[] {
+export function fragmentRequests(items: Iterable<CoverageItem>): CommitId[] {
   const boundaries = new Set<CommitId>()
   const heads = new Set<CommitId>()
   const checkpoints = new Set<CheckpointId>()

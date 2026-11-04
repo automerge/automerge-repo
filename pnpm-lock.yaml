@@ -9,6 +9,9 @@ catalogs:
     '@automerge/automerge':
       specifier: 3.5.0
       version: 3.5.0
+    '@automerge/subduction':
+      specifier: 0.27.0
+      version: 0.27.0
     '@testing-library/jest-dom':
       specifier: ^6.9.1
       version: 6.9.1
@@ -74,7 +77,6 @@ catalogs:
       version: 8.21.0
 
 overrides:
-  '@automerge/subduction': link:../subduction/subduction_wasm
   semver: ^7.5.2
 
 importers:
@@ -154,8 +156,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-repo-subduction-storage-indexeddb
       '@automerge/subduction':
-        specifier: link:../../../subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 'catalog:'
+        version: 0.27.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -185,8 +187,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-repo-subduction
       '@automerge/subduction':
-        specifier: link:../../../subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 'catalog:'
+        version: 0.27.0
 
   examples/react-todo:
     dependencies:
@@ -194,8 +196,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-react
       '@automerge/subduction':
-        specifier: link:../../../subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 'catalog:'
+        version: 0.27.0
       autoprefixer:
         specifier: ^10.5.2
         version: 10.6.1(postcss@8.5.28)
@@ -255,8 +257,8 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo-subduction-storage-indexeddb
       '@automerge/subduction':
-        specifier: link:../../../subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 'catalog:'
+        version: 0.27.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -405,8 +407,8 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo
       '@automerge/subduction':
-        specifier: link:../../../subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 'catalog:'
+        version: 0.27.0
       cbor-x:
         specifier: 'catalog:'
         version: 1.6.4
@@ -430,8 +432,8 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo-subduction
       '@automerge/subduction':
-        specifier: link:../../../subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 'catalog:'
+        version: 0.27.0
       '@types/ws':
         specifier: 'catalog:'
         version: 8.18.1
@@ -487,6 +489,9 @@ packages:
 
   '@automerge/automerge@3.5.0':
     resolution: {integrity: sha512-ejbqJWfXWM2QbTcUK/5ugYiQiyOP7LYVAp/RuSvthCc07oek0FClMxEuouuhjrLjVPDSI34RP1ftGc45PF7WRA==}
+
+  '@automerge/subduction@0.27.0':
+    resolution: {integrity: sha512-A4EQ9+iiQS8gZ79ZouDvLoaxkuPex2mhzsZ7Aq3JS0KqlKbrWcSfqiAzVCeJ8nvkeVkadFgsT/mozJqCJ+0/OQ==}
 
   '@babel/code-frame@7.29.0':
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
@@ -2987,6 +2992,8 @@ snapshots:
   '@alloc/quick-lru@5.3.0': {}
 
   '@automerge/automerge@3.5.0': {}
+
+  '@automerge/subduction@0.27.0': {}
 
   '@babel/code-frame@7.29.0':
     dependencies:

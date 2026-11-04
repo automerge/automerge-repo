@@ -444,8 +444,7 @@ export class DocumentDelegate<T> {
   #applyInitial(): void {
     const records = this.#initial
     this.#initial = []
-    for (const head of fragmentRequests(records, isBoundary))
-      this.#due.add(head)
+    for (const head of fragmentRequests(records)) this.#due.add(head)
     for (const record of records)
       if (record.kind === "fragment") this.#covered(record)
     this.#schedule()
