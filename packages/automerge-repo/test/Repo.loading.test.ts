@@ -493,7 +493,7 @@ describe("Repo loading", () => {
       await session.push({
         type: "failure",
         sequence: 1,
-        error: new BackendError("observe", "io", "read interrupted"),
+        error: new BackendError("open", "io", "read interrupted"),
       })
       expect(progress.state().status).toBe("failed")
       await failed
