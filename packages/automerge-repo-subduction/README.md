@@ -20,6 +20,7 @@ const backend = new SubductionBackend({
   signer: createMemorySigner(), // default: new in-memory identity
   syncTimeoutMilliseconds: 30_000, // default: Subduction's own
   // mintDocumentId: async initialRecords => id, // see Document IDs
+  // syncPolicy: (documentId, peerId) => syncRule(syncAll), // see Sync policy
 })
 ```
 
@@ -35,6 +36,7 @@ Pass `backend` to `new Repo({ backend })`; see the
 | `signer`                  | new in-memory identity      | Signs records and handshakes. `backend.peerId` is its hex verifying key. |
 | `syncTimeoutMilliseconds` | Subduction's default (30 s) | Deadline for sync requests.                                              |
 | `mintDocumentId`          | 16 random + 16 zero bytes   | Mints the ID for `create()`. See [Document IDs](#document-ids).          |
+| `syncPolicy`              | everything syncs            | Which documents sync with which peers. See [Sync policy](#sync-policy).  |
 
 ## Lifecycle
 
@@ -73,6 +75,23 @@ const backend = new SubductionBackend({
   mintDocumentId: async initialRecords =>
     createBespokeDocumentId(initialRecords),
 })
+```
+
+## Sync policy
+
+- `syncPolicy(documentId, peerId)` returns a signal of `{ access, announce }`, or a promise
+  of one. `documentId` is the hex sedimentree ID; `peerId` is a hex key, like `backend.peerId`
+- `access: false`: nothing about the document moves either way, ephemeral messages included
+- `announce: false`: we don't start rounds with the peer, but still answer it and push to it
+  once it has asked
+
+### Usage
+
+```ts
+// syncRule() is a utility that returns a settable signal; any { value, subscribe } works
+const rule = syncRule({ access: false, announce: false })
+const backend = new SubductionBackend({ storage, syncPolicy: () => rule })
+rule.set(syncAll) // e.g. on login
 ```
 
 ## Ephemeral messages

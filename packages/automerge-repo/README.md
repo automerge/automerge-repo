@@ -55,7 +55,7 @@ See [automerge-repo-subduction](../automerge-repo-subduction/) for backend confi
 | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `new Repo({ network, storage, sharePolicy, ... })`    | `new Repo({ backend })`                                                                                        |
 | Network/storage adapter packages                      | Subduction backend with its own storage and network adapters                                                   |
-| `sharePolicy`, `shareConfig`, `denylist`              | Removed                                                                                                        |
+| `sharePolicy`, `shareConfig`, `denylist`              | Backend option; see [Sync policy](../automerge-repo-subduction/README.md#sync-policy)                          |
 | `RepoConfig.peerId`, `repo.peerId`                    | `RepoConfig.id`, `repo.id` (a `RepoId`)                                                                        |
 | `repo.peers`, `StorageId`                             | Removed                                                                                                        |
 | `create()`, `import()`, `clone()` return `DocHandle`  | Return `Promise<DocHandle>`                                                                                    |

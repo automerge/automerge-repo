@@ -31,7 +31,15 @@ import type {
 import { Watch } from "./watch.js"
 import type { SessionState } from "./session.js"
 import { decodeEphemeral, encodeEphemeral } from "./ephemeral.js"
+import { SyncRules, type SyncPolicy, type SyncRule } from "./sync-policy.js"
 
+export {
+  syncAll,
+  syncRule,
+  type SyncPolicy,
+  type SyncRule,
+  type SyncRuleSignal,
+} from "./sync-policy.js"
 export type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
 export type {
   SubductionConnect,
@@ -61,6 +69,71 @@ export interface SubductionBackendOptions {
    * keyhive's `generate_doc`, given the initial heads).
    */
   mintDocumentId?: MintDocumentId
+  /** Which documents sync with which peers; defaults to all with all.
+   * See {@link SyncPolicy}. */
+  syncPolicy?: SyncPolicy
+}
+
+/** Apply `fn` now to a plain value, or once a promise resolves. */
+function settle<T, U>(
+  value: T | Promise<T>,
+  fn: (value: T) => U
+): U | Promise<U> {
+  return value instanceof Promise ? value.then(fn) : fn(value)
+}
+
+/** Native gates for `policy`: only `access` applies; connections are allowed. */
+function nativePolicies(
+  rule: (id: SedimentreeId, peer: string) => SyncRule | Promise<SyncRule>
+): {
+  policy: N.Policy
+  ephemeralPolicy: N.EphemeralPolicy
+} {
+  const allowed = (id: string, peer: string) =>
+    settle(rule(id as SedimentreeId, peer), r => r.access)
+  // A synchronous rule answers with a settled promise, as native's open
+  // policy does: extra async hops reorder native ingest against later local
+  // operations.
+  const authorize = (id: string, peer: string): Promise<void> => {
+    const deny = () =>
+      Promise.reject(new Error(`Sync policy denies ${peer} access to ${id}`))
+    try {
+      const access = allowed(id, peer)
+      if (typeof access === "boolean")
+        return access ? Promise.resolve() : deny()
+      return access.then(ok => (ok ? undefined : deny()))
+    } catch (cause) {
+      return Promise.reject(cause)
+    }
+  }
+  const filter = <T>(
+    items: T[],
+    keep: (item: T) => boolean | Promise<boolean>
+  ): Promise<T[]> => {
+    try {
+      const kept = items.map(keep)
+      if (kept.every(k => typeof k === "boolean"))
+        return Promise.resolve(items.filter((_, i) => kept[i]))
+      return Promise.all(kept).then(ks => items.filter((_, i) => ks[i]))
+    } catch (cause) {
+      return Promise.reject(cause)
+    }
+  }
+  return {
+    policy: {
+      authorizeConnect: () => Promise.resolve(),
+      authorizeFetch: (peer, id) => authorize(id, peer),
+      authorizePut: (requestor, _author, id) => authorize(id, requestor),
+      filterAuthorizedFetch: (peer, ids) =>
+        filter(ids, id => allowed(id, peer)),
+    },
+    ephemeralPolicy: {
+      authorizeSubscribe: (peer, topic) => authorize(topic, peer),
+      authorizePublish: (peer, topic) => authorize(topic, peer),
+      filterAuthorizedSubscribers: (topic, peers) =>
+        filter(peers, peer => allowed(topic, peer)),
+    },
+  }
 }
 
 function error(
@@ -174,14 +247,21 @@ export class SubductionBackend implements SedimentreeBackend {
   /** Every adapter's first attempt has settled, or the backend has closed. */
   readonly #networkSettled: Promise<void>
   #markClosed!: () => void
+  readonly #rules: SyncRules
 
   constructor(options: SubductionBackendOptions) {
     if (!options.storage) throw new TypeError("A storage adapter is required")
     this.#signer = options.signer ?? N.createMemorySigner()
     this.#mintDocumentId = options.mintDocumentId
+    this.#rules = new SyncRules(
+      options.syncPolicy,
+      id => this.#sessions.has(id),
+      (id, peer) => this.#offer(id, peer)
+    )
     this.#engine = new N.Subduction({
       signer: this.#signer,
       storage: new StorageBridge(options.storage),
+      ...nativePolicies((id, peer) => this.#rules.rule(id, peer)),
       defaultTimeoutMilliseconds: options.syncTimeoutMilliseconds,
       onEphemeral: (topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) =>
         this.#onEphemeral(topic, peer, bytes),
@@ -349,16 +429,55 @@ export class SubductionBackend implements SedimentreeBackend {
     )
   }
   /**
-   * Per-peer results; a rejection is local (storage or closed). Native hydrates
-   * the tree before checking for peers, so skip it when none is connected.
-   * Remove the check once syncWithAllPeers short-circuits itself.
+   * Per-peer results from every connected peer the policy announces to; a
+   * rejection is local (storage or closed). Native hydrates the tree before
+   * checking for peers, so skip it when none qualifies. Native rounds opened
+   * by loadAndWatch do not consult `announce`.
    */
   async #syncAllPeers(
     id: SedimentreeId
   ): Promise<[N.PeerId, N.PeerSyncResult][]> {
-    if (!(await this.#engine.getConnectedPeerIds()).length) return []
-    return Object.entries(
-      await this.#engine.syncWithAllPeers(id, { subscribe: true })
+    const connected = await this.#engine.getConnectedPeerIds()
+    const announced = await Promise.all(
+      connected.map(peer => this.#announces(id, peer))
+    )
+    const peers = connected.filter((_, i) => announced[i])
+    if (!peers.length) return []
+    // One native round hydrates the tree once. A peer connecting meanwhile
+    // joins it unchecked for `announce`; native still enforces `access`.
+    if (peers.length === connected.length)
+      return Object.entries(
+        await this.#engine.syncWithAllPeers(id, { subscribe: true })
+      )
+    return Promise.all(
+      peers.map(
+        async peer =>
+          [
+            peer,
+            await this.#engine.syncWithPeer(peer, id, { subscribe: true }),
+          ] as [N.PeerId, N.PeerSyncResult]
+      )
+    )
+  }
+  /** A failed policy call means no, as at the native gates. */
+  #announces(id: SedimentreeId, peer: string): boolean | Promise<boolean> {
+    const announced = settle(
+      this.#rules.rule(id, peer),
+      rule => rule.access && rule.announce
+    )
+    return announced instanceof Promise
+      ? announced.catch(() => false)
+      : announced
+  }
+  /** Sync an open document with a connected peer the policy now announces to. */
+  #offer(id: SedimentreeId, peer: string): void {
+    if (this.#closed || !this.#sessions.has(id)) return
+    void (async () => {
+      this.#check("synchronize", id)
+      if (!(await this.#engine.getConnectedPeerIds()).includes(peer)) return
+      await this.#engine.syncWithPeer(peer, id, { subscribe: true })
+    })().catch(cause =>
+      this.#broadcast(id, this.#failure("synchronize", cause))
     )
   }
   /** A round answering one session: its result is pushed there and returned. */
@@ -439,7 +558,10 @@ export class SubductionBackend implements SedimentreeBackend {
     session.stream?.close()
     const open = this.#sessions.get(session.id)
     open?.delete(session)
-    if (!open?.size) this.#sessions.delete(session.id)
+    if (!open?.size) {
+      this.#sessions.delete(session.id)
+      this.#rules.forgetTree(session.id)
+    }
     this.#reconcileInterest(session.id)
   }
   /** One native stream per session keeps syncing across connections. */
@@ -755,6 +877,7 @@ export class SubductionBackend implements SedimentreeBackend {
     // if we are already closing, return the existing promise
     if (this.#closing) return this.#closing
     this.#closed = true
+    this.#rules.close()
     // get what we need to check during close
     const accepted = [...this.#acks.values()]
     const disconnected = this.#engine.disconnectAll()
