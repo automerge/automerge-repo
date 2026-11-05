@@ -36,7 +36,7 @@ updates. Initial records precede `local-load-complete`, whose marker holds the
 heads of the initial cut; Repo applies the cut in one load and checks history
 inclusion against it. An empty load is not a readiness proof. After an empty
 cut the backend asks connected peers itself and delivers a `synchronized`
-result; Repo never starts a round on load. A `synchronized` marker is a target,
+result; Repo never starts a round. A `synchronized` marker is a target,
 not a receipt: the records it names may arrive on the stream after it.
 
 Streams have one consumer and allow only one outstanding `next()`. Closing a
@@ -86,9 +86,8 @@ is a simple metadata scan. It is not designed for large stores.
 
 Stores finish synchronously in memory unless the `beforeStore` hook holds one
 open, so `flush` normally has an immediate barrier.
-`synchronize` reports `no-peers` with an ordered history marker, and an empty
-initial cut is followed by such a result. An already
-aborted signal rejects that caller only. Ephemeral publication has no recipients
+An empty initial cut is followed by a `no-peers` `synchronized` result with an
+ordered history marker. Ephemeral publication has no recipients
 and is a best-effort no-op, not simulated transport delivery. Backend close
 releases watches and memory; its process-local state cannot be reopened afterward.
 

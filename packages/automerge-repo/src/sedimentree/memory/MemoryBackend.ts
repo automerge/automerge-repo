@@ -47,8 +47,7 @@ interface Tree {
 /**
  * In-memory, process-local backend: Repo's default when none is given, and the
  * deterministic backend for tests. Nothing survives the process and there are
- * no peers, so `synchronize()` always reports `no-peers`, as does the round
- * that follows an empty initial cut.
+ * no peers, so the round that follows an empty initial cut reports `no-peers`.
  *
  * Stores exact representations, without compaction or network simulation. A
  * different representation of a stored commit rejects. Like Subduction, valid
@@ -168,22 +167,7 @@ export class MemoryBackend implements SedimentreeBackend {
         this.#releaseEmpty(id, tree)
       }
     )
-    const session = new MemorySession(watch, () => {
-      this.#assertOpen("synchronize")
-      const roundId = String(++this.#round)
-      let result!: SyncRoundResult
-      const heads = headsOf([...tree.records.values()])
-      this.#append(tree, sequence => {
-        result = {
-          roundId,
-          marker: { sequence, heads },
-          outcome: "no-peers",
-          peers: [],
-        }
-        return { type: "synchronized", result }
-      })
-      return copySyncResult(result)
-    })
+    const session = new MemorySession(watch)
     tree.sessions.add(session)
     return session
   }
@@ -395,25 +379,13 @@ export class MemoryBackend implements SedimentreeBackend {
 
 class MemorySession implements SedimentreeSession {
   #closed = false
-  constructor(
-    readonly events: Observation<SedimentreeEvent>,
-    private synchronizeRound: (() => SyncRoundResult) | undefined
-  ) {}
+  constructor(readonly events: Observation<SedimentreeEvent>) {}
 
   invalidate(): void {
     this.#closed = true
-    this.synchronizeRound = undefined
   }
   end(event?: SedimentreeEvent): void {
     this.events.end(event)
-  }
-
-  async synchronize(options?: {
-    signal?: AbortSignal
-  }): Promise<SyncRoundResult> {
-    this.#assertOpen("synchronize")
-    options?.signal?.throwIfAborted()
-    return this.synchronizeRound!()
   }
 
   async publishEphemeral(message: EphemeralEnvelope): Promise<void> {

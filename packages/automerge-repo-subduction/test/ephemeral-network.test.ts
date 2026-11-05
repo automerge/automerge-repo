@@ -115,7 +115,6 @@ describe("real native ephemerals", () => {
       isolated = await observe(b, other)
     const twin = await observe(b)
     await connect(a, b)
-    await Promise.all([left.session.synchronize(), right.session.synchronize()])
     const outgoing = message("same")
     await left.session.publishEphemeral(outgoing)
     await vi.waitFor(
@@ -200,11 +199,6 @@ describe("real native ephemerals", () => {
       await connect(a, relay)
       await connect(relay, b)
       if (cycle) await connect(b, a)
-      await Promise.all([
-        left.session.synchronize(),
-        middle.session.synchronize(),
-        right.session.synchronize(),
-      ])
       const outgoing = message()
       await left.session.publishEphemeral(outgoing)
       await vi.waitFor(
@@ -243,7 +237,6 @@ describe("real native ephemerals", () => {
     const left = await observe(a),
       right = await observe(b)
     const [wire] = await connect(a, b)
-    await Promise.all([left.session.synchronize(), right.session.synchronize()])
     const unsubscribed = deferred(),
       release = deferred()
     releases.push(release.resolve)
@@ -410,9 +403,6 @@ describe("real native ephemerals", () => {
         ).toEqual(records),
       wait
     )
-    await expect(third.session.synchronize()).resolves.toMatchObject({
-      outcome: "no-peers",
-    })
     await third.session.close()
     await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledTimes(2), wait)
     const reopened = await observe(a)

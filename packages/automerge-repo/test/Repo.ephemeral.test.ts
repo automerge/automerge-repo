@@ -53,7 +53,6 @@ class ControlledBackend extends MemoryBackend {
             })
         }
       })(),
-      synchronize: session.synchronize.bind(session),
       publishEphemeral: publish,
       markReady: () => session.markReady(),
       close: async () => {

@@ -200,9 +200,7 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     ])
     await event(iterator, "history-marker")
     await backend.store(treeId(), [input])
-    // A round is a deterministic sentinel: duplicates must not precede it.
-    const round = await session.synchronize()
-    expect((await event(iterator, "synchronized")).result).toEqual(round)
+    await expectPending(iterator.next())
   })
 
   it("does not prune readiness targets using unverified fragment boundaries", async () => {
@@ -311,15 +309,13 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     const iterator = session.events[Symbol.asyncIterator]()
     expect((await initial(iterator)).complete.found).toBe(false)
     await backend.store(treeId(), [])
-    await session.synchronize()
-    await event(iterator, "synchronized")
+    await expectPending(iterator.next())
     await backend.store(treeId(2), [commit(1)])
     const stored = backend.open(treeId(2))
     const si = stored.events[Symbol.asyncIterator]()
     await initial(si)
     await backend.store(treeId(2), [])
-    await stored.synchronize()
-    await event(si, "synchronized")
+    await expectPending(si.next())
   })
 
   it("retains out-of-order records and fragment metadata before dependencies arrive", async () => {
@@ -338,62 +334,20 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     expect(load.complete.marker.heads).toEqual([cid(3), cid(4)])
   })
 
-  it("orders no-peer synchronization markers after data and correlates results with stream markers", async () => {
+  it("orders live history markers after data on every session", async () => {
     const backend = create()
-    const session = backend.open(treeId())
-    const other = backend.open(treeId())
-    const iterator = session.events[Symbol.asyncIterator]()
-    const oi = other.events[Symbol.asyncIterator]()
-    const cut = await initial(iterator)
-    await initial(oi)
-    await backend.store(treeId(), [commit(2), commit(1)])
-    const round = await session.synchronize() // Resolution does not consume the stream.
-    expect(round).toMatchObject({
-      outcome: "no-peers",
-      peers: [],
-      marker: { heads: [cid(1), cid(2)] },
-    })
-    const records = await event(iterator, "records")
-    const marker = await event(iterator, "history-marker")
-    const sync = await event(iterator, "synchronized")
-    expect(cut.complete.marker.sequence).toBeLessThan(records.sequence)
-    expect(records.sequence).toBeLessThan(marker.marker.sequence)
-    expect(marker.marker.sequence).toBeLessThan(sync.result.marker.sequence)
-    expect(sync.result).toEqual(round)
-    await event(oi, "records")
-    expect((await event(oi, "history-marker")).marker.heads).toEqual([
-      cid(1),
-      cid(2),
-    ])
-    expect((await event(oi, "synchronized")).result).toEqual(round)
-    const second = await other.synchronize()
-    expect(second.roundId).not.toBe(round.roundId)
-    expect(second.marker.sequence).toBeGreaterThan(round.marker.sequence)
-  })
-
-  it("aborting one caller does not cancel other sessions, interest, or accepted persistence", async () => {
-    const backend = create()
-    const a = backend.open(treeId())
-    const b = backend.open(treeId())
-    const ai = a.events[Symbol.asyncIterator]()
-    const bi = b.events[Symbol.asyncIterator]()
-    await initial(ai)
-    await initial(bi)
-    const controller = new AbortController()
-    const reason = new Error("caller stopped waiting")
-    controller.abort(reason)
-    const write = backend.store(treeId(), [commit(1)])
-    await expect(a.synchronize({ signal: controller.signal })).rejects.toBe(
-      reason
+    const iterators = [backend.open(treeId()), backend.open(treeId())].map(s =>
+      s.events[Symbol.asyncIterator]()
     )
-    await write
-    const round = await b.synchronize()
-    for (const iterator of [ai, bi]) {
-      expect((await event(iterator, "records")).records).toEqual([commit(1)])
-      await event(iterator, "history-marker")
-      expect((await event(iterator, "synchronized")).result).toEqual(round)
+    const cuts = await Promise.all(iterators.map(initial))
+    await backend.store(treeId(), [commit(2), commit(1)])
+    for (const [i, iterator] of iterators.entries()) {
+      const records = await event(iterator, "records")
+      const marker = await event(iterator, "history-marker")
+      expect(cuts[i].complete.marker.sequence).toBeLessThan(records.sequence)
+      expect(records.sequence).toBeLessThan(marker.marker.sequence)
+      expect(marker.marker.heads).toEqual([cid(1), cid(2)])
     }
-    expect((await a.synchronize()).outcome).toBe("no-peers")
   })
 
   it("flush settles local persistence without starting a network round or waiting for consumers", async () => {
@@ -407,13 +361,7 @@ describe("MemoryBackend exact-representation / no-network model", () => {
     await write
     await event(iterator, "records")
     await event(iterator, "history-marker")
-    const pending = iterator.next()
-    await expectPending(pending)
-    const result = await session.synchronize()
-    expect((await settled(pending)).value).toEqual({
-      type: "synchronized",
-      result,
-    })
+    await expectPending(iterator.next())
   })
 
   it("delivers every live event to a consumer that reads late", async () => {

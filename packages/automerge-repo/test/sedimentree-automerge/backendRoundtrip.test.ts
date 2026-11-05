@@ -14,6 +14,7 @@ import {
   extractRecords,
   satisfiesMarker,
 } from "../../src/sedimentree/automerge/index.js"
+import { expectPending } from "../sedimentree/helpers.js"
 
 const id = sedimentreeId("42".repeat(16) + "00".repeat(16))
 type State = { count: number; local?: boolean }
@@ -68,12 +69,8 @@ describe("Automerge through the plain backend boundary", () => {
     const b = memory.open(id)
     const second = await load(b)
     expect(A.getHeads(second.doc)).toEqual(A.getHeads(original))
-    // A no-peer sync marker follows immediately: loading didn't emit extra writes.
-    const result = await b.synchronize()
-    expect(await next(second.iterator)).toEqual({
-      type: "synchronized",
-      result,
-    })
+    // Loading didn't emit extra writes.
+    await expectPending(second.iterator.next())
   })
 
   it("does not expose an arbitrary first blob as a complete initial snapshot", async () => {
@@ -104,7 +101,7 @@ describe("Automerge through the plain backend boundary", () => {
     }
   })
 
-  it("orders data before synchronization markers, independently of promise resolution", async () => {
+  it("orders data before history markers", async () => {
     const memory = backend()
     const session = memory.open(id)
     const empty = await load(session)
@@ -112,19 +109,13 @@ describe("Automerge through the plain backend boundary", () => {
     expect(satisfiesMarker(empty.doc, empty.event.marker.heads)).toBe(false)
     const original = fixture()
     await memory.store(id, extractRecords(original))
-    const round = await session.synchronize()
-    expect(satisfiesMarker(empty.doc, round.marker.heads)).toBe(false)
     let doc = empty.doc
     while (true) {
       const event = await next(empty.iterator)
       if (event.type === "records") doc = applyRecords(doc, event.records)
-      // Skip the round that settles the empty initial cut.
-      if (
-        event.type === "synchronized" &&
-        event.result.roundId === round.roundId
-      ) {
-        expect(event.result).toEqual(round)
-        expect(satisfiesMarker(doc, round.marker.heads)).toBe(true)
+      if (event.type === "history-marker") {
+        expect(satisfiesMarker(doc, event.marker.heads)).toBe(true)
+        expect(doc).toEqual(original)
         break
       }
     }

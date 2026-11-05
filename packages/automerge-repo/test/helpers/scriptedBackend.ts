@@ -10,7 +10,6 @@ import type {
 /** A session whose events the test pushes by hand. */
 export interface ScriptedSession {
   readonly id: SedimentreeId
-  readonly synchronize: Mock<SedimentreeSession["synchronize"]>
   readonly publishEphemeral: Mock<SedimentreeSession["publishEphemeral"]>
   readonly markReady: Mock<() => void>
   readonly close: Mock<SedimentreeSession["close"]>
@@ -81,7 +80,6 @@ export function scriptedBackend() {
       get closed() {
         return closed
       },
-      synchronize: vi.fn(async () => noPeers()),
       publishEphemeral: vi.fn(async () => {}),
       markReady: vi.fn(),
       close: vi.fn(async () => {

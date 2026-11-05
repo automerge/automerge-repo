@@ -29,8 +29,6 @@ export interface SedimentreeBackend {
 export interface SedimentreeSession {
   readonly events: AsyncIterable<SedimentreeEvent>
 
-  synchronize(options?: { signal?: AbortSignal }): Promise<SyncRoundResult>
-
   publishEphemeral(message: EphemeralEnvelope): Promise<void>
 
   /**

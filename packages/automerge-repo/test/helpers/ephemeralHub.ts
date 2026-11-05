@@ -87,7 +87,6 @@ export class EphemeralHub {
             })
         }
       })(),
-      synchronize: options => inner.synchronize(options),
       markReady: () => inner.markReady(),
       publishEphemeral: async message => {
         if (self.closed || this.drop(message, sender)) return

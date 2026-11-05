@@ -13,6 +13,7 @@ import {
   SubductionBackend,
   type SubductionBackendOptions,
 } from "../src/index.js"
+import { Watch } from "../src/watch.js"
 import { TestStore, deferred, savedKeys } from "./storage.js"
 import { corruptFrame } from "./frame.js"
 import type { TestSigner } from "./transport.js"
@@ -66,6 +67,16 @@ async function next(iterator: AsyncIterator<SedimentreeEvent>) {
   const value = await iterator.next()
   if (value.done) throw new Error("Unexpected end")
   return value.value
+}
+async function until<K extends SedimentreeEvent["type"]>(
+  iterator: AsyncIterator<SedimentreeEvent>,
+  type: K
+): Promise<Extract<SedimentreeEvent, { type: K }>> {
+  for (;;) {
+    const event = await next(iterator)
+    if (event.type === type)
+      return event as Extract<SedimentreeEvent, { type: K }>
+  }
 }
 
 describe("real local Subduction", () => {
@@ -202,11 +213,11 @@ describe("real local Subduction", () => {
     const backend = create({ syncTimeoutMilliseconds: 1234 })
     const engine = nodeOf(backend)
     const rounds = vi.spyOn(engine, "syncWithAllPeers")
-    const session = backend.open(tree)
-    await initial(session)
+    await initial(backend.open(tree))
     // Rounds skip native without a connected peer.
     vi.spyOn(engine, "getConnectedPeerIds").mockResolvedValue([somePeer])
-    await session.synchronize()
+    await backend.store(tree, [record(1)])
+    await vi.waitFor(() => expect(rounds).toHaveBeenCalled())
     // Rounds rely on the node's default deadline.
     expect(rounds.mock.calls[0][1]).toEqual({ subscribe: true })
   })
@@ -499,107 +510,54 @@ describe("real local Subduction", () => {
     ])
   })
 
-  it("cancellation cancels only the synchronization wait; iterator return wakes pending pulls", async () => {
+  it("reports a local propagation failure as retryable", async () => {
     const backend = create()
-    const session = backend.open(tree)
-    const { iterator } = await initial(session)
-    const gate = deferred(),
-      entered = deferred()
-    storage.beforeSave = async key => {
-      if (key.includes("/commits/")) {
-        entered.resolve()
-        await gate.promise
-      }
-    }
-    const writing = backend.store(tree, [record(1)])
-    await entered.promise
-    const controller = new AbortController()
-    const wait = session.synchronize({ signal: controller.signal })
-    controller.abort(new Error("cancel wait"))
-    await expect(wait).rejects.toThrow("cancel wait")
-    gate.resolve()
-    await writing
-    // The round does not wait for the in-flight write; only each kind's
-    // content is fixed, not their relative order.
-    const events = [
-      await next(iterator),
-      await next(iterator),
-      await next(iterator),
-    ]
-    // The empty-loaded session's record starts a round of its own.
-    expect(events.map(e => e.type).sort()).toEqual([
-      "records",
-      "synchronized",
-      "synchronized",
-    ])
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "synchronized",
-        result: expect.objectContaining({
-          marker: expect.objectContaining({ heads: [cid(1)] }),
-        }),
-      })
-    )
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: "synchronized",
-        result: expect.objectContaining({ outcome: "no-peers" }),
-      })
-    )
-    const pending = iterator.next()
-    await iterator.return!()
-    expect((await pending).done).toBe(true)
-    await expect(session.synchronize()).rejects.toMatchObject({
-      code: "closed",
-    })
-  })
-
-  it("rejects a round on a local sync failure and reports it as retryable", async () => {
-    const backend = create()
-    const session = backend.open(tree)
-    const { iterator } = await initial(session)
+    await backend.store(tree, [record(1)])
+    const { iterator } = await initial(backend.open(tree))
     const engine = nodeOf(backend)
     // Rounds skip native without a connected peer.
     vi.spyOn(engine, "getConnectedPeerIds").mockResolvedValue([somePeer])
     vi.spyOn(engine, "syncWithAllPeers").mockRejectedValueOnce(
       new Error("ingest storage failed")
     )
-    await expect(session.synchronize()).rejects.toMatchObject({
-      operation: "synchronize",
-      code: "io",
-      retryable: true,
-    })
-    expect(await next(iterator)).toMatchObject({
-      type: "failure",
-      error: { code: "io", retryable: true },
+    // A batch propagates by a round; single records are pushed natively.
+    await backend.store(tree, [record(2, [1]), record(3, [2])])
+    expect(await until(iterator, "failure")).toMatchObject({
+      error: { operation: "synchronize", code: "io", retryable: true },
     })
     // The session keeps working after the failed round.
-    expect(await session.synchronize()).toMatchObject({ outcome: "no-peers" })
+    await backend.store(tree, [record(4, [3])])
+    // Records from the failed round's batch may still precede it.
+    let live = await until(iterator, "records")
+    while (live.records[0].id !== cid(4))
+      live = await until(iterator, "records")
+    expect(live.records).toEqual([record(4, [3])])
   })
 
   it("ends the watch after a nonretryable round failure, superseding queued events", async () => {
     const backend = create()
-    const session = backend.open(tree)
-    const { iterator } = await initial(session)
+    const { iterator } = await initial(backend.open(tree))
     const engine = nodeOf(backend)
     vi.spyOn(engine, "getConnectedPeerIds").mockResolvedValue([somePeer])
-    // Either the store's propagation round or ours fails first.
+    // The live record on an empty-loaded session starts a confirmation round;
+    // a single record is pushed natively, not propagated.
     vi.spyOn(engine, "syncWithAllPeers").mockRejectedValue(
       new BackendError("synchronize", "unsupported", "fatal", false)
     )
+    const finish = vi.spyOn(Watch.prototype, "finish")
     await backend.store(tree, [record(1)])
-    await expect(session.synchronize()).rejects.toMatchObject({
-      retryable: false,
-    })
-    // The record queued before the failure is superseded.
+    // Pull only once the failure has ended the watch: the record queued
+    // before it is superseded.
+    await vi.waitFor(() =>
+      expect(finish).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "failure" })
+      )
+    )
     expect(await next(iterator)).toMatchObject({
       type: "failure",
       error: { code: "unsupported", retryable: false },
     })
     expect((await iterator.next()).done).toBe(true)
-    await expect(session.synchronize()).rejects.toMatchObject({
-      code: "closed",
-    })
   })
 
   it("settles an empty load without peers through a confirmation result, without a native round", async () => {
@@ -673,13 +631,8 @@ describe("real local Subduction", () => {
       type: "records",
       records: [record(2, [1])],
     })
-    await session.synchronize()
-    expect(await next(iterator)).toMatchObject({
-      type: "synchronized",
-      result: { outcome: "no-peers", marker: { heads: [cid(2)] } },
-    })
     expect(list).not.toHaveBeenCalled()
-    expect(getHeads).toHaveBeenCalledOnce()
+    expect(getHeads).not.toHaveBeenCalled()
     // The bridge does no preflight reads.
     expect(load).not.toHaveBeenCalled()
     // Readers still validate the authoritative stored history.
@@ -704,10 +657,10 @@ describe("real local Subduction", () => {
       type: "history-marker",
       marker: { heads: [cid(2)] },
     })
-    await done.synchronize()
+    await backend.store(tree, [record(3, [2])])
     expect(await next(a.iterator)).toMatchObject({
-      type: "synchronized",
-      result: { marker: { heads: [cid(2)] } },
+      type: "records",
+      records: [record(3, [2])],
     })
   })
 
@@ -766,7 +719,7 @@ describe("real local Subduction", () => {
     })
   })
 
-  it("reopening after a session closes reloads records and retains sync markers", async () => {
+  it("reopening after a session closes reloads records and keeps observing", async () => {
     const backend = create()
     await backend.store(tree, [record(1), record(2, [1])])
     const first = backend.open(tree)
@@ -778,11 +731,9 @@ describe("real local Subduction", () => {
     expect(complete.marker).toMatchObject({ heads: [cid(2)] })
     second.markReady()
     await backend.store(tree, [record(3, [2])])
-    expect((await next(iterator)).type).toBe("records")
-    await second.synchronize()
     expect(await next(iterator)).toMatchObject({
-      type: "synchronized",
-      result: { marker: { heads: [cid(3)] } },
+      type: "records",
+      records: [record(3, [2])],
     })
   })
 

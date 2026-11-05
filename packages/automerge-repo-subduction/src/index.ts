@@ -201,18 +201,6 @@ async function failures(promises: readonly unknown[]): Promise<unknown[]> {
     r.status === "rejected" ? [r.reason] : []
   )
 }
-function waitOnly<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return promise
-  return new Promise<T>((resolve, reject) => {
-    const abort = () =>
-      reject(signal.reason ?? new Error("Synchronization wait aborted"))
-    if (signal.aborted) abort()
-    else signal.addEventListener("abort", abort, { once: true })
-    promise
-      .then(resolve, reject)
-      .finally(() => signal.removeEventListener("abort", abort))
-  })
-}
 
 /** EXPERIMENTAL: real WASM persistence and authenticated peer sync.
  * Initialize Subduction WASM before construction. Storage is exclusively owned.
@@ -407,7 +395,59 @@ export class SubductionBackend implements SedimentreeBackend {
   #confirm(session: SessionState): void {
     if (session.confirming || session.ready) return
     session.confirming = true
-    void this.#syncRound(session.id, session)
+    const { id } = session
+    void (async () => {
+      this.#check("synchronize", id)
+      const roundId = `subduction-${++this.#round}`
+      const results = await this.#syncAllPeers(id)
+      this.#check("synchronize", id)
+      // Native updates its tree before the round resolves, so these heads
+      // include whatever the round ingested.
+      const marker = await this.#headsMarker(id)
+      const peers: SyncRoundResult["peers"][number][] = results.map(
+        ([peer, response]) => {
+          const failures = response.transportErrors
+          return {
+            peer: this.#peerIdentity(peer),
+            // A successful round that leaves the tree empty: the peer lacks it.
+            outcome: !response.success
+              ? "failed"
+              : marker.heads.length
+                ? "complete"
+                : "unavailable",
+            ...(failures.length
+              ? {
+                  error: error(
+                    "synchronize",
+                    new AggregateError(failures, "Peer synchronization failed")
+                  ),
+                }
+              : !response.success
+                ? {
+                    error: new BackendError(
+                      "synchronize",
+                      "unsupported",
+                      "Native sync does not distinguish absent, unauthorized, and disconnected peers"
+                    ),
+                  }
+                : {}),
+          }
+        }
+      )
+      session.watch.push({
+        type: "synchronized",
+        result: {
+          roundId,
+          marker,
+          outcome: !peers.length
+            ? "no-peers"
+            : peers.some(p => p.outcome === "failed")
+              ? "failed"
+              : "complete",
+          peers,
+        },
+      })
+    })()
       .catch(cause =>
         this.#deliver(session.watch, this.#failure("synchronize", cause))
       )
@@ -479,62 +519,6 @@ export class SubductionBackend implements SedimentreeBackend {
     })().catch(cause =>
       this.#broadcast(id, this.#failure("synchronize", cause))
     )
-  }
-  /** A round answering one session: its result is pushed there and returned. */
-  async #syncRound(
-    id: SedimentreeId,
-    recipient: SessionState
-  ): Promise<SyncRoundResult> {
-    this.#check("synchronize", id)
-    const roundId = `subduction-${++this.#round}`
-    const results = await this.#syncAllPeers(id)
-    this.#check("synchronize", id)
-    // Native updates its tree before the round resolves, so these heads
-    // include whatever the round ingested.
-    const marker = await this.#headsMarker(id)
-    const outcomes: SyncRoundResult["peers"][number][] = results.map(
-      ([peer, response]) => {
-        const failures = response.transportErrors
-        return {
-          peer: this.#peerIdentity(peer),
-          // A successful round that leaves the tree empty: the peer lacks it.
-          outcome: !response.success
-            ? "failed"
-            : marker.heads.length
-              ? "complete"
-              : "unavailable",
-          ...(failures.length
-            ? {
-                error: error(
-                  "synchronize",
-                  new AggregateError(failures, "Peer synchronization failed")
-                ),
-              }
-            : !response.success
-              ? {
-                  error: new BackendError(
-                    "synchronize",
-                    "unsupported",
-                    "Native sync does not distinguish absent, unauthorized, and disconnected peers"
-                  ),
-                }
-              : {}),
-        }
-      }
-    )
-    // Shared by the caller and its session's event.
-    const result: SyncRoundResult = Object.freeze({
-      roundId,
-      marker: Object.freeze({ ...marker, heads: Object.freeze(marker.heads) }),
-      outcome: !outcomes.length
-        ? "no-peers"
-        : outcomes.some(p => p.outcome === "failed")
-          ? "failed"
-          : "complete",
-      peers: Object.freeze(outcomes.map(p => Object.freeze(p))),
-    })
-    recipient.watch.push({ type: "synchronized", result })
-    return result
   }
   #check(operation: BackendOperation, id?: SedimentreeId): void {
     if (this.#closed)
@@ -671,21 +655,6 @@ export class SubductionBackend implements SedimentreeBackend {
     }
     return {
       events: watch,
-      synchronize: (options = {}) => {
-        try {
-          sessionCheck("synchronize")
-          const work = this.#syncRound(id, session).catch(cause => {
-            const failure = this.#failure("synchronize", cause)
-            this.#deliver(watch, failure)
-            throw failure.error
-          })
-          // An aborted wait leaves the round's own rejection unobserved.
-          void work.catch(() => {})
-          return waitOnly(work, options.signal)
-        } catch (cause) {
-          return Promise.reject(cause)
-        }
-      },
       publishEphemeral: async message => {
         sessionCheck("ephemeral")
         const bytes = encodeEphemeral(message)

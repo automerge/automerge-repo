@@ -54,10 +54,6 @@ type Peer = {
   backend: SubductionBackend
 }
 
-function identity(signer: TestSigner) {
-  return { kind: "subduction", id: signer.peerId(), path: [] }
-}
-
 /** Bound assertions without abandoning the underlying promise in cleanup. */
 async function bounded<T>(
   work: Promise<T>,
@@ -86,20 +82,6 @@ async function stillPending(work: Promise<unknown>) {
   ])
   expect(state).toBe("pending")
 }
-function errorText(value: unknown): string {
-  if (value instanceof Error) {
-    return [
-      value.message,
-      errorText(value.cause),
-      ...(value instanceof AggregateError ? value.errors.map(errorText) : []),
-    ].join(" ")
-  }
-  // Native transport errors are plain `{ name, message }` records.
-  if (value && typeof value === "object" && "message" in value)
-    return String(value.message)
-  return String(value)
-}
-
 describe("authenticated network failure and lifecycle barriers", () => {
   const peers: Peer[] = []
   const transports: PairedTransport[] = []
@@ -187,15 +169,17 @@ describe("authenticated network failure and lifecycle barriers", () => {
     ])
     const left = await observe(a),
       right = await observe(b)
+    const before = [left.events.length, right.events.length]
     const wire = await connect(a, b)
     // Drain initial interest rounds before deliberately disrupting responses.
-    for (const observed of [left, right]) {
-      const result = await bounded(
-        track(observed.session.synchronize()),
-        "initial sync"
-      )
-      expect(result.outcome).toBe("complete")
-    }
+    await vi.waitFor(() => {
+      for (const [i, observed] of [left, right].entries())
+        expect(
+          observed.events
+            .slice(before[i])
+            .some(e => e.type === "history-marker")
+        ).toBe(true)
+    }, wait)
     return { left, right, wire }
   }
 
@@ -256,18 +240,17 @@ describe("authenticated network failure and lifecycle barriers", () => {
     expect(initialRecords(observed.events)).toEqual([])
   })
 
-  it("reports the authenticated peer and timeout while store/flush stay local despite dropped responses", async () => {
+  it("store/flush stay local despite dropped responses", async () => {
     const a = peer(),
       b = peer()
     const {
-      left,
       wire: [wireA, wireB],
     } = await settledConnection(a, b)
     wireB.drop = true
+    // A batch propagates by a round, which stalls on the dropped responses.
     const sent = vi.spyOn(wireA, "sendBytes")
-    const synchronizing = track(left.session.synchronize())
+    await a.backend.store(tree, twoRecords)
     await vi.waitFor(() => expect(sent).toHaveBeenCalled(), wait)
-    await stillPending(synchronizing)
 
     // This must finish well BEFORE the peer's timeout, not merely eventually.
     await bounded(
@@ -280,22 +263,9 @@ describe("authenticated network failure and lifecycle barriers", () => {
       "local store + flush behind a stalled peer",
       800
     )
-    expect(initialRecords((await observe(a)).events)).toEqual(persistedRecords)
-    await stillPending(synchronizing)
-
-    const result = await bounded(synchronizing, "peer timeout")
-    expect(result).toMatchObject({
-      outcome: "failed",
-      peers: [
-        {
-          peer: identity(b.signer),
-          outcome: "failed",
-          error: expect.any(Error),
-        },
-      ],
-    })
-    expect(result.peers).toHaveLength(1)
-    expect(errorText(result.peers[0].error)).toMatch(/timed?\s*out|timeout/i)
+    expect(initialRecords((await observe(a)).events)).toEqual(
+      expect.arrayContaining(persistedRecords)
+    )
     expect(wireA.disconnected).toBe(false)
   }, 20000)
 
@@ -310,72 +280,24 @@ describe("authenticated network failure and lifecycle barriers", () => {
       a.backend.store(other, baseline),
       b.backend.store(other, baseline),
     ])
-    const observed = await observe(a, other)
+    // Keeps A's session on `other` open while its round is in flight.
+    await observe(a, other)
     const remote = await observe(b, other)
-    await Promise.all([
-      observed.session.synchronize(),
-      remote.session.synchronize(),
-    ])
     wireB.pause()
+    // A batch propagates by a round, held in flight by the paused wire.
     const sent = vi.spyOn(wireA, "sendBytes")
-    const synchronizing = track(observed.session.synchronize())
+    await a.backend.store(other, twoRecords)
     await vi.waitFor(() => expect(sent).toHaveBeenCalled(), wait)
-    await stillPending(synchronizing)
     await a.backend.deleteLocal(tree)
-    await stillPending(synchronizing)
     expect(wireA.disconnected).toBe(false)
     wireB.resume()
-    expect((await synchronizing).outcome).toBe("complete")
-    expect((await observed.session.synchronize()).outcome).toBe("complete")
-  }, 20000)
-
-  it("AbortSignal cancels only the caller's wait; the same session still receives the completed round", async () => {
-    const a = peer(),
-      b = peer()
-    const {
-      left,
-      right,
-      wire: [wireA, wireB],
-    } = await settledConnection(a, b)
-    wireB.pause()
-    const sent = vi.spyOn(wireA, "sendBytes")
-    const abort = new AbortController()
-    const synchronizing = track(
-      left.session.synchronize({ signal: abort.signal })
+    await vi.waitFor(
+      () =>
+        expect(
+          remote.events.flatMap(e => (e.type === "records" ? e.records : []))
+        ).toEqual(expect.arrayContaining(twoRecords)),
+      wait
     )
-    await vi.waitFor(() => expect(sent).toHaveBeenCalled(), wait)
-    const priorRounds = left.events.filter(
-      e => e.type === "synchronized"
-    ).length
-    abort.abort()
-    await expect(
-      bounded(synchronizing, "abort wait", 800)
-    ).rejects.toMatchObject({
-      name: "AbortError",
-    })
-    expect(wireA.disconnected).toBe(false)
-    wireB.resume()
-    await vi.waitFor(() => {
-      const rounds = left.events.filter(e => e.type === "synchronized")
-      expect(rounds.length).toBeGreaterThan(priorRounds)
-      expect(rounds.at(-1)?.result.outcome).toBe("complete")
-    }, wait)
-    const result = await bounded(
-      track(left.session.synchronize()),
-      "surviving session sync"
-    )
-    expect(result).toMatchObject({
-      outcome: "complete",
-      peers: [{ peer: identity(b.signer), outcome: "complete" }],
-    })
-    await a.backend.store(tree, records)
-    await vi.waitFor(() => {
-      const received = right.events.flatMap(e =>
-        e.type === "records" ? e.records : initialRecords([e])
-      )
-      expect(received).toEqual(expect.arrayContaining(persistedRecords))
-      expect(received).toHaveLength(persistedRecords.length)
-    }, wait)
   }, 20000)
 
   it("publishes remote ingested heads to an incomplete session's live marker", async () => {
@@ -394,9 +316,6 @@ describe("authenticated network failure and lifecycle barriers", () => {
       const markers = live.filter(e => e.type === "history-marker")
       expect(markers.at(-1)?.marker.heads).toEqual(expectedHeads)
     }, wait)
-    expect((await right.session.synchronize()).marker.heads).toEqual(
-      expectedHeads
-    )
   }, 20000)
 
   // Contract: flush covers ingested writes. Native has no barrier yet; see
@@ -450,17 +369,15 @@ describe("authenticated network failure and lifecycle barriers", () => {
     const a = peer(),
       b = peer()
     const {
-      left,
       wire: [wireA, wireB],
     } = await settledConnection(a, b)
     wireB.pause()
+    // A batch propagates by a round, held in flight by the paused wire.
     const sent = vi.spyOn(wireA, "sendBytes")
-    const synchronizing = track(left.session.synchronize())
+    await a.backend.store(tree, twoRecords)
     await vi.waitFor(() => expect(sent).toHaveBeenCalled(), wait)
-    await stillPending(synchronizing)
     const closing = track(a.backend.close())
     await bounded(closing, "close cancels outgoing sync", 800)
-    await expect(synchronizing).rejects.toMatchObject({ code: "closed" })
     expect(wireA.disconnected).toBe(true)
     await bounded(
       track(b.backend.close()),
@@ -517,32 +434,6 @@ describe("authenticated network failure and lifecycle barriers", () => {
     ).toEqual([])
   }, 20000)
 
-  // Contract: a round whose ingest fails locally reports the failure. Native
-  // drops that peer from syncWithAllPeers' results, so the round resolves as
-  // "no-peers" despite a connected peer; see the README's known gaps.
-  it.fails("reports a local ingest failure in an explicit round", async () => {
-    const a = peer(),
-      b = peer()
-    const { right } = await settledConnection(a, b)
-    b.storage.beforeSave = async key => {
-      if (key.includes("/commits/")) throw new Error("disk full")
-    }
-    // A batch, so A propagates by a round rather than a push; B's explicit
-    // round then has to ingest it.
-    await a.backend.store(tree, twoRecords)
-    const round = await bounded(
-      track(right.session.synchronize()).catch(cause => cause),
-      "round"
-    )
-    // Either surfacing is acceptable: a rejected round or a failed peer.
-    if (round instanceof Error) expect(round).toMatchObject({ code: "io" })
-    else
-      expect(round).toMatchObject({
-        outcome: "failed",
-        peers: [{ peer: identity(a.signer), outcome: "failed" }],
-      })
-  }, 20000)
-
   it("recovers ambiguous incoming saves and reconnects without losing or duplicating the record", async () => {
     const a = peer(),
       b = peer()
@@ -576,10 +467,6 @@ describe("authenticated network failure and lifecycle barriers", () => {
 
     const fresh = await observe(b)
     expect(initialRecords(fresh.events)).toEqual(persistedRecords)
-    expect(await fresh.session.synchronize()).toMatchObject({
-      outcome: "no-peers",
-      peers: [],
-    })
     expect(await b.storage.list("subduction-v2/ids/")).toHaveLength(1)
     // A retry can repair the optional inventory marker omitted by the failed
     // transaction. Re-storing held records rewrites them under the same keys
@@ -593,14 +480,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     const blobKeys = keys.filter(key => key.includes("/blob/"))
     const blobs = await Promise.all(blobKeys.map(key => b.storage.load(key)))
     await connect(a, b)
-    for (let i = 0; i < 2; i++) {
-      const result = await bounded(
-        track(fresh.session.synchronize()),
-        "recovery round"
-      )
-      expect(result.outcome).toBe("complete")
-      await b.backend.store(tree, records)
-    }
+    for (let i = 0; i < 2; i++) await b.backend.store(tree, records)
     expect(await recordKeys()).toEqual(keys)
     expect(await Promise.all(blobKeys.map(key => b.storage.load(key)))).toEqual(
       blobs

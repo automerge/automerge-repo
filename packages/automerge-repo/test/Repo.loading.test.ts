@@ -234,8 +234,6 @@ describe("Repo loading", () => {
       expect(handle.doc()).toEqual({ count: 2 })
       expect(changed).toHaveBeenCalledOnce()
       expect(progress.state().status).toBe("ready")
-      // Ready from local storage: no synchronization round is requested.
-      expect(session.synchronize).not.toHaveBeenCalled()
       expect(session.markReady).toHaveBeenCalledOnce()
     })
 
@@ -344,7 +342,6 @@ describe("Repo loading", () => {
         found: false,
       })
       expect(progress.state().status).toBe("loading")
-      expect(session.synchronize).not.toHaveBeenCalled()
     })
 
     it("tells the session once Repo has a verified snapshot, and immediately for created documents", async () => {

@@ -89,17 +89,14 @@ export function backendContract(
       expect(live.sequence).toBeGreaterThan(loaded.complete.marker.sequence)
     })
 
-    it("reports an empty initial marker before synchronization events", async () => {
+    it("reports an empty initial marker, then the backend's own round", async () => {
       const session = backend.open(treeId())
       const iterator = session.events[Symbol.asyncIterator]()
-      const round = session.synchronize()
       const loaded = await initial(iterator)
       expect(loaded.complete).toMatchObject({
         found: false,
         marker: { heads: [] },
       })
-      expect((await event(iterator, "synchronized")).result).toBeDefined()
-      await round
       await session.close()
     })
 
@@ -183,10 +180,6 @@ export function backendContract(
         (await initial(backend.open(treeId()).events[Symbol.asyncIterator]()))
           .records
       ).toEqual([commit(1)])
-      await expect(a.synchronize()).rejects.toMatchObject({
-        operation: "synchronize",
-        code: "closed",
-      })
     })
 
     it.each(["return", "break"])(
@@ -203,7 +196,6 @@ export function backendContract(
             break
           }
         expect((await settled(ai.next())).done).toBe(true)
-        await expect(a.synchronize()).rejects.toMatchObject({ code: "closed" })
         expect(
           (await initial(b.events[Symbol.asyncIterator]())).records
         ).toEqual([commit(1)])
@@ -218,9 +210,6 @@ export function backendContract(
       await expectPending(pending)
       await iterator.return!()
       expect((await settled(pending)).done).toBe(true)
-      await expect(session.synchronize()).rejects.toMatchObject({
-        code: "closed",
-      })
     })
 
     it("backend close is idempotent, wakes all pending watches, and rejects new work", async () => {
@@ -251,7 +240,6 @@ export function backendContract(
         operation: "delete",
         code: "closed",
       })
-      await expect(a.synchronize()).rejects.toMatchObject({ code: "closed" })
       await a.close()
       await b.close()
     })
@@ -276,7 +264,6 @@ export function backendContract(
         expect((await next(bi)).type).toBe("deleted")
         expect((await settled(ai.next())).done).toBe(true)
         expect((await settled(bi.next())).done).toBe(true)
-        await expect(a.synchronize()).rejects.toMatchObject({ code: "closed" })
         const reopened = backend.open(treeId())
         const ri = reopened.events[Symbol.asyncIterator]()
         expect((await initial(ri)).complete.found).toBe(false)
