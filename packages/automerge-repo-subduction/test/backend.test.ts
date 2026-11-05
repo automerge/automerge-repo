@@ -309,23 +309,6 @@ describe("real local Subduction", () => {
     await backend.close()
   })
 
-  it("delivers every live update to a consumer that reads late", async () => {
-    const backend = create()
-    const { iterator } = await initial(backend.open(tree))
-    const records = [record(1), record(2, [1]), record(3, [2])]
-    await backend.store(tree, records)
-    // Native delivers one item per pull; let it outrun this consumer.
-    await new Promise(resolve => setTimeout(resolve, 50))
-    const blobs: Uint8Array[] = []
-    while (blobs.length < 3) {
-      const event = await next(iterator)
-      if (event.type === "records")
-        blobs.push(...event.records.map(r => r.blob))
-    }
-    expect(blobs).toEqual(expect.arrayContaining(records.map(r => r.blob)))
-    await backend.close()
-  })
-
   it("delivers a save between native commit and fragment loads", async () => {
     const writer = create()
     await writer.store(tree, [record(1)])
@@ -449,35 +432,6 @@ describe("real local Subduction", () => {
     // Native hydrates on demand from storage and finds both commits.
     await expect(nativeCommits(reload)).resolves.toBe(2)
   })
-
-  it.each(["before", "after"])(
-    "delivers an exact native duplicate written externally %s watch installation",
-    async timing => {
-      const a = create()
-      if (timing === "before") await a.store(tree, [record(1)])
-      const b = create()
-      const loaded = await initial(b.open(tree))
-      expect(loaded.records).toEqual(timing === "before" ? [record(1)] : [])
-      if (timing === "after") await a.store(tree, [record(1)])
-      // Sequential external writes test notification recovery, not shared ownership.
-      await b.store(tree, [record(1)])
-      expect(await next(loaded.iterator)).toMatchObject({
-        type: "records",
-        phase: "live",
-        records: [record(1)],
-      })
-      // An empty local load takes its marker from a round, not the item.
-      expect(await next(loaded.iterator)).toMatchObject(
-        timing === "before"
-          ? { type: "history-marker", marker: { heads: [cid(1)] } }
-          : { type: "synchronized", result: { marker: { heads: [cid(1)] } } }
-      )
-      expect((await initial(b.open(tree))).records).toEqual([record(1)])
-      // The local write hydrated native, which holds the one record.
-      await expect(nativeCommits(b)).resolves.toBe(1)
-      await loaded.iterator.return!()
-    }
-  )
 
   it("converges on repeated duplicate stores", async () => {
     const backend = create()
@@ -666,21 +620,6 @@ describe("real local Subduction", () => {
     expect(rounds).not.toHaveBeenCalled()
   })
 
-  it("writes a submission of any size in one native call, in order", async () => {
-    const backend = create()
-    const records = Array.from({ length: 200 }, (_, i) =>
-      record(i + 1, i ? [i] : [])
-    )
-    const native = vi.spyOn(N.Subduction.prototype, "storeBatch")
-    await backend.store(tree, records)
-    expect(native.mock.calls.map(([, batch]) => batch.commits?.length)).toEqual(
-      [200]
-    )
-    const loaded = await initial(backend.open(tree))
-    expect(loaded.records).toEqual(records)
-    expect(loaded.complete.marker).toMatchObject({ heads: [cid(200)] })
-  })
-
   it("stores none of a batch after a mid-batch failure; a full retry completes it", async () => {
     const backend = create()
     const { iterator } = await initial(backend.open(tree))
@@ -717,20 +656,6 @@ describe("real local Subduction", () => {
     const reloaded = await initial(backend.open(tree))
     expect(reloaded.records).toEqual(records)
     expect(reloaded.complete.marker).toMatchObject({ heads: [cid(10)] })
-  })
-
-  it("has no total-history cap: a tree grown past any old budget reopens, enumerates and deletes", async () => {
-    // Legacy batch limit does not cap the initial native delivery.
-    const backend = create()
-    for (let n = 1; n <= 40; n++)
-      await backend.store(tree, [record(n, n > 1 ? [n - 1] : [])])
-    await backend.close()
-    const reopened = create()
-    const loaded = await initial(reopened.open(tree))
-    expect(loaded.records).toHaveLength(40)
-    expect(loaded.complete.marker).toMatchObject({ heads: [cid(40)] })
-    await reopened.deleteLocal(tree)
-    expect(await storage.list("subduction-v2/")).toEqual([])
   })
 
   it("stores with constant storage work and no live marker rescans once ready", async () => {

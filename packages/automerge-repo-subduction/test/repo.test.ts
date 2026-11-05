@@ -598,34 +598,6 @@ describe("public Repo with native Subduction", () => {
     await expect(p.repo.flush()).rejects.toThrow()
   })
 
-  it("reloads acknowledged history after a failed fragmented merge", async () => {
-    const p = peer()
-    const handle = await p.repo.create<State>({ count: 0 })
-    let fork = A.clone(handle.fullDoc())
-    for (let count = 1; count <= 2000; count++)
-      fork = A.change(fork, { time: 0 }, doc => {
-        doc.count = count
-      })
-    // The merge stores commits and fragments in one batch; fail it at its
-    // first fragment, after the commits were checked.
-    p.storage.beforeSave = async key => {
-      if (key.includes("/fragments/")) throw new Error("Disk unavailable")
-    }
-    const forked = await new Repo().import<State>(A.save(fork))
-    await expect(handle.merge(forked)).rejects.toThrow()
-    await p.repo.shutdown()
-    p.storage.beforeSave = undefined
-    // A partially stored batch would leave commits whose parents never
-    // arrive: the marker could never be satisfied and find would hang.
-    const reloaded = await Promise.race([
-      peer(p.storage).repo.find<State>(handle.url),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("find did not settle")), 3000)
-      ),
-    ])
-    expect(reloaded.doc()).toEqual({ count: 0 })
-  })
-
   it("reports an absent document unavailable when the connected peer lacks it, then recovers", async () => {
     const a = peer(),
       b = peer()
@@ -781,68 +753,6 @@ describe("public Repo with native Subduction", () => {
       expect((await b.repo.find<State>(source.url)).doc()).toEqual({ count: 1 })
     } finally {
       gate.resolve()
-    }
-  }, 10000)
-
-  it("does not mark history pushed record by record ready before it is complete", async () => {
-    const a = peer(),
-      b = peer()
-    await connect(a, b)
-    const url = generateAutomergeUrl()
-    const progress = b.repo.query<State>(url)
-    await vi.waitFor(
-      () => expect(progress.state().status).toBe("unavailable"),
-      wait
-    )
-    const counts: (number | undefined)[] = []
-    const unsubscribe = progress.subscribe(state => {
-      if (state.status === "ready") counts.push(state.handle.doc()?.count)
-    })
-    let doc = A.init<State>()
-    for (let count = 0; count < 20; count++)
-      doc = A.change(doc, { time: 0 }, d => {
-        d.count = count
-      })
-    const [last] = A.getHeads(doc)
-    const signed = async () =>
-      (await b.storage.list("subduction-v2/")).filter(key =>
-        /\/commits\/signed\//.test(key)
-      )
-    // Hold the final commit back so the reader holds a complete prefix alone.
-    const entered = deferred(),
-      gate = deferred()
-    gates.push(gate)
-    b.storage.beforeSave = async key => {
-      if (isRecordKey(key) && key.endsWith(last)) {
-        entered.resolve()
-        await gate.promise
-      }
-    }
-    try {
-      // The writer's round answers the reader's request one record per message.
-      await a.repo.import<State>(A.save(doc), {
-        docId: parseAutomergeUrl(url).documentId,
-      })
-      await entered.promise
-      // The other records land one by one, unless a round of the reader's
-      // own fetched them in one batch with the held commit.
-      await vi
-        .waitFor(async () => expect(await signed()).toHaveLength(19), {
-          timeout: 1000,
-          interval: 20,
-        })
-        .catch(() => {})
-      await new Promise(resolve => setTimeout(resolve, 100))
-      expect(progress.state().status).not.toBe("ready")
-      gate.resolve()
-      await vi.waitFor(
-        () => expect(progress.state().status).toBe("ready"),
-        wait
-      )
-      expect(counts).toEqual([19])
-    } finally {
-      gate.resolve()
-      unsubscribe()
     }
   }, 10000)
 

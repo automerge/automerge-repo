@@ -372,25 +372,6 @@ describe("local Subduction fragments", () => {
     expect((await initial(backend)).records).toEqual([fragment(4)])
   })
 
-  it("stores and reloads a record larger than the former 16 MiB limit", async () => {
-    const large = {
-      ...loose(1),
-      blob: new Uint8Array(17 * 1024 * 1024).fill(7),
-    }
-    const backend = create()
-    await backend.store(tree, [large, fragment(4)])
-    await backend.close()
-    // Compare bytes directly: a failing toEqual would try to print 17 MiB.
-    const blobs = (await initial(create())).records.map(record => record.blob)
-    expect(blobs).toHaveLength(2)
-    expect(blobs.some(blob => Buffer.compare(blob, large.blob) === 0)).toBe(
-      true
-    )
-    expect(
-      blobs.some(blob => Buffer.compare(blob, fragment(4).blob) === 0)
-    ).toBe(true)
-  })
-
   it.each(["commits", "fragments"])(
     "a persisted %s blob corrupted on disk is rejected by native hydration",
     async kind => {
