@@ -16,7 +16,11 @@ import {
 import { Watch } from "../src/watch.js"
 import { TestStore, deferred, savedKeys } from "./storage.js"
 import { corruptFrame } from "./frame.js"
-import type { TestSigner } from "./transport.js"
+import {
+  PairedTransport,
+  connectBackends,
+  type TestSigner,
+} from "./transport.js"
 import { nodeOf } from "./native.js"
 
 const tree = sedimentreeId("ab".repeat(16) + "00".repeat(16))
@@ -1053,5 +1057,62 @@ describe("real local Subduction", () => {
     expect((await pending).done).toBe(true)
     gate.resolve()
     await write
+  })
+})
+
+// Native registers a peer as subscriber only when its round response arrives,
+// after the round's snapshot: a single store while that round is in flight is
+// neither in it nor pushed. Expected to fail until Subduction subscribes first.
+describe("connected peers", () => {
+  const twoPeers = () =>
+    [1, 2].map(n => {
+      const signer = N.createMemorySigner(new Uint8Array(32).fill(n))
+      return {
+        signer,
+        backend: new SubductionBackend({ storage: new TestStore(), signer }),
+      }
+    })
+
+  it.fails("a store accepted right after create reaches a connected peer", async () => {
+    const peers = twoPeers()
+    const [a, b] = peers
+    const pair = PairedTransport.pair()
+    try {
+      await connectBackends(a, b, pair)
+      const id = await a.backend.create([record(1)])
+      // Same tick: accepted while create's round is still in flight.
+      void a.backend.store(id, [record(2, [1])])
+      await vi.waitFor(
+        async () =>
+          expect(await nodeOf(b.backend).getHeads(id)).toEqual([cid(2)]),
+        { timeout: 3000, interval: 20 }
+      )
+    } finally {
+      await pair[0].disconnect()
+      for (const p of peers) await p.backend.close()
+    }
+  })
+
+  it.fails("a store accepted as a peer connects reaches that peer", async () => {
+    const peers = twoPeers()
+    const [a, b] = peers
+    const pair = PairedTransport.pair()
+    try {
+      const id = await a.backend.create([record(1)])
+      // An open session syncs each new connection itself.
+      const session = a.backend.open(id)
+      await initial(session)
+      await connectBackends(a, b, pair)
+      // Same tick: accepted while the new connection's first round is in flight.
+      void a.backend.store(id, [record(2, [1])])
+      await vi.waitFor(
+        async () =>
+          expect(await nodeOf(b.backend).getHeads(id)).toEqual([cid(2)]),
+        { timeout: 3000, interval: 20 }
+      )
+    } finally {
+      await pair[0].disconnect()
+      for (const p of peers) await p.backend.close()
+    }
   })
 })
