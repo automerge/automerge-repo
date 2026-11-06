@@ -17,7 +17,8 @@ export type WebSocketConnectionStatus =
   | "closed"
 
 export interface WebSocketSubductionNetworkAdapterOptions {
-  retry?: false | { initialMs?: number; maxMs?: number }
+  /** `stableMs`: how long a connection must stay up before backoff resets. Default: 5s. */
+  retry?: false | { initialMs?: number; maxMs?: number; stableMs?: number }
   /** Deadline for socket opening, authentication and backend onboarding. Default: 10s. */
   connectTimeoutMilliseconds?: number
 }
@@ -37,6 +38,7 @@ export class WebSocketSubductionNetworkAdapter implements SubductionNetworkAdapt
   readonly #initialMs: number
   readonly #maxMs: number
   readonly #timeoutMs: number
+  readonly #stableMs: number
   #connect?: SubductionConnect
   #currentStatus: WebSocketConnectionStatus = "idle"
   #currentError: unknown
@@ -68,7 +70,13 @@ export class WebSocketSubductionNetworkAdapter implements SubductionNetworkAdapt
     this.#initialMs = options.retry ? (options.retry.initialMs ?? 500) : 500
     this.#maxMs = options.retry ? (options.retry.maxMs ?? 30_000) : 30_000
     this.#timeoutMs = options.connectTimeoutMilliseconds ?? 10_000
-    for (const value of [this.#initialMs, this.#maxMs, this.#timeoutMs])
+    this.#stableMs = options.retry ? (options.retry.stableMs ?? 5_000) : 5_000
+    for (const value of [
+      this.#initialMs,
+      this.#maxMs,
+      this.#timeoutMs,
+      this.#stableMs,
+    ])
       if (!Number.isSafeInteger(value) || value <= 0 || value > 0x7fffffff)
         throw new TypeError(
           "Connection delays must be positive timer-safe integers"
@@ -234,7 +242,14 @@ export class WebSocketSubductionNetworkAdapter implements SubductionNetworkAdapt
           attempt.signal.throwIfAborted()
           await connect(transport, { serviceName: this.#serviceName })
           attempt.signal.throwIfAborted()
-          this.#delay = this.#initialMs
+          // Reset backoff only once the connection proves stable: a server
+          // that drops every connection at once must not be hammered.
+          const stable = setTimeout(() => {
+            if (this.#controller === attempt) this.#delay = this.#initialMs
+          }, this.#stableMs)
+          attempt.signal.addEventListener("abort", () => clearTimeout(stable), {
+            once: true,
+          })
           this.#update("connected")
         } catch (cause) {
           if (this.#isClosed()) return

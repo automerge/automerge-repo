@@ -121,13 +121,15 @@ describe("WebSocketSubductionNetworkAdapter", () => {
     expect(openTransport).toHaveBeenCalledTimes(2)
   })
 
-  it("retries with exponential backoff, caps it and resets after success", async () => {
+  it("retries with exponential backoff, caps it and resets after a stable connection", async () => {
     const failure = new Error("offline")
     openTransport
       .mockRejectedValueOnce(failure)
       .mockRejectedValueOnce(failure)
       .mockRejectedValueOnce(failure)
-    const adapter = start({ retry: { initialMs: 100, maxMs: 200 } })
+    const adapter = start({
+      retry: { initialMs: 100, maxMs: 200, stableMs: 1000 },
+    })
     const ready = adapter.connected()
     await flush()
     expect(adapter.status).toBe("disconnected")
@@ -141,9 +143,18 @@ describe("WebSocketSubductionNetworkAdapter", () => {
     await vi.advanceTimersByTimeAsync(200)
     await ready
     expect(openTransport).toHaveBeenCalledTimes(4)
+    // Dropped before stableMs: backoff stays at the cap.
     openTransport.mock.calls[3][2](new Error("dropped"))
     await vi.advanceTimersByTimeAsync(100)
+    expect(openTransport).toHaveBeenCalledTimes(4)
+    await vi.advanceTimersByTimeAsync(100)
     expect(openTransport).toHaveBeenCalledTimes(5)
+    expect(adapter.status).toBe("connected")
+    // Up for stableMs: the next drop retries at initialMs again.
+    await vi.advanceTimersByTimeAsync(1000)
+    openTransport.mock.calls[4][2](new Error("dropped"))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(openTransport).toHaveBeenCalledTimes(6)
     expect(adapter.status).toBe("connected")
   })
 

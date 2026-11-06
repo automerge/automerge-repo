@@ -22,7 +22,8 @@ the adapter at construction and stops it in `backend.close()`; the handshake is
 signed with the backend's signer.
 
 Connection attempts retry with jittered exponential backoff by default;
-configure `retry: { initialMs, maxMs }` or disable it with `retry: false`.
+configure `retry: { initialMs, maxMs, stableMs }` or disable it with `retry: false`.
+Backoff resets only after a connection has stayed up for `stableMs`
 `connectTimeoutMilliseconds` (default 10 seconds) bounds socket opening,
 authentication and backend onboarding. The first attempt settling, successful
 or not, is what lets lookups of missing documents proceed, so this deadline
