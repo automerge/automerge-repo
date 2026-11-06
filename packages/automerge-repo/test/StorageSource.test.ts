@@ -9,6 +9,34 @@ import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import type { TestDoc } from "./types.js"
 import { createTestQuery } from "./helpers/testHandle.js"
 
+/** A FinalizationRegistry whose collections are triggered by the test. */
+class FakeFinalizationRegistry<T> {
+  static instances: FakeFinalizationRegistry<any>[] = []
+  #entries: { target: object; held: T }[] = []
+  #callback: (held: T) => void
+
+  constructor(callback: (held: T) => void) {
+    this.#callback = callback
+    FakeFinalizationRegistry.instances.push(this)
+  }
+
+  register(target: object, held: T) {
+    this.#entries.push({ target, held })
+  }
+
+  /** Report `target` as collected. */
+  collect(target: object) {
+    const entry = this.#entries.find(e => e.target === target)
+    assert(entry, "target was never registered")
+    this.#entries = this.#entries.filter(e => e !== entry)
+    this.#callback(entry.held)
+  }
+
+  targets(): object[] {
+    return this.#entries.map(e => e.target)
+  }
+}
+
 describe("StorageSource", () => {
   it("merges loaded data with handle data when sync wins the race", async () => {
     type T = { fromStorage?: boolean; fromSync?: boolean; shared: string }
@@ -164,6 +192,38 @@ describe("StorageSource", () => {
       assert.equal(save.mock.calls.length, 0)
     } finally {
       vi.useRealTimers()
+    }
+  })
+
+  it("forgets a document's bookkeeping only when its last save listener is collected", () => {
+    FakeFinalizationRegistry.instances = []
+    vi.stubGlobal("FinalizationRegistry", FakeFinalizationRegistry)
+    try {
+      const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+      const storage = new StorageSubsystem(new DummyStorageAdapter())
+      const forget = vi.spyOn(storage, "forget")
+      const source = new StorageSource(storage, 0)
+      const [registry] = FakeFinalizationRegistry.instances
+
+      // detach() empties the source's table, so attaching again makes a second
+      // save listener for the same id while the first may still be alive.
+      source.attach(
+        createTestQuery<TestDoc>(documentId) as DocumentQuery<unknown>
+      )
+      source.detach(documentId)
+      source.attach(
+        createTestQuery<TestDoc>(documentId) as DocumentQuery<unknown>
+      )
+      const [first, second] = registry.targets()
+      assert.notEqual(first, second)
+
+      registry.collect(first)
+      assert.equal(forget.mock.calls.length, 0)
+
+      registry.collect(second)
+      assert.deepEqual(forget.mock.calls, [[documentId]])
+    } finally {
+      vi.unstubAllGlobals()
     }
   })
 })

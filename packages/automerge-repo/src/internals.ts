@@ -19,3 +19,7 @@ export const kOnInternal = Symbol("automerge-repo.onInternal")
  * `off(event, fn)` can remove the wrapper by the function the caller
  * actually passed. */
 export const kOnceOriginal = Symbol("automerge-repo.onceOriginal")
+
+/** `StorageSubsystem[kTrackedDocuments]` - how many documents have tracked
+ * chunks. For tests. */
+export const kTrackedDocuments = Symbol("automerge-repo.trackedDocuments")

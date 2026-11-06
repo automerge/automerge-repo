@@ -10,6 +10,7 @@ import * as Uuid from "uuid"
 import { EventEmitter } from "eventemitter3"
 import { encodeHeads } from "../AutomergeUrl.js"
 import { SavedHeads } from "./SavedHeads.js"
+import { kTrackedDocuments } from "../internals.js"
 
 type StorageSubsystemEvents = {
   "document-loaded": (arg: {
@@ -264,6 +265,13 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     await this.#storageAdapter.removeRange([documentId, "snapshot"])
     await this.#storageAdapter.removeRange([documentId, "incremental"])
     await this.#storageAdapter.removeRange([documentId, "sync-state"])
+    // Anything that began before this point (a load, a save, or a re-import
+    // flushed while the removal was running) may have recorded heads or chunks
+    // for data that is now gone. Forget them again, and leave a heads floor
+    // that outranks them rather than no entry, which an older handle would
+    // overwrite.
+    this.forget(documentId)
+    this.#storedHeads.reset(documentId)
   }
 
   /**
@@ -274,6 +282,15 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   forget(documentId: DocumentId): void {
     this.#storedHeads.delete(documentId)
     this.#chunkInfos.delete(documentId)
+  }
+
+  /**
+   * Number of documents with tracked chunks. For tests.
+   *
+   * @internal
+   */
+  get [kTrackedDocuments](): number {
+    return this.#chunkInfos.size
   }
 
   /**
