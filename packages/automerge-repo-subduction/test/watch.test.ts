@@ -35,6 +35,16 @@ describe("observation queue", () => {
     await watch.return()
   })
 
+  it("queues every live update until pulled", async () => {
+    const { watch, released } = queue()
+    for (let i = 0; i < 3; i++) watch.push(String(i))
+    for (let i = 0; i < 3; i++)
+      expect((await watch.next()).value).toBe(String(i))
+    expect(watch.active).toBe(true)
+    expect(released).not.toHaveBeenCalled()
+    await watch.return()
+  })
+
   it("wakes pending pulls and does not resurrect released watches", async () => {
     const { watch } = queue()
     const pending = watch.next()
