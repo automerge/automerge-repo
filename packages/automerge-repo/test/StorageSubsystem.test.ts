@@ -14,6 +14,7 @@ import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import * as Uuid from "uuid"
 import { chunkTypeFromKey } from "../src/storage/chunkTypeFromKey.js"
 import { DocumentId } from "../src/types.js"
+import { kTrackedDocuments } from "../src/internals.js"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
@@ -534,6 +535,99 @@ describe("StorageSubsystem", () => {
         "sinceHeads was rolled back — expected heads from the latest concurrent save"
       ).toEqual(lastConcurrentHeads)
     })
+  })
+})
+
+describe("StorageSubsystem bookkeeping", () => {
+  it("re-saves a removed document even when its heads are unchanged", async () => {
+    const adapter = new DummyStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const doc = A.from({ foo: "bar" })
+
+    await storage.saveDoc(documentId, doc)
+    await storage.removeDoc(documentId)
+    await storage.saveDoc(documentId, doc)
+
+    const reloaded = await new StorageSubsystem(adapter).loadDoc(documentId)
+    assert.deepStrictEqual(reloaded, doc)
+  })
+})
+
+/** Wraps an adapter so chosen operations can be held until released. */
+class GatedStorageAdapter extends DummyStorageAdapter {
+  gates: {
+    removeRange?: Promise<void>
+    loadRange?: Promise<void>
+  } = {}
+
+  async removeRange(keyPrefix: string[]): Promise<void> {
+    await this.gates.removeRange
+    return super.removeRange(keyPrefix)
+  }
+
+  /** Reads first, then holds the result: the read has landed but not returned. */
+  async loadRange(keyPrefix: StorageKey): Promise<Chunk[]> {
+    const chunks = await super.loadRange(keyPrefix)
+    await this.gates.loadRange
+    return chunks
+  }
+}
+
+const deferred = () => {
+  let release!: () => void
+  const promise = new Promise<void>(resolve => (release = resolve))
+  return { promise, release }
+}
+
+describe("StorageSubsystem removal in flight", () => {
+  it("persists a document re-imported and saved while its removal is pending", async () => {
+    const adapter = new GatedStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const doc = A.from({ foo: "bar" })
+    await storage.saveDoc(documentId, doc)
+
+    const gate = deferred()
+    adapter.gates.removeRange = gate.promise
+    const removal = storage.removeDoc(documentId)
+    await storage.saveDoc(documentId, doc) // re-import, flushed mid-removal
+    gate.release()
+    await removal
+
+    await storage.saveDoc(documentId, doc)
+    const reloaded = await new StorageSubsystem(adapter).loadDoc(documentId)
+    assert.deepStrictEqual(reloaded, doc)
+  })
+
+  it("ignores a load that resolves after the document was removed", async () => {
+    const adapter = new GatedStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const doc = A.from({ foo: "bar" })
+    await storage.saveDoc(documentId, doc)
+
+    const gate = deferred()
+    adapter.gates.loadRange = gate.promise
+    const load = storage.loadDoc(documentId) // has read, has not returned
+    await storage.removeDoc(documentId)
+    gate.release()
+    await load
+
+    adapter.gates.loadRange = undefined
+    await storage.saveDoc(documentId, doc)
+    const reloaded = await new StorageSubsystem(adapter).loadDoc(documentId)
+    assert.deepStrictEqual(reloaded, doc)
+  })
+})
+
+describe("StorageSubsystem bookkeeping release", () => {
+  it("tracks nothing for a document storage does not hold", async () => {
+    const storage = new StorageSubsystem(new DummyStorageAdapter())
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+
+    assert.equal(await storage.loadDoc(documentId), null)
+    assert.equal(storage[kTrackedDocuments], 0)
   })
 })
 
