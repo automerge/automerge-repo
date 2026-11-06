@@ -1,7 +1,7 @@
 import { next as A } from "@automerge/automerge/slim"
 import { makeLogger, Logger } from "./Logger.js"
 import { decodeHeads, encodeHeads } from "./AutomergeUrl.js"
-import type { DocumentId, PeerId, SyncInfo, UrlHeads } from "./types.js"
+import type { DocumentId, PeerId, RepoId, SyncInfo, UrlHeads } from "./types.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
 import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
@@ -73,6 +73,12 @@ export class DocumentState<T = unknown> {
   /** Best-effort; failures are logged by the owner, never rejected. */
   publishEphemeral(payload: Uint8Array): Promise<void> {
     return this.#owner.publishEphemeral(payload)
+  }
+
+  /** Deliver an inbound ephemeral message to every handle. */
+  receiveEphemeral(senderId: PeerId, originId: RepoId, message: unknown): void {
+    if (this.closed || this.deleted) return
+    this.registry.dispatchEphemeral(senderId, originId, message)
   }
 
   get doc(): A.Doc<T> {

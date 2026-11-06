@@ -411,7 +411,7 @@ export class Document<T> {
       case "ephemeral":
         if (event.message.origin.id === this.repoIdentity.id) break
         try {
-          this.state.registry.dispatchEphemeral(
+          this.state.receiveEphemeral(
             event.sender.id as PeerId,
             event.message.origin.id as RepoId,
             decode(event.message.payload)
