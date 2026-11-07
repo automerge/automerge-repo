@@ -1,4 +1,5 @@
 import { next as A } from "@automerge/automerge"
+import bs58check from "bs58check"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Repo, type RepoConfig } from "../src/Repo.js"
 import { DocHandle } from "../src/DocHandle.js"
@@ -79,12 +80,13 @@ describe("backend-driven Repo", () => {
     expect(documentIdToBinary(handle.documentId)).toEqual(minted)
   })
 
-  it("resolves a legacy 16-byte URL and its 32-byte form to one handle", async () => {
+  it("opens a legacy URL without rewriting it", async () => {
     const backend = new MemoryBackend()
     const legacy = new Uint8Array(16).fill(3) as BinaryDocumentId
     const legacyUrl = `automerge:${binaryToDocumentId(legacy)}` as AutomergeUrl
     const full = new Uint8Array(32)
     full.set(legacy)
+    const longUrl = `automerge:${bs58check.encode(full)}` as AutomergeUrl
     await backend.store(
       sedimentreeId(full),
       extractRecords(A.from({ count: 7 }))
@@ -92,13 +94,14 @@ describe("backend-driven Repo", () => {
     const r = repo(backend)
     const handle = await r.find<{ count: number }>(legacyUrl)
     expect(handle.doc()).toEqual({ count: 7 })
+    expect(handle.url).toBe(legacyUrl)
     expect(documentIdToBinary(handle.documentId)).toEqual(full)
     expect(await r.find(binaryToDocumentId(full as BinaryDocumentId))).toBe(
       handle
     )
-    expect(r.query(legacyUrl)).toBe(r.query(handle.url))
+    expect(await r.find(longUrl)).toBe(handle)
+    expect(r.query(longUrl)).toBe(r.query(legacyUrl))
     await expect(r.find(legacy)).rejects.toThrow()
-    await expect(r.find(binaryToDocumentId(legacy))).rejects.toThrow()
   })
 
   it("imports into an unavailable lookup and announces it once", async () => {

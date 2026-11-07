@@ -11,10 +11,10 @@ import { describe, expect, it, vi } from "vitest"
 import { useDocHandle, wrapperCache } from "../src/useDocHandle"
 import { ErrorBoundary } from "react-error-boundary"
 import {
-  legacyUrl,
+  longUrl,
   setup,
   setupDelayedRepo,
-  setupLegacy,
+  setupLongUrl,
   pause,
 } from "./testSetup"
 
@@ -44,19 +44,19 @@ describe("useDocHandle", () => {
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
   })
 
-  it("loads a legacy URL and keeps its handle across rerenders", async () => {
-    const { handle, wrapper } = await setupLegacy()
+  it("loads a long URL and keeps its handle across rerenders", async () => {
+    const { handle, wrapper } = await setupLongUrl()
     const onHandle = vi.fn()
     const { rerender } = render(
       <Suspense fallback={null}>
-        <Component url={legacyUrl} onHandle={onHandle} />
+        <Component url={longUrl} onHandle={onHandle} />
       </Suspense>,
       { wrapper }
     )
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handle))
     rerender(
       <Suspense fallback={null}>
-        <Component url={legacyUrl} onHandle={onHandle} />
+        <Component url={longUrl} onHandle={onHandle} />
       </Suspense>
     )
     expect(onHandle).toHaveBeenLastCalledWith(handle)

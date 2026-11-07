@@ -25,7 +25,9 @@ const checkDocumentId = (
 ): BinaryDocumentId | undefined =>
   id?.length === 32 ? (id as BinaryDocumentId) : undefined
 
-/** Zero-pads a legacy 16-byte ID to its 32-byte equivalent. */
+/**
+ * Zero-pads a 16-byte ID to its 32-byte equivalent.
+ */
 const padDocumentId = (
   id: Uint8Array | undefined
 ): BinaryDocumentId | undefined => {
@@ -34,6 +36,10 @@ const padDocumentId = (
   normalized.set(id)
   return normalized as BinaryDocumentId
 }
+
+/** Whether an ID's second half is zero. */
+const isZeroSuffixed = (id: Uint8Array): boolean =>
+  id.length === 32 && id.subarray(16).every(byte => byte === 0)
 
 export interface ParsedAutomergeUrl {
   /** unencoded DocumentId */
@@ -72,10 +78,7 @@ export const parseAutomergeUrl = (url: AutomergeUrl): ParsedAutomergeUrl => {
   const match = baseUrl.match(new RegExp(`^${urlPrefix}([^/]+)(?:\\/(.*))?$`))
   if (!match) throw new Error("Invalid document URL: " + url)
   const [, docMatch, pathStr] = match
-  // Legacy 16-byte IDs are accepted in URLs.
-  const binaryDocumentId = padDocumentId(
-    documentIdToBinary(docMatch as DocumentId)
-  )
+  const binaryDocumentId = documentIdToBinary(docMatch as DocumentId)
 
   if (!binaryDocumentId) throw new Error("Invalid document URL: " + url)
   const documentId = binaryToDocumentId(binaryDocumentId)
@@ -196,11 +199,21 @@ export const generateAutomergeUrl = (): AutomergeUrl =>
     documentId: idBytes(mintDocumentId()) as BinaryDocumentId,
   })
 
+/**
+ * Decodes a base58check-encoded ID to its 32 bytes, padding the short form;
+ * undefined if it is not a valid ID.
+ */
 export const documentIdToBinary = (docId: DocumentId) =>
-  bs58check.decodeUnsafe(docId) as BinaryDocumentId | undefined
+  padDocumentId(bs58check.decodeUnsafe(docId))
 
+/**
+ * Encodes an ID in base58check. An ID whose second half is zero only uses its
+ * first 16 bytes.
+ */
 export const binaryToDocumentId = (docId: BinaryDocumentId) =>
-  bs58check.encode(docId) as DocumentId
+  bs58check.encode(
+    isZeroSuffixed(docId) ? docId.subarray(0, 16) : docId
+  ) as DocumentId
 
 export const encodeHeads = (heads: AutomergeHeads): UrlHeads =>
   heads.map(h => bs58check.encode(uint8ArrayFromHexString(h))) as UrlHeads
@@ -209,8 +222,9 @@ export const decodeHeads = (heads: UrlHeads): AutomergeHeads =>
   heads.map(h => uint8ArrayToHexString(bs58check.decode(h))) as AutomergeHeads
 
 /**
- * Given any valid expression of a document ID, returns its 32-byte DocumentId
- * in base58check-encoded form.
+ * Given any valid expression of a document ID, returns its DocumentId: the
+ * base58check encoding of its 32 bytes, or the first 16 if the rest are zero.
+ * Either format is accepted.
  *
  * Currently supports:
  * - base58check-encoded DocumentId
@@ -231,7 +245,7 @@ export const interpretAsDocumentId = (id: AnyDocumentId): DocumentId => {
   if (isValidAutomergeUrl(id)) return parseAutomergeUrl(id).documentId
 
   // base58check
-  const binary = checkDocumentId(documentIdToBinary(id as DocumentId))
+  const binary = documentIdToBinary(id as DocumentId)
   if (binary) return binaryToDocumentId(binary)
 
   // none of the above
@@ -239,9 +253,9 @@ export const interpretAsDocumentId = (id: AnyDocumentId): DocumentId => {
 }
 
 /**
- * Like {@link interpretAsDocumentId}, but also accepts legacy 16-byte IDs in
- * any form, zero-padding them to 32 bytes. The Repo only accepts 32-byte IDs,
- * so use this to migrate stored legacy IDs before passing them to it.
+ * Like {@link interpretAsDocumentId}, but also accepts a 16-byte binary ID,
+ * zero-padding it. The Repo only accepts 32-byte binary IDs, so this can be
+ * used to convert.
  *
  * Throws on invalid input.
  */
@@ -254,7 +268,7 @@ export const normalizeDocumentId = (id: AnyDocumentId): DocumentId => {
 
   if (isValidAutomergeUrl(id)) return parseAutomergeUrl(id).documentId
 
-  const binary = padDocumentId(documentIdToBinary(id as DocumentId))
+  const binary = documentIdToBinary(id as DocumentId)
   if (binary) return binaryToDocumentId(binary)
 
   throw new Error(`Invalid document ID: '${id}'`)
