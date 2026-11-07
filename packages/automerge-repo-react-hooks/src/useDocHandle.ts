@@ -51,7 +51,7 @@ export function useDocHandle<T>(
     id &&
     handle &&
     handle.url ===
-      // Normalized, as handle.url is (e.g. a legacy ID's 32-byte form).
+      // Normalized, as handle.url is (e.g. a long ID's short form).
       stringifyAutomergeUrl(
         isValidAutomergeUrl(id)
           ? parseAutomergeUrl(id)

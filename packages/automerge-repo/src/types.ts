@@ -1,15 +1,15 @@
 /**
  * A branded string representing a URL for a document, in the form `automerge:<base58check encoded
- * string>`; for example, `automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu`. Legacy 16-byte IDs are accepted
- * in URLs and zero-padded to 32 bytes; use `normalizeDocumentId` to pad them in other forms.
+ * string>`; for example, `automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu`.
  */
 export type AutomergeUrl = string & { __documentUrl: true } // for opening / linking
 
 /**
- * The base58check-encoded 32-byte ID of a document. This follows `automerge:`
- * protocol prefix in an AutomergeUrl; for example, `4NMNnkMhL8jXrdJ9jamS58PAVdXu`. When recording
- * links to an Automerge document in another Automerge document, you should store a
- * {@link AutomergeUrl} instead.
+ * The base58check-encoded 32-byte ID of a document, written as just the first
+ * 16 bytes when the rest are zero. This follows the `automerge:` protocol
+ * prefix in an AutomergeUrl; for example, `4NMNnkMhL8jXrdJ9jamS58PAVdXu`. When
+ * recording links to an Automerge document in another Automerge document, you
+ * should store a {@link AutomergeUrl} instead.
  */
 export type DocumentId = string & { __documentId: true } // for logging
 

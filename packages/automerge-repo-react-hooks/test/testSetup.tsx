@@ -28,17 +28,20 @@ export interface ExampleDoc {
   nested?: { value: string }
 }
 
-/** A legacy 16-byte document URL; Repo opens it under its 32-byte form. */
-export const legacyUrl =
-  "automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu" as AutomergeUrl
+/**
+ * The long form of a zero-suffixed ID; Repo opens it under its short form,
+ * `automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu`.
+ */
+export const longUrl =
+  "automerge:2qUSWfR7AQBD4z7Lh8YgGtagq5tSbE1cejwHVKC6MCzFEtHmR7" as AutomergeUrl
 
-/** A delayed document reachable through {@link legacyUrl}. */
-export async function setupLegacy(latency = 100) {
+/** A delayed document reachable through {@link longUrl}. */
+export async function setupLongUrl(latency = 100) {
   const { repoCreator, repoFinder: repo, wrapper } = setupDelayedRepo(latency)
-  const source = await repoCreator.create<ExampleDoc>({ foo: "Legacy" })
+  const source = await repoCreator.create<ExampleDoc>({ foo: "Long" })
   const handle = await repoCreator.import<ExampleDoc>(
     (await repoCreator.export(source.url))!,
-    { docId: parseAutomergeUrl(legacyUrl).documentId }
+    { docId: parseAutomergeUrl(longUrl).documentId }
   )
   return { repo, handle, wrapper }
 }

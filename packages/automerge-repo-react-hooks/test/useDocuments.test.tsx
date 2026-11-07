@@ -6,10 +6,10 @@ import { useDocuments } from "../src/useDocuments"
 import { ErrorBoundary } from "react-error-boundary"
 import {
   ExampleDoc,
-  legacyUrl,
+  longUrl,
   setup,
   setupDelayedRepo,
-  setupLegacy,
+  setupLongUrl,
 } from "./testSetup"
 
 describe("useDocuments", () => {
@@ -52,24 +52,24 @@ describe("useDocuments", () => {
     await expect(result.current[1](handleA.url, () => {})).rejects.toBe(error)
   })
 
-  it("keys a legacy URL's document by the URL passed in", async () => {
-    const { handle, wrapper } = await setupLegacy()
+  it("keys a long URL's document by the URL passed in", async () => {
+    const { handle, wrapper } = await setupLongUrl()
     const { result } = renderHook(
-      () => useDocuments<ExampleDoc>([legacyUrl], { suspense: false }),
+      () => useDocuments<ExampleDoc>([longUrl], { suspense: false }),
       { wrapper }
     )
 
     await waitFor(() =>
-      expect(result.current[0].get(legacyUrl)?.foo).toBe("Legacy")
+      expect(result.current[0].get(longUrl)?.foo).toBe("Long")
     )
-    expect([...result.current[0].keys()]).toEqual([legacyUrl])
+    expect([...result.current[0].keys()]).toEqual([longUrl])
 
     await act(async () => {
-      await result.current[1](legacyUrl, doc => (doc.foo = "Changed"))
+      await result.current[1](longUrl, doc => (doc.foo = "Changed"))
     })
     expect(handle.doc()?.foo).toBe("Changed")
     await waitFor(() =>
-      expect(result.current[0].get(legacyUrl)?.foo).toBe("Changed")
+      expect(result.current[0].get(longUrl)?.foo).toBe("Changed")
     )
   })
 
