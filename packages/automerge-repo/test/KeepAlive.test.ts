@@ -90,6 +90,51 @@ describe("KeepAlive", () => {
     expect(held(keepAlive)).toEqual([])
   })
 
+  it.each([
+    ["2 ** 31 ms", 2 ** 31],
+    ["30 days", 30 * 24 * 60 * 60 * 1000],
+  ])(
+    "with a period longer than timers allow (%s), holds for one to two periods",
+    (_, period) => {
+      const keepAlive = new KeepAlive<object>(period)
+      keepAlive.touch(a)
+
+      vi.advanceTimersByTime(2 * period - 1)
+      expect(held(keepAlive)).toEqual([a])
+
+      vi.advanceTimersByTime(1)
+      expect(held(keepAlive)).toEqual([])
+    }
+  )
+
+  it("never schedules a tick past the timer limit", () => {
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval")
+    try {
+      // Splits into ticks whose quotient rounds just past the limit.
+      const keepAlive = new KeepAlive<object>(2.5675940680678444e145)
+      keepAlive.touch(a)
+
+      expect(setIntervalSpy.mock.calls[0][1]).toBeLessThanOrEqual(2 ** 31 - 1)
+    } finally {
+      setIntervalSpy.mockRestore()
+    }
+  })
+
+  it("starts a new period when the timer restarts", () => {
+    const period = 2 ** 31
+    const keepAlive = new KeepAlive<object>(period)
+    keepAlive.touch(a)
+    vi.advanceTimersByTime(period / 2)
+    keepAlive.clear()
+
+    keepAlive.touch(a)
+    vi.advanceTimersByTime(2 * period - 1)
+    expect(held(keepAlive)).toEqual([a])
+
+    vi.advanceTimersByTime(1)
+    expect(held(keepAlive)).toEqual([])
+  })
+
   it("tracks sizes and trims the least recently touched first", () => {
     const keepAlive = new KeepAlive<object>(PERIOD)
     const c = { name: "c" }

@@ -1,4 +1,10 @@
 /**
+ * Longest delay timers honor (a signed 32-bit integer). Node runs a longer
+ * timer after 1 ms, and browsers wrap it.
+ */
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1
+
+/**
  * Holds items strongly for a while after their last activity.
  *
  * Two generations rotated by one unref'd interval of `periodMs`: an item
@@ -9,6 +15,9 @@
  * of last touch. Each item carries a size, and {@link KeepAlive.trimTo}
  * releases the least recently touched items to fit a budget.
  *
+ * A period longer than `MAX_TIMER_DELAY_MS` is split into equal ticks
+ * that rotate the generations once per period.
+ *
  * @internal
  */
 export class KeepAlive<T> {
@@ -17,9 +26,13 @@ export class KeepAlive<T> {
   #previous = new Map<T, number>()
   #totalSize = 0
   #timer: ReturnType<typeof setInterval> | undefined
+  /** Ticks per period, so each tick fits `MAX_TIMER_DELAY_MS`. */
+  #ticksPerPeriod: number
+  #ticks = 0
 
   constructor(periodMs: number) {
     this.#periodMs = periodMs
+    this.#ticksPerPeriod = Math.max(1, Math.ceil(periodMs / MAX_TIMER_DELAY_MS))
   }
 
   /** Mark `item` active now, with its current `size`. */
@@ -85,7 +98,12 @@ export class KeepAlive<T> {
 
   #startTimer(): void {
     if (this.#timer !== undefined || !Number.isFinite(this.#periodMs)) return
-    this.#timer = setInterval(() => this.#rotate(), this.#periodMs)
+    this.#ticks = 0
+    // `min` because rounding can put the quotient just past the limit.
+    this.#timer = setInterval(
+      () => this.#tick(),
+      Math.min(this.#periodMs / this.#ticksPerPeriod, MAX_TIMER_DELAY_MS)
+    )
     // Never keep the process alive just to release memory.
     if (typeof this.#timer === "object") this.#timer.unref?.()
   }
@@ -94,6 +112,12 @@ export class KeepAlive<T> {
     if (this.#timer === undefined) return
     clearInterval(this.#timer)
     this.#timer = undefined
+  }
+
+  #tick(): void {
+    if (++this.#ticks < this.#ticksPerPeriod) return
+    this.#ticks = 0
+    this.#rotate()
   }
 
   #rotate(): void {
