@@ -108,6 +108,11 @@ describe("real local Subduction", () => {
     vi.restoreAllMocks()
   })
 
+  it("exposes the Subduction instance it built", () => {
+    const backend = create()
+    expect(backend.subduction).toBe(nodeOf(backend))
+  })
+
   it("mints distinct IDs and stores initial history before returning", async () => {
     const backend = create()
     const first = await backend.create([record(1)])

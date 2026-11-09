@@ -284,6 +284,12 @@ export class SubductionBackend implements SedimentreeBackend {
       b.toString(16).padStart(2, "0")
     ).join("")
   }
+
+  /** This backend's Subduction instance */
+  get subduction(): N.Subduction {
+    return this.#engine
+  }
+
   #onEphemeral(topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) {
     const tree = topic as SedimentreeId
     const active = [...this.#sessionsFor(tree)].filter(s => s.watch.active)
