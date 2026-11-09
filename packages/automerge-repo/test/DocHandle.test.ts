@@ -633,7 +633,7 @@ describe("DocHandle", () => {
       assert.equal(handle.isDeleted(), true)
     })
 
-    it("getRemoteHeads / getSyncInfo delegate to the lookup injected at construction", () => {
+    it("getRemoteHeads / getSyncInfo delegate to the injected lookup", () => {
       const sentinel = {
         lastHeads: encodeHeads(["abcd"]),
         lastSyncTimestamp: 12345,
