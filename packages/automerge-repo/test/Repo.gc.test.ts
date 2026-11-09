@@ -680,10 +680,34 @@ describeGC("Repo release of unobserved documents", () => {
       toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"],
     })
 
-  it("with storage, releases a dropped document after the default period", async () => {
+  it("with storage, keeps a dropped document by default", async () => {
+    const repo = new Repo({ storage: new DummyStorageAdapter() })
+    let url!: AutomergeUrl
+    let probe!: WeakRef<DocHandle<TestDoc>>
     fakeRepoTimers()
     try {
-      const repo = new Repo({ storage: new DummyStorageAdapter() })
+      ;(() => {
+        const handle = repo.create<TestDoc>({ foo: "stored" })
+        url = handle.url
+        probe = new WeakRef(handle)
+      })()
+
+      vi.advanceTimersByTime(3 * DEFAULT_RELEASE_UNOBSERVED_AFTER_MS)
+      await flushGC()
+      expect(probe.deref()).toBeDefined()
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(await repo.find<TestDoc>(url)).toBe(probe.deref())
+  })
+
+  it("with storage, releases a dropped document after the suggested period", async () => {
+    fakeRepoTimers()
+    try {
+      const repo = new Repo({
+        storage: new DummyStorageAdapter(),
+        releaseUnobservedAfterMs: DEFAULT_RELEASE_UNOBSERVED_AFTER_MS,
+      })
       let documentId!: DocumentId
       let probe!: WeakRef<DocHandle<TestDoc>>
       ;(() => {

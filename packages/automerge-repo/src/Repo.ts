@@ -63,9 +63,10 @@ import {
 const DEFAULT_FLUSH_CONCURRENCY = 20
 
 /**
- * Default for {@link RepoConfig.releaseUnobservedAfterMs} when the repo has
- * storage: an unobserved document is released 30 to 60 seconds after its last
- * activity. Without storage the default is `Infinity`.
+ * Suggested {@link RepoConfig.releaseUnobservedAfterMs} for a repo with
+ * storage that opts in to releasing unobserved documents: one is released 30
+ * to 60 seconds after its last activity. The option itself defaults to
+ * `Infinity`.
  */
 export const DEFAULT_RELEASE_UNOBSERVED_AFTER_MS = 30_000
 
@@ -199,9 +200,7 @@ export class Repo extends EventEmitter<RepoEvents> {
 
     this.storageSubsystem = storageSubsystem
 
-    this.#releaseUnobservedAfterMs =
-      releaseUnobservedAfterMs ??
-      (storageSubsystem ? DEFAULT_RELEASE_UNOBSERVED_AFTER_MS : Infinity)
+    this.#releaseUnobservedAfterMs = releaseUnobservedAfterMs ?? Infinity
     if (!(this.#releaseUnobservedAfterMs >= 0)) {
       throw new RangeError(
         `releaseUnobservedAfterMs must be a number >= 0, got ${releaseUnobservedAfterMs}`
@@ -1062,8 +1061,9 @@ export interface RepoConfig {
    * after its last activity. `0` releases it at the next garbage collection
    * once nothing observes it; `Infinity` never releases it.
    *
-   * Defaults to {@link DEFAULT_RELEASE_UNOBSERVED_AFTER_MS} with storage and
-   * `Infinity` without storage.
+   * Defaults to `Infinity`, so documents stay loaded until
+   * {@link Repo.removeFromCache} or {@link Repo.delete}. Set a finite period,
+   * such as {@link DEFAULT_RELEASE_UNOBSERVED_AFTER_MS}, to opt in.
    *
    * @remarks
    * A document is observed while a consumer holds a handle, progress or
@@ -1073,7 +1073,8 @@ export interface RepoConfig {
    * activity and reloads on next use. {@link Repo.removeFromCache} and
    * {@link Repo.delete} release a document at once in every mode.
    *
-   * Apps and sync servers: keep the default. Without storage, keep
+   * Apps and sync servers with storage: opt in with
+   * {@link DEFAULT_RELEASE_UNOBSERVED_AFTER_MS}. Without storage, keep
    * `Infinity` unless another peer holds your data, and release documents
    * by hand with {@link Repo.removeFromCache}.
    */
