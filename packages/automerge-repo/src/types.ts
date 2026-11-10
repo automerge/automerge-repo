@@ -13,7 +13,10 @@ export type AutomergeUrl = string & { __documentUrl: true } // for opening / lin
  */
 export type DocumentId = string & { __documentId: true } // for logging
 
-/** The unencoded 32-byte ID. Typically use an {@link AutomergeUrl} instead. */
+/**
+ * The unencoded 32-byte ID; a 16-byte (v2) ID is accepted as input and
+ * zero-padded. Typically use an {@link AutomergeUrl} instead.
+ */
 export type BinaryDocumentId = Uint8Array & { __binaryDocumentId: true } // for storing / syncing
 
 export type AnyDocumentId = AutomergeUrl | DocumentId | BinaryDocumentId

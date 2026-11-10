@@ -19,22 +19,18 @@ import type { Heads as AutomergeHeads } from "@automerge/automerge/slim"
 
 export const urlPrefix = "automerge:"
 
-/** Document IDs are 32 bytes; other lengths are invalid. */
-const checkDocumentId = (
-  id: Uint8Array | undefined
-): BinaryDocumentId | undefined =>
-  id?.length === 32 ? (id as BinaryDocumentId) : undefined
-
 /**
- * Zero-pads a 16-byte ID to its 32-byte equivalent.
+ * Document IDs are 32 bytes. A 16-byte ID is the short form of one whose
+ * second half is zero, so is zero-padded; other lengths are invalid.
  */
 const padDocumentId = (
   id: Uint8Array | undefined
 ): BinaryDocumentId | undefined => {
-  if (id?.length !== 16) return checkDocumentId(id)
-  const normalized = new Uint8Array(32)
-  normalized.set(id)
-  return normalized as BinaryDocumentId
+  if (id?.length === 32) return id as BinaryDocumentId
+  if (id?.length !== 16) return undefined
+  const padded = new Uint8Array(32)
+  padded.set(id)
+  return padded as BinaryDocumentId
 }
 
 /** Whether an ID's second half is zero. */
@@ -122,13 +118,12 @@ export const stringifyAutomergeUrl = (
     ? { documentId: arg }
     : arg
 
-  const binary = checkDocumentId(
+  const binary =
     documentId instanceof Uint8Array
-      ? documentId
+      ? padDocumentId(documentId)
       : typeof documentId === "string"
         ? documentIdToBinary(documentId)
         : undefined
-  )
   if (!binary) throw new Error("Invalid documentId: " + documentId)
   const encodedDocumentId = binaryToDocumentId(binary)
 
@@ -168,30 +163,16 @@ export const isValidAutomergeUrl = (str: unknown): str is AutomergeUrl => {
   if (typeof str !== "string" || !str || !str.startsWith(urlPrefix))
     return false
   try {
-    const { documentId, heads } = parseAutomergeUrl(str as AutomergeUrl)
-    if (!isValidDocumentId(documentId)) return false
-    if (
-      heads &&
-      !heads.every(head => {
-        try {
-          bs58check.decode(head)
-          return true
-        } catch {
-          return false
-        }
-      })
-    )
-      return false
+    // Parsing validates the ID and heads.
+    parseAutomergeUrl(str as AutomergeUrl)
     return true
   } catch {
     return false
   }
 }
 
-export const isValidDocumentId = (str: unknown): str is DocumentId => {
-  if (typeof str !== "string") return false
-  return checkDocumentId(documentIdToBinary(str as DocumentId)) !== undefined
-}
+export const isValidDocumentId = (str: unknown): str is DocumentId =>
+  typeof str === "string" && documentIdToBinary(str as DocumentId) !== undefined
 
 /** Returns a new Automerge URL with a freshly minted document ID. */
 export const generateAutomergeUrl = (): AutomergeUrl =>
@@ -224,7 +205,7 @@ export const decodeHeads = (heads: UrlHeads): AutomergeHeads =>
 /**
  * Given any valid expression of a document ID, returns its DocumentId: the
  * base58check encoding of its 32 bytes, or the first 16 if the rest are zero.
- * Either format is accepted.
+ * 16-byte (v2) IDs are accepted in every form and zero-padded.
  *
  * Currently supports:
  * - base58check-encoded DocumentId
@@ -236,7 +217,7 @@ export const decodeHeads = (heads: UrlHeads): AutomergeHeads =>
 export const interpretAsDocumentId = (id: AnyDocumentId): DocumentId => {
   // binary
   if (id instanceof Uint8Array) {
-    const binary = checkDocumentId(id)
+    const binary = padDocumentId(id)
     if (binary) return binaryToDocumentId(binary)
     throw new Error("Invalid binary document ID")
   }
@@ -250,28 +231,6 @@ export const interpretAsDocumentId = (id: AnyDocumentId): DocumentId => {
 
   // none of the above
   throw new Error(`Invalid AutomergeUrl: '${id}'`)
-}
-
-/**
- * Like {@link interpretAsDocumentId}, but also accepts a 16-byte binary ID,
- * zero-padding it. The Repo only accepts 32-byte binary IDs, so this can be
- * used to convert.
- *
- * Throws on invalid input.
- */
-export const normalizeDocumentId = (id: AnyDocumentId): DocumentId => {
-  if (id instanceof Uint8Array) {
-    const binary = padDocumentId(id)
-    if (binary) return binaryToDocumentId(binary)
-    throw new Error("Invalid binary document ID")
-  }
-
-  if (isValidAutomergeUrl(id)) return parseAutomergeUrl(id).documentId
-
-  const binary = documentIdToBinary(id as DocumentId)
-  if (binary) return binaryToDocumentId(binary)
-
-  throw new Error(`Invalid document ID: '${id}'`)
 }
 
 // TYPES

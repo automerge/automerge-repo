@@ -17,10 +17,7 @@ import type {
   DocumentId,
   UrlHeads,
 } from "../src/types.js"
-import {
-  interpretAsDocumentId,
-  normalizeDocumentId,
-} from "../src/AutomergeUrl.js"
+import { interpretAsDocumentId } from "../src/AutomergeUrl.js"
 
 const shortBinaryDocumentId = Uint8Array.from([
   241, 194, 156, 132, 116, 200, 74, 222, 184, 0, 190, 71, 98, 125, 51, 191,
@@ -90,27 +87,10 @@ describe("AutomergeUrl", () => {
       }
     })
 
-    it("are 32 bytes in binary outside normalizeDocumentId", () => {
-      assert.throws(() =>
-        stringifyAutomergeUrl({ documentId: shortBinaryDocumentId })
-      )
-      assert.throws(() => interpretAsDocumentId(shortBinaryDocumentId))
-      assert.equal(
-        interpretAsDocumentId(zeroSuffixedBinaryDocumentId),
-        shortDocumentId
-      )
-    })
-
-    it("are normalized in any form with normalizeDocumentId", () => {
-      for (const id of [
-        shortBinaryDocumentId,
-        zeroSuffixedBinaryDocumentId,
-        shortDocumentId,
-        longDocumentId,
-        shortUrl,
-        longUrl,
-      ]) {
-        assert.equal(normalizeDocumentId(id), shortDocumentId)
+    it("are read from binary in either form as one ID", () => {
+      for (const id of [shortBinaryDocumentId, zeroSuffixedBinaryDocumentId]) {
+        assert.equal(interpretAsDocumentId(id), shortDocumentId)
+        assert.equal(stringifyAutomergeUrl({ documentId: id }), shortUrl)
       }
     })
 
@@ -128,27 +108,27 @@ describe("AutomergeUrl", () => {
     })
   })
 
-  describe("normalizeDocumentId", () => {
+  describe("interpretAsDocumentId", () => {
     it("passes other 32-byte IDs through", () => {
-      assert.equal(normalizeDocumentId(goodBinaryDocumentId), goodDocumentId)
-      assert.equal(normalizeDocumentId(goodDocumentId), goodDocumentId)
-      assert.equal(normalizeDocumentId(goodUrl), goodDocumentId)
+      assert.equal(interpretAsDocumentId(goodBinaryDocumentId), goodDocumentId)
+      assert.equal(interpretAsDocumentId(goodDocumentId), goodDocumentId)
+      assert.equal(interpretAsDocumentId(goodUrl), goodDocumentId)
     })
 
     it("rejects other lengths and garbage", () => {
       assert.throws(() =>
-        normalizeDocumentId(new Uint8Array(8) as BinaryDocumentId)
+        interpretAsDocumentId(new Uint8Array(8) as BinaryDocumentId)
       )
       assert.throws(() =>
-        normalizeDocumentId(new Uint8Array(0) as BinaryDocumentId)
+        interpretAsDocumentId(new Uint8Array(0) as BinaryDocumentId)
       )
       assert.throws(() =>
-        normalizeDocumentId(
+        interpretAsDocumentId(
           binaryToDocumentId(new Uint8Array(24) as BinaryDocumentId)
         )
       )
-      assert.throws(() => normalizeDocumentId(badChecksumDocumentId))
-      assert.throws(() => normalizeDocumentId(badChecksumUrl))
+      assert.throws(() => interpretAsDocumentId(badChecksumDocumentId))
+      assert.throws(() => interpretAsDocumentId(badChecksumUrl))
     })
   })
 
