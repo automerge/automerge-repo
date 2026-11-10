@@ -69,7 +69,7 @@ See [automerge-repo-subduction](../automerge-repo-subduction/) for backend confi
 | `doc-metrics` event                                   | Removed                                                                                                        |
 | `ephemeral-message-outbound` event                    | Removed                                                                                                        |
 | `Presence` keyed by peer ID                           | Keyed by `originId`                                                                                            |
-| 16-byte document IDs                                  | 32-byte; old URLs still open; convert IDs with `normalizeDocumentId`                                           |
+| 16-byte document IDs                                  | IDs are 32-bytes, but old IDs are rendered with identical URLs; pad binary IDs with `normalizeDocumentId`  |
 | Failed saves logged; included in the next save        | `change()` and `flush()` reject; no retry; the document rejects further local edits (peer changes still apply) |
 
 ### `Repo.id` and peer IDs

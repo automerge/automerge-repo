@@ -10,10 +10,10 @@ import "@testing-library/jest-dom"
 import { describe, expect, it, vi } from "vitest"
 import { ErrorBoundary } from "react-error-boundary"
 import {
-  legacyUrl,
+  longUrl,
   setup,
   setupDelayedRepo,
-  setupLegacy,
+  setupLongUrl,
   pause,
 } from "./testSetup"
 import { useDocHandles } from "../src/useDocHandles"
@@ -40,21 +40,21 @@ describe("useDocHandles", () => {
       return null
     }
 
-    it("keys a legacy URL's handle by the URL passed in", async () => {
-      const { handle, wrapper } = await setupLegacy()
+    it("keys a long URL's handle by the URL passed in", async () => {
+      const { handle, wrapper } = await setupLongUrl()
       const onHandles = mockOnHandles()
 
       render(
         <Suspense fallback={null}>
-          <Component urls={[legacyUrl]} onHandles={onHandles} />
+          <Component urls={[longUrl]} onHandles={onHandles} />
         </Suspense>,
         { wrapper }
       )
 
       await waitFor(() =>
-        expect(onHandles.mock.lastCall?.at(0)?.get(legacyUrl)).toBe(handle)
+        expect(onHandles.mock.lastCall?.at(0)?.get(longUrl)).toBe(handle)
       )
-      expect(handle.url).not.toBe(legacyUrl)
+      expect(handle.url).not.toBe(longUrl)
     })
 
     it("loads some handles", async () => {
@@ -253,16 +253,16 @@ describe("useDocHandles", () => {
       return null
     }
 
-    it("keys a loaded legacy URL's handle by the URL passed in", async () => {
-      const { handle, wrapper } = await setupLegacy()
+    it("keys a loaded long URL's handle by the URL passed in", async () => {
+      const { handle, wrapper } = await setupLongUrl()
       const onHandles = mockOnHandles()
 
-      render(<Component urls={[legacyUrl]} onHandles={onHandles} />, {
+      render(<Component urls={[longUrl]} onHandles={onHandles} />, {
         wrapper,
       })
 
       await waitFor(() =>
-        expect(onHandles.mock.lastCall?.at(0)?.get(legacyUrl)).toBe(handle)
+        expect(onHandles.mock.lastCall?.at(0)?.get(longUrl)).toBe(handle)
       )
       expect(onHandles.mock.lastCall?.at(0)?.size).toBe(1)
     })
