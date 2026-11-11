@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-subduction-network-websocket",
-  "version": "3.0.0-alpha.1",
+  "version": "3.0.0-alpha.2",
   "description": "WebSocket network adapter for the Automerge Repo Subduction backend",
   "repository": {
     "type": "git",
