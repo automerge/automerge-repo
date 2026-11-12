@@ -21,6 +21,7 @@ import type {
   AutomergeUrl,
   BinaryDocumentId,
   DocumentId,
+  RepoId,
 } from "../src/types.js"
 
 const backendIdOf = (id: DocumentId) => sedimentreeId(documentIdToBinary(id)!)
@@ -59,6 +60,12 @@ describe("backend-driven Repo", () => {
     expect(handle.doc()).toEqual({ count: 0 })
     expect((await r.create()).doc()).toEqual({})
     await expect(r.find(generateAutomergeUrl())).rejects.toThrow("unavailable")
+  })
+
+  it("has a configured or generated id and rejects an empty one", () => {
+    expect(repo(undefined, { id: "tab-1" as RepoId }).id).toBe("tab-1")
+    expect(repo().id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(() => new Repo({ id: "" as RepoId })).toThrow(TypeError)
   })
 
   it("creates documents under the backend's minted 32-byte ID", async () => {

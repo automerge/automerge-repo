@@ -1,11 +1,12 @@
 import { useEffect } from "react"
 import useStateRef from "./useStateRef.js"
 import { peerEvents } from "./useRemoteAwareness.js"
-import { DocHandle } from "@automerge/automerge-repo/slim"
+import type { PresenceHandle } from "@automerge/automerge-repo/slim"
 
 export interface UseLocalAwarenessProps {
-  /** The document handle to send ephemeral state on */
-  handle?: DocHandle<unknown>
+  /** The document handle to send ephemeral state on; its Repo's backend must
+   * provide ephemeral messaging. */
+  handle?: PresenceHandle
   /** Our user ID **/
   userId: string
   /** The initial state object/primitive we should advertise */

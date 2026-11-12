@@ -1,4 +1,6 @@
 export * from "./ids.js"
 export * from "./records.js"
 export * from "./backend.js"
+export type * from "./extension.js"
+export * from "./checkHandleExtensions.js"
 export * from "./memory/MemoryBackend.js"

@@ -240,7 +240,7 @@ describe("SyncRules", () => {
 })
 
 type Peer = {
-  repo: Repo
+  repo: Repo<"ephemeral">
   backend: SubductionBackend
   signer: TestSigner
   rules: ReturnType<typeof pairRules>

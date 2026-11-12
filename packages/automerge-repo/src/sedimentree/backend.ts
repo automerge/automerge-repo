@@ -5,6 +5,7 @@ import {
   type SedimentreeId,
 } from "./ids.js"
 import type { RecordBatch } from "./records.js"
+import type { ExtensionEvent, HandleExtension } from "./extension.js"
 
 /**
  * An interface for storing and syncing sedimentrees
@@ -24,12 +25,27 @@ export interface SedimentreeBackend {
   deleteLocal(id: SedimentreeId): Promise<void>
 
   close(): Promise<void>
+
+  /**
+   * Features this backend adds to every handle of its Repo; none if absent.
+   * Its sessions must implement whatever these need of a session.
+   *
+   * @experimental
+   */
+  readonly handleExtensions?: readonly HandleExtension[]
+}
+
+/**
+ * A backend whose type names the handle extensions it provides, so a Repo on
+ * it gives typed handles. A backend typed as plain {@link SedimentreeBackend}
+ * gives plain ones.
+ */
+export type ExtendedBackend<K extends string> = SedimentreeBackend & {
+  readonly handleExtensions: readonly HandleExtension<K>[]
 }
 
 export interface SedimentreeSession {
   readonly events: AsyncIterable<SedimentreeEvent>
-
-  publishEphemeral(message: EphemeralEnvelope): Promise<void>
 
   /**
    * The consumer has verified its initial load; the backend may stop work done
@@ -49,7 +65,10 @@ export type BackendOperation =
   | "flush"
   | "delete"
   | "synchronize"
-  | "ephemeral"
+  /** A handle extension's call into its backend. Reported to the extension
+   * (thrown from the call, or in an `extension` event), never as a session
+   * failure, which would end the document. */
+  | "extension"
   | "close"
 
 export class BackendError extends Error {
@@ -120,12 +139,6 @@ export interface BackendIdentity {
   readonly path: readonly string[]
 }
 
-export interface EphemeralEnvelope {
-  readonly messageId: string
-  readonly origin: BackendIdentity
-  readonly payload: Uint8Array
-}
-
 /** Heads to verify, at a process-local stream position. */
 export interface HistoryMarker {
   readonly sequence: number
@@ -171,13 +184,10 @@ export type SedimentreeEvent =
       readonly remote: BackendIdentity
       readonly heads: readonly CommitId[]
     }
-  | {
-      readonly type: "ephemeral"
-      readonly sequence: number
-      readonly message: EphemeralEnvelope
-      /** Verified sender. */
-      readonly sender: BackendIdentity
-    }
+  /** A message to a handle extension, by `kind`; see {@link HandleExtension}.
+   * Empty until a package declares an extension. */
+  // eslint-disable-next-line no-redundant-type-constituents
+  | ExtensionEvent
   /** A nonretryable failure ends the stream. */
   | {
       readonly type: "failure"

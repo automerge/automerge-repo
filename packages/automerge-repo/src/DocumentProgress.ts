@@ -1,4 +1,4 @@
-import type { DocHandle } from "./DocHandle.js"
+import type { ExtendedHandle } from "./DocHandle.js"
 import {
   stateError,
   waitUntilReady,
@@ -16,11 +16,11 @@ import type { DocumentId } from "./types.js"
 export type SourceState = "pending" | "ready" | "unavailable"
 
 /** @deprecated Use {@link QueryState}. */
-export type ProgressState<T> =
+export type ProgressState<T, K extends string = never> =
   | { state: "loading"; sources: Record<string, SourceState> }
   | {
       state: "ready"
-      handle: DocHandle<T>
+      handle: ExtendedHandle<T, K>
       sources: Record<string, SourceState>
     }
   | { state: "unavailable"; sources: Record<string, SourceState> }
@@ -31,16 +31,18 @@ export type ProgressState<T> =
     }
 
 /** @deprecated Use {@link Repo.query}. Returned by {@link Repo.findWithProgress}. */
-export interface DocumentProgress<T> {
+export interface DocumentProgress<T, in K extends string = never> {
   readonly documentId: DocumentId
-  peek(): ProgressState<T>
-  subscribe(callback: (state: ProgressState<T>) => void): () => void
-  whenReady(options?: { signal?: AbortSignal }): Promise<DocHandle<T>>
+  peek(): ProgressState<T, K>
+  subscribe(callback: (state: ProgressState<T, K>) => void): () => void
+  whenReady(options?: { signal?: AbortSignal }): Promise<ExtendedHandle<T, K>>
 }
 
 /** Adapt a query to the deprecated {@link DocumentProgress} shape. */
-export function toProgress<T>(query: DocumentQuery<T>): DocumentProgress<T> {
-  const map = (state: QueryState<T>): ProgressState<T> => {
+export function toProgress<T, K extends string = never>(
+  query: DocumentQuery<T, K>
+): DocumentProgress<T, K> {
+  const map = (state: QueryState<T, K>): ProgressState<T, K> => {
     switch (state.status) {
       case "loading":
         return { state: "loading", sources: { backend: "pending" } }

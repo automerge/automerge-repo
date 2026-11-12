@@ -106,7 +106,7 @@ async function initial(backend: SubductionBackend) {
         let confirmed = await next(iterator)
         while (
           confirmed.type === "remote-heads" ||
-          confirmed.type === "ephemeral"
+          confirmed.type === "extension"
         )
           confirmed = await next(iterator)
         expect(confirmed).toMatchObject({ type: "synchronized" })

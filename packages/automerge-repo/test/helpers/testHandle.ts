@@ -9,7 +9,6 @@ const states = new WeakMap<DocHandle<any>, DocumentState<any>>()
 /** Stands in for the owning Document: edits are accepted and stored nowhere. */
 export const noopOwner = {
   commit: async () => {},
-  publishEphemeral: async () => {},
 }
 
 /**

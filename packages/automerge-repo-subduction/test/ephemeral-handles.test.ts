@@ -1,22 +1,36 @@
-import { next as A } from "@automerge/automerge"
+import * as A from "@automerge/automerge"
+// Fullfat initializes the native runtime borrowed by the backend's slim import.
+import "@automerge/subduction"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { Repo } from "../src/Repo.js"
-import { setLoggerFactory } from "../src/Logger.js"
-import { documentIdToBinary } from "../src/AutomergeUrl.js"
-import { encode, decode } from "../src/helpers/cbor.js"
-import { extractRecords } from "../src/sedimentree/automerge/index.js"
 import {
-  BackendError,
+  Presence,
+  Repo,
+  cbor,
+  documentIdToBinary,
+  setLoggerFactory,
+  type RepoId,
+} from "@automerge/automerge-repo"
+import { extractRecords } from "@automerge/automerge-repo/sedimentree/automerge"
+import {
+  checkHandleExtensions,
   sedimentreeId,
-  type EphemeralEnvelope,
   type SedimentreeEvent,
   type SedimentreeId,
-} from "../src/sedimentree/index.js"
-import type { RepoId } from "../src/types.js"
-import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
+} from "@automerge/automerge-repo/sedimentree"
+import {
+  SubductionBackend,
+  type EphemeralEnvelope,
+  type SubductionSession,
+} from "../src/index.js"
+import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
 
-// Adapted from pinned 5fa3b25f: keep real history observation under injected traffic.
-class ControlledBackend extends MemoryBackend {
+const { encode, decode } = cbor
+
+// Real history observation, with ephemeral traffic injected and captured.
+class ControlledBackend extends SubductionBackend {
+  constructor() {
+    super({ storage: new DummySubductionStorageAdapter() })
+  }
   sessions: {
     inject: (event: SedimentreeEvent) => void
     publish: ReturnType<
@@ -24,7 +38,7 @@ class ControlledBackend extends MemoryBackend {
     >
   }[] = []
 
-  override open(id: SedimentreeId) {
+  override open(id: SedimentreeId): SubductionSession {
     const session = super.open(id)
     const queue: SedimentreeEvent[] = []
     let wake: (() => void) | undefined
@@ -64,17 +78,21 @@ class ControlledBackend extends MemoryBackend {
 }
 
 function inbound(
-  message: unknown
-): Extract<SedimentreeEvent, { type: "ephemeral" }> {
+  message: unknown,
+  envelope: EphemeralEnvelope = {
+    messageId: crypto.randomUUID(),
+    origin: { kind: "claimed", id: "untrusted", path: [] },
+    payload: new Uint8Array(encode(message)),
+  }
+): SedimentreeEvent {
   return {
-    type: "ephemeral",
+    type: "extension",
+    kind: "ephemeral",
     sequence: 0,
-    message: {
-      messageId: crypto.randomUUID(),
-      origin: { kind: "claimed", id: "untrusted", path: [] },
-      payload: new Uint8Array(encode(message)),
+    payload: {
+      message: envelope,
+      sender: { kind: "signed", id: "signed-originator", path: ["relay"] },
     },
-    sender: { kind: "signed", id: "signed-originator", path: ["relay"] },
   }
 }
 
@@ -92,7 +110,7 @@ afterEach(async () => {
   vi.restoreAllMocks()
 })
 
-describe("DocHandle backend ephemerals", () => {
+describe("ephemeral handle extension", () => {
   it("owns historical CBOR bytes and allocates fresh IDs", async () => {
     const { backend, repo } = setup()
     const handle = await repo.create({ count: 0 })
@@ -117,7 +135,7 @@ describe("DocHandle backend ephemerals", () => {
     ).not.toBe(sent.origin.id)
   })
 
-  it("publishes under a configured id and rejects an empty one", async () => {
+  it("publishes under a configured Repo id", async () => {
     const backend = new ControlledBackend()
     const repo = new Repo({ backend, id: "tab-1" as RepoId })
     repos.push(repo)
@@ -130,7 +148,6 @@ describe("DocHandle backend ephemerals", () => {
       path: [],
     })
     expect(setup().repo.id).toMatch(/^[0-9a-f-]{36}$/)
-    expect(() => new Repo({ id: "" as RepoId })).toThrow(TypeError)
   })
 
   it("filters returned own origin and fans authenticated sender out to root/sub/view", async () => {
@@ -148,10 +165,9 @@ describe("DocHandle backend ephemerals", () => {
     handle.on("ephemeral-message", removed)
     handle.off("ephemeral-message", removed)
     handle.broadcast("own")
-    backend.sessions[0].inject({
-      ...inbound(null),
-      message: backend.sessions[0].publish.mock.calls[0][0],
-    })
+    backend.sessions[0].inject(
+      inbound(null, backend.sessions[0].publish.mock.calls[0][0])
+    )
     const event = inbound(new Uint8Array([1, 2]))
     backend.sessions[0].inject(event)
     await vi.waitFor(() => expect(received).toHaveBeenCalledOnce())
@@ -171,8 +187,40 @@ describe("DocHandle backend ephemerals", () => {
     expect(backend.sessions[0].publish).toHaveBeenCalledOnce()
   })
 
+  it("passes the check for handle extensions", async () => {
+    const { backend } = setup()
+    await checkHandleExtensions(backend.handleExtensions)
+  })
+
+  it("carries Presence", async () => {
+    const { backend, repo } = setup()
+    const handle = await repo.create({ count: 0 })
+    const presence = new Presence<{ name: string }>({ handle })
+    presence.start({ initialState: { name: "local" } })
+    try {
+      const sent = backend.sessions[0].publish.mock.calls[0][0]
+      expect(decode(sent.payload)).toEqual({
+        __presence: { type: "snapshot", state: { name: "local" } },
+      })
+      backend.sessions[0].inject(
+        inbound({ __presence: { type: "snapshot", state: { name: "remote" } } })
+      )
+      await vi.waitFor(() =>
+        expect(Object.values(presence.getPeerStates().value)).toEqual([
+          expect.objectContaining({
+            senderId: "signed-originator",
+            originId: "untrusted",
+            value: { name: "remote" },
+          }),
+        ])
+      )
+    } finally {
+      presence.stop()
+    }
+  })
+
   it.each(["factory", "error"] as const)(
-    "isolates throwing logger %s and nonretryable ephemeral errors from history",
+    "isolates throwing logger %s and failed or invalid ephemerals from history",
     async target => {
       const { backend, repo } = setup()
       const handle = await repo.create({ count: 0 })
@@ -199,16 +247,13 @@ describe("DocHandle backend ephemerals", () => {
         subListener = vi.fn()
       handle.on("ephemeral-message", listener)
       handle.sub("count").on("ephemeral-message", subListener)
-      const invalid = inbound(null)
-      backend.sessions[0].inject({
-        ...invalid,
-        message: { ...invalid.message, payload: new Uint8Array([0x58]) },
-      })
-      backend.sessions[0].inject({
-        type: "failure",
-        sequence: 1,
-        error: new BackendError("ephemeral", "io", "control failed", false),
-      })
+      backend.sessions[0].inject(
+        inbound(null, {
+          messageId: "invalid",
+          origin: { kind: "claimed", id: "untrusted", path: [] },
+          payload: new Uint8Array([0x58]),
+        })
+      )
       backend.sessions[0].inject(inbound("valid"))
       const remote = A.change(A.clone(handle.fullDoc()), doc => {
         doc.count = 7
@@ -220,7 +265,7 @@ describe("DocHandle backend ephemerals", () => {
       await vi.waitFor(() => expect(handle.doc()?.count).toBe(7))
       expect(listener).toHaveBeenCalledOnce()
       expect(subListener).toHaveBeenCalledOnce()
-      expect(throws).toHaveBeenCalledTimes(5)
+      expect(throws).toHaveBeenCalledTimes(4)
       await expect(repo.find(handle.url)).resolves.toBe(handle)
       await handle.change(doc => {
         doc.count++

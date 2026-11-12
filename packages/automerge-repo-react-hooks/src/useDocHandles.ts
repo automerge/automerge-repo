@@ -1,6 +1,11 @@
-import { AutomergeUrl, DocHandle } from "@automerge/automerge-repo/slim"
+import type {
+  AsHandle,
+  AutomergeUrl,
+  DocHandle,
+  Repo,
+} from "@automerge/automerge-repo/slim"
 import { useState, useEffect } from "react"
-import { useRepo } from "./useRepo.js"
+import { useRepo, type RegisteredRepo } from "./useRepo.js"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
 import { wrapperCache } from "./useDocHandle.js"
 import { useSet } from "./helpers/useSet.js"
@@ -9,15 +14,34 @@ export interface UseDocHandlesParams {
   suspense?: boolean
 }
 
-export type DocHandleMap<T> = Map<AutomergeUrl, DocHandle<T> | undefined>
+/** Handles by URL; `X` is a document type or a handle type, as for
+ * {@link useDocHandle}. */
+export type DocHandleMap<X> = Map<
+  AutomergeUrl,
+  AsHandle<X, RegisteredRepo> | undefined
+>
 
-export function useDocHandles<T>(
+/**
+ * Handles for several documents, from the Repo in {@link RepoContext}.
+ * Takes a document type or a handle type, as {@link useDocHandle} does.
+ */
+export function useDocHandles<X>(
+  ids: AutomergeUrl[],
+  params: UseDocHandlesParams = {}
+): DocHandleMap<X> {
+  return useDocHandlesIn(useRepo(), ids, params) as DocHandleMap<X>
+}
+
+/** @internal {@link useDocHandles} on a given Repo. */
+export function useDocHandlesIn<T>(
+  repo: Repo,
   ids: AutomergeUrl[],
   { suspense = false }: UseDocHandlesParams = {}
-): DocHandleMap<T> {
+): Map<AutomergeUrl, DocHandle<T> | undefined> {
   const idSet = useSet(ids)
-  const repo = useRepo()
-  const [handleMap, setHandleMap] = useState<DocHandleMap<T>>(() => {
+  const [handleMap, setHandleMap] = useState<
+    Map<AutomergeUrl, DocHandle<T> | undefined>
+  >(() => {
     const map = new Map()
 
     // Initialize the map with any handles that are ready

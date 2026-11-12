@@ -181,3 +181,50 @@ useRepo(): Repo
 ```ts
 const repo = useRepo()
 ```
+
+## Typed handles
+
+A backend can add features to every handle of its Repo, such as the Subduction
+backend's ephemeral messaging (`handle.broadcast`). `RepoContext` only knows a plain
+`Repo`, so these primitives return plain handles unless told the Repo's type.
+
+**Recommended: primitives made for your Repo.** `createRepoPrimitives` infers the type
+from the Repo, and its provider only accepts a Repo of that type:
+
+```tsx
+// repo.ts
+export const repo = new Repo({ backend })
+export const { RepoProvider, useRepo, useDocHandle, useDocument, useDocSignal } =
+  createRepoPrimitives(repo)
+// If the Repo is made later, give its type: createRepoPrimitives<AppRepo>()
+
+<RepoProvider value={repo}>
+  <App />
+</RepoProvider>
+
+const handle = useDocHandle<Todo>(url) // handle()?.broadcast
+```
+
+The provider also sets `RepoContext`, so the package's other primitives keep working.
+Its primitives throw outside a `RepoProvider`, and take no `repo` option.
+
+**Per call: a handle type**, in place of the document type:
+
+```ts
+export type AppHandle<T> = HandleOf<typeof repo, T>
+
+const [doc, handle] = useDocument<AppHandle<Todo>>(url)
+```
+
+**Once per app: register the Repo's type.** Then plain calls are typed:
+
+```ts
+declare module "@automerge/automerge-repo-solid-primitives" {
+  interface Register {
+    repo: typeof repo
+  }
+}
+```
+
+The last two assert what the Repo is; nothing checks it. A handle type given per call
+overrides a registration, which applies to the whole program.

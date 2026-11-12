@@ -55,10 +55,42 @@ Deletion invalidates existing sessions and supersedes queued old-generation
 records with a final `deleted` event. A later explicit open/store can reacquire
 the ID. Deletion is not a replicated tombstone. A closed backend rejects new work.
 
-Ephemeral envelopes carry untrusted claimed `origin` for loop suppression.
-The event's `sender` identifies the authenticated signed originator, not the
-immediate relay/transport peer. Application sender identity comes from `sender`,
-never from the envelope's claimed origin. Ephemeral data is not persisted.
+## Handle extensions
+
+A backend may add features to every handle of its Repo by listing
+`handleExtensions`; a backend that lists none gives plain handles. Ephemeral
+messaging is such an extension, provided by the Subduction backend.
+
+- An extension subclasses the handle and may only add methods and getters,
+  keeping any state of its own in private (`#`) fields. Repo throws at
+  construction if two extensions share a `kind` or an extension redefines a
+  member. It cannot see a property an extension sets on the handle itself
+  (a class field, say), which could silently replace another's. A package
+  that provides extensions should therefore run
+  `await checkHandleExtensions(extensions)` in its tests: it makes Repo's
+  checks and rejects those properties too.
+- An extension reaches its backend through the document's session
+  (`context.session`), using whatever methods that backend's sessions have.
+  It names the session type it needs, `HandleExtension<Kind, Session>`.
+  Nothing is added to the backend or session interfaces.
+- It is the backend's job to make its sessions implement what its extensions
+  need. Typing the extension against the backend's own session type, and
+  declaring `open()` to return that type, makes the compiler check it. Core
+  does not: a session lacking a method fails when the extension calls it.
+- The backend reaches the extension with session events
+  `{ type: "extension", kind, payload }`, which Repo hands to the extension's
+  `receive`. The payload is typed by `kind`, from the extension's `inbound`
+  declaration, so only declared kinds can be sent.
+- Nothing here supports a backend that wraps or combines others. One built
+  later would list the inner extensions it exposes, have its own sessions
+  forward the methods they need, and pass the inner `extension` events on.
+- Types: an extension declares what it adds under its kind in
+  `HandleExtensionTypes` (`members`, `events` and `inbound`). A Repo built on a backend whose type names its
+  extensions (`ExtendedBackend<K>`) returns `ExtendedHandle<T, K>`; a backend
+  typed as plain `SedimentreeBackend` gives plain `DocHandle<T>`.
+- Kinds and member names are global to a program. Two packages declaring the
+  same kind with different types do not compile together, and two extensions
+  cannot add the same member, so choose names unlikely to collide.
 
 ## In-memory backend
 
@@ -87,8 +119,7 @@ is a simple metadata scan. It is not designed for large stores.
 Stores finish synchronously in memory unless the `beforeStore` hook holds one
 open, so `flush` normally has an immediate barrier.
 An empty initial cut is followed by a `no-peers` `synchronized` result with an
-ordered history marker. Ephemeral publication has no recipients
-and is a best-effort no-op, not simulated transport delivery. Backend close
+ordered history marker. It provides no handle extensions. Backend close
 releases watches and memory; its process-local state cannot be reopened afterward.
 
 ## Scope and validation

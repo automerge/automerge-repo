@@ -7,7 +7,7 @@ import {
   isValidAutomergeUrl,
   parseAutomergeUrl,
 } from "./AutomergeUrl.js"
-import { DocHandle } from "./DocHandle.js"
+import { DocHandle, extendHandle, type ExtendedHandle } from "./DocHandle.js"
 import { Document } from "./Document.js"
 import {
   queryAtHeads,
@@ -23,7 +23,8 @@ import {
   BackendError,
   idBytes,
   sedimentreeId,
-  type BackendIdentity,
+  type ExtendedBackend,
+  type HandleExtension,
   type SedimentreeBackend,
   type SedimentreeId,
 } from "./sedimentree/index.js"
@@ -35,20 +36,31 @@ import type {
 } from "./types.js"
 import { isPlainObject } from "./helpers/isPlainObject.js"
 
-/** Owns Automerge documents; its backend owns their storage and sync. */
-export class Repo extends EventEmitter<RepoEvents> {
+/**
+ * Owns Automerge documents; its backend owns their storage and sync. `K` names
+ * the extensions the backend adds to every handle; see {@link ExtendedHandle}.
+ */
+export class Repo<in K extends string = never> extends EventEmitter<
+  RepoEvents<K>
+> {
   #log = makeLogger("automerge-repo:repo")
   #documents = new Map<DocumentId, Document<any>>()
   #backend: SedimentreeBackend
   #operations = new Set<Promise<unknown>>()
   #closed = false
   #shutdown?: Promise<void>
-  /**
-   * This Repo's identity on the backend contract, e.g. as the origin of its
-   * ephemerals.
-   */
-  #identity: BackendIdentity
+  #id: RepoId
+  /** The backend's handle extensions, by kind. */
+  #extensions: ReadonlyMap<string, HandleExtension>
+  /** The class of every handle: DocHandle with the backend's extensions. */
+  #Handle: typeof DocHandle
 
+  /** A backend whose type names its handle extensions gives typed handles. */
+  constructor(config: RepoConfig & { backend: ExtendedBackend<K> })
+  /** Any other backend gives plain handles. The rest parameter only keeps
+   * TypeScript from taking `K` from where the Repo is used: it rejects
+   * `const r: Repo<"x"> = new Repo()`. */
+  constructor(config?: RepoConfig, ...plain: [K] extends [never] ? [] : [never])
   constructor({
     backend,
     id = crypto.randomUUID() as RepoId,
@@ -57,26 +69,25 @@ export class Repo extends EventEmitter<RepoEvents> {
     if (typeof id !== "string" || !id)
       throw new TypeError("id must be a nonempty string")
     this.#backend = backend ?? new MemoryBackend()
-    this.#identity = Object.freeze({
-      kind: "repo",
-      id,
-      path: Object.freeze([]),
-    })
+    this.#id = id
+    const extensions = this.#backend.handleExtensions ?? []
+    this.#Handle = extendHandle(extensions)
+    this.#extensions = new Map(extensions.map(e => [e.kind, e]))
   }
 
   /** This Repo instance's identity; see {@link RepoConfig.id}. */
   get id(): RepoId {
-    return this.#identity.id as RepoId
+    return this.#id
   }
 
-  get handles(): Record<DocumentId, DocHandle<any>> {
+  get handles(): Record<DocumentId, ExtendedHandle<any, K>> {
     return Object.fromEntries(
       [...this.#documents].map(([id, document]) => [id, document.handle])
-    ) as Record<DocumentId, DocHandle<any>>
+    ) as Record<DocumentId, ExtendedHandle<any, K>>
   }
 
   /** Resolve after initial history is locally recoverable, without waiting for peers. */
-  async create<T>(initialValue?: T): Promise<DocHandle<T>> {
+  async create<T>(initialValue?: T): Promise<ExtendedHandle<T, K>> {
     this.#checkOpen()
     const doc =
       isPlainObject(initialValue) && Object.keys(initialValue).length
@@ -85,7 +96,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     return this.#track(this.#createDocument(doc))
   }
 
-  async clone<T>(handle: DocHandle<T>): Promise<DocHandle<T>> {
+  async clone<T>(handle: DocHandle<T>): Promise<ExtendedHandle<T, K>> {
     this.#checkOpen()
     return this.#track(this.#createDocument(A.clone(handle.fullDoc())))
   }
@@ -97,7 +108,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   findWithProgress<T>(
     id: AnyDocumentId,
     _options?: AbortOptions
-  ): DocumentProgress<T> {
+  ): DocumentProgress<T, K> {
     return toProgress(this.query<T>(id))
   }
 
@@ -105,7 +116,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   async find<T>(
     id: AnyDocumentId,
     options: RepoFindOptions = {}
-  ): Promise<DocHandle<T>> {
+  ): Promise<ExtendedHandle<T, K>> {
     options.signal?.throwIfAborted()
     return waitUntilReady(this.query<T>(id), options.signal)
   }
@@ -115,7 +126,7 @@ export class Repo extends EventEmitter<RepoEvents> {
    * Accepts everything {@link Repo.find} does; heads and paths in a URL
    * yield the matching view or sub-handle once ready.
    */
-  query<T>(id: AnyDocumentId): DocumentQuery<T> {
+  query<T>(id: AnyDocumentId): DocumentQuery<T, K> {
     this.#checkOpen()
     const parsed = isValidAutomergeUrl(id)
       ? parseAutomergeUrl(id)
@@ -127,7 +138,7 @@ export class Repo extends EventEmitter<RepoEvents> {
     const { documentId, heads, segments } = parsed
     const document: Document<T> =
       this.#documents.get(documentId) ?? this.#register<T>(documentId)
-    let query: DocumentQuery<T> = document.query
+    let query = document.query as DocumentQuery<T, K>
     if (heads) query = queryAtHeads(query, heads)
     if (segments?.length) query = queryAtPath(query, segments)
     return query
@@ -137,7 +148,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   async import<T>(
     binary: Uint8Array,
     args?: { docId?: DocumentId }
-  ): Promise<DocHandle<T>> {
+  ): Promise<ExtendedHandle<T, K>> {
     this.#checkOpen()
     const doc = A.load<T>(binary)
     const id = args?.docId && interpretAsDocumentId(args.docId)
@@ -147,7 +158,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   async #importDocument<T>(
     doc: A.Doc<T>,
     id?: DocumentId
-  ): Promise<DocHandle<T>> {
+  ): Promise<ExtendedHandle<T, K>> {
     if (!id) return this.#createDocument(doc)
     const existing = this.#documents.get(id)
     if (existing?.query.state().status === "ready") {
@@ -156,7 +167,7 @@ export class Repo extends EventEmitter<RepoEvents> {
         { compact: true }
       )
       this.#checkOpen()
-      return existing.handle
+      return this.#handle(existing)
     }
     try {
       return await this.#createDocument(doc, id)
@@ -178,7 +189,7 @@ export class Repo extends EventEmitter<RepoEvents> {
   async #createDocument<T>(
     doc: A.Doc<T>,
     requested?: DocumentId
-  ): Promise<DocHandle<T>> {
+  ): Promise<ExtendedHandle<T, K>> {
     if (!A.getHeads(doc).length) doc = A.emptyChange(doc)
     const allocated = await this.#backend.create(
       extractRecords(doc),
@@ -192,9 +203,14 @@ export class Repo extends EventEmitter<RepoEvents> {
       if (existing.state.deleted || existing.state.closed)
         throw new Error("Document is no longer open")
       existing.adopt(doc)
-      return existing.handle
+      return this.#handle(existing)
     }
-    return this.#register<T>(id, doc).handle
+    return this.#handle(this.#register<T>(id, doc))
+  }
+
+  /** The root handle, typed with the backend's extensions. */
+  #handle<T>(document: Document<T>): ExtendedHandle<T, K> {
+    return document.handle as ExtendedHandle<T, K>
   }
 
   #backendId(id: DocumentId): SedimentreeId {
@@ -208,10 +224,12 @@ export class Repo extends EventEmitter<RepoEvents> {
       this.#backendId(id),
       id,
       this.#backend,
-      this.#identity,
-      initial
+      this.#id,
+      initial,
+      this.#extensions,
+      this.#Handle
     )
-    const { handle } = document
+    const handle = this.#handle(document)
     this.#documents.set(id, document)
     let announced = false
     document.start()
@@ -396,6 +414,25 @@ function collectErrors(results: PromiseSettledResult<unknown>[]): unknown[] {
   )
 }
 
+/**
+ * The handle a Repo of type `R` gives for documents of type `T`: with the
+ * extensions of `R`'s backend. Lets an app name its handles from its Repo:
+ * `type AppHandle<T> = HandleOf<typeof repo, T>`.
+ */
+export type HandleOf<R extends Repo, T> =
+  R extends Repo<infer K> ? ExtendedHandle<T, K> : DocHandle<T>
+
+/** The document type of a handle type `H`, or `H` itself if not a handle. */
+export type DocOf<H> = H extends DocHandle<infer T> ? T : H
+
+/**
+ * For APIs taking either a document type or a handle type: `Todo` gives the
+ * handle a Repo of type `R` makes for it (a plain `DocHandle<Todo>` by
+ * default), and a handle type such as `HandleOf<typeof repo, Todo>` is kept.
+ */
+export type AsHandle<X, R extends Repo = Repo> =
+  X extends DocHandle<any> ? X : HandleOf<R, X>
+
 export interface RepoConfig {
   /**
    * Owns storage and synchronization; closed by {@link Repo.shutdown}.
@@ -404,9 +441,9 @@ export interface RepoConfig {
   backend?: SedimentreeBackend
   /**
    * Identifies this Repo instance; a random UUID by default. Must be unique
-   * among concurrently live Repos: it is the `originId` of the ephemeral
-   * messages this Repo publishes, which tells Repos behind one peer apart, and
-   * a Repo ignores messages from its own `id`. Not verified by receivers.
+   * among concurrently live Repos: backend features (e.g. ephemeral
+   * messaging) use it to tell Repos behind one peer apart. Not verified by
+   * receivers.
    */
   id?: RepoId
 }
@@ -418,9 +455,11 @@ export interface AbortOptions {
 
 export type RepoFindOptions = AbortOptions
 export type DeleteDocumentPayload = { documentId: DocumentId }
-export type DocumentPayload = { handle: DocHandle<any> }
-export interface RepoEvents {
-  document: (payload: DocumentPayload) => void
+export type DocumentPayload<K extends string = never> = {
+  handle: ExtendedHandle<any, K>
+}
+export interface RepoEvents<K extends string = never> {
+  document: (payload: DocumentPayload<K>) => void
   "delete-document": (payload: DeleteDocumentPayload) => void
   "unavailable-document": (payload: DeleteDocumentPayload) => void
 }

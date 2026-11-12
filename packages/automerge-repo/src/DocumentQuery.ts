@@ -1,4 +1,4 @@
-import type { DocHandle } from "./DocHandle.js"
+import type { DocHandle, ExtendedHandle } from "./DocHandle.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { Segment } from "./subdoc-handles/types.js"
 import { makeLogger } from "./Logger.js"
@@ -16,23 +16,23 @@ const log = makeLogger("automerge-repo:query")
  * - `deleted`: the document was deleted locally. Terminal.
  * - `failed`: observation stopped with an error. Terminal.
  */
-export type QueryState<T> =
+export type QueryState<T, K extends string = never> =
   | { status: "loading" }
-  | { status: "ready"; handle: DocHandle<T> }
+  | { status: "ready"; handle: ExtendedHandle<T, K> }
   | { status: "unavailable" }
   | { status: "deleted" }
   | { status: "failed"; error: Error }
 
 /** An observable view of a document's readiness, returned by {@link Repo.query}. */
-export interface DocumentQuery<T> {
+export interface DocumentQuery<T, in K extends string = never> {
   readonly documentId: DocumentId
   /** The current state. */
-  state(): QueryState<T>
+  state(): QueryState<T, K>
   /**
    * Called synchronously with the current state, before `subscribe` returns,
    * then on every change. Returns an unsubscribe function.
    */
-  subscribe(callback: (state: QueryState<T>) => void): () => void
+  subscribe(callback: (state: QueryState<T, K>) => void): () => void
 }
 
 /**
@@ -101,11 +101,11 @@ export class RootQuery<T> implements DocumentQuery<T> {
  * Mirrors `query`, but stays `loading` until `heads` are in the document's
  * history, then yields a `view(heads)` handle.
  */
-export function queryAtHeads<T>(
-  query: DocumentQuery<T>,
+export function queryAtHeads<T, K extends string = never>(
+  query: DocumentQuery<T, K>,
   heads: UrlHeads
-): DocumentQuery<T> {
-  const state = (): QueryState<T> => {
+): DocumentQuery<T, K> {
+  const state = (): QueryState<T, K> => {
     const upstream = query.state()
     if (upstream.status !== "ready") return upstream
     if (!upstream.handle.hasHeads(heads)) return { status: "loading" }
@@ -115,7 +115,7 @@ export function queryAtHeads<T>(
     documentId: query.documentId,
     state,
     subscribe: callback => {
-      let last: QueryState<T> | undefined
+      let last: QueryState<T, K> | undefined
       let detach: (() => void) | undefined
       const emit = () => {
         const next = state()
@@ -123,9 +123,10 @@ export function queryAtHeads<T>(
         last = next
         callback(next)
       }
-      const attach = (state: QueryState<T>) => {
+      const attach = (state: QueryState<T, K>) => {
         if (detach || state.status !== "ready") return
-        const handle = state.handle
+        // Core events only; the extensions' are not needed here.
+        const handle: DocHandle<T> = state.handle
         handle.on("heads-changed", emit)
         detach = () => handle.off("heads-changed", emit)
       }
@@ -143,15 +144,18 @@ export function queryAtHeads<T>(
 }
 
 /** Mirrors `query`, yielding a sub-handle scoped to `segments` once ready. */
-export function queryAtPath<T>(
-  query: DocumentQuery<T>,
+export function queryAtPath<T, K extends string = never>(
+  query: DocumentQuery<T, K>,
   segments: Segment[]
-): DocumentQuery<T> {
-  const map = (state: QueryState<T>): QueryState<T> =>
+): DocumentQuery<T, K> {
+  const map = (state: QueryState<T, K>): QueryState<T, K> =>
     state.status === "ready"
       ? {
           status: "ready",
-          handle: state.handle.sub(...(segments as any[])) as DocHandle<T>,
+          handle: state.handle.sub(...(segments as any[])) as ExtendedHandle<
+            T,
+            K
+          >,
         }
       : state
   return {
@@ -162,11 +166,11 @@ export function queryAtPath<T>(
 }
 
 /** Resolve with the handle once `query` is ready; reject on any other settled state. */
-export function waitUntilReady<T>(
-  query: DocumentQuery<T>,
+export function waitUntilReady<T, K extends string = never>(
+  query: DocumentQuery<T, K>,
   signal?: AbortSignal
-): Promise<DocHandle<T>> {
-  return new Promise<DocHandle<T>>((resolve, reject) => {
+): Promise<ExtendedHandle<T, K>> {
+  return new Promise<ExtendedHandle<T, K>>((resolve, reject) => {
     signal?.throwIfAborted()
     let unsubscribe: (() => void) | undefined
     let settled = false
@@ -179,7 +183,7 @@ export function waitUntilReady<T>(
       cleanup()
       reject(signal!.reason)
     }
-    const check = (state: QueryState<T>) => {
+    const check = (state: QueryState<T, K>) => {
       if (settled || state.status === "loading") return
       cleanup()
       if (state.status === "ready") resolve(state.handle)
@@ -222,7 +226,7 @@ function deliver<S>(callback: (state: S) => void, state: S): void {
   }
 }
 
-function statesEqual<T>(a: QueryState<T>, b: QueryState<T>): boolean {
+function statesEqual(a: QueryState<any>, b: QueryState<any>): boolean {
   if (a.status !== b.status) return false
   if (a.status === "ready" && b.status === "ready") return a.handle === b.handle
   if (a.status === "failed" && b.status === "failed") return a.error === b.error

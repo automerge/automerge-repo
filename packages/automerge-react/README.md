@@ -48,6 +48,61 @@ export function App() {
 Changes apply locally immediately; await a hook updater to observe persistence
 failures.
 
+## Typed handles
+
+A backend can add features to every handle of its Repo, such as the Subduction
+backend's ephemeral messaging (`handle.broadcast`). `RepoContext` only knows a plain
+`Repo`, so hooks reading it return plain handles unless told the Repo's type. There are
+three ways to tell them.
+
+**Recommended: hooks made for your Repo.** `createRepoHooks` infers the type from the
+Repo, and its provider only accepts a Repo of that type, so the two cannot disagree:
+
+```tsx
+// repo.ts
+export const repo = new Repo({ backend })
+export const { RepoProvider, useRepo, useDocHandle, useDocHandles } =
+  createRepoHooks(repo)
+// If the Repo is made later, give its type: createRepoHooks<AppRepo>()
+
+// main.tsx
+<RepoProvider value={repo}>
+  <App />
+</RepoProvider>
+
+// App.tsx: import these hooks from "./repo"; the rest from "@automerge/react".
+const handle = useDocHandle<Todo>(url, { suspense: true }) // has broadcast
+```
+
+The provider also sets `RepoContext`, so the package's other hooks keep working. Its
+hooks throw outside a `RepoProvider`.
+
+**Per call: a handle type.** Name your handles from the Repo, and pass that type in
+place of the document type:
+
+```ts
+export type AppHandle<T> = HandleOf<typeof repo, T>
+
+const handle = useDocHandle<AppHandle<Todo>>(url)
+const repo = useRepo<typeof repo>()
+```
+
+**Once per app: register the Repo's type.** Then plain calls are typed:
+
+```ts
+declare module "@automerge/react" {
+  interface Register {
+    repo: typeof repo
+  }
+}
+
+const handle = useDocHandle<Todo>(url) // has broadcast
+```
+
+The last two assert what the Repo in `RepoContext` is; nothing checks it. A handle type
+given per call overrides a registration. A registration applies to the whole program,
+so only apps should register.
+
 ## Subduction and browser storage
 
 ```ts

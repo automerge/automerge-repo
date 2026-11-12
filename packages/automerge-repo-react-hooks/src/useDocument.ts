@@ -1,7 +1,8 @@
 import { AnyDocumentId } from "@automerge/automerge-repo/slim"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim"
 import { useCallback, useEffect, useState } from "react"
-import { useDocHandle } from "./useDocHandle.js"
+import { useDocHandleIn } from "./useDocHandle.js"
+import { useRepo } from "./useRepo.js"
 
 /**
  * A hook which returns a document and a function to change it.
@@ -53,8 +54,7 @@ export function useDocument<T>(
   id: AnyDocumentId | undefined,
   params: UseDocumentParams = { suspense: false }
 ): UseDocumentReturn<T> | [undefined, () => Promise<void>] {
-  // @ts-expect-error -- typescript doesn't realize we're discriminating these types the same way in both functions
-  const handle = useDocHandle<T>(id, params)
+  const handle = useDocHandleIn<T>(useRepo(), id, params)
   // Initialize with current doc state
   const [doc, setDoc] = useState<Doc<T> | undefined>(() => handle?.doc())
   const [deleteError, setDeleteError] = useState<Error>()

@@ -1,9 +1,9 @@
 import { EventEmitter } from "eventemitter3"
 
-import type { DocHandle } from "../DocHandle.js"
-import type { DocHandleEphemeralMessagePayload } from "../DocHandleEvents.js"
 import {
   PresenceConfig,
+  PresenceHandle,
+  PresenceInbound,
   PresenceEvents,
   PresenceMessage,
   PresenceMessageType,
@@ -29,16 +29,13 @@ import { PeerPresenceInfo } from "./PeerPresenceInfo.js"
  */
 export class Presence<
   State extends PresenceState,
-  DocType = any,
 > extends EventEmitter<PresenceEvents> {
-  #handle: DocHandle<DocType>
+  #handle: PresenceHandle
   #peers: PeerPresenceInfo<State>
   #localState: State
   #heartbeatMs?: number
 
-  #handleEphemeralMessage:
-    | ((e: DocHandleEphemeralMessagePayload<DocType>) => void)
-    | undefined
+  #handleEphemeralMessage: ((e: PresenceInbound) => void) | undefined
 
   #heartbeatInterval: ReturnType<typeof setInterval> | undefined
   #pruningInterval: ReturnType<typeof setInterval> | undefined
@@ -52,7 +49,7 @@ export class Presence<
    * @param config see {@link PresenceConfig}
    * @returns
    */
-  constructor({ handle }: { handle: DocHandle<DocType> }) {
+  constructor({ handle }: { handle: PresenceHandle }) {
     super()
     this.#handle = handle
     this.#peers = new PeerPresenceInfo<State>(DEFAULT_PEER_TTL_MS)
@@ -76,9 +73,7 @@ export class Presence<
     // N.B.: We can't use a regular member function here since member functions
     // of two distinct objects are identical, and we need to be able to stop
     // listening to the handle for just this Presence instance in stop()
-    this.#handleEphemeralMessage = (
-      e: DocHandleEphemeralMessagePayload<DocType>
-    ) => {
+    this.#handleEphemeralMessage = (e: PresenceInbound) => {
       const envelope = e.message as PresenceMessage
 
       if (

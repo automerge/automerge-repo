@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   BackendError,
   commitId,
+  recordHead,
   sedimentreeId,
   type LooseCommitRecord,
   type SedimentreeEvent,
@@ -57,7 +58,7 @@ async function initial(session: SedimentreeSession) {
 async function confirmation(iterator: AsyncIterator<SedimentreeEvent>) {
   let event = await next(iterator)
   // Peer notifications may arrive first; nothing else should.
-  while (event.type === "remote-heads" || event.type === "ephemeral")
+  while (event.type === "remote-heads" || event.type === "extension")
     event = await next(iterator)
   if (event.type !== "synchronized")
     throw new Error(`Expected a confirmation round, got ${event.type}`)
@@ -538,7 +539,7 @@ describe("real local Subduction", () => {
     await backend.store(tree, [record(4, [3])])
     // Records from the failed round's batch may still precede it.
     let live = await until(iterator, "records")
-    while (live.records[0].id !== cid(4))
+    while (recordHead(live.records[0]) !== cid(4))
       live = await until(iterator, "records")
     expect(live.records).toEqual([record(4, [3])])
   })

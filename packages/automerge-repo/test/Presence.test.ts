@@ -11,14 +11,14 @@ import type {
 } from "../src/presence/types.js"
 import { Repo } from "../src/Repo.js"
 import { setLoggerFactory } from "../src/Logger.js"
-import type { DocHandle } from "../src/DocHandle.js"
+import type { ExtendedHandle } from "../src/DocHandle.js"
 import type { RepoId } from "../src/types.js"
 import { EphemeralHub } from "./helpers/ephemeralHub.js"
 
 type PresenceState = { position: number }
 
 let hub: EphemeralHub
-const repos: Repo[] = []
+const repos: Repo<"ephemeral">[] = []
 const presences: Presence<PresenceState>[] = []
 
 afterEach(async () => {
@@ -37,8 +37,8 @@ async function setup<const Names extends string>(
   const peers = {} as Record<
     Names,
     {
-      repo: Repo
-      handle: DocHandle<unknown>
+      repo: Repo<"ephemeral">
+      handle: ExtendedHandle<unknown, "ephemeral">
       presence: Presence<PresenceState>
     }
   >
@@ -49,7 +49,7 @@ async function setup<const Names extends string>(
       id: name as RepoId,
     })
     repos.push(repo)
-    const handle: DocHandle<unknown> = url
+    const handle: ExtendedHandle<unknown, "ephemeral"> = url
       ? await repo.find(url)
       : await repo.create({ test: "doc" })
     url = handle.url
@@ -307,7 +307,7 @@ describe("Presence", () => {
       const pruning: PresenceEventPruning[] = []
       bob.presence.on("pruning", event => pruning.push(event))
       // tab1 crashes: nothing more from it arrives, not even a goodbye.
-      hub.drop = message => message.origin.id === "tab1"
+      hub.drop = message => message.originId === "tab1"
       await vi.advanceTimersByTimeAsync(100)
 
       expect(positions(bob.presence)).toEqual({ tab2: 2 })

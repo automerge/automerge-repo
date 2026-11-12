@@ -1,13 +1,15 @@
 import {
   AnyDocumentId,
   DocHandle,
+  Repo,
+  type AsHandle,
   isValidAutomergeUrl,
   interpretAsDocumentId,
   parseAutomergeUrl,
   stringifyAutomergeUrl,
 } from "@automerge/automerge-repo/slim"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
-import { useRepo } from "./useRepo.js"
+import { useRepo, type RegisteredRepo } from "./useRepo.js"
 import { useEffect, useRef, useState } from "react"
 
 // Shared with useDocHandles
@@ -26,23 +28,41 @@ export interface UseDocHandleSynchronousParams {
   suspense: false
 }
 
-type UseDocHandleParams =
+export type UseDocHandleParams =
   | UseDocHandleSuspendingParams
   | UseDocHandleSynchronousParams
 
-export function useDocHandle<T>(
+/**
+ * The handle for a document, from the Repo in {@link RepoContext}. Takes the
+ * document type (`useDocHandle<Todo>`) or a handle type
+ * (`useDocHandle<AppHandle<Todo>>`, with
+ * `type AppHandle<T> = HandleOf<typeof repo, T>`) to be typed with the
+ * features the Repo's backend adds. Both assert what the Repo in context
+ * is; {@link createRepoHooks} checks it.
+ */
+export function useDocHandle<X>(
   id: AnyDocumentId,
   params: UseDocHandleSuspendingParams
-): DocHandle<T>
-export function useDocHandle<T>(
+): AsHandle<X, RegisteredRepo>
+export function useDocHandle<X>(
   id: AnyDocumentId | undefined,
   params?: UseDocHandleSynchronousParams
-): DocHandle<T> | undefined
-export function useDocHandle<T>(
+): AsHandle<X, RegisteredRepo> | undefined
+export function useDocHandle<X>(
+  id: AnyDocumentId | undefined,
+  params?: UseDocHandleParams
+): AsHandle<X, RegisteredRepo> | undefined {
+  return useDocHandleIn(useRepo(), id, params) as
+    | AsHandle<X, RegisteredRepo>
+    | undefined
+}
+
+/** @internal {@link useDocHandle} on a given Repo. */
+export function useDocHandleIn<T>(
+  repo: Repo,
   id: AnyDocumentId | undefined,
   { suspense }: UseDocHandleParams = { suspense: false }
 ): DocHandle<T> | undefined {
-  const repo = useRepo()
   const controllerRef = useRef<AbortController | undefined>(undefined)
   const [handle, setHandle] = useState<DocHandle<T> | undefined>()
 

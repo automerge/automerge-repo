@@ -6,7 +6,6 @@ import {
   stringifyAutomergeUrl,
 } from "./AutomergeUrl.js"
 import type { DocumentState } from "./DocumentState.js"
-import { encode } from "./helpers/cbor.js"
 import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
 import type {
   AutomergeUrl,
@@ -16,6 +15,13 @@ import type {
   UrlHeads,
 } from "./types.js"
 import type { DocHandleEvents } from "./DocHandleEvents.js"
+import type {
+  ExtensionContext,
+  ExtensionEvents,
+  ExtensionMembers,
+  HandleClass,
+  HandleExtension,
+} from "./sedimentree/extension.js"
 import {
   isCursorMarker,
   isPattern,
@@ -59,6 +65,25 @@ type DocHandleOptions = {
   range?: CursorRange
 }
 
+/** The events of a handle with the extensions `K`. */
+export type HandleEvents<T, K extends string = never> = DocHandleEvents<T, K> &
+  ExtensionEvents<T, K>
+
+/**
+ * A {@link DocHandle} with the members its Repo's backend adds; see
+ * {@link HandleExtension}.
+ */
+export type ExtendedHandle<T, K extends string = never> = DocHandle<T, K> &
+  ExtensionMembers<T, K>
+
+let stateOf: (handle: DocHandle<any>) => DocumentState<any>
+
+/**
+ * @internal The members DocHandle defines on each instance, not its
+ * prototype. Extensions may not redefine these either.
+ */
+export const instanceMembers: readonly string[] = ["isReady", "isDeleted"]
+
 /**
  * A DocHandle is a wrapper around an Automerge document. It allows you
  * to read and change the document, as well as to subscribe to changes.
@@ -89,7 +114,11 @@ type DocHandleOptions = {
  * the `Repo` handles persisting to your local storage as well as propagating
  * changes to connected peers.
  */
-export class DocHandle<T> {
+export class DocHandle<T, in K extends string = never> {
+  static {
+    stateOf = handle => handle.#state
+  }
+
   /** If set, this handle will only show the document at these heads */
   #fixedHeads?: UrlHeads
 
@@ -265,8 +294,8 @@ export class DocHandle<T> {
    * @param heads - The heads to view the document at. See history().
    * @returns DocHandle<T> at the time of `heads`
    */
-  view(heads: UrlHeads): DocHandle<T> {
-    return this.#createSubHandle([], { heads }) as DocHandle<T>
+  view(heads: UrlHeads): ExtendedHandle<T, K> {
+    return this.#createSubHandle([], { heads }) as ExtendedHandle<T, K>
   }
 
   /**
@@ -460,19 +489,6 @@ export class DocHandle<T> {
     this.#state.delete()
   }
 
-  /**
-   * Sends an arbitrary ephemeral message out to all reachable peers who would receive sync messages
-   * from you. It has no guarantee of delivery, and is not persisted to the underlying automerge doc
-   * in any way. It is sent from this Repo's peer on behalf of this Repo: receivers see the peer
-   * the backend authenticated as `senderId`, which several Repos (e.g. tabs sharing one signer)
-   * may share, and this Repo's `id` as `originId`, which tells those Repos apart. Neither is a
-   * user identifier. Messages are scoped to the whole document: a sub-handle's broadcasts reach
-   * the root and every other handle of it.
-   */
-  broadcast(message: unknown) {
-    void this.#state.publishEphemeral(encode(message))
-  }
-
   metrics(): { numOps: number; numChanges: number } {
     return A.stats(this.#state.doc)
   }
@@ -509,8 +525,11 @@ export class DocHandle<T> {
    */
   sub<TPath extends readonly PathInput[]>(
     ...segments: [...TPath]
-  ): DocHandle<InferSubType<T, TPath>> {
-    return this.#createSubHandle(segments) as DocHandle<InferSubType<T, TPath>>
+  ): ExtendedHandle<InferSubType<T, TPath>, K> {
+    return this.#createSubHandle(segments) as ExtendedHandle<
+      InferSubType<T, TPath>,
+      K
+    >
   }
 
   // Path / range introspection
@@ -603,7 +622,7 @@ export class DocHandle<T> {
   #createSubHandle(
     segments: readonly AnyPathInput[],
     options: { heads?: UrlHeads } = {}
-  ): DocHandle<any> {
+  ): DocHandle<any, any> {
     const heads = options.heads ?? this.#fixedHeads
 
     // `root.view(h)` must not short-circuit to the unpinned root.
@@ -629,7 +648,7 @@ export class DocHandle<T> {
     const cached = registry.cachedHandle(node, range, heads)
     if (cached) return cached
 
-    return new DocHandle<unknown>(this.#state, {
+    return new this.#state.Handle<unknown>(this.#state, {
       pathSegments: path,
       range,
       heads,
@@ -824,92 +843,126 @@ export class DocHandle<T> {
   }
 
   // Event subscription. DocHandle doesn't extend EventEmitter; listeners
-  // live in the registry, keyed by handle. The Map there holds handles
+  // live in the document's Listeners, keyed by handle, which holds handles
   // strongly, so any handle with a listener is naturally retained.
 
-  on<E extends keyof DocHandleEvents<T>>(
+  on<E extends keyof HandleEvents<T, K>>(
     event: E,
-    fn: DocHandleEvents<T>[E]
+    fn: HandleEvents<T, K>[E]
   ): this {
-    this.#state.registry.addListener(this, event as string, fn as any)
+    this.#state.listeners.add(this, event as string, fn as any)
     return this
   }
 
-  addListener<E extends keyof DocHandleEvents<T>>(
+  addListener<E extends keyof HandleEvents<T, K>>(
     event: E,
-    fn: DocHandleEvents<T>[E]
+    fn: HandleEvents<T, K>[E]
   ): this {
     return this.on(event, fn)
   }
 
-  once<E extends keyof DocHandleEvents<T>>(
+  once<E extends keyof HandleEvents<T, K>>(
     event: E,
-    fn: DocHandleEvents<T>[E]
+    fn: HandleEvents<T, K>[E]
   ): this {
-    const reg = this.#state.registry
+    const listeners = this.#state.listeners
     const wrapper = (payload: unknown) => {
-      reg.removeListener(this, event as string, wrapper)
+      listeners.remove(this, event as string, wrapper)
       ;(fn as any)(payload)
     }
-    reg.addListener(this, event as string, wrapper)
+    listeners.add(this, event as string, wrapper)
     return this
   }
 
-  off<E extends keyof DocHandleEvents<T>>(
+  off<E extends keyof HandleEvents<T, K>>(
     event: E,
-    fn?: DocHandleEvents<T>[E]
+    fn?: HandleEvents<T, K>[E]
   ): this {
-    const reg = this.#state.registry
-    if (fn === undefined) reg.removeAllListenersForEvent(this, event as string)
-    else reg.removeListener(this, event as string, fn as any)
+    this.#state.listeners.remove(this, event as string, fn as any)
     return this
   }
 
-  removeListener<E extends keyof DocHandleEvents<T>>(
+  removeListener<E extends keyof HandleEvents<T, K>>(
     event: E,
-    fn?: DocHandleEvents<T>[E]
+    fn?: HandleEvents<T, K>[E]
   ): this {
     return this.off(event, fn)
   }
 
-  removeAllListeners<E extends keyof DocHandleEvents<T>>(event?: E): this {
-    const reg = this.#state.registry
-    if (event === undefined) reg.removeAllListenersForHandle(this)
-    else reg.removeAllListenersForEvent(this, event as string)
+  removeAllListeners<E extends keyof HandleEvents<T, K>>(event?: E): this {
+    const listeners = this.#state.listeners
+    if (event === undefined) listeners.removeAll(this)
+    else listeners.remove(this, event as string)
     return this
   }
 
   /** Number of listeners attached for the given event. */
-  listenerCount<E extends keyof DocHandleEvents<T>>(event: E): number {
-    return this.#state.registry.listenerCountFor(this, event as string)
+  listenerCount<E extends keyof HandleEvents<T, K>>(event: E): number {
+    return this.#state.listeners.count(this, event as string)
   }
 
   /** Snapshot of currently-registered listener functions for the given event. */
-  listeners<E extends keyof DocHandleEvents<T>>(
+  listeners<E extends keyof HandleEvents<T, K>>(
     event: E
-  ): DocHandleEvents<T>[E][] {
-    return this.#state.registry.listenersFor(
+  ): HandleEvents<T, K>[E][] {
+    return this.#state.listeners.listeners(
       this,
       event as string
-    ) as DocHandleEvents<T>[E][]
-  }
-
-  /** Names of events with at least one listener attached. */
-  eventNames(): (keyof DocHandleEvents<T>)[] {
-    return this.#state.registry.eventNamesFor(
-      this
-    ) as (keyof DocHandleEvents<T>)[]
+    ) as HandleEvents<T, K>[E][]
   }
 
   /**
-   * Emit an event on this handle. Routed through the registry's
-   * listener storage. Fires *only* this handle's listeners; use
+   * Names of events with at least one listener attached. Typed as this
+   * handle's event names, though open to any string: a handle with more
+   * events must still be usable where one with fewer is expected.
+   */
+  eventNames(): (keyof HandleEvents<T, K> | (string & {}))[] {
+    return this.#state.listeners.eventNames(this)
+  }
+
+  /**
+   * Emit an event on this handle. Fires *only* this handle's listeners; use
    * `delete()` to fan out the document-level lifecycle events.
    */
-  emit<E extends keyof DocHandleEvents<T>>(
+  emit<E extends keyof HandleEvents<T, K>>(
     event: E,
-    payload: Parameters<DocHandleEvents<T>[E] & ((p: any) => any)>[0]
+    payload: Parameters<HandleEvents<T, K>[E] & ((p: any) => any)>[0]
   ): boolean {
-    return this.#state.registry.emit(this, event as string, payload)
+    return this.#state.listeners.emit(this, event as string, payload)
   }
+}
+
+/**
+ * @internal The handle class with `extensions` applied, each a subclass of
+ * the last.
+ */
+export function extendHandle(
+  extensions: readonly HandleExtension[]
+): typeof DocHandle {
+  const context = (handle: DocHandle<any>): ExtensionContext =>
+    stateOf(handle).extensionContext
+  const kinds = new Set<string>()
+  let Handle: HandleClass = DocHandle
+  for (const extension of extensions) {
+    const { kind } = extension
+    if (kinds.has(kind)) throw new Error(`Duplicate handle extension: ${kind}`)
+    kinds.add(kind)
+    const base = Handle
+    Handle = extension.extend(base, context)
+    if (!(Handle.prototype instanceof base))
+      throw new Error(`Handle extension ${kind} must subclass its base`)
+    // Extensions only add: a replaced member would change the handle for
+    // everyone else, and cannot be typed.
+    for (
+      let added = Handle.prototype;
+      added !== base.prototype;
+      added = Object.getPrototypeOf(added)
+    )
+      for (const name of Reflect.ownKeys(added)) {
+        if (name === "constructor") continue
+        if (name in base.prototype || instanceMembers.includes(name as string))
+          throw new Error(`Handle extension ${kind} redefines ${String(name)}`)
+      }
+  }
+  return Handle as typeof DocHandle
 }

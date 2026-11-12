@@ -1,21 +1,40 @@
 import type {
+  AsHandle,
   AutomergeUrl,
   Doc,
   DocHandle,
+  DocOf,
+  Repo,
 } from "@automerge/automerge-repo/slim"
 import createDocumentProjection from "./createDocumentProjection.js"
-import useDocHandle from "./useDocHandle.js"
+import { repoFor, useDocHandleIn } from "./useDocHandle.js"
 import type { MaybeAccessor, UseDocHandleOptions } from "./types.js"
+import type { RegisteredRepo } from "./useRepo.js"
 import type { Accessor, Resource } from "solid-js"
 
 /**
  * get a fine-grained live view of a document, and its handle, from a URL.
  * @param url a function that returns a url
  */
-export default function useDocument<T extends object>(
+export default function useDocument<X extends object>(
   url: MaybeAccessor<AutomergeUrl | undefined>,
   options?: UseDocHandleOptions
+): [
+  Accessor<Doc<DocOf<X>> | undefined>,
+  Resource<AsHandle<X, RegisteredRepo> | undefined>,
+] {
+  return useDocumentIn(repoFor(options), url, options) as [
+    Accessor<Doc<DocOf<X>> | undefined>,
+    Resource<AsHandle<X, RegisteredRepo> | undefined>,
+  ]
+}
+
+/** @internal {@link useDocument} on a given Repo. */
+export function useDocumentIn<T extends object>(
+  repo: Repo,
+  url: MaybeAccessor<AutomergeUrl | undefined>,
+  options?: Pick<UseDocHandleOptions, "~skipInitialValue">
 ): [Accessor<Doc<T> | undefined>, Resource<DocHandle<T> | undefined>] {
-  const handle = useDocHandle<T>(url, options)
+  const handle = useDocHandleIn<T>(repo, url, options)
   return [createDocumentProjection<T>(handle), handle] as const
 }

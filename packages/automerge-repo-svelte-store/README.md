@@ -189,6 +189,34 @@ Gets the Automerge repo from the current component's context.
 Convenience method to load a document from the repo in context or a provided repo.
 **Important:** This function returns a Promise that resolves to the document store.
 
+## Typed handles
+
+A backend can add features to every handle of its Repo, such as the Subduction
+backend's ephemeral messaging (`handle.broadcast`).
+
+- **`createAutomergeStore(repo)`** is typed from `repo`: its stores' `handle` has those
+  features, with nothing written.
+- **`document()`** reads the Repo from context, which only knows a plain `Repo`. Pass a handle
+  type in place of the document type:
+
+  ```ts
+  type AppHandle<T> = HandleOf<typeof repo, T>
+  const store = await document<AppHandle<Todo>>(url) // store.handle.broadcast
+  ```
+
+- **Or register the Repo's type once per app**, then plain calls are typed:
+
+  ```ts
+  declare module "@automerge/automerge-repo-svelte-store" {
+    interface Register {
+      repo: typeof repo
+    }
+  }
+  ```
+
+The last two assert what the Repo in context is; nothing checks it. A handle type given per
+call overrides a registration, which applies to the whole program.
+
 ## Store API
 
 The document store returned by `find()` and `create()` implements Svelte's writable store contract with these additional methods:
@@ -196,7 +224,7 @@ The document store returned by `find()` and `create()` implements Svelte's writa
 - `change(fn)`: Apply edits immediately; return `Promise<void>` for persistence. Await it to observe persistence failures.
 - `url`: Get the document URL
 - `documentId`: Get the document ID
-- `handle`: Access the underlying Automerge document handle
+- `handle`: Access the underlying Automerge document handle (see [Typed handles](#typed-handles))
 
 ## Contributors
 

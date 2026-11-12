@@ -1,8 +1,12 @@
 import React, { type PropsWithChildren } from "react"
 import {
+  MemoryBackend,
   Repo,
   parseAutomergeUrl,
   type AutomergeUrl,
+  type DocHandle,
+  type HandleExtension,
+  type PresenceInbound,
   type DocumentQuery,
   type QueryState,
 } from "@automerge/automerge-repo"
@@ -12,7 +16,34 @@ import { afterEach, vi } from "vitest"
 import { RepoContext } from "../src/useRepo"
 import { wrapperCache } from "../src/useDocHandle"
 
-const repos = new Set<Repo>()
+declare module "@automerge/automerge-repo" {
+  interface HandleExtensionTypes<T> {
+    ephemeral: {
+      members: { broadcast(message: unknown): void }
+      events: {
+        "ephemeral-message": (
+          payload: PresenceInbound & { handle: DocHandle<T, "ephemeral"> }
+        ) => void
+      }
+      inbound: never
+    }
+  }
+}
+
+/** Stands in for a backend with ephemeral messaging; broadcasts go nowhere. */
+const ephemeral: HandleExtension<"ephemeral"> = {
+  kind: "ephemeral",
+  extend: base =>
+    class extends base {
+      broadcast(_message: unknown): void {}
+    },
+}
+
+class EphemeralBackend extends MemoryBackend {
+  readonly handleExtensions = [ephemeral] as const
+}
+
+const repos = new Set<Repo<"ephemeral">>()
 
 afterEach(async () => {
   cleanup()
@@ -51,8 +82,8 @@ export const pause = (ms = 0) =>
 
 // Mock the lookup boundary, not the removed network protocol.
 export function setupDelayedRepo(latency = 10) {
-  const repoCreator = new Repo()
-  const repoFinder = new Repo()
+  const repoCreator = new Repo({ backend: new EphemeralBackend() })
+  const repoFinder = new Repo({ backend: new EphemeralBackend() })
   repos.add(repoCreator)
   repos.add(repoFinder)
   const localQuery = repoFinder.query.bind(repoFinder)

@@ -25,6 +25,14 @@
  */
 
 export { DocHandle } from "./DocHandle.js"
+export type { ExtendedHandle, HandleEvents } from "./DocHandle.js"
+export type {
+  ExtensionContext,
+  ExtensionEvents,
+  ExtensionMembers,
+  HandleExtension,
+  HandleExtensionTypes,
+} from "./sedimentree/extension.js"
 export {
   isValidAutomergeUrl,
   isValidDocumentId,
@@ -51,6 +59,8 @@ export type {
   PeerState,
   PresenceState,
   PresenceConfig,
+  PresenceHandle,
+  PresenceInbound,
   PeerStatesValue,
   PresenceEvents,
   PresenceEventUpdate,
@@ -77,7 +87,6 @@ export type {
   DocHandleChangePayload,
   DocHandleDeletePayload,
   DocHandleEncodedChangePayload,
-  DocHandleEphemeralMessagePayload,
   DocHandleHeadsChangedPayload,
   DocHandleRemoteHeadsPayload,
   DocHandleEvents,
@@ -87,6 +96,9 @@ export type {
   AbortOptions,
   DeleteDocumentPayload,
   DocumentPayload,
+  AsHandle,
+  DocOf,
+  HandleOf,
   RepoConfig,
   RepoEvents,
   RepoFindOptions,

@@ -1,8 +1,78 @@
-import { Encoder } from "cbor-x"
+import { Encoder, decode } from "cbor-x"
 import {
   BackendError,
-  type EphemeralEnvelope,
+  type BackendIdentity,
+  type HandleExtension,
+  type SedimentreeSession,
 } from "@automerge/automerge-repo/sedimentree"
+import type {
+  DocHandle,
+  ExtendedHandle,
+  PresenceHandle,
+  PresenceInbound,
+} from "@automerge/automerge-repo/slim"
+
+/** An ephemeral message on the wire. */
+export interface EphemeralEnvelope {
+  readonly messageId: string
+  /** The Repo it was published for; claimed, not verified. */
+  readonly origin: BackendIdentity
+  readonly payload: Uint8Array
+}
+
+/** A session of the Subduction backend. */
+export interface SubductionSession extends SedimentreeSession {
+  /** Publish to the peers subscribed to this session's document. The
+   * `ephemeral` handle extension sends through this. */
+  publishEphemeral(message: EphemeralEnvelope): Promise<void>
+}
+
+/** What the backend's `ephemeral` session events carry. */
+export interface EphemeralInbound {
+  readonly message: EphemeralEnvelope
+  /** Verified sender. */
+  readonly sender: BackendIdentity
+}
+
+/**
+ * Emitted when an ephemeral message is received for the document. `senderId`
+ * is the peer Subduction authenticated; `originId` is the sending Repo's `id`.
+ */
+export interface EphemeralMessagePayload<T> extends PresenceInbound {
+  handle: DocHandle<T, "ephemeral"> & EphemeralMembers
+}
+
+/** What the `ephemeral` extension adds to a handle. */
+export interface EphemeralMembers {
+  /**
+   * Sends an arbitrary ephemeral message out to all reachable peers who would receive sync messages
+   * from you. It has no guarantee of delivery, and is not persisted to the underlying automerge doc
+   * in any way. It is sent from this Repo's peer on behalf of this Repo: receivers see the peer
+   * Subduction authenticated as `senderId`, which several Repos (e.g. tabs sharing one signer)
+   * may share, and this Repo's `id` as `originId`, which tells those Repos apart. Neither is a
+   * user identifier. Messages are scoped to the whole document: a sub-handle's broadcasts reach
+   * the root and every other handle of it.
+   */
+  broadcast(message: unknown): void
+}
+
+export interface EphemeralEvents<T> {
+  "ephemeral-message": (payload: EphemeralMessagePayload<T>) => void
+}
+
+declare module "@automerge/automerge-repo/sedimentree" {
+  interface HandleExtensionTypes<T> {
+    ephemeral: {
+      members: EphemeralMembers
+      events: EphemeralEvents<T>
+      inbound: EphemeralInbound
+    }
+  }
+}
+
+// Fails to compile if handles with this extension stop fitting Presence.
+type Fits<Contract, _Handle extends Contract> = Contract
+type _FitsPresence = Fits<PresenceHandle, ExtendedHandle<unknown, "ephemeral">>
 
 // Untagged byte strings keep the encoding identical with and without Node's Buffer.
 const codec = new Encoder({ useRecords: false, tagUint8Array: false })
@@ -26,7 +96,7 @@ function isEnvelope(value: unknown): value is EphemeralEnvelope {
   )
 }
 function invalid(message: string): BackendError {
-  return new BackendError("ephemeral", "invalid-record", message)
+  return new BackendError("extension", "invalid-record", message)
 }
 export function encodeEphemeral(message: EphemeralEnvelope): Uint8Array {
   if (!isEnvelope(message)) throw invalid("Invalid ephemeral envelope")
@@ -58,4 +128,55 @@ export function decodeEphemeral(
   } catch {
     return
   }
+}
+
+/**
+ * Ephemeral messaging on every handle: `broadcast()` and the
+ * `ephemeral-message` event, carried by Subduction's ephemeral topics.
+ */
+export const ephemeral: HandleExtension<"ephemeral", SubductionSession> = {
+  kind: "ephemeral",
+  extend: (base, context) =>
+    class extends base implements EphemeralMembers {
+      broadcast(message: unknown): void {
+        const document = context(this)
+        // Encoded now, so later changes to `message` are not sent.
+        const bytes = codec.encode(message)
+        const payload = new Uint8Array(
+          bytes.buffer,
+          bytes.byteOffset,
+          bytes.byteLength
+        )
+        const envelope: EphemeralEnvelope = {
+          messageId: crypto.randomUUID(),
+          origin: { kind: "repo", id: document.repoId, path: [] },
+          payload,
+        }
+        // Best effort: failures are logged, never thrown.
+        void (async () => {
+          const { session } = document
+          if (!session) throw new Error("No active session")
+          await session.publishEphemeral(envelope)
+        })().catch(error =>
+          document.log("ephemeral publication failed: %o", error)
+        )
+      }
+    },
+  receive(context, { message, sender }) {
+    // Subduction also delivers a peer's own publications back to it.
+    if (message.origin.id === context.repoId) return
+    let decoded: unknown
+    try {
+      decoded = decode(message.payload)
+    } catch (error) {
+      context.log("invalid ephemeral message: %o", error)
+      return
+    }
+    context.emit("ephemeral-message", handle => ({
+      handle,
+      senderId: sender.id,
+      originId: message.origin.id,
+      message: decoded,
+    }))
+  },
 }

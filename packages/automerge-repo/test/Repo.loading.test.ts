@@ -9,9 +9,6 @@ import {
   generateAutomergeUrl,
   parseAutomergeUrl,
 } from "../src/AutomergeUrl.js"
-import { encode } from "../src/helpers/cbor.js"
-import { Presence } from "../src/presence/Presence.js"
-import { PRESENCE_MESSAGE_MARKER } from "../src/presence/constants.js"
 import type { BinaryDocumentId, PeerId } from "../src/types.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import { BackendError, commitId, headsOf } from "../src/sedimentree/index.js"
@@ -659,83 +656,6 @@ describe("Repo loading", () => {
   })
 
   describe("peers", () => {
-    it("reports authenticated sender and claimed origin separately", async () => {
-      const { handle, session } = await created()
-      const listener = vi.fn()
-      const sub = handle.sub("count")
-      sub.on("ephemeral-message", listener)
-      await session.push({
-        type: "ephemeral",
-        sequence: 1,
-        sender: { kind: "test", id: "signed-originator", path: ["relay"] },
-        message: {
-          messageId: "message-1",
-          origin: { kind: "test", id: "original-source", path: [] },
-          payload: new Uint8Array(encode({ hello: "world" })),
-        },
-      })
-      expect(listener).toHaveBeenCalledWith({
-        handle: sub,
-        senderId: "signed-originator",
-        originId: "original-source",
-        message: { hello: "world" },
-      })
-    })
-
-    it("publishes outbound ephemerals through the session with Repo's origin", async () => {
-      const { handle, session } = await created()
-      handle.broadcast({ hello: "there" })
-      await vi.waitFor(() =>
-        expect(session.publishEphemeral).toHaveBeenCalledOnce()
-      )
-      const envelope = session.publishEphemeral.mock.calls[0][0]
-      expect(envelope.origin.kind).toBe("repo")
-      const listener = vi.fn()
-      handle.on("ephemeral-message", listener)
-      // Our own envelope echoed back is ignored by origin.
-      await session.push({
-        type: "ephemeral",
-        sequence: 1,
-        sender: { kind: "test", id: "relay", path: [] },
-        message: envelope,
-      })
-      expect(listener).not.toHaveBeenCalled()
-    })
-
-    it("preserves Presence observation over backend session messages", async () => {
-      const { handle, session } = await created()
-      const presence = new Presence<{ name: string }>({ handle })
-      presence.start({ initialState: { name: "local" } })
-      try {
-        await session.push({
-          type: "ephemeral",
-          sequence: 1,
-          sender: { kind: "test", id: "signed-originator", path: ["relay"] },
-          message: {
-            messageId: "message-1",
-            origin: { kind: "test", id: "original-source", path: [] },
-            payload: new Uint8Array(
-              encode({
-                [PRESENCE_MESSAGE_MARKER]: {
-                  type: "snapshot",
-                  state: { name: "remote" },
-                },
-              })
-            ),
-          },
-        })
-        expect(Object.values(presence.getPeerStates().value)).toEqual([
-          expect.objectContaining({
-            senderId: "signed-originator",
-            originId: "original-source",
-            value: { name: "remote" },
-          }),
-        ])
-      } finally {
-        presence.stop()
-      }
-    })
-
     it("records remote heads while loading without resolving readiness or dispatching", async () => {
       const { handle, session, progress } = await lookup()
       const advertised = [commitId("01".repeat(32))]

@@ -19,7 +19,6 @@ import {
   type SedimentreeBackend,
   type SedimentreeEvent,
   type SedimentreeId,
-  type SedimentreeSession,
   type SyncRoundResult,
 } from "@automerge/automerge-repo/sedimentree"
 import { StorageBridge } from "./storage.js"
@@ -30,7 +29,12 @@ import type {
 } from "./network/SubductionNetworkAdapterInterface.js"
 import { Watch } from "./watch.js"
 import type { SessionState } from "./session.js"
-import { decodeEphemeral, encodeEphemeral } from "./ephemeral.js"
+import {
+  decodeEphemeral,
+  encodeEphemeral,
+  ephemeral,
+  type SubductionSession,
+} from "./ephemeral.js"
 import { SyncRules, type SyncPolicy, type SyncRule } from "./sync-policy.js"
 
 export {
@@ -40,6 +44,14 @@ export {
   type SyncRule,
   type SyncRuleSignal,
 } from "./sync-policy.js"
+export {
+  ephemeral,
+  type EphemeralEnvelope,
+  type EphemeralEvents,
+  type EphemeralMembers,
+  type EphemeralMessagePayload,
+  type SubductionSession,
+} from "./ephemeral.js"
 export type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
 export type {
   SubductionConnect,
@@ -206,6 +218,8 @@ async function failures(promises: readonly unknown[]): Promise<unknown[]> {
  * Initialize Subduction WASM before construction. Storage is exclusively owned.
  */
 export class SubductionBackend implements SedimentreeBackend {
+  /** Every handle of a Repo on this backend has ephemeral messaging. */
+  readonly handleExtensions = [ephemeral] as const
   readonly #engine: N.Subduction
   #closed = false
   #closing?: Promise<void>
@@ -301,10 +315,13 @@ export class SubductionBackend implements SedimentreeBackend {
     // Metadata is frozen and shared; each session owns its payload bytes.
     for (const { watch } of active)
       watch.push({
-        type: "ephemeral",
+        type: "extension",
+        kind: ephemeral.kind,
         sequence,
-        message: { ...message, payload: new Uint8Array(message.payload) },
-        sender,
+        payload: {
+          message: { ...message, payload: new Uint8Array(message.payload) },
+          sender,
+        },
       })
   }
   #onRemoteHeads(id: N.SedimentreeId, peer: N.PeerId, heads: N.CommitId[]) {
@@ -636,7 +653,7 @@ export class SubductionBackend implements SedimentreeBackend {
       updates.close()
     }
   }
-  open(input: SedimentreeId): SedimentreeSession {
+  open(input: SedimentreeId): SubductionSession {
     this.#check("open")
     const id = backendId("open", input)
     this.#check("open", id)
@@ -662,12 +679,12 @@ export class SubductionBackend implements SedimentreeBackend {
     return {
       events: watch,
       publishEphemeral: async message => {
-        sessionCheck("ephemeral")
+        sessionCheck("extension")
         const bytes = encodeEphemeral(message)
         try {
           await this.#engine.publishEphemeral(id, bytes)
         } catch (cause) {
-          throw error("ephemeral", cause)
+          throw error("extension", cause)
         }
       },
       markReady: () => {

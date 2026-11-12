@@ -96,6 +96,18 @@ rule.set(syncAll) // e.g. on login
 
 ## Ephemeral messages
 
+Every handle of a Repo on this backend has ephemeral messaging:
+
+```ts
+const repo = new Repo({ backend })
+const handle = await repo.find(url)
+handle.on("ephemeral-message", ({ senderId, originId, message }) => {})
+handle.broadcast({ cursor: 3 })
+```
+
+The handle's type is `ExtendedHandle<T, "ephemeral">`, and it meets core's `PresenceHandle`
+contract, so it works with `Presence` and the presence hooks.
+
 - Best-effort and not stored.
 - `sender` is the peer ID of the backend that signed the message, even when it arrives via a
   relay. `origin` is set by the originator (usually Repo, here) and is not verified.

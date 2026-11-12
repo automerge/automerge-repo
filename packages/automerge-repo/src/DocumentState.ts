@@ -1,31 +1,37 @@
 import { next as A } from "@automerge/automerge/slim"
 import { makeLogger, Logger } from "./Logger.js"
 import { decodeHeads, encodeHeads } from "./AutomergeUrl.js"
-import type { DocumentId, PeerId, RepoId, SyncInfo, UrlHeads } from "./types.js"
+import type { DocumentId, PeerId, SyncInfo, UrlHeads } from "./types.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
+import { Listeners } from "./Listeners.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
 import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
 import { DocHandle } from "./DocHandle.js"
 import { RootQuery } from "./DocumentQuery.js"
 import type { Document } from "./Document.js"
+import type { ExtensionContext } from "./sedimentree/extension.js"
 
 /** What a {@link DocumentState} asks of the {@link Document} that owns it. */
-type Owner = Pick<Document<any>, "commit" | "publishEphemeral">
+type Owner = Pick<Document<any>, "commit"> &
+  Partial<Pick<Document<any>, "Handle" | "extensionContext">>
 
 /**
  * Per-document shared state - one per `documentId`, referenced by every
  * `DocHandle` (root, sub, view) into that document. Owns the Automerge
  * snapshot, the root handle, its readiness query and the
  * {@link HandleRegistry} (identity, pattern resolution, listeners, dispatch).
- * Local edits and ephemeral messages go out through its owning
- * {@link Document}. Not part of the public API.
+ * Local edits go out through its owning {@link Document}. Not part of the
+ * public API.
  *
  * @internal
  */
 export class DocumentState<T = unknown> {
   readonly documentId: DocumentId
   readonly registry: HandleRegistry
+  readonly listeners: Listeners
   readonly log: Logger
+  /** The class of every handle of this document. */
+  readonly Handle: typeof DocHandle
   /** The root handle Repo hands out. */
   readonly handle: DocHandle<T>
   /** Owns readiness. */
@@ -64,21 +70,19 @@ export class DocumentState<T = unknown> {
     this.documentId = documentId
     this.#owner = owner
     this.#doc = initialDoc
-    this.registry = new HandleRegistry(this)
     this.log = makeLogger(`automerge-repo:doc:${documentId.slice(0, 5)}`)
-    this.handle = new DocHandle(this)
+    this.listeners = new Listeners(this.log)
+    this.registry = new HandleRegistry(this)
+    this.Handle = owner.Handle ?? DocHandle
+    this.handle = new this.Handle(this)
     this.query = new RootQuery(this.handle)
   }
 
-  /** Best-effort; failures are logged by the owner, never rejected. */
-  publishEphemeral(payload: Uint8Array): Promise<void> {
-    return this.#owner.publishEphemeral(payload)
-  }
-
-  /** Deliver an inbound ephemeral message to every handle. */
-  receiveEphemeral(senderId: PeerId, originId: RepoId, message: unknown): void {
-    if (this.closed || this.deleted) return
-    this.registry.dispatchEphemeral(senderId, originId, message)
+  /** What handle extensions can do with this document. */
+  get extensionContext(): ExtensionContext {
+    const context = this.#owner.extensionContext
+    if (!context) throw new Error("Document has no backend")
+    return context
   }
 
   get doc(): A.Doc<T> {
@@ -105,7 +109,7 @@ export class DocumentState<T = unknown> {
     this.deleted = true
     // Settle acquisition before delete listeners can synchronously find the ID.
     this.query.deleted()
-    this.registry.dispatchDelete()
+    this.listeners.emitAll("delete", handle => ({ handle }))
   }
 
   /** Inspect without materializing an empty Automerge document. */
@@ -134,7 +138,15 @@ export class DocumentState<T = unknown> {
     }
     // A later report supersedes one still awaiting the flush.
     this.#pendingRemoteHeads.delete(peerId)
-    this.registry.dispatchRemoteHeads(peerId, encoded, timestamp)
+    this.#dispatchRemoteHeads(peerId, encoded, timestamp)
+  }
+
+  #dispatchRemoteHeads(
+    peerId: PeerId,
+    heads: UrlHeads,
+    timestamp: number
+  ): void {
+    this.listeners.emitAll("remote-heads", () => ({ peerId, heads, timestamp }))
   }
 
   /** Deliver pre-ready reports in a later task, after `find()` callers attach. */
@@ -146,7 +158,7 @@ export class DocumentState<T = unknown> {
       if (this.closed || this.deleted) return
       for (const peerId of pending) {
         const info = this.#syncInfo.get(peerId)!
-        this.registry.dispatchRemoteHeads(
+        this.#dispatchRemoteHeads(
           peerId,
           info.lastHeads,
           info.lastSyncTimestamp
@@ -177,7 +189,7 @@ export class DocumentState<T = unknown> {
 
   /**
    * Run `mutator`, adopt its result, and fan `heads-changed` / `change`
-   * out via the registry. No dispatch if heads didn't move. Pairing
+   * out to listening handles. No dispatch if heads didn't move. Pairing
    * mutation and dispatch here means callers can't forget the dispatch.
    */
   applyMutation(
@@ -223,9 +235,14 @@ export class DocumentState<T = unknown> {
       options.incoming && options.initial && beforeHeads.length === 0
     const patches = initial ? undefined : A.diff(after, beforeHeads, afterHeads)
     this.#events.push(() => {
-      this.registry.dispatchHeadsChanged(after)
+      // Heads are document-level: the payload is the whole document.
+      this.listeners.emitAll(
+        "heads-changed",
+        handle => ({ handle, doc: after }),
+        { writableOnly: true }
+      )
       // A heads listener can attach a change listener during dispatch.
-      if (initial && !this.registry.hasChangeListeners()) return
+      if (initial && !this.listeners.hasWritable("change")) return
       const changes = patches ?? A.diff(after, beforeHeads, afterHeads)
       if (changes.length > 0) {
         this.registry.dispatchChange(after, changes, {

@@ -7,5 +7,11 @@ export { default as makeDocSignal } from "./makeDocSignal.js"
 export { default as createDocSignal } from "./createDocSignal.js"
 export { default as useDocSignal } from "./useDocSignal.js"
 export { default as useRepo } from "./useRepo.js"
+export type { Register, RegisteredRepo } from "./useRepo.js"
+export {
+  createRepoPrimitives,
+  type RepoPrimitiveOptions,
+  type RepoPrimitives,
+} from "./createRepoPrimitives.js"
 export { RepoContext } from "./context.js"
 export type { MaybeAccessor, UseDocHandleOptions } from "./types.js"

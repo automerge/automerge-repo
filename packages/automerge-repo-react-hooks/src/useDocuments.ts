@@ -1,7 +1,8 @@
 import { AutomergeUrl } from "@automerge/automerge-repo/slim"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim"
 import { useCallback, useEffect, useState } from "react"
-import { useDocHandles } from "./useDocHandles.js"
+import { useDocHandlesIn } from "./useDocHandles.js"
+import { useRepo } from "./useRepo.js"
 
 export type DocMap<T> = Map<AutomergeUrl, Doc<T>>
 export type ChangeDocFn<T> = (
@@ -18,7 +19,7 @@ export function useDocuments<T>(
   ids: AutomergeUrl[],
   { suspense = true }: UseDocumentsOptions = {}
 ): [DocMap<T>, ChangeDocFn<T>] {
-  const handleMap = useDocHandles<T>(ids, { suspense })
+  const handleMap = useDocHandlesIn<T>(useRepo(), ids, { suspense })
   const [docMap, setDocMap] = useState<DocMap<T>>(() => {
     const docs: DocMap<T> = new Map()
     handleMap.forEach((handle, id) => {

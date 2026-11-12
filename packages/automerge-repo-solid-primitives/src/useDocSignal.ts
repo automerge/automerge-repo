@@ -1,11 +1,15 @@
 import type {
+  AsHandle,
   AutomergeUrl,
   Doc,
   DocHandle,
+  DocOf,
+  Repo,
 } from "@automerge/automerge-repo/slim"
-import useDocHandle from "./useDocHandle.js"
+import { repoFor, useDocHandleIn } from "./useDocHandle.js"
 import createDocSignal from "./createDocSignal.js"
 import type { MaybeAccessor, UseDocHandleOptions } from "./types.js"
+import type { RegisteredRepo } from "./useRepo.js"
 import type { Accessor, Resource } from "solid-js"
 
 /**
@@ -13,10 +17,25 @@ import type { Accessor, Resource } from "solid-js"
  * and not _how_. returns [doc, handle] from a URL.
  * @param url a function that returns a url
  */
-export default function useDocSignal<T extends object>(
+export default function useDocSignal<X extends object>(
   url: MaybeAccessor<AutomergeUrl | undefined>,
   options?: UseDocHandleOptions
+): [
+  Accessor<Doc<DocOf<X>> | undefined>,
+  Resource<AsHandle<X, RegisteredRepo> | undefined>,
+] {
+  return useDocSignalIn(repoFor(options), url, options) as [
+    Accessor<Doc<DocOf<X>> | undefined>,
+    Resource<AsHandle<X, RegisteredRepo> | undefined>,
+  ]
+}
+
+/** @internal {@link useDocSignal} on a given Repo. */
+export function useDocSignalIn<T extends object>(
+  repo: Repo,
+  url: MaybeAccessor<AutomergeUrl | undefined>,
+  options?: Pick<UseDocHandleOptions, "~skipInitialValue">
 ): [Accessor<Doc<T> | undefined>, Resource<DocHandle<T> | undefined>] {
-  const handle = useDocHandle<T>(url, options)
+  const handle = useDocHandleIn<T>(repo, url, options)
   return [createDocSignal<T>(handle), handle] as const
 }

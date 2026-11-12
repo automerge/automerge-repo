@@ -1,15 +1,12 @@
 import { next as A } from "@automerge/automerge/slim"
 import type { Prop } from "@automerge/automerge/slim"
-import type { UrlHeads, PeerId, RepoId } from "../types.js"
+import type { UrlHeads } from "../types.js"
 import { scopedValueAt } from "./path-ops.js"
 import type { DocumentState } from "../DocumentState.js"
 import type { DocHandle } from "../DocHandle.js"
 import { KIND } from "./types.js"
 import type { CursorRange, PathSegment, Pattern } from "./types.js"
 import { matchesPattern } from "./utils.js"
-
-/** Event listener stored in the registry. Payload shape is event-specific. */
-type Listener = (payload: any) => void
 
 /**
  * A change accumulated for one handle during dispatch: patches already
@@ -20,7 +17,7 @@ type ScopedChange = { patches: A.Patch[]; scopeReplaced: boolean }
 
 /**
  * Per-document trie that owns handle identity, pattern resolution caching,
- * dispatch, and listener retention.
+ * and `change` dispatch scoped to each handle's path.
  *
  * Each symbolic path is exactly one trie node, carrying a
  * `Map<variantKey, WeakRef<DocHandle>>` for all variants at that path
@@ -41,20 +38,13 @@ export class HandleRegistry {
    * trie can't grow without bound as transient sub-handles (e.g. ever-changing
    * `{ id }` patterns) come and go. The held token is everything we need to
    * find and detach the entry. A handle with listeners is held strongly by
-   * `#listeners`, so it won't be collected (and won't be pruned) until those
-   * are removed.
+   * the document's `Listeners`, so it won't be collected (and won't be
+   * pruned) until those are removed.
    */
   readonly #finalizer = new FinalizationRegistry<{
     path: readonly PathSegment[]
     variantKey: string
   }>(token => this.#pruneDeadHandle(token.path, token.variantKey))
-
-  /**
-   * `handle → event → callbacks`. Strong on handles, so any handle with a
-   * listener is retained structurally - no separate retainer set.
-   */
-  readonly #listeners: Map<DocHandle<any>, Map<string, Set<Listener>>> =
-    new Map()
 
   /** Each cached handle's symbolic scope, for scoping event snapshots. */
   readonly #scopes = new WeakMap<
@@ -206,96 +196,6 @@ export class HandleRegistry {
     return out
   }
 
-  // Listener storage. `DocHandle.on/off/once/...` delegate here.
-  // Generic over `T` so callers can pass `this` without casting; storage erases to any.
-
-  addListener<T>(handle: DocHandle<T>, event: string, fn: Listener): void {
-    let m = this.#listeners.get(handle)
-    if (!m) {
-      m = new Map()
-      this.#listeners.set(handle, m)
-    }
-    let s = m.get(event)
-    if (!s) {
-      s = new Set()
-      m.set(event, s)
-    }
-    s.add(fn)
-  }
-
-  removeListener<T>(handle: DocHandle<T>, event: string, fn: Listener): void {
-    const m = this.#listeners.get(handle)
-    if (!m) return
-    const s = m.get(event)
-    if (!s) return
-    s.delete(fn)
-    if (s.size === 0) m.delete(event)
-    if (m.size === 0) this.#listeners.delete(handle)
-  }
-
-  removeAllListenersForHandle<T>(handle: DocHandle<T>): void {
-    this.#listeners.delete(handle)
-  }
-
-  removeAllListenersForEvent<T>(handle: DocHandle<T>, event: string): void {
-    const m = this.#listeners.get(handle)
-    if (!m) return
-    m.delete(event)
-    if (m.size === 0) this.#listeners.delete(handle)
-  }
-
-  hasListeners<T>(handle: DocHandle<T>): boolean {
-    return this.#listeners.has(handle)
-  }
-
-  listenersFor<T>(handle: DocHandle<T>, event: string): Listener[] {
-    const s = this.#listeners.get(handle)?.get(event)
-    return s ? Array.from(s) : []
-  }
-
-  listenerCountFor<T>(handle: DocHandle<T>, event: string): number {
-    return this.#listeners.get(handle)?.get(event)?.size ?? 0
-  }
-
-  /** Whether diff patches could reach a writable handle right now. */
-  hasChangeListeners(): boolean {
-    for (const [handle, events] of this.#listeners)
-      if (!handle.isReadOnly() && events.has("change")) return true
-    return false
-  }
-
-  eventNamesFor<T>(handle: DocHandle<T>): string[] {
-    const m = this.#listeners.get(handle)
-    return m ? Array.from(m.keys()) : []
-  }
-
-  /** @internal Number of handles with at least one listener. */
-  get retainedCount(): number {
-    return this.#listeners.size
-  }
-
-  /**
-   * Deliver `event` on `handle` to its listeners. Snapshots the set so
-   * once-handlers can self-remove without perturbing the loop. Swallows
-   * per-listener exceptions.
-   */
-  emit<T>(handle: DocHandle<T>, event: string, payload: unknown): boolean {
-    const s = this.#listeners.get(handle)?.get(event)
-    if (!s || s.size === 0) return false
-    for (const fn of Array.from(s)) {
-      try {
-        ;(fn as any)(payload)
-      } catch (e) {
-        try {
-          this.state.log.error("error in handle listener: %o", e)
-        } catch {
-          // Application logging must not prevent remaining listeners from running.
-        }
-      }
-    }
-    return true
-  }
-
   // Dispatch
 
   /**
@@ -335,12 +235,12 @@ export class HandleRegistry {
       )
     }
 
-    for (const handle of this.#listeners.keys()) {
+    for (const handle of this.state.listeners.handles()) {
       if (handle.isReadOnly()) continue
       const scoped = perHandle.get(handle)
       if (!scoped) continue
       if (scoped.patches.length === 0 && !scoped.scopeReplaced) continue
-      this.emit(handle, "change", {
+      this.state.listeners.emit(handle, "change", {
         handle,
         // Scope this event's snapshot, not a later reentrant edit.
         doc: this.#scopedDoc(handle, doc),
@@ -351,56 +251,10 @@ export class HandleRegistry {
     }
   }
 
-  /**
-   * Fan `heads-changed` out to writeable handles (skips fixed-heads).
-   * Heads are a document-level concept, so the payload carries the whole
-   * document (unlike `change`, whose `doc` is scoped to each handle).
-   */
-  dispatchHeadsChanged(doc: A.Doc<any>): void {
-    for (const handle of this.#listeners.keys()) {
-      if (handle.isReadOnly()) continue
-      this.emit(handle, "heads-changed", { handle, doc })
-    }
-  }
-
-  /** Fan out a `delete` to every retained handle (read-only included). */
-  dispatchDelete(): void {
-    for (const handle of this.#listeners.keys()) {
-      this.emit(handle, "delete", { handle })
-    }
-  }
-
-  /** Fan out a `remote-heads` notification (document-level event). */
-  dispatchRemoteHeads(
-    peerId: PeerId,
-    heads: UrlHeads,
-    timestamp: number
-  ): void {
-    for (const handle of this.#listeners.keys()) {
-      this.emit(handle, "remote-heads", { peerId, heads, timestamp })
-    }
-  }
-
   #scopedDoc(handle: DocHandle<any>, doc: A.Doc<any>): unknown {
     const scope = this.#scopes.get(handle)
     if (!scope) return doc
     return scopedValueAt(doc, scope.path, scope.range)
-  }
-
-  /** Fan out an inbound ephemeral message to every retained handle. */
-  dispatchEphemeral(
-    senderId: PeerId,
-    originId: RepoId,
-    message: unknown
-  ): void {
-    for (const handle of this.#listeners.keys()) {
-      this.emit(handle, "ephemeral-message", {
-        handle,
-        senderId,
-        originId,
-        message,
-      })
-    }
   }
 }
 
