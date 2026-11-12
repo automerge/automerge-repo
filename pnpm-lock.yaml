@@ -7,11 +7,11 @@ settings:
 catalogs:
   default:
     '@automerge/automerge':
-      specifier: 3.3.2
-      version: 3.3.2
+      specifier: 3.5.0
+      version: 3.5.0
     '@automerge/automerge-subduction':
-      specifier: 0.20.1
-      version: 0.20.1
+      specifier: 0.21.0
+      version: 0.21.0
     '@clack/prompts':
       specifier: ^1.4.0
       version: 1.5.0
@@ -92,10 +92,10 @@ importers:
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@automerge/automerge-subduction':
         specifier: 'catalog:'
-        version: 0.20.1
+        version: 0.21.0
       '@manypkg/cli':
         specifier: ^0.25.1
         version: 0.25.1
@@ -454,10 +454,10 @@ importers:
     dependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@automerge/automerge-subduction':
         specifier: 'catalog:'
-        version: 0.20.1
+        version: 0.21.0
       bs58check:
         specifier: ^4.0.0
         version: 4.0.0
@@ -566,7 +566,7 @@ importers:
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
@@ -580,11 +580,24 @@ importers:
         specifier: ^4.1.7
         version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
 
+  packages/automerge-repo-overlay:
+    dependencies:
+      '@automerge/automerge-repo':
+        specifier: workspace:*
+        version: link:../automerge-repo
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.7(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/browser-playwright@4.1.7)(@vitest/coverage-v8@4.1.7)(@vitest/ui@4.1.7)(happy-dom@20.9.0)(vite@8.0.14(@types/node@25.2.3)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.22.3)(yaml@2.9.0))
+
   packages/automerge-repo-react-hooks:
     dependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
@@ -630,7 +643,7 @@ importers:
     devDependencies:
       '@automerge/automerge':
         specifier: 'catalog:'
-        version: 3.3.2
+        version: 3.5.0
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
@@ -807,11 +820,11 @@ packages:
     resolution: {integrity: sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw==}
     engines: {node: '>=10'}
 
-  '@automerge/automerge-subduction@0.20.1':
-    resolution: {integrity: sha512-lkRDaVr1I+C1N/IKSvn+TtT7WJnmxM0ntfUshG40Xi3INTL2//e8NcMJ8tEXh4GZYdCof37aG/diNuMLndHApQ==}
+  '@automerge/automerge-subduction@0.21.0':
+    resolution: {integrity: sha512-nI5Rh1ZYZMyGhA6X2m6lmNGMwzL4iutHwdcDJ3gkdpo1WvpUlzXuLkGSYyg0eWasHuqfga5xU1o/aW+3Ij3smg==}
 
-  '@automerge/automerge@3.3.2':
-    resolution: {integrity: sha512-9vCdCL7pdQwUra66SBxPVHr+/t9epXKni9KDeak2rNBFMzABVh2u6gSpcwxi3jkR5qr047jVqZv9DlrOfVxLFw==}
+  '@automerge/automerge@3.5.0':
+    resolution: {integrity: sha512-ejbqJWfXWM2QbTcUK/5ugYiQiyOP7LYVAp/RuSvthCc07oek0FClMxEuouuhjrLjVPDSI34RP1ftGc45PF7WRA==}
 
   '@babel/code-frame@7.29.0':
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
@@ -4730,6 +4743,7 @@ packages:
   prom-client@15.1.3:
     resolution: {integrity: sha512-6ZiOBfCywsD4k1BN9IX0uZhF+tJkV8q8llP64G5Hajs4JOeVLPCwpPVcpXy3BwYiUGgyJzsJJQeOIv7+hDSq8g==}
     engines: {node: ^16 || ^18 || >=20}
+    deprecated: prom-client has been replaced by @prometheus-io/client
 
   promise-all-reject-late@1.0.1:
     resolution: {integrity: sha512-vuf0Lf0lOxyQREH7GDIOUMLS7kz+gs8i6B+Yi8dC68a2sychGrHTJYghMBD6k7eUcH0H5P73EckCA48xijWqXw==}
@@ -5799,9 +5813,9 @@ snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
 
-  '@automerge/automerge-subduction@0.20.1': {}
+  '@automerge/automerge-subduction@0.21.0': {}
 
-  '@automerge/automerge@3.3.2': {}
+  '@automerge/automerge@3.5.0': {}
 
   '@babel/code-frame@7.29.0':
     dependencies:
