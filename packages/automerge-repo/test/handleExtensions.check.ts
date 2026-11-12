@@ -3,6 +3,7 @@
 import { EventEmitter } from "eventemitter3"
 import { Repo } from "../src/Repo.js"
 import type { DocHandle, ExtendedHandle } from "../src/DocHandle.js"
+import type { AsHandle } from "../src/Repo.js"
 import type { DocHandleChangePayload } from "../src/DocHandleEvents.js"
 import type { DocumentQuery, QueryState } from "../src/DocumentQuery.js"
 import type {
@@ -146,6 +147,28 @@ const noSuchName: NamesOf<typeof hPlain> = "a-event"
 const subName: NamesOf<ReturnType<typeof hA.sub<["title"]>>> = "a-event"
 const anyName: ReturnType<typeof hPlain.eventNames>[number] = "anything"
 void [extendedName, coreName, noSuchName, subName, anyName]
+
+// AsHandle: a document type or a handle type, as a handle.
+type Equal<A, B> =
+  (<G>() => G extends A ? 1 : 2) extends <G>() => G extends B ? 1 : 2
+    ? true
+    : false
+// A handle type is kept.
+const keepsHandle: Equal<
+  AsHandle<ExtendedHandle<Doc, "a">, Repo>,
+  ExtendedHandle<Doc, "a">
+> = true
+// `any` is a document type, so it gives a handle, not `any`.
+declare const ofAny: AsHandle<any, typeof repoA>
+ofAny.a()
+// @ts-expect-error
+ofAny.notAMember()
+// A union of document types gives one handle of the union.
+const ofUnion: Equal<
+  AsHandle<Doc | { other: number }, typeof repoA>,
+  ExtendedHandle<Doc | { other: number }, "a">
+> = true
+void [keepsHandle, ofUnion]
 
 // Event payloads carry the extended handle.
 repoA.on("document", ({ handle }) => handle.a())

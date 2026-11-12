@@ -430,8 +430,11 @@ export type DocOf<H> = H extends DocHandle<infer T> ? T : H
  * handle a Repo of type `R` makes for it (a plain `DocHandle<Todo>` by
  * default), and a handle type such as `HandleOf<typeof repo, Todo>` is kept.
  */
-export type AsHandle<X, R extends Repo = Repo> =
-  X extends DocHandle<any> ? X : HandleOf<R, X>
+export type AsHandle<X, R extends Repo = Repo> = 0 extends 1 & X
+  ? HandleOf<R, X> // `any` is a document type
+  : [X] extends [DocHandle<any>]
+    ? X
+    : HandleOf<R, X>
 
 export interface RepoConfig {
   /**
