@@ -120,7 +120,7 @@ describe("Presence", () => {
       await vi.waitFor(() =>
         expect(positions(bob.presence)).toEqual({ alice: 123 })
       )
-      // A throwing listener would be logged by the handle registry.
+      // A throwing listener would be logged as an error.
       expect(error).not.toHaveBeenCalled()
     })
   })

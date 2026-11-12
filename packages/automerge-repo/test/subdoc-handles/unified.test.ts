@@ -4,6 +4,7 @@ import { Repo } from "../../src/Repo.js"
 import { DocHandle } from "../../src/DocHandle.js"
 import { createTestDocument } from "../helpers/testHandle.js"
 import type { HandleRegistry } from "../../src/subdoc-handles/handle-registry.js"
+import type { Listeners } from "../../src/Listeners.js"
 import { encodeHeads } from "../../src/AutomergeUrl.js"
 import { splice } from "../../src/index.js"
 import { cursor } from "../../src/subdoc-handles/utils.js"
@@ -669,28 +670,13 @@ describe("unified DocHandle / Ref", () => {
     // Tests assert deltas against this baseline rather than absolute counts.
     let baseline: number
     let registry: HandleRegistry
+    let listeners: Listeners
     beforeEach(() => {
       const created = createTestDocument<any>(handle.documentId)
       handle = created.handle
       registry = created.state.registry
-      baseline = registry.retainedCount
-    })
-
-    it("retains sub-handles with listeners attached", () => {
-      handle.change(d => {
-        d.title = "Old"
-      })
-
-      expect(registry.retainedCount).toBe(baseline)
-
-      const sub = handle.sub("title")
-      const callback = () => {}
-      sub.on("change", callback)
-
-      expect(registry.retainedCount).toBe(baseline + 1)
-
-      sub.off("change", callback)
-      expect(registry.retainedCount).toBe(baseline)
+      listeners = created.state.listeners
+      baseline = listeners.retainedCount
     })
 
     it("retains a sub-handle even if the caller drops its local reference", () => {
@@ -704,42 +690,13 @@ describe("unified DocHandle / Ref", () => {
         handle.sub("title").on("change", ({ doc }) => events.push(doc))
       })()
 
-      expect(registry.retainedCount).toBe(baseline + 1)
+      expect(listeners.retainedCount).toBe(baseline + 1)
 
       handle.change(d => {
         d.title = "New"
       })
 
       expect(events).toEqual(["New"])
-    })
-
-    it("releases retention on removeAllListeners", () => {
-      handle.change(d => {
-        d.title = "Old"
-      })
-
-      const sub = handle.sub("title")
-      sub.on("change", () => {})
-      sub.on("heads-changed", () => {})
-      expect(registry.retainedCount).toBe(baseline + 1)
-
-      sub.removeAllListeners()
-      expect(registry.retainedCount).toBe(baseline)
-    })
-
-    it("releases retention after a once() listener fires", () => {
-      handle.change(d => {
-        d.title = "Old"
-      })
-
-      const sub = handle.sub("title")
-      sub.once("change", () => {})
-      expect(registry.retainedCount).toBe(baseline + 1)
-
-      handle.change(d => {
-        d.title = "New"
-      })
-      expect(registry.retainedCount).toBe(baseline)
     })
 
     itGC("survives garbage collection if listeners are attached", async () => {

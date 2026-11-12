@@ -824,14 +824,14 @@ export class DocHandle<T> {
   }
 
   // Event subscription. DocHandle doesn't extend EventEmitter; listeners
-  // live in the registry, keyed by handle. The Map there holds handles
+  // live in the document's Listeners, keyed by handle, which holds handles
   // strongly, so any handle with a listener is naturally retained.
 
   on<E extends keyof DocHandleEvents<T>>(
     event: E,
     fn: DocHandleEvents<T>[E]
   ): this {
-    this.#state.registry.addListener(this, event as string, fn as any)
+    this.#state.listeners.add(this, event as string, fn as any)
     return this
   }
 
@@ -846,12 +846,12 @@ export class DocHandle<T> {
     event: E,
     fn: DocHandleEvents<T>[E]
   ): this {
-    const reg = this.#state.registry
+    const listeners = this.#state.listeners
     const wrapper = (payload: unknown) => {
-      reg.removeListener(this, event as string, wrapper)
+      listeners.remove(this, event as string, wrapper)
       ;(fn as any)(payload)
     }
-    reg.addListener(this, event as string, wrapper)
+    listeners.add(this, event as string, wrapper)
     return this
   }
 
@@ -859,9 +859,7 @@ export class DocHandle<T> {
     event: E,
     fn?: DocHandleEvents<T>[E]
   ): this {
-    const reg = this.#state.registry
-    if (fn === undefined) reg.removeAllListenersForEvent(this, event as string)
-    else reg.removeListener(this, event as string, fn as any)
+    this.#state.listeners.remove(this, event as string, fn as any)
     return this
   }
 
@@ -873,22 +871,22 @@ export class DocHandle<T> {
   }
 
   removeAllListeners<E extends keyof DocHandleEvents<T>>(event?: E): this {
-    const reg = this.#state.registry
-    if (event === undefined) reg.removeAllListenersForHandle(this)
-    else reg.removeAllListenersForEvent(this, event as string)
+    const listeners = this.#state.listeners
+    if (event === undefined) listeners.removeAll(this)
+    else listeners.remove(this, event as string)
     return this
   }
 
   /** Number of listeners attached for the given event. */
   listenerCount<E extends keyof DocHandleEvents<T>>(event: E): number {
-    return this.#state.registry.listenerCountFor(this, event as string)
+    return this.#state.listeners.count(this, event as string)
   }
 
   /** Snapshot of currently-registered listener functions for the given event. */
   listeners<E extends keyof DocHandleEvents<T>>(
     event: E
   ): DocHandleEvents<T>[E][] {
-    return this.#state.registry.listenersFor(
+    return this.#state.listeners.listeners(
       this,
       event as string
     ) as DocHandleEvents<T>[E][]
@@ -896,20 +894,19 @@ export class DocHandle<T> {
 
   /** Names of events with at least one listener attached. */
   eventNames(): (keyof DocHandleEvents<T>)[] {
-    return this.#state.registry.eventNamesFor(
+    return this.#state.listeners.eventNames(
       this
     ) as (keyof DocHandleEvents<T>)[]
   }
 
   /**
-   * Emit an event on this handle. Routed through the registry's
-   * listener storage. Fires *only* this handle's listeners; use
+   * Emit an event on this handle. Fires *only* this handle's listeners; use
    * `delete()` to fan out the document-level lifecycle events.
    */
   emit<E extends keyof DocHandleEvents<T>>(
     event: E,
     payload: Parameters<DocHandleEvents<T>[E] & ((p: any) => any)>[0]
   ): boolean {
-    return this.#state.registry.emit(this, event as string, payload)
+    return this.#state.listeners.emit(this, event as string, payload)
   }
 }
