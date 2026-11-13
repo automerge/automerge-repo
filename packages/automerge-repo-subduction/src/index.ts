@@ -33,6 +33,7 @@ import {
   decodeEphemeral,
   encodeEphemeral,
   ephemeral,
+  type SubductionEvent,
   type SubductionSession,
 } from "./ephemeral.js"
 import { SyncRules, type SyncPolicy, type SyncRule } from "./sync-policy.js"
@@ -47,9 +48,11 @@ export {
 export {
   ephemeral,
   type EphemeralEnvelope,
-  type EphemeralEvents,
   type EphemeralMembers,
   type EphemeralMessagePayload,
+  type EphemeralTypes,
+  type SubductionEvent,
+  type SubductionExtensions,
   type SubductionSession,
 } from "./ephemeral.js"
 export type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
@@ -341,11 +344,11 @@ export class SubductionBackend implements SedimentreeBackend {
   #sessionsFor(id: SedimentreeId): Iterable<SessionState> {
     return this.#sessions.get(id) ?? []
   }
-  #broadcast(id: SedimentreeId, event: SedimentreeEvent): void {
+  #broadcast(id: SedimentreeId, event: SubductionEvent): void {
     for (const { watch } of this.#sessionsFor(id)) this.#deliver(watch, event)
   }
   /** A nonretryable failure ends the watch; everything else queues. */
-  #deliver(watch: Watch<SedimentreeEvent>, event: SedimentreeEvent): void {
+  #deliver(watch: Watch<SubductionEvent>, event: SubductionEvent): void {
     if (event.type === "failure" && !event.error.retryable) watch.finish(event)
     else watch.push(event)
   }
@@ -659,7 +662,7 @@ export class SubductionBackend implements SedimentreeBackend {
     this.#check("open", id)
     const session: SessionState = {
       id,
-      watch: new Watch<SedimentreeEvent>(() => this.#release(session)),
+      watch: new Watch<SubductionEvent>(() => this.#release(session)),
       released: false,
       ready: false,
       confirming: false,

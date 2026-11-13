@@ -65,16 +65,21 @@ type DocHandleOptions = {
   range?: CursorRange
 }
 
-/** The events of a handle with the extensions `K`. */
-export type HandleEvents<T, K extends string = never> = DocHandleEvents<T, K> &
-  ExtensionEvents<T, K>
+/** The events of a handle with the extensions `X`. */
+export type HandleEvents<
+  T,
+  X extends HandleExtension = never,
+> = DocHandleEvents<T, X> & ExtensionEvents<T, X>
 
 /**
  * A {@link DocHandle} with the members its Repo's backend adds; see
  * {@link HandleExtension}.
  */
-export type ExtendedHandle<T, K extends string = never> = DocHandle<T, K> &
-  ExtensionMembers<T, K>
+export type ExtendedHandle<T, X extends HandleExtension = never> = DocHandle<
+  T,
+  X
+> &
+  ExtensionMembers<T, X>
 
 let stateOf: (handle: DocHandle<any>) => DocumentState<any>
 
@@ -114,7 +119,7 @@ export const instanceMembers: readonly string[] = ["isReady", "isDeleted"]
  * the `Repo` handles persisting to your local storage as well as propagating
  * changes to connected peers.
  */
-export class DocHandle<T, in K extends string = never> {
+export class DocHandle<T, in X extends HandleExtension = never> {
   static {
     stateOf = handle => handle.#state
   }
@@ -294,8 +299,8 @@ export class DocHandle<T, in K extends string = never> {
    * @param heads - The heads to view the document at. See history().
    * @returns DocHandle<T> at the time of `heads`
    */
-  view(heads: UrlHeads): ExtendedHandle<T, K> {
-    return this.#createSubHandle([], { heads }) as ExtendedHandle<T, K>
+  view(heads: UrlHeads): ExtendedHandle<T, X> {
+    return this.#createSubHandle([], { heads }) as ExtendedHandle<T, X>
   }
 
   /**
@@ -525,10 +530,10 @@ export class DocHandle<T, in K extends string = never> {
    */
   sub<TPath extends readonly PathInput[]>(
     ...segments: [...TPath]
-  ): ExtendedHandle<InferSubType<T, TPath>, K> {
+  ): ExtendedHandle<InferSubType<T, TPath>, X> {
     return this.#createSubHandle(segments) as ExtendedHandle<
       InferSubType<T, TPath>,
-      K
+      X
     >
   }
 
@@ -846,24 +851,24 @@ export class DocHandle<T, in K extends string = never> {
   // live in the document's Listeners, keyed by handle, which holds handles
   // strongly, so any handle with a listener is naturally retained.
 
-  on<E extends keyof HandleEvents<T, K>>(
+  on<E extends keyof HandleEvents<T, X>>(
     event: E,
-    fn: HandleEvents<T, K>[E]
+    fn: HandleEvents<T, X>[E]
   ): this {
     this.#state.listeners.add(this, event as string, fn as any)
     return this
   }
 
-  addListener<E extends keyof HandleEvents<T, K>>(
+  addListener<E extends keyof HandleEvents<T, X>>(
     event: E,
-    fn: HandleEvents<T, K>[E]
+    fn: HandleEvents<T, X>[E]
   ): this {
     return this.on(event, fn)
   }
 
-  once<E extends keyof HandleEvents<T, K>>(
+  once<E extends keyof HandleEvents<T, X>>(
     event: E,
-    fn: HandleEvents<T, K>[E]
+    fn: HandleEvents<T, X>[E]
   ): this {
     const listeners = this.#state.listeners
     const wrapper = (payload: unknown) => {
@@ -874,22 +879,22 @@ export class DocHandle<T, in K extends string = never> {
     return this
   }
 
-  off<E extends keyof HandleEvents<T, K>>(
+  off<E extends keyof HandleEvents<T, X>>(
     event: E,
-    fn?: HandleEvents<T, K>[E]
+    fn?: HandleEvents<T, X>[E]
   ): this {
     this.#state.listeners.remove(this, event as string, fn as any)
     return this
   }
 
-  removeListener<E extends keyof HandleEvents<T, K>>(
+  removeListener<E extends keyof HandleEvents<T, X>>(
     event: E,
-    fn?: HandleEvents<T, K>[E]
+    fn?: HandleEvents<T, X>[E]
   ): this {
     return this.off(event, fn)
   }
 
-  removeAllListeners<E extends keyof HandleEvents<T, K>>(event?: E): this {
+  removeAllListeners<E extends keyof HandleEvents<T, X>>(event?: E): this {
     const listeners = this.#state.listeners
     if (event === undefined) listeners.removeAll(this)
     else listeners.remove(this, event as string)
@@ -897,18 +902,18 @@ export class DocHandle<T, in K extends string = never> {
   }
 
   /** Number of listeners attached for the given event. */
-  listenerCount<E extends keyof HandleEvents<T, K>>(event: E): number {
+  listenerCount<E extends keyof HandleEvents<T, X>>(event: E): number {
     return this.#state.listeners.count(this, event as string)
   }
 
   /** Snapshot of currently-registered listener functions for the given event. */
-  listeners<E extends keyof HandleEvents<T, K>>(
+  listeners<E extends keyof HandleEvents<T, X>>(
     event: E
-  ): HandleEvents<T, K>[E][] {
+  ): HandleEvents<T, X>[E][] {
     return this.#state.listeners.listeners(
       this,
       event as string
-    ) as HandleEvents<T, K>[E][]
+    ) as HandleEvents<T, X>[E][]
   }
 
   /**
@@ -916,7 +921,7 @@ export class DocHandle<T, in K extends string = never> {
    * handle's event names, though open to any string: a handle with more
    * events must still be usable where one with fewer is expected.
    */
-  eventNames(): (keyof HandleEvents<T, K> | (string & {}))[] {
+  eventNames(): (keyof HandleEvents<T, X> | (string & {}))[] {
     return this.#state.listeners.eventNames(this)
   }
 
@@ -924,9 +929,9 @@ export class DocHandle<T, in K extends string = never> {
    * Emit an event on this handle. Fires *only* this handle's listeners; use
    * `delete()` to fan out the document-level lifecycle events.
    */
-  emit<E extends keyof HandleEvents<T, K>>(
+  emit<E extends keyof HandleEvents<T, X>>(
     event: E,
-    payload: Parameters<HandleEvents<T, K>[E] & ((p: any) => any)>[0]
+    payload: Parameters<HandleEvents<T, X>[E] & ((p: any) => any)>[0]
   ): boolean {
     return this.#state.listeners.emit(this, event as string, payload)
   }

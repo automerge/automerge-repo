@@ -31,7 +31,7 @@ export type {
   ExtensionEvents,
   ExtensionMembers,
   HandleExtension,
-  HandleExtensionTypes,
+  ExtensionTypes,
 } from "./sedimentree/extension.js"
 export {
   isValidAutomergeUrl,

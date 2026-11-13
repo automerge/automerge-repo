@@ -105,7 +105,8 @@ handle.on("ephemeral-message", ({ senderId, originId, message }) => {})
 handle.broadcast({ cursor: 3 })
 ```
 
-The handle's type is `ExtendedHandle<T, "ephemeral">`, and it meets core's `PresenceHandle`
+The handle's type is `ExtendedHandle<T, SubductionExtensions>`, and a Repo on this backend is
+a `Repo<SubductionExtensions>`. The handle meets core's `PresenceHandle`
 contract, so it works with `Presence` and the presence hooks.
 
 - Best-effort and not stored.

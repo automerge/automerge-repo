@@ -142,9 +142,12 @@ annotations, name the types from the Repo:
 
 ```ts
 const repo = new Repo({ backend })
-type AppRepo = typeof repo
-type AppHandle<T> = Awaited<ReturnType<typeof repo.find<T>>>
+type AppRepo = typeof repo // or by the backend's extensions: Repo<SubductionExtensions>
+type AppHandle<T> = HandleOf<AppRepo, T>
 ```
+
+Each Repo's types come from its own backend: two Repos on different backends have
+different handle types, and a package providing an extension changes no other Repo.
 
 ### Events
 

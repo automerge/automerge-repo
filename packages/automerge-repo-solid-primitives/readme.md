@@ -196,7 +196,8 @@ from the Repo, and its provider only accepts a Repo of that type:
 export const repo = new Repo({ backend })
 export const { RepoProvider, useRepo, useDocHandle, useDocument, useDocSignal } =
   createRepoPrimitives(repo)
-// If the Repo is made later, give its type: createRepoPrimitives<AppRepo>()
+// If the Repo is made later, give its type:
+// createRepoPrimitives<Repo<SubductionExtensions>>()
 
 <RepoProvider value={repo}>
   <App />
@@ -216,15 +217,4 @@ export type AppHandle<T> = HandleOf<typeof repo, T>
 const [doc, handle] = useDocument<AppHandle<Todo>>(url)
 ```
 
-**Once per app: register the Repo's type.** Then plain calls are typed:
-
-```ts
-declare module "@automerge/automerge-repo-solid-primitives" {
-  interface Register {
-    repo: typeof repo
-  }
-}
-```
-
-The last two assert what the Repo is; nothing checks it. A handle type given per call
-overrides a registration, which applies to the whole program.
+The second asserts what the Repo is; nothing checks it.

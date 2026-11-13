@@ -71,7 +71,7 @@ messaging is such an extension, provided by the Subduction backend.
   checks and rejects those properties too.
 - An extension reaches its backend through the document's session
   (`context.session`), using whatever methods that backend's sessions have.
-  It names the session type it needs, `HandleExtension<Kind, Session>`.
+  It names the session type it needs, `HandleExtension<Types, Session>`.
   Nothing is added to the backend or session interfaces.
 - It is the backend's job to make its sessions implement what its extensions
   need. Typing the extension against the backend's own session type, and
@@ -79,18 +79,30 @@ messaging is such an extension, provided by the Subduction backend.
   does not: a session lacking a method fails when the extension calls it.
 - The backend reaches the extension with session events
   `{ type: "extension", kind, payload }`, which Repo hands to the extension's
-  `receive`. The payload is typed by `kind`, from the extension's `inbound`
-  declaration, so only declared kinds can be sent.
+  `receive`. A backend types its events as `SedimentreeEvent<X>`, `X` being
+  its extensions (`ExtensionsOf<MyBackend>`): the payload is typed by `kind`,
+  from each extension's `inbound`, and only its own extensions' kinds can be
+  sent. Repo drops events of kinds it does not have.
 - Nothing here supports a backend that wraps or combines others. One built
   later would list the inner extensions it exposes, have its own sessions
   forward the methods they need, and pass the inner `extension` events on.
-- Types: an extension declares what it adds under its kind in
-  `HandleExtensionTypes` (`members`, `events` and `inbound`). A Repo built on a backend whose type names its
-  extensions (`ExtendedBackend<K>`) returns `ExtendedHandle<T, K>`; a backend
-  typed as plain `SedimentreeBackend` gives plain `DocHandle<T>`.
-- Kinds and member names are global to a program. Two packages declaring the
-  same kind with different types do not compile together, and two extensions
-  cannot add the same member, so choose names unlikely to collide.
+- Types: each extension carries its own, in an interface extending
+  `ExtensionTypes` (`kind`, `members`, `events` and `inbound`), given as
+  `HandleExtension<Types, Session>`. Nothing is declared globally. Declare the
+  extension with that type, not with `satisfies`, so its type carries them.
+- `members` and `events` may depend on the handle's document type through
+  `this["T"]`, which Repo fills in per handle. It cannot appear inside an
+  inline object or function type, so use a named generic interface:
+  `members: MyMembers<this["T"]>`. Event payloads leave out `handle`: Repo
+  adds it, typed as the extended handle, to each.
+- A Repo built on a backend whose type lists its extensions
+  (`ExtendedBackend<X>`) is a `Repo<X>`, `X` being the union of its extension
+  values' types, and returns `ExtendedHandle<T, X>`; a backend typed as plain
+  `SedimentreeBackend` gives plain `DocHandle<T>`. A backend package should
+  export a name for its `X`, such as `SubductionExtensions`.
+- Kinds are runtime names only: two packages may use the same one, but one
+  Repo cannot have both, and two extensions cannot add the same member, so
+  choose names unlikely to collide.
 
 ## In-memory backend
 

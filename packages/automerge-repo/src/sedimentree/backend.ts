@@ -5,7 +5,11 @@ import {
   type SedimentreeId,
 } from "./ids.js"
 import type { RecordBatch } from "./records.js"
-import type { ExtensionEvent, HandleExtension } from "./extension.js"
+import type {
+  AnyExtensionEvent,
+  ExtensionEvent,
+  HandleExtension,
+} from "./extension.js"
 
 /**
  * An interface for storing and syncing sedimentrees
@@ -36,16 +40,25 @@ export interface SedimentreeBackend {
 }
 
 /**
- * A backend whose type names the handle extensions it provides, so a Repo on
- * it gives typed handles. A backend typed as plain {@link SedimentreeBackend}
- * gives plain ones.
+ * A backend whose type lists the handle extensions `X` it provides, so a
+ * Repo on it gives typed handles. A backend typed as plain
+ * {@link SedimentreeBackend} gives plain ones.
  */
-export type ExtendedBackend<K extends string> = SedimentreeBackend & {
-  readonly handleExtensions: readonly HandleExtension<K>[]
+export type ExtendedBackend<X extends HandleExtension> = SedimentreeBackend & {
+  readonly handleExtensions: readonly X[]
 }
 
+/** The handle extensions a backend type `B` provides, as a union. */
+export type ExtensionsOf<B> = B extends {
+  readonly handleExtensions: readonly (infer X extends HandleExtension)[]
+}
+  ? X
+  : never
+
 export interface SedimentreeSession {
-  readonly events: AsyncIterable<SedimentreeEvent>
+  /** Extension events of any kind may arrive; Repo drops those for kinds it
+   * does not have. A backend types its own with {@link SedimentreeEvent}. */
+  readonly events: AsyncIterable<SedimentreeEvent | AnyExtensionEvent>
 
   /**
    * The consumer has verified its initial load; the backend may stop work done
@@ -158,7 +171,9 @@ export interface SyncRoundResult {
   }[]
 }
 
-export type SedimentreeEvent =
+/** A session event. `X` is the extensions whose events it may be: none by
+ * default; a backend passes its own, e.g. `ExtensionsOf<MyBackend>`. */
+export type SedimentreeEvent<X extends HandleExtension = never> =
   /** `initial` records form the local load; `live` records follow. */
   | {
       readonly type: "records"
@@ -184,10 +199,9 @@ export type SedimentreeEvent =
       readonly remote: BackendIdentity
       readonly heads: readonly CommitId[]
     }
-  /** A message to a handle extension, by `kind`; see {@link HandleExtension}.
-   * Empty until a package declares an extension. */
-  // eslint-disable-next-line no-redundant-type-constituents
-  | ExtensionEvent
+  /** A message to one of the handle extensions `X`, by `kind`; see
+   * {@link HandleExtension}. */
+  | ExtensionEvent<X>
   /** A nonretryable failure ends the stream. */
   | {
       readonly type: "failure"

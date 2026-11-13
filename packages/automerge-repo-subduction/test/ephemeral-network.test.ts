@@ -1,10 +1,7 @@
 import * as A from "@automerge/automerge"
 import * as N from "@automerge/subduction"
 import { Repo } from "@automerge/automerge-repo/slim"
-import {
-  sedimentreeId,
-  type SedimentreeEvent,
-} from "@automerge/automerge-repo/sedimentree"
+import { sedimentreeId } from "@automerge/automerge-repo/sedimentree"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { SubductionBackend } from "../src/index.js"
 import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
@@ -12,6 +9,7 @@ import {
   encodeEphemeral,
   type EphemeralEnvelope,
   type EphemeralInbound,
+  type SubductionEvent,
 } from "../src/ephemeral.js"
 import {
   PairedTransport,
@@ -56,7 +54,7 @@ describe("real native ephemerals", () => {
   }
   async function observe(p: ReturnType<typeof peer>, id = tree) {
     const session = p.backend.open(id)
-    const events: SedimentreeEvent[] = []
+    const events: SubductionEvent[] = []
     const iterator = session.events[Symbol.asyncIterator]()
     iterators.push(iterator)
     void (async () => {
@@ -75,7 +73,7 @@ describe("real native ephemerals", () => {
   }
   /** Give stray duplicates or echoes time to arrive before asserting counts. */
   const settle = () => new Promise(resolve => setTimeout(resolve, 200))
-  function ephemerals(events: SedimentreeEvent[]) {
+  function ephemerals(events: SubductionEvent[]) {
     return events.flatMap(e =>
       e.type === "extension" && e.kind === "ephemeral"
         ? [e.payload as EphemeralInbound]

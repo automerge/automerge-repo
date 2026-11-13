@@ -7,6 +7,8 @@ import type { AsHandle } from "../src/Repo.js"
 import type { DocHandleChangePayload } from "../src/DocHandleEvents.js"
 import type { DocumentQuery, QueryState } from "../src/DocumentQuery.js"
 import type {
+  ExtensionTypes,
+  ExtensionsOf,
   HandleExtension,
   SedimentreeBackend,
   SedimentreeEvent,
@@ -15,23 +17,30 @@ import type {
 } from "../src/sedimentree/index.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 
-declare module "../src/sedimentree/extension.js" {
-  interface HandleExtensionTypes<T> {
-    a: {
-      members: { a(): T }
-      events: { "a-event": (p: { n: number }) => void }
-      inbound: { n: number }
-    }
-    b: { members: { b(): void }; events: {}; inbound: string }
-  }
+interface AMembers<T> {
+  a(): T
+}
+interface ATypes extends ExtensionTypes {
+  kind: "a"
+  members: AMembers<this["T"]>
+  events: { "a-event": { n: number } }
+  inbound: { n: number }
+}
+interface BTypes extends ExtensionTypes {
+  kind: "b"
+  members: { b(): void }
+  events: {}
+  inbound: string
 }
 type Doc = { title: string }
 /** The session extension `a` needs of its backend. */
 interface SessionA extends SedimentreeSession {
   ping(text: string): Promise<number>
 }
-declare const extA: HandleExtension<"a", SessionA>
-declare const extB: HandleExtension<"b">
+declare const extA: HandleExtension<ATypes, SessionA>
+declare const extB: HandleExtension<BTypes>
+type A = typeof extA
+type B = typeof extB
 class BackendA extends MemoryBackend {
   readonly handleExtensions = [extA] as const
 }
@@ -46,22 +55,22 @@ const repoA = new Repo({ backend: new BackendA() })
 const repoAB = new Repo({ backend: new BackendAB() })
 const repoLoose = new Repo({ backend: loose })
 declare const hPlain: DocHandle<Doc>
-declare const hA: ExtendedHandle<Doc, "a">
-declare const hAB: ExtendedHandle<Doc, "a" | "b">
+declare const hA: ExtendedHandle<Doc, A>
+declare const hAB: ExtendedHandle<Doc, A | B>
 
 // Extended things are accepted where plain ones, or ones with fewer
 // extensions, are wanted.
 const ok: [
   Repo,
   Repo,
-  Repo<"a">,
+  Repo<A>,
   Repo,
-  Repo<"a">[],
+  Repo<A>[],
   DocHandle<Doc>,
   DocHandle<unknown>,
   DocHandle<any>,
-  DocHandle<Doc, "a">,
-  ExtendedHandle<unknown, "a">,
+  DocHandle<Doc, A>,
+  ExtendedHandle<unknown, A>,
   DocHandle<Doc>[],
   DocumentQuery<Doc>,
   DocumentQuery<unknown>,
@@ -87,38 +96,58 @@ const ok: [
 
 // The reverse is not.
 // @ts-expect-error
-const bad1: Repo<"a"> = plainRepo
+const bad1: Repo<A> = plainRepo
 // @ts-expect-error
-const bad2: Repo<"a" | "b"> = repoA
+const bad2: Repo<A | B> = repoA
 // @ts-expect-error
-const bad3: DocHandle<Doc, "a"> = hPlain
+const bad3: DocHandle<Doc, A> = hPlain
 // @ts-expect-error
-const bad4: DocHandle<Doc, "a" | "b"> = hA
+const bad4: DocHandle<Doc, A | B> = hA
 // @ts-expect-error
-const bad5: ExtendedHandle<Doc, "a"> = hPlain
+const bad5: ExtendedHandle<Doc, A> = hPlain
 // @ts-expect-error
-const bad6: ExtendedHandle<Doc, "a" | "b"> = hA
+const bad6: ExtendedHandle<Doc, A | B> = hA
 // @ts-expect-error
-const bad7: DocumentQuery<Doc, "a"> = plainRepo.query<Doc>(url)
+const bad7: DocumentQuery<Doc, A> = plainRepo.query<Doc>(url)
 // @ts-expect-error a backend typed loosely gives a plain Repo
-const bad8: Repo<"a"> = repoLoose
+const bad8: Repo<A> = repoLoose
 const repoEither = new Repo({
   backend: Math.random() > 0.5 ? new BackendA() : new MemoryBackend(),
 })
 // @ts-expect-error a backend chosen at runtime gives a plain Repo if any choice is plain
-const bad9: Repo<"a"> = repoEither
+const bad9: Repo<A> = repoEither
 
 // @ts-expect-error nor does annotating a plain construction
-const bad10: Repo<"a"> = new Repo()
-const bad11: Repo<"a"> = new Repo({
+const bad10: Repo<A> = new Repo()
+const bad11: Repo<A> = new Repo({
   // @ts-expect-error
   backend: new MemoryBackend(),
 })
 
 // Known gap: this compiles, though the Repo is not sure to have both.
-const gap2: Repo<"a" | "b"> = new Repo({
+const gap2: Repo<A | B> = new Repo({
   backend: Math.random() > 0.5 ? new BackendA() : new BackendAB(),
 })
+
+// Extension types are not global: another package's extension of the
+// same kind, with other types, types only the Repos whose backend has it.
+interface OtherATypes extends ExtensionTypes {
+  kind: "a"
+  members: { a(): number }
+  events: {}
+  inbound: never
+}
+declare const otherA: HandleExtension<OtherATypes>
+class OtherBackend extends MemoryBackend {
+  readonly handleExtensions = [otherA] as const
+}
+async function separate() {
+  const other = await new Repo({ backend: new OtherBackend() }).find<Doc>(url)
+  other.a().toFixed()
+  // @ts-expect-error
+  other.on("a-event", () => {})
+  ;(await repoA.find<Doc>(url)).a().title satisfies string
+}
 
 // Members and events follow the document type, sub-handles and views.
 async function members() {
@@ -126,7 +155,7 @@ async function members() {
   handle.a().title satisfies string
   handle.sub("title").a() satisfies string
   handle.view(handle.heads()).b()
-  handle.on("a-event", ({ n }) => n.toFixed())
+  handle.on("a-event", ({ n, handle }) => handle.a().title + n.toFixed())
   handle.on("change", () => {}).b()
   // @ts-expect-error
   ;(await plainRepo.find<Doc>(url)).a()
@@ -155,8 +184,8 @@ type Equal<A, B> =
     : false
 // A handle type is kept.
 const keepsHandle: Equal<
-  AsHandle<ExtendedHandle<Doc, "a">, Repo>,
-  ExtendedHandle<Doc, "a">
+  AsHandle<ExtendedHandle<Doc, A>, Repo>,
+  ExtendedHandle<Doc, A>
 > = true
 // `any` is a document type, so it gives a handle, not `any`.
 declare const ofAny: AsHandle<any, typeof repoA>
@@ -166,7 +195,7 @@ ofAny.notAMember()
 // A union of document types gives one handle of the union.
 const ofUnion: Equal<
   AsHandle<Doc | { other: number }, typeof repoA>,
-  ExtendedHandle<Doc | { other: number }, "a">
+  ExtendedHandle<Doc | { other: number }, A>
 > = true
 void [keepsHandle, ofUnion]
 
@@ -188,7 +217,7 @@ hA.on("change", (payload: DocHandleChangePayload<Doc>) => payload.patches)
 void [ok, bad1, bad2, bad3, bad4, bad5, bad6, bad7, bad8, bad9, bad10, bad11]
 void gap2
 // Inside an extension, the session and the backend's events are typed.
-const implemented: HandleExtension<"a", SessionA> = {
+const implemented: HandleExtension<ATypes, SessionA> = {
   kind: "a",
   extend: (base, context) =>
     class extends base {
@@ -201,6 +230,11 @@ const implemented: HandleExtension<"a", SessionA> = {
   receive(context, payload) {
     payload.n.toFixed()
     void context.session?.ping("x")
+    context.emit("a-event", { n: payload.n })
+    // @ts-expect-error another event's name
+    context.emit("b-event", { n: 1 })
+    // @ts-expect-error the event's payload, without the handle Repo adds
+    context.emit("a-event", { n: "1" })
   },
 }
 
@@ -220,20 +254,29 @@ class NotServing extends MemoryBackend {
   }
 }
 
-// Extension events are typed by kind.
-const events: SedimentreeEvent[] = [
+// A backend's extension events are typed by its own extensions' kinds.
+const events: SedimentreeEvent<ExtensionsOf<BackendAB>>[] = [
   { type: "extension", sequence: 1, kind: "a", payload: { n: 1 } },
   { type: "extension", sequence: 1, kind: "b", payload: "x" },
-  // @ts-expect-error a kind nobody declared
+  // @ts-expect-error a kind the backend does not have
   { type: "extension", sequence: 1, kind: "nope", payload: 1 },
   // @ts-expect-error another kind's payload
   { type: "extension", sequence: 1, kind: "a", payload: "x" },
 ]
-function read(event: SedimentreeEvent) {
+const onlyA: SedimentreeEvent<ExtensionsOf<BackendA>>[] = [
+  // @ts-expect-error extension `b` is not this backend's
+  { type: "extension", sequence: 1, kind: "b", payload: "x" },
+]
+const none: SedimentreeEvent[] = [
+  // @ts-expect-error no extensions by default
+  { type: "extension", sequence: 1, kind: "a", payload: { n: 1 } },
+]
+function read(event: SedimentreeEvent<A | B>) {
   if (event.type === "extension" && event.kind === "a")
     event.payload.n.toFixed()
   if (event.type === "extension" && event.kind === "b")
     event.payload.toUpperCase()
 }
 
-void [members, implemented, Serving, NotServing, events, read]
+void [members, separate, implemented, Serving, NotServing, events, read]
+void [onlyA, none]

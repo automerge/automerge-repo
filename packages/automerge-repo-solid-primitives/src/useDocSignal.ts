@@ -9,7 +9,6 @@ import type {
 import { repoFor, useDocHandleIn } from "./useDocHandle.js"
 import createDocSignal from "./createDocSignal.js"
 import type { MaybeAccessor, UseDocHandleOptions } from "./types.js"
-import type { RegisteredRepo } from "./useRepo.js"
 import type { Accessor, Resource } from "solid-js"
 
 /**
@@ -20,13 +19,10 @@ import type { Accessor, Resource } from "solid-js"
 export default function useDocSignal<X extends object>(
   url: MaybeAccessor<AutomergeUrl | undefined>,
   options?: UseDocHandleOptions
-): [
-  Accessor<Doc<DocOf<X>> | undefined>,
-  Resource<AsHandle<X, RegisteredRepo> | undefined>,
-] {
+): [Accessor<Doc<DocOf<X>> | undefined>, Resource<AsHandle<X> | undefined>] {
   return useDocSignalIn(repoFor(options), url, options) as [
     Accessor<Doc<DocOf<X>> | undefined>,
-    Resource<AsHandle<X, RegisteredRepo> | undefined>,
+    Resource<AsHandle<X> | undefined>,
   ]
 }
 

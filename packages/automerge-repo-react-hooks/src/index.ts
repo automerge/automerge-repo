@@ -42,12 +42,7 @@ export type {
 } from "./useDocHandle.js"
 export { useDocHandles } from "./useDocHandles.js"
 export type { UseDocHandlesParams, DocHandleMap } from "./useDocHandles.js"
-export {
-  RepoContext,
-  useRepo,
-  type Register,
-  type RegisteredRepo,
-} from "./useRepo.js"
+export { RepoContext, useRepo } from "./useRepo.js"
 export { createRepoHooks, type RepoHooks } from "./createRepoHooks.js"
 export {
   useLocalAwareness,

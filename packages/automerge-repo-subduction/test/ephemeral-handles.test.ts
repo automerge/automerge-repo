@@ -14,12 +14,12 @@ import { extractRecords } from "@automerge/automerge-repo/sedimentree/automerge"
 import {
   checkHandleExtensions,
   sedimentreeId,
-  type SedimentreeEvent,
   type SedimentreeId,
 } from "@automerge/automerge-repo/sedimentree"
 import {
   SubductionBackend,
   type EphemeralEnvelope,
+  type SubductionEvent,
   type SubductionSession,
 } from "../src/index.js"
 import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
@@ -32,7 +32,7 @@ class ControlledBackend extends SubductionBackend {
     super({ storage: new DummySubductionStorageAdapter() })
   }
   sessions: {
-    inject: (event: SedimentreeEvent) => void
+    inject: (event: SubductionEvent) => void
     publish: ReturnType<
       typeof vi.fn<(message: EphemeralEnvelope) => Promise<void>>
     >
@@ -40,10 +40,10 @@ class ControlledBackend extends SubductionBackend {
 
   override open(id: SedimentreeId): SubductionSession {
     const session = super.open(id)
-    const queue: SedimentreeEvent[] = []
+    const queue: SubductionEvent[] = []
     let wake: (() => void) | undefined
     let ended = false
-    const inject = (event: SedimentreeEvent) => {
+    const inject = (event: SubductionEvent) => {
       queue.push(event)
       wake?.()
     }
@@ -84,7 +84,7 @@ function inbound(
     origin: { kind: "claimed", id: "untrusted", path: [] },
     payload: new Uint8Array(encode(message)),
   }
-): SedimentreeEvent {
+): SubductionEvent {
   return {
     type: "extension",
     kind: "ephemeral",

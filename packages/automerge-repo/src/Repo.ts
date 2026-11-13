@@ -37,11 +37,11 @@ import type {
 import { isPlainObject } from "./helpers/isPlainObject.js"
 
 /**
- * Owns Automerge documents; its backend owns their storage and sync. `K` names
+ * Owns Automerge documents; its backend owns their storage and sync. `X` is
  * the extensions the backend adds to every handle; see {@link ExtendedHandle}.
  */
-export class Repo<in K extends string = never> extends EventEmitter<
-  RepoEvents<K>
+export class Repo<in X extends HandleExtension = never> extends EventEmitter<
+  RepoEvents<X>
 > {
   #log = makeLogger("automerge-repo:repo")
   #documents = new Map<DocumentId, Document<any>>()
@@ -56,11 +56,11 @@ export class Repo<in K extends string = never> extends EventEmitter<
   #Handle: typeof DocHandle
 
   /** A backend whose type names its handle extensions gives typed handles. */
-  constructor(config: RepoConfig & { backend: ExtendedBackend<K> })
+  constructor(config: RepoConfig & { backend: ExtendedBackend<X> })
   /** Any other backend gives plain handles. The rest parameter only keeps
-   * TypeScript from taking `K` from where the Repo is used: it rejects
-   * `const r: Repo<"x"> = new Repo()`. */
-  constructor(config?: RepoConfig, ...plain: [K] extends [never] ? [] : [never])
+   * TypeScript from taking `X` from where the Repo is used: it rejects
+   * `const r: Repo<typeof extension> = new Repo()`. */
+  constructor(config?: RepoConfig, ...plain: [X] extends [never] ? [] : [never])
   constructor({
     backend,
     id = crypto.randomUUID() as RepoId,
@@ -80,14 +80,14 @@ export class Repo<in K extends string = never> extends EventEmitter<
     return this.#id
   }
 
-  get handles(): Record<DocumentId, ExtendedHandle<any, K>> {
+  get handles(): Record<DocumentId, ExtendedHandle<any, X>> {
     return Object.fromEntries(
       [...this.#documents].map(([id, document]) => [id, document.handle])
-    ) as Record<DocumentId, ExtendedHandle<any, K>>
+    ) as Record<DocumentId, ExtendedHandle<any, X>>
   }
 
   /** Resolve after initial history is locally recoverable, without waiting for peers. */
-  async create<T>(initialValue?: T): Promise<ExtendedHandle<T, K>> {
+  async create<T>(initialValue?: T): Promise<ExtendedHandle<T, X>> {
     this.#checkOpen()
     const doc =
       isPlainObject(initialValue) && Object.keys(initialValue).length
@@ -96,7 +96,7 @@ export class Repo<in K extends string = never> extends EventEmitter<
     return this.#track(this.#createDocument(doc))
   }
 
-  async clone<T>(handle: DocHandle<T>): Promise<ExtendedHandle<T, K>> {
+  async clone<T>(handle: DocHandle<T>): Promise<ExtendedHandle<T, X>> {
     this.#checkOpen()
     return this.#track(this.#createDocument(A.clone(handle.fullDoc())))
   }
@@ -108,7 +108,7 @@ export class Repo<in K extends string = never> extends EventEmitter<
   findWithProgress<T>(
     id: AnyDocumentId,
     _options?: AbortOptions
-  ): DocumentProgress<T, K> {
+  ): DocumentProgress<T, X> {
     return toProgress(this.query<T>(id))
   }
 
@@ -116,7 +116,7 @@ export class Repo<in K extends string = never> extends EventEmitter<
   async find<T>(
     id: AnyDocumentId,
     options: RepoFindOptions = {}
-  ): Promise<ExtendedHandle<T, K>> {
+  ): Promise<ExtendedHandle<T, X>> {
     options.signal?.throwIfAborted()
     return waitUntilReady(this.query<T>(id), options.signal)
   }
@@ -126,7 +126,7 @@ export class Repo<in K extends string = never> extends EventEmitter<
    * Accepts everything {@link Repo.find} does; heads and paths in a URL
    * yield the matching view or sub-handle once ready.
    */
-  query<T>(id: AnyDocumentId): DocumentQuery<T, K> {
+  query<T>(id: AnyDocumentId): DocumentQuery<T, X> {
     this.#checkOpen()
     const parsed = isValidAutomergeUrl(id)
       ? parseAutomergeUrl(id)
@@ -138,7 +138,7 @@ export class Repo<in K extends string = never> extends EventEmitter<
     const { documentId, heads, segments } = parsed
     const document: Document<T> =
       this.#documents.get(documentId) ?? this.#register<T>(documentId)
-    let query = document.query as DocumentQuery<T, K>
+    let query = document.query as DocumentQuery<T, X>
     if (heads) query = queryAtHeads(query, heads)
     if (segments?.length) query = queryAtPath(query, segments)
     return query
@@ -148,7 +148,7 @@ export class Repo<in K extends string = never> extends EventEmitter<
   async import<T>(
     binary: Uint8Array,
     args?: { docId?: DocumentId }
-  ): Promise<ExtendedHandle<T, K>> {
+  ): Promise<ExtendedHandle<T, X>> {
     this.#checkOpen()
     const doc = A.load<T>(binary)
     const id = args?.docId && interpretAsDocumentId(args.docId)
@@ -158,7 +158,7 @@ export class Repo<in K extends string = never> extends EventEmitter<
   async #importDocument<T>(
     doc: A.Doc<T>,
     id?: DocumentId
-  ): Promise<ExtendedHandle<T, K>> {
+  ): Promise<ExtendedHandle<T, X>> {
     if (!id) return this.#createDocument(doc)
     const existing = this.#documents.get(id)
     if (existing?.query.state().status === "ready") {
@@ -189,7 +189,7 @@ export class Repo<in K extends string = never> extends EventEmitter<
   async #createDocument<T>(
     doc: A.Doc<T>,
     requested?: DocumentId
-  ): Promise<ExtendedHandle<T, K>> {
+  ): Promise<ExtendedHandle<T, X>> {
     if (!A.getHeads(doc).length) doc = A.emptyChange(doc)
     const allocated = await this.#backend.create(
       extractRecords(doc),
@@ -209,8 +209,8 @@ export class Repo<in K extends string = never> extends EventEmitter<
   }
 
   /** The root handle, typed with the backend's extensions. */
-  #handle<T>(document: Document<T>): ExtendedHandle<T, K> {
-    return document.handle as ExtendedHandle<T, K>
+  #handle<T>(document: Document<T>): ExtendedHandle<T, X> {
+    return document.handle as ExtendedHandle<T, X>
   }
 
   #backendId(id: DocumentId): SedimentreeId {
@@ -420,7 +420,7 @@ function collectErrors(results: PromiseSettledResult<unknown>[]): unknown[] {
  * `type AppHandle<T> = HandleOf<typeof repo, T>`.
  */
 export type HandleOf<R extends Repo, T> =
-  R extends Repo<infer K> ? ExtendedHandle<T, K> : DocHandle<T>
+  R extends Repo<infer X> ? ExtendedHandle<T, X> : DocHandle<T>
 
 /** The document type of a handle type `H`, or `H` itself if not a handle. */
 export type DocOf<H> = H extends DocHandle<infer T> ? T : H
@@ -430,11 +430,11 @@ export type DocOf<H> = H extends DocHandle<infer T> ? T : H
  * handle a Repo of type `R` makes for it (a plain `DocHandle<Todo>` by
  * default), and a handle type such as `HandleOf<typeof repo, Todo>` is kept.
  */
-export type AsHandle<X, R extends Repo = Repo> = 0 extends 1 & X
-  ? HandleOf<R, X> // `any` is a document type
-  : [X] extends [DocHandle<any>]
-    ? X
-    : HandleOf<R, X>
+export type AsHandle<A, R extends Repo = Repo> = 0 extends 1 & A
+  ? HandleOf<R, A> // `any` is a document type
+  : [A] extends [DocHandle<any>]
+    ? A
+    : HandleOf<R, A>
 
 export interface RepoConfig {
   /**
@@ -458,11 +458,11 @@ export interface AbortOptions {
 
 export type RepoFindOptions = AbortOptions
 export type DeleteDocumentPayload = { documentId: DocumentId }
-export type DocumentPayload<K extends string = never> = {
-  handle: ExtendedHandle<any, K>
+export type DocumentPayload<X extends HandleExtension = never> = {
+  handle: ExtendedHandle<any, X>
 }
-export interface RepoEvents<K extends string = never> {
-  document: (payload: DocumentPayload<K>) => void
+export interface RepoEvents<X extends HandleExtension = never> {
+  document: (payload: DocumentPayload<X>) => void
   "delete-document": (payload: DeleteDocumentPayload) => void
   "unavailable-document": (payload: DeleteDocumentPayload) => void
 }

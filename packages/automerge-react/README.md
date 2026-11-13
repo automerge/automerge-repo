@@ -53,7 +53,7 @@ failures.
 A backend can add features to every handle of its Repo, such as the Subduction
 backend's ephemeral messaging (`handle.broadcast`). `RepoContext` only knows a plain
 `Repo`, so hooks reading it return plain handles unless told the Repo's type. There are
-three ways to tell them.
+two ways to tell them.
 
 **Recommended: hooks made for your Repo.** `createRepoHooks` infers the type from the
 Repo, and its provider only accepts a Repo of that type, so the two cannot disagree:
@@ -63,7 +63,8 @@ Repo, and its provider only accepts a Repo of that type, so the two cannot disag
 export const repo = new Repo({ backend })
 export const { RepoProvider, useRepo, useDocHandle, useDocHandles } =
   createRepoHooks(repo)
-// If the Repo is made later, give its type: createRepoHooks<AppRepo>()
+// If the Repo is made later, give its type:
+// createRepoHooks<Repo<SubductionExtensions>>()
 
 // main.tsx
 <RepoProvider value={repo}>
@@ -87,21 +88,7 @@ const handle = useDocHandle<AppHandle<Todo>>(url)
 const repo = useRepo<typeof repo>()
 ```
 
-**Once per app: register the Repo's type.** Then plain calls are typed:
-
-```ts
-declare module "@automerge/react" {
-  interface Register {
-    repo: typeof repo
-  }
-}
-
-const handle = useDocHandle<Todo>(url) // has broadcast
-```
-
-The last two assert what the Repo in `RepoContext` is; nothing checks it. A handle type
-given per call overrides a registration. A registration applies to the whole program,
-so only apps should register.
+The second asserts what the Repo in `RepoContext` is; nothing checks it.
 
 ## Subduction and browser storage
 

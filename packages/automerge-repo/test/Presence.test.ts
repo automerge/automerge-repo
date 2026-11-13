@@ -13,12 +13,12 @@ import { Repo } from "../src/Repo.js"
 import { setLoggerFactory } from "../src/Logger.js"
 import type { ExtendedHandle } from "../src/DocHandle.js"
 import type { RepoId } from "../src/types.js"
-import { EphemeralHub } from "./helpers/ephemeralHub.js"
+import { EphemeralHub, type HubExtensions } from "./helpers/ephemeralHub.js"
 
 type PresenceState = { position: number }
 
 let hub: EphemeralHub
-const repos: Repo<"ephemeral">[] = []
+const repos: Repo<HubExtensions>[] = []
 const presences: Presence<PresenceState>[] = []
 
 afterEach(async () => {
@@ -37,8 +37,8 @@ async function setup<const Names extends string>(
   const peers = {} as Record<
     Names,
     {
-      repo: Repo<"ephemeral">
-      handle: ExtendedHandle<unknown, "ephemeral">
+      repo: Repo<HubExtensions>
+      handle: ExtendedHandle<unknown, HubExtensions>
       presence: Presence<PresenceState>
     }
   >
@@ -49,7 +49,7 @@ async function setup<const Names extends string>(
       id: name as RepoId,
     })
     repos.push(repo)
-    const handle: ExtendedHandle<unknown, "ephemeral"> = url
+    const handle: ExtendedHandle<unknown, HubExtensions> = url
       ? await repo.find(url)
       : await repo.create({ test: "doc" })
     url = handle.url

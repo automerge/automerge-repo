@@ -25,35 +25,11 @@ export function setContextRepo(repo: Repo): void {
 }
 
 /**
- * Register your Repo's type, once per app, so that {@link getContextRepo}
- * and {@link document} are typed with the features its backend adds to
- * handles:
- *
- * ```ts
- * declare module "@automerge/automerge-repo-svelte-store" {
- *   interface Register {
- *     repo: typeof repo
- *   }
- * }
- * ```
- *
- * Registering asserts what the Repo in context is; nothing checks it.
- * {@link createAutomergeStore} needs none: it is typed from its Repo.
- */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface Register {}
-
-/** The {@link Register registered} Repo type; a plain `Repo` by default. */
-export type RegisteredRepo = Register extends { repo: infer R extends Repo }
-  ? R
-  : Repo
-
-/**
- * Get the Automerge Repo from the Svelte context, typed as `R` (the
- * {@link Register registered} Repo type by default; not checked)
+ * Get the Automerge Repo from the Svelte context, typed as `R` (a plain
+ * `Repo` by default; not checked)
  * @returns The Automerge Repo instance
  */
-export function getContextRepo<R extends Repo = RegisteredRepo>(): R {
+export function getContextRepo<R extends Repo = Repo>(): R {
   const repo = getContext<R>(REPO_CONTEXT_KEY)
   if (!repo) {
     throw new Error(
@@ -218,16 +194,10 @@ export function createAutomergeStore<R extends Repo>(
 export function document<X>(
   docIdOrUrl: DocumentId | AutomergeUrl,
   repoInstance?: Repo
-): Promise<AutomergeDocumentStore<
-  DocOf<X>,
-  AsHandle<X, RegisteredRepo>
-> | null> {
+): Promise<AutomergeDocumentStore<DocOf<X>, AsHandle<X>> | null> {
   const repo = repoInstance || getContextRepo()
   const store = createAutomergeStore(repo)
   return store.find<DocOf<X>>(
     docIdOrUrl as AutomergeUrl
-  ) as Promise<AutomergeDocumentStore<
-    DocOf<X>,
-    AsHandle<X, RegisteredRepo>
-  > | null>
+  ) as Promise<AutomergeDocumentStore<DocOf<X>, AsHandle<X>> | null>
 }

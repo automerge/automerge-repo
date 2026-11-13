@@ -51,7 +51,7 @@ export interface RepoHooks<R extends Repo> {
  * ```ts
  * export const repo = new Repo({ backend })
  * export const { RepoProvider, useRepo, useDocHandle } = createRepoHooks(repo)
- * // or: createRepoHooks<Repo<"ephemeral">>()
+ * // or: createRepoHooks<Repo<SubductionExtensions>>()
  *
  * <RepoProvider value={repo}>…</RepoProvider>
  * ```

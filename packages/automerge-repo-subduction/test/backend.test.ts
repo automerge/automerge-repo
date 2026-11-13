@@ -7,12 +7,13 @@ import {
   recordHead,
   sedimentreeId,
   type LooseCommitRecord,
-  type SedimentreeEvent,
   type SedimentreeSession,
 } from "@automerge/automerge-repo/sedimentree"
 import {
   SubductionBackend,
   type SubductionBackendOptions,
+  type SubductionEvent,
+  type SubductionSession,
 } from "../src/index.js"
 import { Watch } from "../src/watch.js"
 import { TestStore, deferred, savedKeys } from "./storage.js"
@@ -34,7 +35,7 @@ const record = (n: number, parents: number[] = []): LooseCommitRecord => ({
   parents: parents.map(cid),
   blob: new Uint8Array([n, 42]),
 })
-async function initial(session: SedimentreeSession) {
+async function initial(session: SubductionSession) {
   const iterator = session.events[Symbol.asyncIterator]()
   const records: LooseCommitRecord[] = []
   for (;;) {
@@ -55,7 +56,7 @@ async function initial(session: SedimentreeSession) {
   }
 }
 /** An empty first load is settled by one confirmation round. */
-async function confirmation(iterator: AsyncIterator<SedimentreeEvent>) {
+async function confirmation(iterator: AsyncIterator<SubductionEvent>) {
   let event = await next(iterator)
   // Peer notifications may arrive first; nothing else should.
   while (event.type === "remote-heads" || event.type === "extension")
@@ -68,19 +69,19 @@ async function confirmation(iterator: AsyncIterator<SedimentreeEvent>) {
 async function nativeCommits(backend: SubductionBackend): Promise<number> {
   return ((await nodeOf(backend).getCommits(tree)) ?? []).length
 }
-async function next(iterator: AsyncIterator<SedimentreeEvent>) {
+async function next(iterator: AsyncIterator<SubductionEvent>) {
   const value = await iterator.next()
   if (value.done) throw new Error("Unexpected end")
   return value.value
 }
-async function until<K extends SedimentreeEvent["type"]>(
-  iterator: AsyncIterator<SedimentreeEvent>,
+async function until<K extends SubductionEvent["type"]>(
+  iterator: AsyncIterator<SubductionEvent>,
   type: K
-): Promise<Extract<SedimentreeEvent, { type: K }>> {
+): Promise<Extract<SubductionEvent, { type: K }>> {
   for (;;) {
     const event = await next(iterator)
     if (event.type === type)
-      return event as Extract<SedimentreeEvent, { type: K }>
+      return event as Extract<SubductionEvent, { type: K }>
   }
 }
 
@@ -250,7 +251,7 @@ describe("real local Subduction", () => {
     const records = [record(1), record(2, [1]), record(3, [2])]
     await backend.store(tree, records)
     const iterator = backend.open(tree).events[Symbol.asyncIterator]()
-    const events: SedimentreeEvent[] = []
+    const events: SubductionEvent[] = []
     for (;;) {
       const event = await next(iterator)
       events.push(event)

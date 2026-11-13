@@ -7,18 +7,13 @@ import { fileURLToPath } from "node:url"
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 
-// A Repo type registration applies to its whole program, so each
-// `registered` check is a program of its own.
 const PROJECTS = [
   "packages/automerge-repo/test/tsconfig.checks.json",
   "packages/automerge-repo-subduction/test/tsconfig.json",
   "packages/automerge-react/test/tsconfig.types.json",
-  "packages/automerge-react/test/tsconfig.registered.json",
   "packages/automerge-repo-solid-primitives/tsconfig.test.json",
   "packages/automerge-repo-solid-primitives/test/types/tsconfig.types.json",
-  "packages/automerge-repo-solid-primitives/test/types/tsconfig.registered.json",
   "packages/automerge-repo-svelte-store/test/types/tsconfig.types.json",
-  "packages/automerge-repo-svelte-store/test/types/tsconfig.registered.json",
 ]
 
 let failed = 0

@@ -4,7 +4,7 @@ import {
   Repo,
   parseAutomergeUrl,
   type AutomergeUrl,
-  type DocHandle,
+  type ExtensionTypes,
   type HandleExtension,
   type PresenceInbound,
   type DocumentQuery,
@@ -16,22 +16,15 @@ import { afterEach, vi } from "vitest"
 import { RepoContext } from "../src/useRepo"
 import { wrapperCache } from "../src/useDocHandle"
 
-declare module "@automerge/automerge-repo" {
-  interface HandleExtensionTypes<T> {
-    ephemeral: {
-      members: { broadcast(message: unknown): void }
-      events: {
-        "ephemeral-message": (
-          payload: PresenceInbound & { handle: DocHandle<T, "ephemeral"> }
-        ) => void
-      }
-      inbound: never
-    }
-  }
+interface EphemeralTypes extends ExtensionTypes {
+  kind: "ephemeral"
+  members: { broadcast(message: unknown): void }
+  events: { "ephemeral-message": PresenceInbound }
+  inbound: never
 }
 
 /** Stands in for a backend with ephemeral messaging; broadcasts go nowhere. */
-const ephemeral: HandleExtension<"ephemeral"> = {
+const ephemeral: HandleExtension<EphemeralTypes> = {
   kind: "ephemeral",
   extend: base =>
     class extends base {
@@ -43,7 +36,7 @@ class EphemeralBackend extends MemoryBackend {
   readonly handleExtensions = [ephemeral] as const
 }
 
-const repos = new Set<Repo<"ephemeral">>()
+const repos = new Set<Repo<typeof ephemeral>>()
 
 afterEach(async () => {
   cleanup()

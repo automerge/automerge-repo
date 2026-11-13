@@ -55,7 +55,7 @@ export interface RepoPrimitives<R extends Repo> {
  * ```tsx
  * export const repo = new Repo({ backend })
  * export const { RepoProvider, useDocHandle } = createRepoPrimitives(repo)
- * // or: createRepoPrimitives<Repo<"ephemeral">>()
+ * // or: createRepoPrimitives<Repo<SubductionExtensions>>()
  *
  * <RepoProvider value={repo}>…</RepoProvider>
  * ```

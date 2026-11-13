@@ -2,12 +2,15 @@ import { Encoder, decode } from "cbor-x"
 import {
   BackendError,
   type BackendIdentity,
+  type ExtensionTypes,
   type HandleExtension,
+  type SedimentreeEvent,
   type SedimentreeSession,
 } from "@automerge/automerge-repo/sedimentree"
 import type {
-  DocHandle,
   ExtendedHandle,
+  PeerId,
+  RepoId,
   PresenceHandle,
   PresenceInbound,
 } from "@automerge/automerge-repo/slim"
@@ -20,8 +23,12 @@ export interface EphemeralEnvelope {
   readonly payload: Uint8Array
 }
 
+/** An event of a Subduction session. */
+export type SubductionEvent = SedimentreeEvent<SubductionExtensions>
+
 /** A session of the Subduction backend. */
 export interface SubductionSession extends SedimentreeSession {
+  readonly events: AsyncIterable<SubductionEvent>
   /** Publish to the peers subscribed to this session's document. The
    * `ephemeral` handle extension sends through this. */
   publishEphemeral(message: EphemeralEnvelope): Promise<void>
@@ -39,7 +46,7 @@ export interface EphemeralInbound {
  * is the peer Subduction authenticated; `originId` is the sending Repo's `id`.
  */
 export interface EphemeralMessagePayload<T> extends PresenceInbound {
-  handle: DocHandle<T, "ephemeral"> & EphemeralMembers
+  handle: ExtendedHandle<T, SubductionExtensions>
 }
 
 /** What the `ephemeral` extension adds to a handle. */
@@ -56,23 +63,26 @@ export interface EphemeralMembers {
   broadcast(message: unknown): void
 }
 
-export interface EphemeralEvents<T> {
-  "ephemeral-message": (payload: EphemeralMessagePayload<T>) => void
+/** What the `ephemeral` extension adds to a handle, and what the backend
+ * sends it. */
+export interface EphemeralTypes extends ExtensionTypes {
+  kind: "ephemeral"
+  members: EphemeralMembers
+  /** Emitted with the handle as {@link EphemeralMessagePayload}. */
+  events: { "ephemeral-message": PresenceInbound }
+  inbound: EphemeralInbound
 }
 
-declare module "@automerge/automerge-repo/sedimentree" {
-  interface HandleExtensionTypes<T> {
-    ephemeral: {
-      members: EphemeralMembers
-      events: EphemeralEvents<T>
-      inbound: EphemeralInbound
-    }
-  }
-}
+/** The handle extensions of the Subduction backend; name a Repo on it as
+ * `Repo<SubductionExtensions>`. */
+export type SubductionExtensions = typeof ephemeral
 
 // Fails to compile if handles with this extension stop fitting Presence.
 type Fits<Contract, _Handle extends Contract> = Contract
-type _FitsPresence = Fits<PresenceHandle, ExtendedHandle<unknown, "ephemeral">>
+type _FitsPresence = Fits<
+  PresenceHandle,
+  ExtendedHandle<unknown, SubductionExtensions>
+>
 
 // Untagged byte strings keep the encoding identical with and without Node's Buffer.
 const codec = new Encoder({ useRecords: false, tagUint8Array: false })
@@ -134,7 +144,7 @@ export function decodeEphemeral(
  * Ephemeral messaging on every handle: `broadcast()` and the
  * `ephemeral-message` event, carried by Subduction's ephemeral topics.
  */
-export const ephemeral: HandleExtension<"ephemeral", SubductionSession> = {
+export const ephemeral: HandleExtension<EphemeralTypes, SubductionSession> = {
   kind: "ephemeral",
   extend: (base, context) =>
     class extends base implements EphemeralMembers {
@@ -172,11 +182,10 @@ export const ephemeral: HandleExtension<"ephemeral", SubductionSession> = {
       context.log("invalid ephemeral message: %o", error)
       return
     }
-    context.emit("ephemeral-message", handle => ({
-      handle,
-      senderId: sender.id,
-      originId: message.origin.id,
+    context.emit("ephemeral-message", {
+      senderId: sender.id as PeerId,
+      originId: message.origin.id as RepoId,
       message: decoded,
-    }))
+    })
   },
 }

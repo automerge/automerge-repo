@@ -5,7 +5,7 @@ import type {
   Repo,
 } from "@automerge/automerge-repo/slim"
 import { useState, useEffect } from "react"
-import { useRepo, type RegisteredRepo } from "./useRepo.js"
+import { useRepo } from "./useRepo.js"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
 import { wrapperCache } from "./useDocHandle.js"
 import { useSet } from "./helpers/useSet.js"
@@ -16,10 +16,7 @@ export interface UseDocHandlesParams {
 
 /** Handles by URL; `X` is a document type or a handle type, as for
  * {@link useDocHandle}. */
-export type DocHandleMap<X> = Map<
-  AutomergeUrl,
-  AsHandle<X, RegisteredRepo> | undefined
->
+export type DocHandleMap<X> = Map<AutomergeUrl, AsHandle<X> | undefined>
 
 /**
  * Handles for several documents, from the Repo in {@link RepoContext}.

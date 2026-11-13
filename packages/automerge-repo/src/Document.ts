@@ -116,7 +116,10 @@ export class Document<T> {
       emit: (event, payload) => {
         const { state } = this
         if (!state.closed && !state.deleted)
-          state.listeners.emitAll(event, payload)
+          state.listeners.emitAll(event, handle => ({
+            ...(payload as object),
+            handle,
+          }))
       },
       log: (message, detail) => this.#log(message, detail),
     }

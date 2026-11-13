@@ -9,7 +9,7 @@ import {
   stringifyAutomergeUrl,
 } from "@automerge/automerge-repo/slim"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
-import { useRepo, type RegisteredRepo } from "./useRepo.js"
+import { useRepo } from "./useRepo.js"
 import { useEffect, useRef, useState } from "react"
 
 // Shared with useDocHandles
@@ -43,18 +43,16 @@ export type UseDocHandleParams =
 export function useDocHandle<X>(
   id: AnyDocumentId,
   params: UseDocHandleSuspendingParams
-): AsHandle<X, RegisteredRepo>
+): AsHandle<X>
 export function useDocHandle<X>(
   id: AnyDocumentId | undefined,
   params?: UseDocHandleSynchronousParams
-): AsHandle<X, RegisteredRepo> | undefined
+): AsHandle<X> | undefined
 export function useDocHandle<X>(
   id: AnyDocumentId | undefined,
   params?: UseDocHandleParams
-): AsHandle<X, RegisteredRepo> | undefined {
-  return useDocHandleIn(useRepo(), id, params) as
-    | AsHandle<X, RegisteredRepo>
-    | undefined
+): AsHandle<X> | undefined {
+  return useDocHandleIn(useRepo(), id, params) as AsHandle<X> | undefined
 }
 
 /** @internal {@link useDocHandle} on a given Repo. */

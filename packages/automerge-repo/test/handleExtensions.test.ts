@@ -4,6 +4,7 @@ import { DocHandle, extendHandle, instanceMembers } from "../src/DocHandle.js"
 import { Repo } from "../src/Repo.js"
 import {
   checkHandleExtensions,
+  type ExtensionTypes,
   type HandleExtension,
   type SedimentreeEvent,
   type SedimentreeSession,
@@ -11,16 +12,11 @@ import {
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import { scriptedBackend } from "./helpers/scriptedBackend.js"
 
-declare module "../src/sedimentree/extension.js" {
-  interface HandleExtensionTypes<T> {
-    ping: {
-      members: { ping(): Promise<string> }
-      events: {
-        pong: (payload: { handle: DocHandle<T, "ping">; n: number }) => void
-      }
-      inbound: number | "throw"
-    }
-  }
+interface PingTypes extends ExtensionTypes {
+  kind: "ping"
+  members: { ping(): Promise<string> }
+  events: { pong: { n: number } }
+  inbound: number | "throw"
 }
 
 /** The session `ping` needs of its backend. */
@@ -29,7 +25,7 @@ interface PingSession extends SedimentreeSession {
 }
 
 /** Asks its backend to answer, and reports the backend's `pong`s. */
-const ping: HandleExtension<"ping", PingSession> = {
+const ping: HandleExtension<PingTypes, PingSession> = {
   kind: "ping",
   extend: (base, context) =>
     class extends base {
@@ -41,7 +37,7 @@ const ping: HandleExtension<"ping", PingSession> = {
     },
   receive(context, payload) {
     if (payload === "throw") throw new Error("receive failed")
-    context.emit("pong", handle => ({ handle, n: payload }))
+    context.emit("pong", { n: payload })
   },
 }
 
@@ -103,11 +99,8 @@ describe("backend handle extensions", () => {
     handle.on("pong", root)
     sub.on("pong", scoped)
     const event = { type: "extension", sequence: 1, kind: "ping" } as const
-    // A kind nobody declared cannot be written without a cast.
-    await session.push({
-      ...event,
-      kind: "unknown",
-    } as unknown as SedimentreeEvent)
+    // A kind the Repo does not have is dropped.
+    await session.push({ ...event, kind: "unknown", payload: 1 })
     await session.push({ ...event, payload: "throw" })
     await session.push({ ...event, payload: 2 })
     expect(root.mock.calls).toEqual([[{ handle, n: 2 }]])

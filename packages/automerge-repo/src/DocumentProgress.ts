@@ -1,4 +1,5 @@
 import type { ExtendedHandle } from "./DocHandle.js"
+import type { HandleExtension } from "./sedimentree/extension.js"
 import {
   stateError,
   waitUntilReady,
@@ -16,11 +17,11 @@ import type { DocumentId } from "./types.js"
 export type SourceState = "pending" | "ready" | "unavailable"
 
 /** @deprecated Use {@link QueryState}. */
-export type ProgressState<T, K extends string = never> =
+export type ProgressState<T, X extends HandleExtension = never> =
   | { state: "loading"; sources: Record<string, SourceState> }
   | {
       state: "ready"
-      handle: ExtendedHandle<T, K>
+      handle: ExtendedHandle<T, X>
       sources: Record<string, SourceState>
     }
   | { state: "unavailable"; sources: Record<string, SourceState> }
@@ -31,18 +32,18 @@ export type ProgressState<T, K extends string = never> =
     }
 
 /** @deprecated Use {@link Repo.query}. Returned by {@link Repo.findWithProgress}. */
-export interface DocumentProgress<T, in K extends string = never> {
+export interface DocumentProgress<T, in X extends HandleExtension = never> {
   readonly documentId: DocumentId
-  peek(): ProgressState<T, K>
-  subscribe(callback: (state: ProgressState<T, K>) => void): () => void
-  whenReady(options?: { signal?: AbortSignal }): Promise<ExtendedHandle<T, K>>
+  peek(): ProgressState<T, X>
+  subscribe(callback: (state: ProgressState<T, X>) => void): () => void
+  whenReady(options?: { signal?: AbortSignal }): Promise<ExtendedHandle<T, X>>
 }
 
 /** Adapt a query to the deprecated {@link DocumentProgress} shape. */
-export function toProgress<T, K extends string = never>(
-  query: DocumentQuery<T, K>
-): DocumentProgress<T, K> {
-  const map = (state: QueryState<T, K>): ProgressState<T, K> => {
+export function toProgress<T, X extends HandleExtension = never>(
+  query: DocumentQuery<T, X>
+): DocumentProgress<T, X> {
+  const map = (state: QueryState<T, X>): ProgressState<T, X> => {
     switch (state.status) {
       case "loading":
         return { state: "loading", sources: { backend: "pending" } }

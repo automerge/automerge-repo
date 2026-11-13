@@ -12,7 +12,6 @@ import {
 } from "solid-js"
 import { RepoContext } from "./context.js"
 import type { MaybeAccessor, UseDocHandleOptions } from "./types.js"
-import type { RegisteredRepo } from "./useRepo.js"
 
 /**
  * get a
@@ -30,9 +29,9 @@ import type { RegisteredRepo } from "./useRepo.js"
 export default function useDocHandle<X>(
   url: MaybeAccessor<AutomergeUrl | undefined>,
   options?: UseDocHandleOptions
-): Resource<AsHandle<X, RegisteredRepo> | undefined> {
+): Resource<AsHandle<X> | undefined> {
   return useDocHandleIn(repoFor(options), url, options) as Resource<
-    AsHandle<X, RegisteredRepo> | undefined
+    AsHandle<X> | undefined
   >
 }
 

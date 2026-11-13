@@ -204,18 +204,7 @@ backend's ephemeral messaging (`handle.broadcast`).
   const store = await document<AppHandle<Todo>>(url) // store.handle.broadcast
   ```
 
-- **Or register the Repo's type once per app**, then plain calls are typed:
-
-  ```ts
-  declare module "@automerge/automerge-repo-svelte-store" {
-    interface Register {
-      repo: typeof repo
-    }
-  }
-  ```
-
-The last two assert what the Repo in context is; nothing checks it. A handle type given per
-call overrides a registration, which applies to the whole program.
+`document()` with a handle type asserts what the Repo in context is; nothing checks it.
 
 ## Store API
 

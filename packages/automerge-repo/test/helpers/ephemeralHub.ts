@@ -1,5 +1,7 @@
 import type {
+  AnyExtensionEvent,
   ExtendedBackend,
+  ExtensionTypes,
   HandleExtension,
   SedimentreeEvent,
   SedimentreeId,
@@ -7,7 +9,6 @@ import type {
 } from "../../src/sedimentree/index.js"
 import { MemoryBackend } from "../../src/sedimentree/memory/MemoryBackend.js"
 import { decode, encode } from "../../src/helpers/cbor.js"
-import type { DocHandle } from "../../src/DocHandle.js"
 import type { PeerId, RepoId } from "../../src/types.js"
 
 /** A hub publication: the publishing Repo and its message. */
@@ -21,25 +22,21 @@ interface HubBackendSession extends SedimentreeSession {
   publish(message: HubMessage): void
 }
 
-declare module "../../src/sedimentree/extension.js" {
-  interface HandleExtensionTypes<T> {
-    ephemeral: {
-      members: { broadcast(message: unknown): void }
-      events: {
-        "ephemeral-message": (payload: {
-          handle: DocHandle<T, "ephemeral">
-          senderId: PeerId
-          originId: RepoId
-          message: unknown
-        }) => void
-      }
-      inbound: HubMessage & { senderId: PeerId }
+interface HubEphemeralTypes extends ExtensionTypes {
+  kind: "ephemeral"
+  members: { broadcast(message: unknown): void }
+  events: {
+    "ephemeral-message": {
+      senderId: PeerId
+      originId: RepoId
+      message: unknown
     }
   }
+  inbound: HubMessage & { senderId: PeerId }
 }
 
 /** Ephemeral messaging over the hub, as a backend's handle extension. */
-const ephemeral: HandleExtension<"ephemeral", HubBackendSession> = {
+const ephemeral: HandleExtension<HubEphemeralTypes, HubBackendSession> = {
   kind: "ephemeral",
   extend: (base, context) =>
     class extends base {
@@ -50,19 +47,17 @@ const ephemeral: HandleExtension<"ephemeral", HubBackendSession> = {
     },
   receive(context, { senderId, originId, message }) {
     if (originId === context.repoId) return
-    context.emit("ephemeral-message", handle => ({
-      handle,
-      senderId,
-      originId,
-      message,
-    }))
+    context.emit("ephemeral-message", { senderId, originId, message })
   },
 }
+
+/** The extensions of a hub backend. */
+export type HubExtensions = typeof ephemeral
 
 interface HubSession {
   id: SedimentreeId
   sender: string
-  inject: (event: SedimentreeEvent) => void
+  inject: (event: SedimentreeEvent<HubExtensions>) => void
   closed: boolean
 }
 
@@ -78,7 +73,7 @@ export class EphemeralHub {
   /** Return true to drop a publication, e.g. to simulate a crashed publisher. */
   drop: (message: HubMessage, sender: string) => boolean = () => false
 
-  backend(sender: string): ExtendedBackend<"ephemeral"> {
+  backend(sender: string): ExtendedBackend<HubExtensions> {
     const store = this.store
     const opened = new Set<SedimentreeSession>()
     return {
@@ -109,7 +104,7 @@ export class EphemeralHub {
     onClose: () => void
   ): HubBackendSession {
     const inner = this.store.open(id)
-    const queue: SedimentreeEvent[] = []
+    const queue: (SedimentreeEvent | AnyExtensionEvent)[] = []
     let wake: (() => void) | undefined
     let ended = false
     const self: HubSession = {
@@ -124,7 +119,10 @@ export class EphemeralHub {
     this.#sessions.add(self)
     const pump = (async () => {
       try {
-        for await (const event of inner.events) self.inject(event)
+        for await (const event of inner.events) {
+          queue.push(event)
+          wake?.()
+        }
       } finally {
         ended = true
         wake?.()

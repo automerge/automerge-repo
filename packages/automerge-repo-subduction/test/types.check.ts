@@ -10,7 +10,7 @@ import type {
   SedimentreeBackend,
   SedimentreeEvent,
 } from "@automerge/automerge-repo/sedimentree"
-import { SubductionBackend } from "../src/index.js"
+import { SubductionBackend, type SubductionExtensions } from "../src/index.js"
 
 type Todo = { title: string; items: { done: boolean }[] }
 declare const backend: SubductionBackend
@@ -69,7 +69,7 @@ async function untyped(backend: SedimentreeBackend) {
   // @ts-expect-error a backend typed loosely gives plain handles
   handle.broadcast("hi")
   // @ts-expect-error and its Repo does not pass for an extended one
-  const extended: Repo<"ephemeral"> = repo
+  const extended: Repo<SubductionExtensions> = repo
   void extended
 }
 
@@ -85,14 +85,14 @@ void [extended, plain, untyped, either]
 
 declare const base: DocHandle<Todo>
 // @ts-expect-error a plain handle is not an extended one
-const reverse: ExtendedHandle<Todo, "ephemeral"> = base
+const reverse: ExtendedHandle<Todo, SubductionExtensions> = base
 // @ts-expect-error nor does it pass for one by its class
-const reverseClass: DocHandle<Todo, "ephemeral"> = base
+const reverseClass: DocHandle<Todo, SubductionExtensions> = base
 const memoryRepo = new Repo({ backend: new MemoryBackend() })
 // @ts-expect-error a plain Repo does not pass for an extended one
-const reverseRepo: Repo<"ephemeral"> = memoryRepo
+const reverseRepo: Repo<SubductionExtensions> = memoryRepo
 // @ts-expect-error nor does annotating a plain construction
-const claimed: Repo<"ephemeral"> = new Repo()
+const claimed: Repo<SubductionExtensions> = new Repo()
 // An extended Repo is still a plain one.
 const plainRepo: Repo = new Repo({ backend })
 void [reverse, reverseClass, reverseRepo, claimed, plainRepo]
@@ -110,14 +110,22 @@ async function viaContext() {
 void viaContext
 
 // The backend's events for the extension are typed by its kind.
-function read(event: SedimentreeEvent) {
+function read(event: SedimentreeEvent<SubductionExtensions>) {
   if (event.type === "extension" && event.kind === "ephemeral")
     event.payload.sender.id satisfies string
 }
 void read
+const foreign: SedimentreeEvent<SubductionExtensions> = {
+  type: "extension",
+  sequence: 1,
+  // @ts-expect-error a kind this backend does not have
+  kind: "other",
+  payload: { message: null!, sender: null! },
+}
+void foreign
 
 // eventNames() offers the extension's event beside the core ones.
-declare const named: ExtendedHandle<Todo, "ephemeral">
+declare const named: ExtendedHandle<Todo, SubductionExtensions>
 type Names = ReturnType<typeof named.eventNames>[number]
 type Listed<N> = N extends string ? (string extends N ? never : N) : never
 const listed: Listed<Names>[] = ["ephemeral-message", "change"]

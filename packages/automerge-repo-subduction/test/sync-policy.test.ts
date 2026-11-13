@@ -20,6 +20,7 @@ import {
   type SyncPolicy,
   type SyncRule,
   type SyncRuleSignal,
+  type SubductionExtensions,
 } from "../src/index.js"
 import { SyncRules } from "../src/sync-policy.js"
 import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
@@ -240,7 +241,7 @@ describe("SyncRules", () => {
 })
 
 type Peer = {
-  repo: Repo<"ephemeral">
+  repo: Repo<SubductionExtensions>
   backend: SubductionBackend
   signer: TestSigner
   rules: ReturnType<typeof pairRules>
