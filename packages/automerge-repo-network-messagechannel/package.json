@@ -1,5 +1,5 @@
 {
-  "name": "@automerge/automerge-repo-network-messagechannel",
+  "name": "@chee/automerge-repo-network-messagechannel",
   "version": "2.6.0-rabbit.1",
   "description": "MessageChannel network adapter for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-network-messagechannel",
@@ -13,7 +13,7 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo": "workspace:@chee/automerge-repo@*",
     "eventemitter3": "catalog:"
   },
   "devDependencies": {
@@ -22,7 +22,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "tag": "subduction"
+    "tag": "rabbit"
   },
   "engines": {
     "node": ">=22.13"

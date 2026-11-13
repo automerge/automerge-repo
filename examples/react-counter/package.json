@@ -10,10 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "workspace:*",
-    "@automerge/automerge-repo-network-messagechannel": "workspace:*",
-    "@automerge/automerge-repo-network-websocket": "workspace:*",
-    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "@automerge/automerge-repo": "workspace:@chee/automerge-repo@*",
+    "@automerge/automerge-repo-network-messagechannel": "workspace:@chee/automerge-repo-network-messagechannel@*",
+    "@automerge/automerge-repo-network-websocket": "workspace:@chee/automerge-repo-network-websocket@*",
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:@chee/automerge-repo-storage-indexeddb@*",
     "@automerge/react": "workspace:*",
     "react": "catalog:",
     "react-dom": "catalog:"

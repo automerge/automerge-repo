@@ -1,5 +1,5 @@
 {
-  "name": "@automerge/automerge-repo-network-broadcastchannel",
+  "name": "@chee/automerge-repo-network-broadcastchannel",
   "version": "2.6.0-rabbit.1",
   "description": "BroadcastChannel network adapter for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-network-broadcastchannel",
@@ -13,7 +13,7 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "workspace:*"
+    "@automerge/automerge-repo": "workspace:@chee/automerge-repo@*"
   },
   "devDependencies": {
     "typescript": "catalog:",
@@ -21,7 +21,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "tag": "subduction"
+    "tag": "rabbit"
   },
   "engines": {
     "node": ">=22.13"

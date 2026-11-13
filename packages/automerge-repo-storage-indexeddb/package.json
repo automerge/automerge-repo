@@ -1,5 +1,5 @@
 {
-  "name": "@automerge/automerge-repo-storage-indexeddb",
+  "name": "@chee/automerge-repo-storage-indexeddb",
   "version": "2.6.0-rabbit.1",
   "description": "IndexedDB storage adapter for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-storage-indexeddb",
@@ -13,11 +13,11 @@
     "bench": "vitest run --config vitest.browser.config.ts"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "workspace:*"
+    "@automerge/automerge-repo": "workspace:@chee/automerge-repo@*"
   },
   "publishConfig": {
     "access": "public",
-    "tag": "subduction"
+    "tag": "rabbit"
   },
   "devDependencies": {
     "@vitest/browser": "4.1.7",

@@ -1,5 +1,5 @@
 {
-  "name": "@automerge/vanillajs",
+  "name": "@chee/automerge-vanillajs",
   "version": "2.6.0-rabbit.1",
   "description": "A quick-import vanilla JS package for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-vanillajs",
@@ -15,11 +15,11 @@
     "test:watch": "vitest --watch"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "workspace:*",
-    "@automerge/automerge-repo-network-broadcastchannel": "workspace:*",
-    "@automerge/automerge-repo-network-messagechannel": "workspace:*",
-    "@automerge/automerge-repo-network-websocket": "workspace:*",
-    "@automerge/automerge-repo-storage-indexeddb": "workspace:*"
+    "@automerge/automerge-repo": "workspace:@chee/automerge-repo@*",
+    "@automerge/automerge-repo-network-broadcastchannel": "workspace:@chee/automerge-repo-network-broadcastchannel@*",
+    "@automerge/automerge-repo-network-messagechannel": "workspace:@chee/automerge-repo-network-messagechannel@*",
+    "@automerge/automerge-repo-network-websocket": "workspace:@chee/automerge-repo-network-websocket@*",
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:@chee/automerge-repo-storage-indexeddb@*"
   },
   "devDependencies": {
     "typescript": "catalog:",
@@ -31,7 +31,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "tag": "subduction"
+    "tag": "rabbit"
   },
   "engines": {
     "node": ">=22.13"

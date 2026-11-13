@@ -10,8 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@automerge/automerge-repo-network-websocket": "workspace:*",
-    "@automerge/automerge-repo-storage-indexeddb": "workspace:*",
+    "@automerge/automerge-repo-network-websocket": "workspace:@chee/automerge-repo-network-websocket@*",
+    "@automerge/automerge-repo-storage-indexeddb": "workspace:@chee/automerge-repo-storage-indexeddb@*",
     "@automerge/react": "workspace:*",
     "autoprefixer": "^10.5.0",
     "clsx": "^2.1.1",

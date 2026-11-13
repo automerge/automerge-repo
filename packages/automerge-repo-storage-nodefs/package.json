@@ -1,5 +1,5 @@
 {
-  "name": "@automerge/automerge-repo-storage-nodefs",
+  "name": "@chee/automerge-repo-storage-nodefs",
   "version": "2.6.0-rabbit.1",
   "description": "Simple Node filesystem storage adapter for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-storage-nodefs",
@@ -14,7 +14,7 @@
     "prepare": "tsc"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "workspace:*"
+    "@automerge/automerge-repo": "workspace:@chee/automerge-repo@*"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
@@ -24,7 +24,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "tag": "subduction"
+    "tag": "rabbit"
   },
   "engines": {
     "node": ">=22.13"

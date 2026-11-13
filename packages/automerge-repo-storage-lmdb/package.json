@@ -14,7 +14,7 @@
     "prepare": "tsc"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo": "workspace:@chee/automerge-repo@*",
     "lmdb": "^3.5.6"
   },
   "devDependencies": {

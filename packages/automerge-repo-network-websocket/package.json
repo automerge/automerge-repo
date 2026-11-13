@@ -1,5 +1,5 @@
 {
-  "name": "@automerge/automerge-repo-network-websocket",
+  "name": "@chee/automerge-repo-network-websocket",
   "version": "2.6.0-rabbit.1",
   "description": "isomorphic node/browser Websocket network adapter for Automerge Repo",
   "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-network-websocket",
@@ -14,7 +14,7 @@
     "prepare": "tsc"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo": "workspace:@chee/automerge-repo@*",
     "cbor-x": "^1.6.4",
     "debug": "^4.4.3",
     "eventemitter3": "^5.0.4",
@@ -29,7 +29,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "tag": "subduction"
+    "tag": "rabbit"
   },
   "engines": {
     "node": ">=22.13"

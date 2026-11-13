@@ -25,7 +25,7 @@
     "svelte": "^3.0.0 || ^4.0.0 || ^5.0.0"
   },
   "dependencies": {
-    "@automerge/automerge-repo": "workspace:*"
+    "@automerge/automerge-repo": "workspace:@chee/automerge-repo@*"
   },
   "devDependencies": {
     "@sveltejs/package": "^2.5.7",

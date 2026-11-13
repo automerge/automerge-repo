@@ -1,5 +1,5 @@
 {
-  "name": "@automerge/automerge-repo",
+  "name": "@chee/automerge-repo",
   "version": "2.6.0-rabbit.1",
   "description": "A repository object to manage a collection of automerge documents",
   "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo",
@@ -57,7 +57,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "tag": "subduction"
+    "tag": "rabbit"
   },
   "engines": {
     "node": ">=22.13"

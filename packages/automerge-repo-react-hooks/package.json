@@ -1,5 +1,5 @@
 {
-  "name": "@automerge/automerge-repo-react-hooks",
+  "name": "@chee/automerge-repo-react-hooks",
   "version": "2.6.0-rabbit.1",
   "description": "Hooks to access an Automerge Repo from your react app.",
   "repository": "https://github.com/automerge/automerge-repo/tree/main/packages/automerge-repo-react-hooks",
@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@automerge/automerge": "catalog:",
-    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo": "workspace:@chee/automerge-repo@*",
     "eventemitter3": "catalog:"
   },
   "devDependencies": {
@@ -37,7 +37,7 @@
   },
   "publishConfig": {
     "access": "public",
-    "tag": "subduction"
+    "tag": "rabbit"
   },
   "engines": {
     "node": ">=22.13"
