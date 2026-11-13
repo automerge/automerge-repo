@@ -850,6 +850,15 @@ export class DocHandle<T> {
     return this
   }
 
+  /**
+   * @deprecated Handles are shared across the app, so this also removes
+   * listeners other code added. Pass the listener to remove: `off(event, fn)`.
+   */
+  off<E extends keyof DocHandleEvents<T>>(event: E): this
+  off<E extends keyof DocHandleEvents<T>>(
+    event: E,
+    fn: DocHandleEvents<T>[E] | undefined
+  ): this
   off<E extends keyof DocHandleEvents<T>>(
     event: E,
     fn?: DocHandleEvents<T>[E]
@@ -858,6 +867,16 @@ export class DocHandle<T> {
     return this
   }
 
+  /**
+   * @deprecated Handles are shared across the app, so this also removes
+   * listeners other code added. Pass the listener to remove:
+   * `removeListener(event, fn)`.
+   */
+  removeListener<E extends keyof DocHandleEvents<T>>(event: E): this
+  removeListener<E extends keyof DocHandleEvents<T>>(
+    event: E,
+    fn: DocHandleEvents<T>[E] | undefined
+  ): this
   removeListener<E extends keyof DocHandleEvents<T>>(
     event: E,
     fn?: DocHandleEvents<T>[E]
@@ -865,6 +884,11 @@ export class DocHandle<T> {
     return this.off(event, fn)
   }
 
+  /**
+   * @deprecated Handles are shared across the app, so this also removes
+   * listeners other code added (bindings, `Presence`). Remove your own
+   * listeners with `off(event, fn)`.
+   */
   removeAllListeners<E extends keyof DocHandleEvents<T>>(event?: E): this {
     const listeners = this.#state.listeners
     if (event === undefined) listeners.removeAll(this)
@@ -897,6 +921,9 @@ export class DocHandle<T> {
   /**
    * Emit an event on this handle. Fires *only* this handle's listeners; use
    * `delete()` to fan out the document-level lifecycle events.
+   *
+   * @deprecated Events come from the document; emitting one by hand shows
+   * every listener on this shared handle an event that didn't happen.
    */
   emit<E extends keyof DocHandleEvents<T>>(
     event: E,
