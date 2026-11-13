@@ -15,7 +15,6 @@ import { PRESENCE_MESSAGE_MARKER } from "../src/presence/constants.js"
 import type { BinaryDocumentId, PeerId } from "../src/types.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import { BackendError, commitId, headsOf } from "../src/sedimentree/index.js"
-import { recordKey } from "../src/sedimentree/memory/records.js"
 import {
   extractNewCommits,
   extractRecords,
@@ -635,11 +634,12 @@ describe("Repo loading", () => {
     it("does not treat a queued, unapplied head as known", async () => {
       let remote = A.from({ count: 0 })
       const first = extractRecords(remote)
+      const before = remote
       remote = A.change(remote, d => {
         d.count = 1
       })
-      const keys = new Set(first.map(recordKey))
-      const second = extractRecords(remote).filter(r => !keys.has(recordKey(r)))
+      // Loose commits only: a boundary fragment would also cover `first`.
+      const second = extractNewCommits(before, remote)
       const { handle, session } = await lookup()
       await session.push({
         type: "records",
