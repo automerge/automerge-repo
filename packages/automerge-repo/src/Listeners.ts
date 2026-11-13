@@ -77,11 +77,7 @@ export class Listeners {
       try {
         fn(payload)
       } catch (e) {
-        try {
-          this.log.error("error in handle listener: %o", e)
-        } catch {
-          // Application logging must not prevent remaining listeners from running.
-        }
+        this.log.error("error in handle listener: %o", e)
       }
     }
     return true

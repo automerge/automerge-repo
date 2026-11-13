@@ -264,7 +264,7 @@ export class Document<T> {
         this.#cancelIdle = undefined
         // Heads left due are pending dependencies; later records re-arm.
         this.compactNow().catch(error =>
-          this.#log("compaction failed: %o", error)
+          this.state.log.error("compaction failed: %o", error)
         )
       })
     }, delay)
@@ -310,7 +310,7 @@ export class Document<T> {
         payload,
       })
     } catch (error) {
-      this.#log("ephemeral publication failed: %o", error)
+      this.state.log.error("ephemeral publication failed: %o", error)
     }
   }
 
@@ -400,9 +400,9 @@ export class Document<T> {
       }
       case "failure":
         if (event.error.operation === "ephemeral") {
-          this.#log("ephemeral operation failed: %o", event.error)
+          this.state.log.error("ephemeral operation failed: %o", event.error)
         } else if (event.error.retryable)
-          this.#log("backend failure: %o", event.error)
+          this.state.log.error("backend failure: %o", event.error)
         else this.fail(event.error)
         break
       case "remote-heads":
@@ -417,7 +417,7 @@ export class Document<T> {
             decode(event.message.payload)
           )
         } catch (error) {
-          this.#log("invalid ephemeral message: %o", error)
+          this.state.log.error("invalid ephemeral message: %o", error)
         }
         break
     }
@@ -426,18 +426,11 @@ export class Document<T> {
   /** Terminal: stop edits and surface the error through the query. */
   fail(reason: unknown): void {
     if (this.state.closed) return
-    this.#log("backend observation failed: %o", reason)
+    this.state.log.error("backend observation failed: %o", reason)
     this.close()
     this.query.fail(
       reason instanceof Error ? reason : new Error(String(reason))
     )
-  }
-
-  /** Application logging must not interrupt durable observation. */
-  #log(message: string, detail: unknown): void {
-    try {
-      this.state.log.error(message, detail)
-    } catch {}
   }
 
   /**
