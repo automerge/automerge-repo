@@ -99,11 +99,13 @@ export class RootQuery<T> implements DocumentQuery<T> {
 
 /**
  * Mirrors `query`, but stays `loading` until `heads` are in the document's
- * history, then yields a `view(heads)` handle.
+ * history, then yields a `view(heads)` handle. `onHeadsChanged` watches the
+ * document's heads and returns an unsubscribe.
  */
 export function queryAtHeads<T>(
   query: DocumentQuery<T>,
-  heads: UrlHeads
+  heads: UrlHeads,
+  onHeadsChanged: (fn: () => void) => () => void
 ): DocumentQuery<T> {
   const state = (): QueryState<T> => {
     const upstream = query.state()
@@ -116,27 +118,18 @@ export function queryAtHeads<T>(
     state,
     subscribe: callback => {
       let last: QueryState<T> | undefined
-      let detach: (() => void) | undefined
       const emit = () => {
         const next = state()
         if (last && statesEqual(last, next)) return
         last = next
         callback(next)
       }
-      const attach = (state: QueryState<T>) => {
-        if (detach || state.status !== "ready") return
-        const handle = state.handle
-        handle.on("heads-changed", emit)
-        detach = () => handle.off("heads-changed", emit)
-      }
-      // The upstream's initial call attaches and delivers our first state.
-      const unsubscribe = query.subscribe(upstream => {
-        attach(upstream)
-        emit()
-      })
+      const detach = onHeadsChanged(emit)
+      // The upstream's initial call delivers our first state.
+      const unsubscribe = query.subscribe(emit)
       return () => {
         unsubscribe()
-        detach?.()
+        detach()
       }
     },
   }

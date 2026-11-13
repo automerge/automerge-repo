@@ -50,6 +50,8 @@ export class DocumentState<T = unknown> {
 
   #events: (() => void)[] = []
   #dispatching = false
+  /** Repo-internal; kept apart from handle listeners so public removal can't detach them. */
+  #headsSubscribers = new Set<() => void>()
 
   /**
    * Materialized `A.view`s, keyed by heads. Heads precisely specify an
@@ -124,6 +126,13 @@ export class DocumentState<T = unknown> {
 
   heads(): string[] {
     return this.#doc ? A.getHeads(this.#doc) : []
+  }
+
+  /** Call `fn` after each heads change, after handle listeners. Returns an unsubscribe. */
+  onHeadsChanged(fn: () => void): () => void {
+    const entry = () => fn()
+    this.#headsSubscribers.add(entry)
+    return () => void this.#headsSubscribers.delete(entry)
   }
 
   getSyncInfo(peerId: PeerId): SyncInfo | undefined {
@@ -246,6 +255,13 @@ export class DocumentState<T = unknown> {
         handle => ({ handle, doc: after }),
         { writableOnly: true }
       )
+      for (const fn of [...this.#headsSubscribers]) {
+        try {
+          fn()
+        } catch (e) {
+          this.log.error("error in heads subscriber: %o", e)
+        }
+      }
       // A heads listener can attach a change listener during dispatch.
       if (initial && !this.listeners.hasWritable("change")) return
       const changes = patches ?? A.diff(after, beforeHeads, afterHeads)

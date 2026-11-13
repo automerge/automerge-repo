@@ -101,12 +101,16 @@ describe("RootQuery", () => {
   })
 
   it("derived queries deliver their current state on subscribe", () => {
-    const { query, handle } = readyQuery({ items: ["a"] })
+    const test = readyQuery({ items: ["a"] })
+    const { query, handle } = test
     const future = A.change(A.clone(handle.fullDoc()), d => {
       d.items.push("b")
     })
     const atHeads = vi.fn()
-    queryAtHeads(query, encodeHeads(A.getHeads(future))).subscribe(atHeads)
+    atHeadsOf(
+      test,
+      encodeHeads(A.getHeads(future)) as UrlHeads
+    ).query.subscribe(atHeads)
     expect(atHeads).toHaveBeenCalledExactlyOnceWith({ status: "loading" })
     const atPath = vi.fn()
     queryAtPath(query, ["items"] as any).subscribe(atPath)
@@ -183,6 +187,23 @@ describe("waitUntilReady", () => {
   })
 })
 
+/** `queryAtHeads` over the test document, counting live heads subscriptions. */
+function atHeadsOf<T>(
+  test: ReturnType<typeof createTestQuery<T>>,
+  heads: UrlHeads
+) {
+  let watching = 0
+  const query = queryAtHeads(test.query, heads, fn => {
+    watching++
+    const off = test.state.onHeadsChanged(fn)
+    return () => {
+      watching--
+      off()
+    }
+  })
+  return { query, watching: () => watching }
+}
+
 describe("queryAtHeads", () => {
   function future(handle: DocHandle<{ value: string }>) {
     const v2 = A.change(A.clone(handle.fullDoc()), d => {
@@ -192,17 +213,19 @@ describe("queryAtHeads", () => {
   }
 
   it("passes through non-ready states", () => {
-    const { query } = createTestQuery<{ value: string }>(docId)
-    const atHeads = queryAtHeads(query, [] as unknown as UrlHeads)
+    const test = createTestQuery<{ value: string }>(docId)
+    const { query } = test
+    const atHeads = atHeadsOf(test, [] as unknown as UrlHeads).query
     expect(atHeads.state().status).toBe("loading")
     query.unavailable()
     expect(atHeads.state().status).toBe("unavailable")
   })
 
   it("stays loading until the requested heads arrive, then yields a view", async () => {
-    const { query, handle } = readyQuery({ value: "v1" })
+    const test = readyQuery({ value: "v1" })
+    const { handle } = test
     const { v2, heads } = future(handle)
-    const atHeads = queryAtHeads(query, heads)
+    const atHeads = atHeadsOf(test, heads).query
     expect(atHeads.state().status).toBe("loading")
     const states: string[] = []
     atHeads.subscribe(state => states.push(state.status))
@@ -217,30 +240,39 @@ describe("queryAtHeads", () => {
   it.each(["fail", "deleted"] as const)(
     "rejects a waiting caller and detaches on %s",
     async settle => {
-      const { query, handle } = readyQuery({ value: "v1" })
+      const test = readyQuery({ value: "v1" })
+      const { query, handle } = test
       const { heads } = future(handle)
-      const before = handle.listenerCount("heads-changed")
-      const waiting = waitUntilReady(queryAtHeads(query, heads))
-      expect(handle.listenerCount("heads-changed")).toBe(before + 1)
+      const atHeads = atHeadsOf(test, heads)
+      const waiting = waitUntilReady(atHeads.query)
+      expect(atHeads.watching()).toBe(1)
       if (settle === "fail") query.fail(new Error("gone"))
       else query.deleted()
       await expect(waiting).rejects.toThrow()
-      expect(handle.listenerCount("heads-changed")).toBe(before)
+      expect(atHeads.watching()).toBe(0)
     }
   )
 
-  it("detaches its heads listener on abort", async () => {
-    const { query, handle } = readyQuery({ value: "v1" })
-    const { heads } = future(handle)
-    const before = handle.listenerCount("heads-changed")
+  it("detaches its heads subscription on abort", async () => {
+    const test = readyQuery({ value: "v1" })
+    const { heads } = future(test.handle)
+    const atHeads = atHeadsOf(test, heads)
     const controller = new AbortController()
-    const waiting = waitUntilReady(
-      queryAtHeads(query, heads),
-      controller.signal
-    )
+    const waiting = waitUntilReady(atHeads.query, controller.signal)
     controller.abort("stop")
     await expect(waiting).rejects.toBe("stop")
-    expect(handle.listenerCount("heads-changed")).toBe(before)
+    expect(atHeads.watching()).toBe(0)
+  })
+
+  it("adds no handle listener, so removeAllListeners can't stall it", async () => {
+    const test = readyQuery({ value: "v1" })
+    const { handle } = test
+    const { v2, heads } = future(handle)
+    const waiting = waitUntilReady(atHeadsOf(test, heads).query)
+    expect(handle.listenerCount("heads-changed")).toBe(0)
+    handle.removeAllListeners()
+    applyInbound(handle, () => v2)
+    expect((await waiting).doc()?.value).toBe("v2")
   })
 })
 

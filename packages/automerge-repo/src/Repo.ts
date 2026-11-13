@@ -128,7 +128,10 @@ export class Repo extends EventEmitter<RepoEvents> {
     const document: Document<T> =
       this.#documents.get(documentId) ?? this.#register<T>(documentId)
     let query: DocumentQuery<T> = document.query
-    if (heads) query = queryAtHeads(query, heads)
+    if (heads)
+      query = queryAtHeads(query, heads, fn =>
+        document.state.onHeadsChanged(fn)
+      )
     if (segments?.length) query = queryAtPath(query, segments)
     return query
   }

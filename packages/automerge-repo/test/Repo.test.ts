@@ -681,6 +681,20 @@ describe("backend-driven Repo", () => {
     expect(sub.status === "ready" && sub.handle.doc()).toEqual(["a", "b"])
   })
 
+  it("find(url#heads) still resolves after removeAllListeners", async () => {
+    const r = repo(new MemoryBackend())
+    const handle = await r.create({ n: 0 })
+    const fork = A.change(A.clone(handle.fullDoc()), d => void (d.n = 1))
+    const url = stringifyAutomergeUrl({
+      documentId: handle.documentId,
+      heads: encodeHeads(A.getHeads(fork)),
+    })
+    const found = r.find<{ n: number }>(url)
+    handle.removeAllListeners()
+    await r.import(A.save(fork), { docId: handle.documentId })
+    expect((await found).doc().n).toBe(1)
+  })
+
   it("findWithProgress maps deletion to the deprecated failed state", async () => {
     const r = repo(new MemoryBackend())
     const handle = await r.create({ count: 0 })

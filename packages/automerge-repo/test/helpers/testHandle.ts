@@ -33,15 +33,13 @@ export function createTestHandle<T>(documentId: DocumentId): DocHandle<T> {
   return createTestDocument<T>(documentId).handle
 }
 
-/** Construct a loading RootQuery and its root handle. */
+/** Construct a loading RootQuery, its root handle and its document state. */
 export function createTestQuery<T>(documentId: DocumentId): {
   query: RootQuery<T>
   handle: DocHandle<T>
+  state: DocumentState<T>
 } {
-  const { query, handle } = createTestDocument<T>(documentId, undefined, {
-    ready: false,
-  })
-  return { query, handle }
+  return createTestDocument<T>(documentId, undefined, { ready: false })
 }
 
 /** Deliver inbound data to a handle created by {@link createTestDocument}. */
