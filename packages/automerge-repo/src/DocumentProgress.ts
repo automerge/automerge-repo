@@ -1,5 +1,5 @@
 import type { ExtendedHandle } from "./DocHandle.js"
-import type { HandleExtension } from "./sedimentree/extension.js"
+import type { HandleExtensionSpec } from "./sedimentree/extension.js"
 import {
   stateError,
   waitUntilReady,
@@ -17,7 +17,7 @@ import type { DocumentId } from "./types.js"
 export type SourceState = "pending" | "ready" | "unavailable"
 
 /** @deprecated Use {@link QueryState}. */
-export type ProgressState<T, X extends HandleExtension = never> =
+export type ProgressState<T, X extends HandleExtensionSpec = {}> =
   | { state: "loading"; sources: Record<string, SourceState> }
   | {
       state: "ready"
@@ -32,7 +32,7 @@ export type ProgressState<T, X extends HandleExtension = never> =
     }
 
 /** @deprecated Use {@link Repo.query}. Returned by {@link Repo.findWithProgress}. */
-export interface DocumentProgress<T, in X extends HandleExtension = never> {
+export interface DocumentProgress<T, out X extends HandleExtensionSpec = {}> {
   readonly documentId: DocumentId
   peek(): ProgressState<T, X>
   subscribe(callback: (state: ProgressState<T, X>) => void): () => void
@@ -40,7 +40,7 @@ export interface DocumentProgress<T, in X extends HandleExtension = never> {
 }
 
 /** Adapt a query to the deprecated {@link DocumentProgress} shape. */
-export function toProgress<T, X extends HandleExtension = never>(
+export function toProgress<T, X extends HandleExtensionSpec = {}>(
   query: DocumentQuery<T, X>
 ): DocumentProgress<T, X> {
   const map = (state: QueryState<T, X>): ProgressState<T, X> => {

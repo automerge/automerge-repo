@@ -1,5 +1,5 @@
 import type { DocHandle, ExtendedHandle } from "./DocHandle.js"
-import type { HandleExtension } from "./sedimentree/extension.js"
+import type { HandleExtensionSpec } from "./sedimentree/extension.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { Segment } from "./subdoc-handles/types.js"
 import { makeLogger } from "./Logger.js"
@@ -17,7 +17,7 @@ const log = makeLogger("automerge-repo:query")
  * - `deleted`: the document was deleted locally. Terminal.
  * - `failed`: observation stopped with an error. Terminal.
  */
-export type QueryState<T, X extends HandleExtension = never> =
+export type QueryState<T, X extends HandleExtensionSpec = {}> =
   | { status: "loading" }
   | { status: "ready"; handle: ExtendedHandle<T, X> }
   | { status: "unavailable" }
@@ -25,7 +25,7 @@ export type QueryState<T, X extends HandleExtension = never> =
   | { status: "failed"; error: Error }
 
 /** An observable view of a document's readiness, returned by {@link Repo.query}. */
-export interface DocumentQuery<T, in X extends HandleExtension = never> {
+export interface DocumentQuery<T, out X extends HandleExtensionSpec = {}> {
   readonly documentId: DocumentId
   /** The current state. */
   state(): QueryState<T, X>
@@ -102,7 +102,7 @@ export class RootQuery<T> implements DocumentQuery<T> {
  * Mirrors `query`, but stays `loading` until `heads` are in the document's
  * history, then yields a `view(heads)` handle.
  */
-export function queryAtHeads<T, X extends HandleExtension = never>(
+export function queryAtHeads<T, X extends HandleExtensionSpec = {}>(
   query: DocumentQuery<T, X>,
   heads: UrlHeads
 ): DocumentQuery<T, X> {
@@ -145,7 +145,7 @@ export function queryAtHeads<T, X extends HandleExtension = never>(
 }
 
 /** Mirrors `query`, yielding a sub-handle scoped to `segments` once ready. */
-export function queryAtPath<T, X extends HandleExtension = never>(
+export function queryAtPath<T, X extends HandleExtensionSpec = {}>(
   query: DocumentQuery<T, X>,
   segments: Segment[]
 ): DocumentQuery<T, X> {
@@ -167,7 +167,7 @@ export function queryAtPath<T, X extends HandleExtension = never>(
 }
 
 /** Resolve with the handle once `query` is ready; reject on any other settled state. */
-export function waitUntilReady<T, X extends HandleExtension = never>(
+export function waitUntilReady<T, X extends HandleExtensionSpec = {}>(
   query: DocumentQuery<T, X>,
   signal?: AbortSignal
 ): Promise<ExtendedHandle<T, X>> {

@@ -34,8 +34,8 @@ export type PresenceInbound = {
  * - report as `senderId` the peer the backend authenticated, and as
  *   `originId` the sending Repo's tag, so that several Repos behind one peer
  *   stay distinct;
- * - declare `broadcast` and `ephemeral-message` in its `ExtensionTypes`, so
- *   that handles are typed with them.
+ * - declare `broadcast` and `ephemeral-message` in the backend's
+ *   `HandleExtensionSpec`, so that handles are typed with them.
  *
  * The backend lists the extension in `handleExtensions`, and its sessions
  * implement whatever the extension calls in order to send. The Subduction

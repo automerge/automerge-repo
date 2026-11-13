@@ -9,9 +9,9 @@ import {
   recordHead,
   type CommitId,
   type AnyExtensionEvent,
+  type AnyHandleExtension,
   type ExtensionContext,
   type FragmentRecord,
-  type HandleExtension,
   type HistoryMarker,
   type RecordBatch,
   type SedimentreeBackend,
@@ -101,7 +101,7 @@ export class Document<T> {
     repoId: RepoId,
     initial?: A.Doc<T>,
     /** The backend's extensions by kind, and the handle class built from them. */
-    private extensions: ReadonlyMap<string, HandleExtension> = new Map(),
+    private extensions: ReadonlyMap<string, AnyHandleExtension> = new Map(),
     readonly Handle: typeof DocHandle = DocHandle
   ) {
     this.#created = !!initial
@@ -112,6 +112,11 @@ export class Document<T> {
       repoId,
       get session() {
         return session()
+      },
+      requireSession: () => {
+        const current = session()
+        if (!current) throw new Error("No active session")
+        return current
       },
       emit: (event, payload) => {
         const { state } = this

@@ -61,17 +61,21 @@ A backend may add features to every handle of its Repo by listing
 `handleExtensions`; a backend that lists none gives plain handles. Ephemeral
 messaging is such an extension, provided by the Subduction backend.
 
-- An extension subclasses the handle and may only add methods and getters,
-  keeping any state of its own in private (`#`) fields. Repo throws at
-  construction if two extensions share a `kind` or an extension redefines a
-  member. It cannot see a property an extension sets on the handle itself
-  (a class field, say), which could silently replace another's. A package
-  that provides extensions should therefore run
+- An extension is written with `defineExtension`: the spec's members as plain
+  functions, each taking the document's `ExtensionContext` first
+  (`context.requireSession()` for members that need the document open), and
+  checked against the spec. Implementing `HandleExtension` directly is the
+  escape hatch for getters or per-handle state (in private `#` fields).
+- Either way it subclasses the handle and may only add members, not replace
+  them. Repo throws at construction if two extensions share a `kind` or an
+  extension redefines a member. It cannot see a property an extension sets on
+  the handle itself (a class field, say), which could silently replace
+  another's. A package that provides extensions should therefore run
   `await checkHandleExtensions(extensions)` in its tests: it makes Repo's
   checks and rejects those properties too.
 - An extension reaches its backend through the document's session
   (`context.session`), using whatever methods that backend's sessions have.
-  It names the session type it needs, `HandleExtension<Types, Session>`.
+  It names the session type it needs, `HandleExtension<Session>`.
   Nothing is added to the backend or session interfaces.
 - It is the backend's job to make its sessions implement what its extensions
   need. Typing the extension against the backend's own session type, and
@@ -79,27 +83,28 @@ messaging is such an extension, provided by the Subduction backend.
   does not: a session lacking a method fails when the extension calls it.
 - The backend reaches the extension with session events
   `{ type: "extension", kind, payload }`, which Repo hands to the extension's
-  `receive`. A backend types its events as `SedimentreeEvent<X>`, `X` being
-  its extensions (`ExtensionsOf<MyBackend>`): the payload is typed by `kind`,
-  from each extension's `inbound`, and only its own extensions' kinds can be
-  sent. Repo drops events of kinds it does not have.
+  `receive`. A backend unions its own `extension` event types with
+  `SedimentreeEvent` (as Subduction's `SubductionEvent` does). Repo drops
+  events of kinds it does not have.
 - Nothing here supports a backend that wraps or combines others. One built
   later would list the inner extensions it exposes, have its own sessions
   forward the methods they need, and pass the inner `extension` events on.
-- Types: each extension carries its own, in an interface extending
-  `ExtensionTypes` (`kind`, `members`, `events` and `inbound`), given as
-  `HandleExtension<Types, Session>`. Nothing is declared globally. Declare the
-  extension with that type, not with `satisfies`, so its type carries them.
-- `members` and `events` may depend on the handle's document type through
-  `this["T"]`, which Repo fills in per handle. It cannot appear inside an
-  inline object or function type, so use a named generic interface:
-  `members: MyMembers<this["T"]>`. Event payloads leave out `handle`: Repo
-  adds it, typed as the extended handle, to each.
-- A Repo built on a backend whose type lists its extensions
-  (`ExtendedBackend<X>`) is a `Repo<X>`, `X` being the union of its extension
-  values' types, and returns `ExtendedHandle<T, X>`; a backend typed as plain
+- Types: the backend declares what its extensions add, as a
+  `HandleExtensionSpec` (`members` and `events`) on the list itself:
+  `handleExtensions = provides<MySpec>(mine)`. Several extensions declare the
+  intersection of their specs; a plain array declares nothing. Nothing is
+  declared globally, and nothing is inferred from the extension values: the
+  declaration is the backend author's claim, checked by its own tests. An extension types its own `receive` payload and the events
+  it emits, `HandleExtension<Session, Events, Inbound>`. Members may not
+  depend on the handle's document type. Event payloads leave out `handle`:
+  Repo adds it, typed as the extended handle, to each.
+- A Repo built on such a backend is a `Repo<X>`, `X` being the backend's
+  spec, and returns `ExtendedHandle<T, X>`; a backend typed as plain
   `SedimentreeBackend` gives plain `DocHandle<T>`. A backend package should
-  export a name for its `X`, such as `SubductionExtensions`.
+  export a name for its spec, such as `SubductionExtensions`.
+- Annotating a construction (`const r: Repo<X> = new Repo(…)`) asserts the
+  spec unchecked; a Repo built elsewhere does not pass for one with
+  extensions it lacks.
 - Kinds are runtime names only: two packages may use the same one, but one
   Repo cannot have both, and two extensions cannot add the same member, so
   choose names unlikely to collide.

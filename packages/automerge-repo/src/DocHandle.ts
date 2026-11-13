@@ -16,11 +16,12 @@ import type {
 } from "./types.js"
 import type { DocHandleEvents } from "./DocHandleEvents.js"
 import type {
+  AnyHandleExtension,
   ExtensionContext,
   ExtensionEvents,
   ExtensionMembers,
   HandleClass,
-  HandleExtension,
+  HandleExtensionSpec,
 } from "./sedimentree/extension.js"
 import {
   isCursorMarker,
@@ -65,21 +66,21 @@ type DocHandleOptions = {
   range?: CursorRange
 }
 
-/** The events of a handle with the extensions `X`. */
+/** The events of a handle whose backend's extensions declare the spec `X`. */
 export type HandleEvents<
   T,
-  X extends HandleExtension = never,
-> = DocHandleEvents<T, X> & ExtensionEvents<T, X>
+  X extends HandleExtensionSpec = {},
+> = DocHandleEvents<T> & ExtensionEvents<T, X>
 
 /**
  * A {@link DocHandle} with the members its Repo's backend adds; see
- * {@link HandleExtension}.
+ * {@link HandleExtensionSpec}.
  */
-export type ExtendedHandle<T, X extends HandleExtension = never> = DocHandle<
+export type ExtendedHandle<T, X extends HandleExtensionSpec = {}> = DocHandle<
   T,
   X
 > &
-  ExtensionMembers<T, X>
+  ExtensionMembers<X>
 
 let stateOf: (handle: DocHandle<any>) => DocumentState<any>
 
@@ -119,7 +120,9 @@ export const instanceMembers: readonly string[] = ["isReady", "isDeleted"]
  * the `Repo` handles persisting to your local storage as well as propagating
  * changes to connected peers.
  */
-export class DocHandle<T, in X extends HandleExtension = never> {
+// `out`: TypeScript cannot measure the spec's variance through the
+// conditional types that read it, and would otherwise relate all handles.
+export class DocHandle<T, out X extends HandleExtensionSpec = {}> {
   static {
     stateOf = handle => handle.#state
   }
@@ -942,7 +945,7 @@ export class DocHandle<T, in X extends HandleExtension = never> {
  * the last.
  */
 export function extendHandle(
-  extensions: readonly HandleExtension[]
+  extensions: readonly AnyHandleExtension[]
 ): typeof DocHandle {
   const context = (handle: DocHandle<any>): ExtensionContext =>
     stateOf(handle).extensionContext

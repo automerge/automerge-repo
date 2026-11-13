@@ -7,6 +7,7 @@ import {
   copyRecord,
   headsOf,
   mintBackendId,
+  provides,
   type BackendIdentity,
   type CoverageItem,
   type MintDocumentId,
@@ -34,6 +35,7 @@ import {
   encodeEphemeral,
   ephemeral,
   type SubductionEvent,
+  type SubductionExtensions,
   type SubductionSession,
 } from "./ephemeral.js"
 import { SyncRules, type SyncPolicy, type SyncRule } from "./sync-policy.js"
@@ -48,9 +50,11 @@ export {
 export {
   ephemeral,
   type EphemeralEnvelope,
+  type EphemeralEvent,
+  type EphemeralEvents,
+  type EphemeralInbound,
   type EphemeralMembers,
   type EphemeralMessagePayload,
-  type EphemeralTypes,
   type SubductionEvent,
   type SubductionExtensions,
   type SubductionSession,
@@ -220,9 +224,9 @@ async function failures(promises: readonly unknown[]): Promise<unknown[]> {
 /** EXPERIMENTAL: real WASM persistence and authenticated peer sync.
  * Initialize Subduction WASM before construction. Storage is exclusively owned.
  */
-export class SubductionBackend implements SedimentreeBackend {
+export class SubductionBackend implements SedimentreeBackend<SubductionExtensions> {
   /** Every handle of a Repo on this backend has ephemeral messaging. */
-  readonly handleExtensions = [ephemeral] as const
+  readonly handleExtensions = provides<SubductionExtensions>(ephemeral)
   readonly #engine: N.Subduction
   #closed = false
   #closing?: Promise<void>
@@ -319,7 +323,7 @@ export class SubductionBackend implements SedimentreeBackend {
     for (const { watch } of active)
       watch.push({
         type: "extension",
-        kind: ephemeral.kind,
+        kind: "ephemeral",
         sequence,
         payload: {
           message: { ...message, payload: new Uint8Array(message.payload) },

@@ -1,9 +1,8 @@
 import { Encoder, decode } from "cbor-x"
 import {
   BackendError,
+  defineExtension,
   type BackendIdentity,
-  type ExtensionTypes,
-  type HandleExtension,
   type SedimentreeEvent,
   type SedimentreeSession,
 } from "@automerge/automerge-repo/sedimentree"
@@ -23,8 +22,23 @@ export interface EphemeralEnvelope {
   readonly payload: Uint8Array
 }
 
+/** What the backend's `ephemeral` session events carry. */
+export interface EphemeralInbound {
+  readonly message: EphemeralEnvelope
+  /** Verified sender. */
+  readonly sender: BackendIdentity
+}
+
+/** A session event carrying a message to the `ephemeral` extension. */
+export interface EphemeralEvent {
+  readonly type: "extension"
+  readonly sequence: number
+  readonly kind: "ephemeral"
+  readonly payload: EphemeralInbound
+}
+
 /** An event of a Subduction session. */
-export type SubductionEvent = SedimentreeEvent<SubductionExtensions>
+export type SubductionEvent = SedimentreeEvent | EphemeralEvent
 
 /** A session of the Subduction backend. */
 export interface SubductionSession extends SedimentreeSession {
@@ -32,13 +46,6 @@ export interface SubductionSession extends SedimentreeSession {
   /** Publish to the peers subscribed to this session's document. The
    * `ephemeral` handle extension sends through this. */
   publishEphemeral(message: EphemeralEnvelope): Promise<void>
-}
-
-/** What the backend's `ephemeral` session events carry. */
-export interface EphemeralInbound {
-  readonly message: EphemeralEnvelope
-  /** Verified sender. */
-  readonly sender: BackendIdentity
 }
 
 /**
@@ -63,19 +70,18 @@ export interface EphemeralMembers {
   broadcast(message: unknown): void
 }
 
-/** What the `ephemeral` extension adds to a handle, and what the backend
- * sends it. */
-export interface EphemeralTypes extends ExtensionTypes {
-  kind: "ephemeral"
-  members: EphemeralMembers
+/** The events the `ephemeral` extension emits on handles. */
+export interface EphemeralEvents {
   /** Emitted with the handle as {@link EphemeralMessagePayload}. */
-  events: { "ephemeral-message": PresenceInbound }
-  inbound: EphemeralInbound
+  "ephemeral-message": PresenceInbound
 }
 
-/** The handle extensions of the Subduction backend; name a Repo on it as
- * `Repo<SubductionExtensions>`. */
-export type SubductionExtensions = typeof ephemeral
+/** What the Subduction backend's extensions add to the handles of a Repo on
+ * it; name such a Repo as `Repo<SubductionExtensions>`. */
+export interface SubductionExtensions {
+  members: EphemeralMembers
+  events: EphemeralEvents
+}
 
 // Fails to compile if handles with this extension stop fitting Presence.
 type Fits<Contract, _Handle extends Contract> = Contract
@@ -144,48 +150,49 @@ export function decodeEphemeral(
  * Ephemeral messaging on every handle: `broadcast()` and the
  * `ephemeral-message` event, carried by Subduction's ephemeral topics.
  */
-export const ephemeral: HandleExtension<EphemeralTypes, SubductionSession> = {
+export const ephemeral = defineExtension<
+  SubductionSession,
+  SubductionExtensions,
+  EphemeralInbound
+>({
   kind: "ephemeral",
-  extend: (base, context) =>
-    class extends base implements EphemeralMembers {
-      broadcast(message: unknown): void {
-        const document = context(this)
-        // Encoded now, so later changes to `message` are not sent.
-        const bytes = codec.encode(message)
-        const payload = new Uint8Array(
-          bytes.buffer,
-          bytes.byteOffset,
-          bytes.byteLength
-        )
-        const envelope: EphemeralEnvelope = {
-          messageId: crypto.randomUUID(),
-          origin: { kind: "repo", id: document.repoId, path: [] },
-          payload,
-        }
-        // Best effort: failures are logged, never thrown.
-        void (async () => {
-          const { session } = document
-          if (!session) throw new Error("No active session")
-          await session.publishEphemeral(envelope)
-        })().catch(error =>
-          document.log("ephemeral publication failed: %o", error)
-        )
+  members: {
+    broadcast(document, message: unknown): void {
+      // Encoded now, so later changes to `message` are not sent.
+      const bytes = codec.encode(message)
+      const payload = new Uint8Array(
+        bytes.buffer,
+        bytes.byteOffset,
+        bytes.byteLength
+      )
+      const envelope: EphemeralEnvelope = {
+        messageId: crypto.randomUUID(),
+        origin: { kind: "repo", id: document.repoId, path: [] },
+        payload,
       }
+      // Best effort: failures are logged, never thrown.
+      void (async () => {
+        const session = document.requireSession()
+        await session.publishEphemeral(envelope)
+      })().catch(error =>
+        document.log("ephemeral publication failed: %o", error)
+      )
     },
-  receive(context, { message, sender }) {
+  },
+  receive(document, { message, sender }) {
     // Subduction also delivers a peer's own publications back to it.
-    if (message.origin.id === context.repoId) return
+    if (message.origin.id === document.repoId) return
     let decoded: unknown
     try {
       decoded = decode(message.payload)
     } catch (error) {
-      context.log("invalid ephemeral message: %o", error)
+      document.log("invalid ephemeral message: %o", error)
       return
     }
-    context.emit("ephemeral-message", {
+    document.emit("ephemeral-message", {
       senderId: sender.id as PeerId,
       originId: message.origin.id as RepoId,
       message: decoded,
     })
   },
-}
+})

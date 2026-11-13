@@ -20,7 +20,7 @@ declare const url: any
 async function checks() {
   // The factory is typed from its Repo.
   const stores = createAutomergeStore(repo)
-  ;(await stores.create<Todo>()).handle.ping().title
+  ;(await stores.create<Todo>()).handle.ping().toUpperCase()
   ;(await stores.find<Todo>(url))?.handle.ping()
   stores.getRepo().handles
   // A plain Repo gives plain handles.

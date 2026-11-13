@@ -2,41 +2,39 @@ import React, { type PropsWithChildren } from "react"
 import {
   MemoryBackend,
   Repo,
+  defineExtension,
   parseAutomergeUrl,
+  provides,
   type AutomergeUrl,
-  type ExtensionTypes,
-  type HandleExtension,
   type PresenceInbound,
   type DocumentQuery,
   type QueryState,
 } from "@automerge/automerge-repo"
+import type { SedimentreeSession } from "@automerge/automerge-repo/sedimentree"
 import "@testing-library/jest-dom"
 import { cleanup } from "@testing-library/react"
 import { afterEach, vi } from "vitest"
 import { RepoContext } from "../src/useRepo"
 import { wrapperCache } from "../src/useDocHandle"
 
-interface EphemeralTypes extends ExtensionTypes {
-  kind: "ephemeral"
+interface EphemeralSpec {
   members: { broadcast(message: unknown): void }
   events: { "ephemeral-message": PresenceInbound }
-  inbound: never
 }
 
 /** Stands in for a backend with ephemeral messaging; broadcasts go nowhere. */
-const ephemeral: HandleExtension<EphemeralTypes> = {
+const ephemeral = defineExtension<SedimentreeSession, EphemeralSpec>({
   kind: "ephemeral",
-  extend: base =>
-    class extends base {
-      broadcast(_message: unknown): void {}
-    },
-}
+  members: {
+    broadcast(_context, _message: unknown): void {},
+  },
+})
 
 class EphemeralBackend extends MemoryBackend {
-  readonly handleExtensions = [ephemeral] as const
+  readonly handleExtensions = provides<EphemeralSpec>(ephemeral)
 }
 
-const repos = new Set<Repo<typeof ephemeral>>()
+const repos = new Set<Repo<EphemeralSpec>>()
 
 afterEach(async () => {
   cleanup()

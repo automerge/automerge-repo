@@ -31,8 +31,12 @@ export type {
   ExtensionEvents,
   ExtensionMembers,
   HandleExtension,
-  ExtensionTypes,
+  HandleExtensionSpec,
 } from "./sedimentree/extension.js"
+export { provides } from "./sedimentree/backend.js"
+export type { HandleExtensions } from "./sedimentree/backend.js"
+export { defineExtension } from "./sedimentree/defineExtension.js"
+export type { ExtensionDefinition } from "./sedimentree/defineExtension.js"
 export {
   isValidAutomergeUrl,
   isValidDocumentId,

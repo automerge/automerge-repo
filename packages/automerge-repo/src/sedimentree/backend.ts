@@ -7,14 +7,16 @@ import {
 import type { RecordBatch } from "./records.js"
 import type {
   AnyExtensionEvent,
-  ExtensionEvent,
-  HandleExtension,
+  AnyHandleExtension,
+  HandleExtensionSpec,
 } from "./extension.js"
 
 /**
- * An interface for storing and syncing sedimentrees
+ * An interface for storing and syncing sedimentrees. `X` declares what its
+ * handle extensions add, so a Repo on the backend gives typed handles; a
+ * backend typed as plain {@link SedimentreeBackend} gives plain ones.
  */
-export interface SedimentreeBackend {
+export interface SedimentreeBackend<X extends HandleExtensionSpec = {}> {
   create(
     initialRecords: RecordBatch,
     options?: { documentId?: SedimentreeId }
@@ -32,28 +34,52 @@ export interface SedimentreeBackend {
 
   /**
    * Features this backend adds to every handle of its Repo; none if absent.
-   * Its sessions must implement whatever these need of a session.
+   * Its sessions must implement whatever these need of a session. List them
+   * with {@link provides} to declare what they add; a plain array gives
+   * plain handles.
    *
    * @experimental
    */
-  readonly handleExtensions?: readonly HandleExtension[]
+  readonly handleExtensions?: HandleExtensions<X>
 }
 
 /**
- * A backend whose type lists the handle extensions `X` it provides, so a
- * Repo on it gives typed handles. A backend typed as plain
- * {@link SedimentreeBackend} gives plain ones.
+ * The extensions a backend lists, claiming they add `X` to its handles; made
+ * with {@link provides}.
  */
-export type ExtendedBackend<X extends HandleExtension> = SedimentreeBackend & {
-  readonly handleExtensions: readonly X[]
+export type HandleExtensions<X extends HandleExtensionSpec> =
+  readonly AnyHandleExtension[] & {
+    /** Type only: never set. */
+    readonly "~spec"?: X
+  }
+
+/**
+ * Declares that `extensions` add `X` (see {@link HandleExtensionSpec}) to
+ * every handle of a Repo on the listing backend:
+ *
+ * ```ts
+ * readonly handleExtensions = provides<MySpec>(mine)
+ * ```
+ *
+ * The claim is the backend author's, not checked against the extensions; a
+ * backend's own tests are (see {@link checkHandleExtensions}).
+ *
+ * @experimental
+ */
+export function provides<X extends HandleExtensionSpec>(
+  ...extensions: readonly AnyHandleExtension[]
+): HandleExtensions<X> {
+  return extensions
 }
 
-/** The handle extensions a backend type `B` provides, as a union. */
-export type ExtensionsOf<B> = B extends {
-  readonly handleExtensions: readonly (infer X extends HandleExtension)[]
+/** What the handle extensions of a backend type `B` add; `{}` if untyped. */
+export type ExtensionsOf<B extends SedimentreeBackend<any>> = B extends {
+  readonly handleExtensions?: HandleExtensions<infer X>
 }
-  ? X
-  : never
+  ? X extends HandleExtensionSpec
+    ? X
+    : {}
+  : {}
 
 export interface SedimentreeSession {
   /** Extension events of any kind may arrive; Repo drops those for kinds it
@@ -171,9 +197,9 @@ export interface SyncRoundResult {
   }[]
 }
 
-/** A session event. `X` is the extensions whose events it may be: none by
- * default; a backend passes its own, e.g. `ExtensionsOf<MyBackend>`. */
-export type SedimentreeEvent<X extends HandleExtension = never> =
+/** A session event. A backend with handle extensions unions its own
+ * `extension` event types with this; see {@link AnyExtensionEvent}. */
+export type SedimentreeEvent =
   /** `initial` records form the local load; `live` records follow. */
   | {
       readonly type: "records"
@@ -199,9 +225,6 @@ export type SedimentreeEvent<X extends HandleExtension = never> =
       readonly remote: BackendIdentity
       readonly heads: readonly CommitId[]
     }
-  /** A message to one of the handle extensions `X`, by `kind`; see
-   * {@link HandleExtension}. */
-  | ExtensionEvent<X>
   /** A nonretryable failure ends the stream. */
   | {
       readonly type: "failure"

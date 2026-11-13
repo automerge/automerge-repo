@@ -1,24 +1,19 @@
 // A handle extension and a backend providing it, for the type checks.
 import { MemoryBackend, Repo } from "@automerge/automerge-repo"
-import type {
-  ExtensionTypes,
-  HandleExtension,
+import {
+  provides,
+  type HandleExtension,
 } from "@automerge/automerge-repo/sedimentree"
 
-// Its member depends on the handle's document type.
-interface PingMembers<T> {
-  ping(): T
-}
-interface PingTypes extends ExtensionTypes {
-  kind: "ping"
-  members: PingMembers<this["T"]>
+/** What `ping` adds to the handles of a Repo on a backend listing it. */
+interface PingSpec {
+  members: { ping(): string }
   events: { pong: {} }
-  inbound: never
 }
 
-declare const ping: HandleExtension<PingTypes>
+declare const ping: HandleExtension
 export class PingBackend extends MemoryBackend {
-  readonly handleExtensions = [ping] as const
+  readonly handleExtensions = provides<PingSpec>(ping)
 }
 export const repo = new Repo({ backend: new PingBackend() })
 export type Todo = { title: string }

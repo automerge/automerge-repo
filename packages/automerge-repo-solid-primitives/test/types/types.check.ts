@@ -31,7 +31,7 @@ useDocument<Todo | Note>(url)[1]() satisfies DocHandle<Todo | Note> | undefined
 useDocHandle<any>(url)()?.notAMethod()
 
 // A handle type gives that handle; the document type follows it.
-useDocHandle<AppHandle<Todo>>(url)()?.ping().title
+useDocHandle<AppHandle<Todo>>(url)()?.ping().toUpperCase()
 const [doc, handle] = useDocument<AppHandle<Todo>>(url)
 doc()?.title satisfies string | undefined
 handle()?.ping()
@@ -40,7 +40,7 @@ useRepo<typeof repo>().handles
 
 // The factory infers from the Repo, or takes its type.
 const primitives = createRepoPrimitives(repo)
-primitives.useDocHandle<Todo>(url)()?.ping().title
+primitives.useDocHandle<Todo>(url)()?.ping().toUpperCase()
 primitives.useDocument<Todo>(url)[1]()?.ping()
 primitives.useDocSignal<Todo>(url)[0]()?.title
 primitives.RepoProvider({ value: repo })

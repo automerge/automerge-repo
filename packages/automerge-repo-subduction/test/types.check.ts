@@ -6,11 +6,12 @@ import {
   type DocHandle,
   type ExtendedHandle,
 } from "@automerge/automerge-repo/slim"
-import type {
-  SedimentreeBackend,
-  SedimentreeEvent,
-} from "@automerge/automerge-repo/sedimentree"
-import { SubductionBackend, type SubductionExtensions } from "../src/index.js"
+import type { SedimentreeBackend } from "@automerge/automerge-repo/sedimentree"
+import {
+  SubductionBackend,
+  type SubductionEvent,
+  type SubductionExtensions,
+} from "../src/index.js"
 
 type Todo = { title: string; items: { done: boolean }[] }
 declare const backend: SubductionBackend
@@ -40,10 +41,14 @@ async function extended() {
   if (state.status === "ready") state.handle.broadcast("q")
   ;(await repo.create<Todo>()).broadcast("c")
   repo.handles["x" as any].broadcast("h")
-  // Core events carry the extended handle too.
+  // Repo-level event payloads carry the extended handle.
   repo.on("document", ({ handle }) => handle.broadcast("d"))
-  handle.on("change", ({ handle }) => handle.broadcast("c"))
-  handle.sub("items").on("delete", ({ handle }) => handle.broadcast("x"))
+  // Handle-level payloads carry a plain handle: use the attached one.
+  handle.on("change", ({ handle: inner }) => {
+    // @ts-expect-error core payload handles are plain
+    inner.broadcast("c")
+    handle.broadcast("c")
+  })
   // @ts-expect-error not an event of this handle
   handle.on("nope", () => {})
 }
@@ -73,11 +78,11 @@ async function untyped(backend: SedimentreeBackend) {
   void extended
 }
 
-/** A backend chosen at runtime gives only what every choice provides. */
+/** Known gap: a backend chosen at runtime between unrelated classes infers
+ * the extended spec, though the memory choice cannot deliver it. */
 async function either(memory: boolean) {
   const repo = new Repo({ backend: memory ? new MemoryBackend() : backend })
   const handle = await repo.find<Todo>("automerge:abc" as any)
-  // @ts-expect-error the memory backend has no ephemeral messaging
   handle.broadcast("hi")
 }
 
@@ -91,7 +96,7 @@ const reverseClass: DocHandle<Todo, SubductionExtensions> = base
 const memoryRepo = new Repo({ backend: new MemoryBackend() })
 // @ts-expect-error a plain Repo does not pass for an extended one
 const reverseRepo: Repo<SubductionExtensions> = memoryRepo
-// @ts-expect-error nor does annotating a plain construction
+// Known gap: annotating a construction asserts the spec (a visible claim).
 const claimed: Repo<SubductionExtensions> = new Repo()
 // An extended Repo is still a plain one.
 const plainRepo: Repo = new Repo({ backend })
@@ -110,12 +115,12 @@ async function viaContext() {
 void viaContext
 
 // The backend's events for the extension are typed by its kind.
-function read(event: SedimentreeEvent<SubductionExtensions>) {
+function read(event: SubductionEvent) {
   if (event.type === "extension" && event.kind === "ephemeral")
     event.payload.sender.id satisfies string
 }
 void read
-const foreign: SedimentreeEvent<SubductionExtensions> = {
+const foreign: SubductionEvent = {
   type: "extension",
   sequence: 1,
   // @ts-expect-error a kind this backend does not have

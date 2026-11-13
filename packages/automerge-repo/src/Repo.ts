@@ -23,8 +23,8 @@ import {
   BackendError,
   idBytes,
   sedimentreeId,
-  type ExtendedBackend,
-  type HandleExtension,
+  type AnyHandleExtension,
+  type HandleExtensionSpec,
   type SedimentreeBackend,
   type SedimentreeId,
 } from "./sedimentree/index.js"
@@ -38,9 +38,11 @@ import { isPlainObject } from "./helpers/isPlainObject.js"
 
 /**
  * Owns Automerge documents; its backend owns their storage and sync. `X` is
- * the extensions the backend adds to every handle; see {@link ExtendedHandle}.
+ * what the backend's extensions add to every handle; it is taken from the
+ * backend's type, see {@link SedimentreeBackend}.
  */
-export class Repo<in X extends HandleExtension = never> extends EventEmitter<
+// `out`: see the note on DocHandle's spec parameter.
+export class Repo<out X extends HandleExtensionSpec = {}> extends EventEmitter<
   RepoEvents<X>
 > {
   #log = makeLogger("automerge-repo:repo")
@@ -51,20 +53,14 @@ export class Repo<in X extends HandleExtension = never> extends EventEmitter<
   #shutdown?: Promise<void>
   #id: RepoId
   /** The backend's handle extensions, by kind. */
-  #extensions: ReadonlyMap<string, HandleExtension>
+  #extensions: ReadonlyMap<string, AnyHandleExtension>
   /** The class of every handle: DocHandle with the backend's extensions. */
   #Handle: typeof DocHandle
 
-  /** A backend whose type names its handle extensions gives typed handles. */
-  constructor(config: RepoConfig & { backend: ExtendedBackend<X> })
-  /** Any other backend gives plain handles. The rest parameter only keeps
-   * TypeScript from taking `X` from where the Repo is used: it rejects
-   * `const r: Repo<typeof extension> = new Repo()`. */
-  constructor(config?: RepoConfig, ...plain: [X] extends [never] ? [] : [never])
   constructor({
     backend,
     id = crypto.randomUUID() as RepoId,
-  }: RepoConfig = {}) {
+  }: RepoConfig<X> = {}) {
     super()
     if (typeof id !== "string" || !id)
       throw new TypeError("id must be a nonempty string")
@@ -436,12 +432,12 @@ export type AsHandle<A, R extends Repo = Repo> = 0 extends 1 & A
     ? A
     : HandleOf<R, A>
 
-export interface RepoConfig {
+export interface RepoConfig<X extends HandleExtensionSpec = {}> {
   /**
    * Owns storage and synchronization; closed by {@link Repo.shutdown}.
    * Defaults to a {@link MemoryBackend}: no persistence and no peers.
    */
-  backend?: SedimentreeBackend
+  backend?: SedimentreeBackend<X>
   /**
    * Identifies this Repo instance; a random UUID by default. Must be unique
    * among concurrently live Repos: backend features (e.g. ephemeral
@@ -458,10 +454,10 @@ export interface AbortOptions {
 
 export type RepoFindOptions = AbortOptions
 export type DeleteDocumentPayload = { documentId: DocumentId }
-export type DocumentPayload<X extends HandleExtension = never> = {
+export type DocumentPayload<X extends HandleExtensionSpec = {}> = {
   handle: ExtendedHandle<any, X>
 }
-export interface RepoEvents<X extends HandleExtension = never> {
+export interface RepoEvents<X extends HandleExtensionSpec = {}> {
   document: (payload: DocumentPayload<X>) => void
   "delete-document": (payload: DeleteDocumentPayload) => void
   "unavailable-document": (payload: DeleteDocumentPayload) => void

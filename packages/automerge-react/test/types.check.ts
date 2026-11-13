@@ -49,8 +49,8 @@ export function component(url: any) {
   const memoryRepo = new Repo({ backend: new MemoryBackend() })
   // @ts-expect-error provider rejects a plain Repo
   RepoProvider({ value: memoryRepo })
-  // Also inline, where TypeScript could take the Repo's type from its use.
-  // @ts-expect-error
+  // Known gap: inline, the Repo's spec is taken from the provider's type, so
+  // a plain construction passes. A Repo built elsewhere does not (above).
   RepoProvider({ value: new Repo({ backend: new MemoryBackend() }) })
   const typeOnly = createRepoHooks<typeof repo>()
   typeOnly.useDocHandle<Todo>(url, { suspense: true }).broadcast("t")

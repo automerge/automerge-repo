@@ -1,16 +1,16 @@
 import type { next as A } from "@automerge/automerge/slim"
-import type { ExtendedHandle } from "./DocHandle.js"
-import type { HandleExtension } from "./sedimentree/extension.js"
+import type { DocHandle } from "./DocHandle.js"
 import type { PeerId, UrlHeads } from "./types.js"
 
 /**
- * These are the events that this DocHandle emits to external listeners. `X`
- * names the handle's extensions; payloads carry the handle with them.
+ * These are the events that this DocHandle emits to external listeners.
+ * Payloads carry the handle with them, typed as a plain handle: a listener
+ * that needs a backend extension's members uses the handle it attached to.
  */
-export interface DocHandleEvents<T, X extends HandleExtension = never> {
-  "heads-changed": (payload: DocHandleHeadsChangedPayload<T, X>) => void
-  change: (payload: DocHandleChangePayload<T, X>) => void
-  delete: (payload: DocHandleDeletePayload<T, X>) => void
+export interface DocHandleEvents<T> {
+  "heads-changed": (payload: DocHandleHeadsChangedPayload<T>) => void
+  change: (payload: DocHandleChangePayload<T>) => void
+  delete: (payload: DocHandleDeletePayload<T>) => void
   /**
    * A peer reported its heads. Reports received before the handle is ready
    * are delivered once, per peer with its latest heads, shortly after it
@@ -20,24 +20,18 @@ export interface DocHandleEvents<T, X extends HandleExtension = never> {
 }
 
 /** Emitted when this document's heads have changed */
-export interface DocHandleHeadsChangedPayload<
-  T,
-  X extends HandleExtension = never,
-> {
-  handle: ExtendedHandle<T, X>
+export interface DocHandleHeadsChangedPayload<T> {
+  handle: DocHandle<T>
   doc: A.Doc<T>
 }
 
 /** @deprecated Use {@link DocHandleHeadsChangedPayload}. */
-export type DocHandleEncodedChangePayload<
-  T,
-  X extends HandleExtension = never,
-> = DocHandleHeadsChangedPayload<T, X>
+export type DocHandleEncodedChangePayload<T> = DocHandleHeadsChangedPayload<T>
 
 /** Emitted when this document has changed */
-export interface DocHandleChangePayload<T, X extends HandleExtension = never> {
+export interface DocHandleChangePayload<T> {
   /** The handle that changed */
-  handle: ExtendedHandle<T, X>
+  handle: DocHandle<T>
   /**
    * The value after the change, scoped to this handle. For a root handle
    * this is the whole document; for a sub-handle it is the value at the
@@ -66,8 +60,8 @@ export interface DocHandleChangePayload<T, X extends HandleExtension = never> {
 }
 
 /** Emitted when this document is deleted */
-export interface DocHandleDeletePayload<T, X extends HandleExtension = never> {
-  handle: ExtendedHandle<T, X>
+export interface DocHandleDeletePayload<T> {
+  handle: DocHandle<T>
 }
 
 /** Emitted when we have new remote heads for this document */

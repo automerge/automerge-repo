@@ -4,19 +4,18 @@ import { DocHandle, extendHandle, instanceMembers } from "../src/DocHandle.js"
 import { Repo } from "../src/Repo.js"
 import {
   checkHandleExtensions,
-  type ExtensionTypes,
+  defineExtension,
+  provides,
   type HandleExtension,
-  type SedimentreeEvent,
   type SedimentreeSession,
 } from "../src/sedimentree/index.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import { scriptedBackend } from "./helpers/scriptedBackend.js"
 
-interface PingTypes extends ExtensionTypes {
-  kind: "ping"
+/** What `ping` adds to the handles of a Repo on a backend listing it. */
+interface PingSpec {
   members: { ping(): Promise<string> }
   events: { pong: { n: number } }
-  inbound: number | "throw"
 }
 
 /** The session `ping` needs of its backend. */
@@ -25,21 +24,20 @@ interface PingSession extends SedimentreeSession {
 }
 
 /** Asks its backend to answer, and reports the backend's `pong`s. */
-const ping: HandleExtension<PingTypes, PingSession> = {
+const ping = defineExtension<PingSession, PingSpec, number | "throw">({
   kind: "ping",
-  extend: (base, context) =>
-    class extends base {
-      async ping(): Promise<string> {
-        const { session, repoId, documentId } = context(this)
-        if (!session) throw new Error("No active session")
-        return session.ping(`${repoId}/${documentId}`)
-      }
+  members: {
+    async ping(context): Promise<string> {
+      const session = context.requireSession()
+      const { repoId, documentId } = context
+      return session.ping(`${repoId}/${documentId}`)
     },
+  },
   receive(context, payload) {
     if (payload === "throw") throw new Error("receive failed")
     context.emit("pong", { n: payload })
   },
-}
+})
 
 describe("backend handle extensions", () => {
   const repos: Repo[] = []
@@ -52,7 +50,7 @@ describe("backend handle extensions", () => {
   async function setup({ answers = true } = {}) {
     const scripted = scriptedBackend()
     const backend = Object.assign(scripted.backend, {
-      handleExtensions: [ping] as const,
+      handleExtensions: provides<PingSpec>(ping),
     })
     const repo = new Repo({ backend })
     repos.push(repo)

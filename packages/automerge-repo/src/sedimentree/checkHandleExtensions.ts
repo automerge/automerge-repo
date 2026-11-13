@@ -1,5 +1,5 @@
 import type { DocumentId } from "../types.js"
-import type { HandleExtension } from "./extension.js"
+import type { AnyHandleExtension } from "./extension.js"
 
 /**
  * For the tests of a package that provides handle extensions: throws unless
@@ -14,7 +14,7 @@ import type { HandleExtension } from "./extension.js"
  * @experimental
  */
 export async function checkHandleExtensions(
-  extensions: readonly HandleExtension[]
+  extensions: readonly AnyHandleExtension[]
 ): Promise<void> {
   // Loaded on use, so that this entry point stays free of Repo's runtime.
   const { extendHandle } = await import("../DocHandle.js")
