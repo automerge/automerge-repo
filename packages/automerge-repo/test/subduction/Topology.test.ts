@@ -517,11 +517,11 @@ describe("Tab → Worker → Server topology", () => {
     expect(bobHandle.doc()!.value).toBe(42)
   }, 10_000)
 
-  it("recovers from unavailable to ready when data arrives later", async () => {
-    // Bob tries to find a doc that doesn't exist yet — his query
-    // transitions to "unavailable". Then Alice creates the doc and
-    // syncs it. Bob's subscription-based recovery picks it up and
-    // the query transitions to "ready".
+  it("stays loading while the server is unreachable, then becomes ready when it returns", async () => {
+    // Bob tries to find a doc while the server is down. His websocket
+    // loop is between reconnect attempts, not given up, so the query
+    // waits in "loading" rather than reporting "unavailable". Once the
+    // server comes back with Alice's data, the query becomes "ready".
     const server = await startServer()
 
     // Alice creates a doc and waits for it to reach the server
@@ -540,7 +540,7 @@ describe("Tab → Worker → Server topology", () => {
     await server.stop()
 
     // Bob connects to the (dead) server and tries to find Alice's doc.
-    // The query goes "unavailable" because the server is down.
+    // The reconnect loop is still retrying, so the query stays "loading".
     const pair2 = createTabWorkerPair("bob", server.url)
     const progress = pair2.tab.findWithProgress<{ value: number }>(
       aliceHandle.url
@@ -551,18 +551,19 @@ describe("Tab → Worker → Server topology", () => {
       if (!states.includes(s.state)) states.push(s.state)
     })
 
-    await awaitProgress(progress, s => s.state === "unavailable", {
-      timeout: 5000,
-    })
-    expect(states).toContain("unavailable")
+    // Long enough for several failed reconnect attempts.
+    await wait(3000)
+    expect(progress.peek().state).toBe("loading")
+    expect(states).not.toContain("unavailable")
 
     // Restart the server (with the same storage — Alice's data persists)
     await server.restart({ clearStorage: false })
 
-    // Bob's reconnect should eventually sync and recover to "ready"
+    // Bob's reconnect should eventually sync and become "ready"
     await awaitProgress(progress, s => s.state === "ready", { timeout: 8000 })
 
     expect(states).toContain("ready")
+    expect(states).not.toContain("unavailable")
     const readyState = progress.peek()
     if (readyState.state === "ready") {
       expect(readyState.handle.doc()!.value).toBe(42)

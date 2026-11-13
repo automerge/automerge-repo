@@ -1,10 +1,14 @@
 /**
- * Regression: first-open sync must not call getBlobs twice.
+ * Regression: first-open sync must not load blobs through `getBlobs`.
  *
  * `#doSync` used to load blobs reactively after every sync that received
  * data, and `#loadBlobsAndTransition` would load again when transitioning
  * out of "initializing". That doubled storage reads on the critical
  * first-load path.
+ *
+ * Blobs are now read id-keyed straight from the storage bridge, with
+ * `getBlobs` only as a fallback when that read throws. A first open does
+ * one local-first read at attach and one after the sync round.
  */
 
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -83,7 +87,7 @@ describe("SubductionSource blob load deduplication", () => {
     cleanups.length = 0
   })
 
-  it("calls getBlobs once when opening a document for the first time", async () => {
+  it("does not fall back to getBlobs when opening a document for the first time", async () => {
     const server = await startSubductionServer()
     cleanups.push(() => server.close())
 
@@ -111,7 +115,7 @@ describe("SubductionSource blob load deduplication", () => {
     const fetched = await reader.find<{ text: string }>(handle.url)
 
     expect(fetched.doc()?.text).toBe("hello")
-    expect(getBlobsCalls).toBe(1)
+    expect(getBlobsCalls).toBe(0)
   })
 
   it("still receives live updates after the document is running", async () => {

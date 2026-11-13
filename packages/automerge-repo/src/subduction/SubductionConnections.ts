@@ -28,7 +28,9 @@ export class SubductionConnections implements ConnectionManager {
 
   isConnecting(): boolean {
     for (const state of this.#connectionStates.values()) {
-      if (state === "connecting") return true
+      // "awaiting-reconnect" counts: the loop is between attempts, not given
+      // up, so a query should wait rather than report unavailable.
+      if (state === "connecting" || state === "awaiting-reconnect") return true
     }
     return false
   }

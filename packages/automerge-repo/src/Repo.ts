@@ -136,6 +136,8 @@ export class Repo extends EventEmitter<RepoEvents> {
     subductionTimeouts,
     subductionCompactionDeleteConcurrency,
     subductionBlobInterceptor,
+    subductionSaveThrottle,
+    headsChannel,
   }: RepoConfig = {}) {
     super()
     this.#peerId = peerId
@@ -213,6 +215,8 @@ export class Repo extends EventEmitter<RepoEvents> {
       timeouts: subductionTimeouts,
       compactionDeleteConcurrency: subductionCompactionDeleteConcurrency,
       blobInterceptor: subductionBlobInterceptor,
+      saveThrottle: subductionSaveThrottle,
+      headsChannel,
       onRemoteHeadsChanged: (documentId, storageId, heads, timestamp) => {
         const handle = this.#queries[documentId]?.handle
         if (handle) {
@@ -930,11 +934,12 @@ export class Repo extends EventEmitter<RepoEvents> {
    * @param documentId - documentId of the DocHandle to remove from handleCache, if present in cache.
    */
   async removeFromCache(documentId: DocumentId): Promise<void> {
-    for (const source of this.#sources.values()) {
+    const detached = [...this.#sources.values()].map(source =>
       source.detach(documentId)
-    }
+    )
     delete this.#queries[documentId]
     this.#syncStateTracker.delete(documentId)
+    await Promise.all(detached)
   }
 
   async shutdown() {
@@ -1060,8 +1065,11 @@ export interface RepoConfig {
     adapter: NetworkAdapterInterface
     serviceName: string
     /** Whether to initiate ("connect") or accept ("accept") the subduction
-     *  handshake for peers on this adapter. Defaults to "connect". */
-    role?: "connect" | "accept"
+     *  handshake for peers on this adapter. "mesh" decides per peer, for
+     *  adapters where every node sees every other one (e.g. a
+     *  BroadcastChannel): the side whose peer id sorts lower initiates.
+     *  Defaults to "connect". */
+    role?: "connect" | "accept" | "mesh"
   }[]
 
   /**
@@ -1088,6 +1096,14 @@ export interface RepoConfig {
    * `storage` when only one of the two Repos runs the interceptor.
    */
   subductionBlobInterceptor?: BlobInterceptor
+
+  /**
+   * How long, in ms, a document's subduction save waits for further changes
+   * to batch with. Defaults to 100.
+   */
+  subductionSaveThrottle?: number
+
+  headsChannel?: string
 }
 
 /** A function that determines whether we should share a document with a peer

@@ -37,7 +37,7 @@ export interface DocumentSource {
   attach(query: DocumentQuery<unknown>): void
 
   /** Called when a document is removed from the repo. */
-  detach(documentId: DocumentId): void
+  detach(documentId: DocumentId): void | Promise<void>
 
   shareConfigChanged(): void
 

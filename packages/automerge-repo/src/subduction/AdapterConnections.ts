@@ -52,7 +52,7 @@ export class AdapterConnections implements ConnectionManager {
   addAdapter(
     adapter: NetworkAdapterInterface,
     serviceName: string,
-    role: "connect" | "accept"
+    role: "connect" | "accept" | "mesh"
   ) {
     this.#adapters.push(adapter)
     adapter.on("peer-candidate", ({ peerId }) => {
@@ -77,7 +77,7 @@ export class AdapterConnections implements ConnectionManager {
     adapter: NetworkAdapterInterface,
     serviceName: string,
     peerId: PeerId,
-    role: "connect" | "accept"
+    role: "connect" | "accept" | "mesh"
   ) {
     try {
       const subduction = await this.#subduction
@@ -86,10 +86,12 @@ export class AdapterConnections implements ConnectionManager {
         this.#localPeerId,
         peerId
       )
-      if (role === "accept") {
-        await subduction.acceptTransport(transport, serviceName)
-      } else {
+      const initiate =
+        role === "mesh" ? this.#localPeerId < peerId : role !== "accept"
+      if (initiate) {
         await subduction.connectTransport(transport, serviceName)
+      } else {
+        await subduction.acceptTransport(transport, serviceName)
       }
     } catch {
       // Transport connection failed (e.g. peer disconnected during handshake)
