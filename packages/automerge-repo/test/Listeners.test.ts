@@ -74,6 +74,34 @@ describe("handle listeners", () => {
     expect(handle.emit("remote-heads", {} as any)).toBe(false)
   })
 
+  it("removes a once() listener with off(event, fn)", () => {
+    const { listeners, handle, edit } = setup()
+    const baseline = listeners.retainedCount
+    let calls = 0
+    const fn = () => calls++
+    handle.once("change", fn)
+    expect(handle.listeners("change")).toEqual([fn])
+    handle.off("change", fn)
+    void edit()
+    expect(calls).toBe(0)
+    expect(listeners.retainedCount).toBe(baseline)
+  })
+
+  it.each([
+    ["on() after once()", "once", "on"],
+    ["once() after on()", "on", "once"],
+  ] as const)("keeps a listener permanent with %s", (_, first, second) => {
+    const { handle, edit } = setup()
+    let calls = 0
+    const fn = () => calls++
+    handle[first]("change", fn)
+    handle[second]("change", fn)
+    expect(handle.listenerCount("change")).toBe(1)
+    void edit()
+    void edit()
+    expect(calls).toBe(2)
+  })
+
   it("ignores off(event, null)", () => {
     const { handle } = setup()
     handle.on("change", () => {})

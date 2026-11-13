@@ -5,22 +5,26 @@ import type { Logger } from "./Logger.js"
 type Listener = (payload: any) => void
 
 /**
- * Per-document listener storage: `handle → event → callbacks`. Strong on
- * handles, so any handle with a listener is retained.
+ * Per-document listener storage: `handle → event → callback → once`. Strong
+ * on handles, so any handle with a listener is retained.
  *
  * @internal
  */
 export class Listeners {
-  readonly #listeners = new Map<DocHandle<any>, Map<string, Set<Listener>>>()
+  readonly #listeners = new Map<
+    DocHandle<any>,
+    Map<string, Map<Listener, boolean>>
+  >()
 
   constructor(private readonly log: Logger) {}
 
-  add(handle: DocHandle<any>, event: string, fn: Listener): void {
+  /** A callback is stored once per event; if added both ways, permanent wins. */
+  add(handle: DocHandle<any>, event: string, fn: Listener, once = false): void {
     let m = this.#listeners.get(handle)
     if (!m) this.#listeners.set(handle, (m = new Map()))
     let s = m.get(event)
-    if (!s) m.set(event, (s = new Set()))
-    s.add(fn)
+    if (!s) m.set(event, (s = new Map()))
+    s.set(fn, (s.get(fn) ?? true) && once)
   }
 
   /** With `fn` undefined, removes every listener for `event`. */
@@ -42,7 +46,7 @@ export class Listeners {
   }
 
   listeners(handle: DocHandle<any>, event: string): Listener[] {
-    return [...(this.#listeners.get(handle)?.get(event) ?? [])]
+    return [...(this.#listeners.get(handle)?.get(event)?.keys() ?? [])]
   }
 
   count(handle: DocHandle<any>, event: string): number {
@@ -66,14 +70,17 @@ export class Listeners {
   }
 
   /**
-   * Deliver `event` on `handle` to its listeners. Snapshots the set so
-   * once-handlers can self-remove without perturbing the loop. Swallows
-   * per-listener exceptions.
+   * Deliver `event` on `handle` to its listeners, from a snapshot. A
+   * `once` callback is removed just before it runs, unless re-added as
+   * permanent meanwhile. Swallows per-listener exceptions.
    */
   emit(handle: DocHandle<any>, event: string, payload: unknown): boolean {
     const s = this.#listeners.get(handle)?.get(event)
     if (!s?.size) return false
-    for (const fn of [...s]) {
+    for (const fn of [...s.keys()]) {
+      // Read live: the event's map is replaced if it empties mid-dispatch.
+      if (this.#listeners.get(handle)?.get(event)?.get(fn))
+        this.remove(handle, event, fn)
       try {
         fn(payload)
       } catch (e) {

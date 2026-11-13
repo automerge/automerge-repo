@@ -846,12 +846,7 @@ export class DocHandle<T> {
     event: E,
     fn: DocHandleEvents<T>[E]
   ): this {
-    const listeners = this.#state.listeners
-    const wrapper = (payload: unknown) => {
-      listeners.remove(this, event as string, wrapper)
-      ;(fn as any)(payload)
-    }
-    listeners.add(this, event as string, wrapper)
+    this.#state.listeners.add(this, event as string, fn as any, true)
     return this
   }
 
