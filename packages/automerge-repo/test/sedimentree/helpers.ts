@@ -1,5 +1,8 @@
 import { expect } from "vitest"
-import type { SedimentreeEvent } from "../../src/sedimentree/index.js"
+import type {
+  AnyExtensionEvent,
+  SedimentreeEvent,
+} from "../../src/sedimentree/index.js"
 import {
   checkpointId,
   commitId,
@@ -10,6 +13,9 @@ import type {
   FragmentRecord,
   LooseCommitRecord,
 } from "../../src/sedimentree/index.js"
+
+/** A session event stream, as backends type it. */
+type Events = AsyncIterator<SedimentreeEvent | AnyExtensionEvent>
 
 export const treeId = (n = 1) =>
   sedimentreeId(n.toString(16).padStart(32, "0").padEnd(64, "0"))
@@ -55,7 +61,7 @@ export async function next<T>(iterator: AsyncIterator<T>): Promise<T> {
 }
 
 export async function event<K extends SedimentreeEvent["type"]>(
-  iterator: AsyncIterator<SedimentreeEvent>,
+  iterator: Events,
   type: K
 ): Promise<Extract<SedimentreeEvent, { type: K }>> {
   const value = await next(iterator)
@@ -63,7 +69,7 @@ export async function event<K extends SedimentreeEvent["type"]>(
   return value as Extract<SedimentreeEvent, { type: K }>
 }
 
-export async function initial(iterator: AsyncIterator<SedimentreeEvent>) {
+export async function initial(iterator: Events) {
   const records = []
   for (let i = 0; i < 100; i++) {
     const value = await next(iterator)

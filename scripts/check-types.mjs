@@ -9,6 +9,7 @@ const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 
 const PROJECTS = [
   "packages/automerge-repo/test/tsconfig.checks.json",
+  "packages/automerge-repo/test/sedimentree/tsconfig.json",
   "packages/automerge-repo-subduction/test/tsconfig.json",
   "packages/automerge-react/test/tsconfig.types.json",
   "packages/automerge-repo-solid-primitives/tsconfig.test.json",
