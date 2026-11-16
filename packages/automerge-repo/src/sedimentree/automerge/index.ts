@@ -65,15 +65,16 @@ export function extractNewCommits(
   before: A.Doc<unknown>,
   after: A.Doc<unknown>
 ): LooseCommitRecord[] {
-  return A.getChangesSince(after, A.getHeads(before)).map(blob => {
-    const change = A.decodeChange(blob)
-    return {
-      kind: "commit" as const,
-      id: commitId(change.hash),
-      parents: canonicalIds(change.deps),
-      blob: new Uint8Array(blob),
-    }
-  })
+  const heads = A.getHeads(before)
+  // Both list changes through the same internal routine, so they share an
+  // order; metadata avoids decoding every op of each change.
+  const meta = A.getChangesMetaSince(after, heads)
+  return A.getChangesSince(after, heads).map((blob, i) => ({
+    kind: "commit" as const,
+    id: commitId(meta[i].hash),
+    parents: canonicalIds(meta[i].deps),
+    blob: new Uint8Array(blob),
+  }))
 }
 
 /**
