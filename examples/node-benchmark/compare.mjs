@@ -3,6 +3,7 @@ import { mkdtemp, readFile, mkdir, writeFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { largeLabel } from "../browser-benchmark/src/large.ts"
 import {
   prepare,
   readIndex,
@@ -13,6 +14,13 @@ import {
 const directory = fileURLToPath(new URL(".", import.meta.url))
 const smoke = process.argv.includes("--smoke")
 const profile = process.argv.includes("--profile")
+const large = process.argv.includes("--large")
+// Large fixture labels to run, e.g. --only=records-8,records-saved-32.
+const only =
+  process.argv
+    .find(arg => arg.startsWith("--only="))
+    ?.slice(7)
+    .split(",") ?? null
 const runs = Number(
   process.argv.find(arg => arg.startsWith("--runs="))?.slice(7) ?? 3
 )
@@ -25,6 +33,62 @@ if (names.some(name => !/^[a-z][a-z0-9-]*$/.test(name)))
 if (names.some(name => !["main", "subductionjs", "poc"].includes(name)))
   throw new Error("Supported targets: main, subductionjs, poc")
 const temp = await mkdtemp(join(tmpdir(), "automerge-node-bench-"))
+
+// One process per large fixture and scenario group; a crashed process
+// becomes a failed sample.
+async function runLarge(name, info, profilePath, revision) {
+  const manifest = JSON.parse(
+    await readFile(
+      join(directory, "../browser-benchmark/public/fixtures/v1/large.json"),
+      "utf8"
+    )
+  )
+  const fixtures = manifest.files.filter(fixture =>
+    smoke
+      ? largeLabel(fixture) === "records-8"
+      : !only || only.includes(largeLabel(fixture))
+  )
+  const merged = { target: name, revision, samples: [], maxRss: {} }
+  for (const fixture of fixtures) {
+    for (const group of ["change", "import", "merge"]) {
+      const label = `${largeLabel(fixture)} ${group}`
+      const output = join(temp, `${name}-${largeLabel(fixture)}-${group}.json`)
+      try {
+        execFileSync(
+          process.execPath,
+          [
+            // The largest fixtures hold millions of rows in JS.
+            "--max-old-space-size=16384",
+            join(directory, "large.mjs"),
+            JSON.stringify({
+              target: name,
+              directory: info?.path,
+              runs,
+              output,
+              profile: profilePath,
+              fixture: fixture.name,
+              group,
+            }),
+          ],
+          { cwd: directory, stdio: "inherit", env: process.env }
+        )
+        const result = JSON.parse(await readFile(output, "utf8"))
+        merged.node = result.node
+        merged.fixtureSha256 = result.fixtureSha256
+        merged.samples.push(...result.samples)
+        merged.maxRss[label] = result.maxRss
+      } catch (error) {
+        console.log(`${name} ${label} process failed: ${error}`)
+        merged.samples.push({
+          scenario: group,
+          fixture: largeLabel(fixture),
+          error: String(error),
+        })
+      }
+    }
+  }
+  return merged
+}
 const results = {}
 const resultDirectory = join(directory, "results")
 await mkdir(resultDirectory, { recursive: true })
@@ -55,6 +119,19 @@ try {
       )
     }
     const output = join(temp, `${name}.json`)
+    const stamp = new Date().toISOString().replaceAll(":", "-")
+    let profilePath = null
+    if (profile && large) {
+      // One profile per large scenario, in a directory per run.
+      profilePath = join(resultDirectory, `large-${stamp}`)
+      await mkdir(profilePath, { recursive: true })
+    } else if (profile)
+      profilePath = join(resultDirectory, `${name}-${stamp}.cpuprofile`)
+    const revision = info?.sha ?? command("git", ["rev-parse", "HEAD"])
+    if (large) {
+      results[name] = await runLarge(name, info, profilePath, revision)
+      continue
+    }
     const args = [
       join(directory, "load.mjs"),
       JSON.stringify({
@@ -63,12 +140,7 @@ try {
         runs,
         smoke,
         output,
-        profile: profile
-          ? join(
-              resultDirectory,
-              `${name}-${new Date().toISOString().replaceAll(":", "-")}.cpuprofile`
-            )
-          : null,
+        profile: profilePath,
       }),
     ]
     execFileSync(process.execPath, args, {
@@ -78,14 +150,89 @@ try {
     })
     results[name] = {
       ...JSON.parse(await readFile(output, "utf8")),
-      revision: info?.sha ?? command("git", ["rev-parse", "HEAD"]),
+      revision,
     }
   }
 } finally {
   await rm(temp, { recursive: true, force: true })
 }
-const hashes = new Set(Object.values(results).map(r => r.fixtureSha256))
+const hashes = new Set(
+  Object.values(results)
+    .map(r => r.fixtureSha256)
+    .filter(Boolean)
+)
 if (hashes.size !== 1) throw new Error("Fixture hashes differ")
+const median = values =>
+  [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]
+if (large) {
+  const keys = new Set(
+    Object.values(results).flatMap(result =>
+      result.samples.map(s => `${s.scenario} ${s.fixture}`)
+    )
+  )
+  const pick = (samples, key) => {
+    const values = samples.map(s => s[key]).filter(v => v != null)
+    return values.length ? +median(values).toFixed(1) : null
+  }
+  const largeSummary = Object.fromEntries(
+    [...keys].map(key => [
+      key,
+      Object.fromEntries(
+        names.map(name => {
+          const samples = results[name].samples.filter(
+            s => `${s.scenario} ${s.fixture}` === key
+          )
+          const ok = samples.filter(s => !s.error)
+          return [
+            name,
+            {
+              failures: samples.length - ok.length,
+              callMs: pick(ok, "callMs") ?? pick(ok, "callP95Ms"),
+              durableMs: pick(ok, "durableMs") ?? pick(ok, "totalMs"),
+              loadMs: pick(ok, "loadMs"),
+              storedMiB: ok[0]?.size
+                ? +(ok[0].size.bytes / 2 ** 20).toFixed(1)
+                : null,
+            },
+          ]
+        })
+      ),
+    ])
+  )
+  const file = join(
+    resultDirectory,
+    `large-${new Date().toISOString().replaceAll(":", "-")}.json`
+  )
+  await writeFile(
+    file,
+    JSON.stringify(
+      {
+        schema: 1,
+        mode: "node-memory-large",
+        smoke,
+        runs,
+        results,
+        largeSummary,
+      },
+      null,
+      2
+    ) + "\n"
+  )
+  console.table(
+    Object.entries(largeSummary).flatMap(([key, byTarget]) =>
+      Object.entries(byTarget).map(([target, value]) => ({
+        case: key,
+        target,
+        ...value,
+      }))
+    )
+  )
+  for (const [name, result] of Object.entries(results))
+    for (const [label, rss] of Object.entries(result.maxRss))
+      console.log(`${name} ${label} peak RSS ${(rss / 2 ** 20).toFixed(0)} MiB`)
+  console.log(`Saved ${file}`)
+  process.exit(0)
+}
 const importHashes = new Set(
   Object.values(results).map(r => r.importFixtureSha256)
 )
@@ -95,8 +242,6 @@ const mixedHashes = new Set(
 )
 if (mixedHashes.size !== 1) throw new Error("Mixed fixture hashes differ")
 const counts = smoke ? [10] : [10, 100, 500, 1000]
-const median = values =>
-  [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]
 const summary = Object.fromEntries(
   counts.map(count => [
     count,

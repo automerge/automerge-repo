@@ -1,16 +1,13 @@
 // Runs in a separate Node process per target, to isolate each version's runtime.
-// Fullfat initializes Automerge's WASM for this process.
-// eslint-disable-next-line no-restricted-imports
-import { splice as currentSplice } from "@automerge/automerge"
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
-import { realpathSync } from "node:fs"
 import { createHash } from "node:crypto"
-import { fileURLToPath, pathToFileURL } from "node:url"
+import { fileURLToPath } from "node:url"
 import { join, relative } from "node:path"
 import { performance } from "node:perf_hooks"
 import { Session as InspectorSession } from "node:inspector"
 import { deserialize, serialize } from "node:v8"
 import { MemoryStore } from "./memory.mjs"
+import { loadTarget } from "./targets.mjs"
 import {
   bucketSummary,
   canonicalJson,
@@ -96,89 +93,10 @@ if (
   throw new Error("Missing mixed fixtures: run pnpm bench:fixtures")
 const mixedDocs = mixedManifest.docs.slice(0, mixedLoadCounts.at(-1))
 
-async function fromFile(path) {
-  return import(pathToFileURL(path).href)
-}
-
-let open
+const loaded = await loadTarget(target, directory)
+const { open, codePaths } = loaded
 // The branch's own Automerge `splice`, for text edits inside `change`.
-let splice = currentSplice
-// Built code the seeded mixed store depends on, for its cache key.
-let codePaths
-if (target === "poc") {
-  const root = fileURLToPath(new URL("../../", import.meta.url))
-  codePaths = [
-    join(root, "packages/automerge-repo/dist"),
-    join(root, "packages/automerge-repo-subduction/dist"),
-    realpathSync(
-      join(root, "packages/automerge-repo/node_modules/@automerge/automerge")
-    ),
-    realpathSync(
-      join(
-        root,
-        "packages/automerge-repo-subduction/node_modules/@automerge/subduction"
-      )
-    ),
-  ]
-  const { Repo } = await import("@automerge/automerge-repo")
-  await import("@automerge/subduction")
-  const { SubductionBackend } =
-    await import("@automerge/automerge-repo-subduction")
-  open = store => {
-    const backend = new SubductionBackend({ storage: store.bytes() })
-    const repo = new Repo({ backend })
-    return {
-      import: bytes => repo.import(bytes),
-      create: initial => repo.create(initial),
-      clone: handle => repo.clone(handle),
-      find: url => repo.find(url),
-      flush: () => repo.flush(),
-      close: async () => {
-        try {
-          await repo.shutdown()
-        } finally {
-          await backend.close()
-        }
-      },
-    }
-  }
-} else {
-  const base = join(directory, "packages/automerge-repo")
-  const { Repo } = await fromFile(join(base, "dist/entrypoints/fullfat.js"))
-  const automerge = realpathSync(
-    join(base, "node_modules/@automerge/automerge")
-  )
-  ;({ splice } = await fromFile(
-    join(automerge, "dist/mjs/entrypoints/slim.js")
-  ))
-  codePaths = [join(base, "dist"), automerge]
-  if (target === "subductionjs") {
-    const native = join(
-      base,
-      "node_modules/@automerge/automerge-subduction/dist/esm"
-    )
-    codePaths.push(realpathSync(native))
-    const { initSync } = await fromFile(join(native, "slim.js"))
-    const { wasmBase64 } = await fromFile(join(native, "wasm-base64.js"))
-    initSync({ module: Uint8Array.from(Buffer.from(wasmBase64, "base64")) })
-  }
-  open = store => {
-    const repo = new Repo({
-      storage: store.legacy(),
-      ...(target === "subductionjs"
-        ? { subductionWebsocketEndpoints: [] }
-        : {}),
-    })
-    return {
-      import: bytes => repo.import(bytes),
-      create: initial => repo.create(initial),
-      clone: async handle => repo.clone(handle),
-      find: url => repo.find(url),
-      flush: () => repo.flush(),
-      close: () => repo.shutdown(),
-    }
-  }
-}
+const { splice } = loaded.automerge
 
 const store = new MemoryStore()
 const seeded = open(store)
@@ -283,6 +201,7 @@ async function seedMixed() {
   const harness = [
     fileURLToPath(new URL("./load.mjs", import.meta.url)),
     fileURLToPath(new URL("./memory.mjs", import.meta.url)),
+    fileURLToPath(new URL("./targets.mjs", import.meta.url)),
     fileURLToPath(
       new URL("../browser-benchmark/src/mixed.ts", import.meta.url)
     ),

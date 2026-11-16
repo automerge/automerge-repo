@@ -1,6 +1,6 @@
 // Fullfat entrypoints initialize the branch's Automerge runtime.
 // eslint-disable-next-line no-restricted-imports
-import { splice } from "@automerge/automerge"
+import { ImmutableString, splice } from "@automerge/automerge"
 // eslint-disable-next-line no-restricted-imports
 import { Repo } from "@automerge/automerge-repo"
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
@@ -9,6 +9,7 @@ import type { Handle, Target } from "../target.js"
 export const target: Target = {
   id: "main",
   adapter: "legacy-storage",
+  ImmutableString,
   splice: splice as Target["splice"],
   open(database) {
     const storage = new IndexedDBStorageAdapter(database)

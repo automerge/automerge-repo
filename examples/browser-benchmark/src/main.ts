@@ -11,6 +11,7 @@ import {
   type MixedManifest,
   type ReplayApi,
 } from "./mixed.js"
+import { runLarge, type LargeResult } from "./largeRun.js"
 
 type Fixture = { name: string; sha256: string; bytes: number }
 type Manifest = {
@@ -159,7 +160,10 @@ const percentile = (values: number[], p: number) => {
 }
 
 let result: Result | undefined
+let largeResult: LargeResult | undefined
 const smoke = new URLSearchParams(location.search).has("smoke")
+// `?large` runs only the large-document scenarios; `?large=full` adds 64 MiB.
+const large = new URLSearchParams(location.search).get("large")
 const reseed = new URLSearchParams(location.search).has("reseed")
 const requestedEdits = Number(
   new URLSearchParams(location.search).get("edits") ?? (smoke ? 30 : 5000)
@@ -609,6 +613,7 @@ async function prepareStores() {
 }
 
 async function prepare() {
+  if (large !== null) return { reused: true }
   const { prepared, preparedMixed } = await prepareStores()
   return { reused: prepared.reused && preparedMixed.reused }
 }
@@ -956,6 +961,7 @@ async function run() {
   if (busy) throw new Error("Benchmark already running")
   busy = true
   result = undefined
+  largeResult = undefined
   runButton.disabled = true
   downloadButton.disabled = true
   loadRows.replaceChildren()
@@ -963,6 +969,26 @@ async function run() {
   writeRows.replaceChildren()
   report.textContent = "Running…"
   try {
+    if (large !== null) {
+      largeResult = await runLarge(
+        target,
+        targetName,
+        (message, fraction) => progress(message, fraction, true),
+        { full: large === "full", smoke }
+      )
+      progress("Complete", 1, true)
+      downloadButton.disabled = false
+      report.textContent = JSON.stringify(
+        largeResult.samples.map(({ longTasksMs, ...sample }) => ({
+          ...sample,
+          longTasks: longTasksMs.length,
+          longestTaskMs: longTasksMs.length ? Math.max(...longTasksMs) : null,
+        })),
+        null,
+        2
+      )
+      return largeResult
+    }
     progress("Reading fixture manifest", 0, true)
     const importSet = await importFixtures()
     const { manifest, hash, mixed, prepared, preparedMixed } =
@@ -1202,13 +1228,14 @@ runButton.addEventListener("click", () => {
   void run().catch(console.error)
 })
 downloadButton.addEventListener("click", () => {
-  if (!result) return
+  const output = result ?? largeResult
+  if (!output) return
   const url = URL.createObjectURL(
-    new Blob([JSON.stringify(result, null, 2)], { type: "application/json" })
+    new Blob([JSON.stringify(output, null, 2)], { type: "application/json" })
   )
   const link = document.createElement("a")
   link.href = url
-  link.download = `repo-browser-benchmark-${result.timestamp.replaceAll(":", "-")}.json`
+  link.download = `repo-browser-benchmark-${output.timestamp.replaceAll(":", "-")}.json`
   link.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 })
@@ -1218,8 +1245,12 @@ declare global {
     benchmark: {
       run: typeof run
       prepare: typeof prepare
-      getResult: () => Result | undefined
+      getResult: () => Result | LargeResult | undefined
     }
   }
 }
-window.benchmark = { run, prepare, getResult: () => result }
+window.benchmark = {
+  run,
+  prepare,
+  getResult: () => result ?? largeResult,
+}

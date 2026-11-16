@@ -49,6 +49,20 @@ adapter lookup timings for 100 trees × 48 records; timings are **not** a gate.
 load case only (10 with `--smoke`, otherwise 1,000). Open it in Chrome DevTools;
 profiling adds overhead, so use unprofiled runs for comparisons.
 
+## Large documents
+
+```sh
+node --max-old-space-size=12288 examples/browser-benchmark/generate.mjs --large   # once, ~20 min
+pnpm bench:node --large --runs=1                       # every fixture; --only=records-8,records-saved-32 to filter
+pnpm bench:node --large --smoke --runs=1 --profile     # 8 MiB records only, CPU profile per scenario
+node examples/node-benchmark/profile-summary.mjs results/large-<time>/poc-merge-records-8.cpuprofile
+node examples/node-benchmark/large-phases.mjs --shape=records --mib=8,32 [--basis=saved]   # poc steps, outside Repo
+```
+
+`--large` replaces the normal suite with the large-document scenarios described in `../browser-benchmark/README.md` ("Large documents"): one large `change`, `import`, `merge` into an existing document, and 100 small `edits`, each followed by a reload check. Each fixture and scenario group (`change`, `import` with `edits`, `merge`) runs in its own Node process per target, since an Automerge WASM panic or out-of-memory poisons the module for the rest of the process; a crashed process is reported as a failed `process` sample. Reports (`results/large-<time>.json`) give per-scenario call, durable and reload times, stored bytes and peak RSS per fixture and target. Building the saved-size fixtures needs the larger heap shown above; each fixture process gets 16 GiB. `--profile` saves one `.cpuprofile` per scenario for the first round, in `results/large-<time>/`; `profile-summary.mjs` lists self and inclusive time per function.
+
+`large-phases.mjs` runs only on the current branch, one process per case (single change and 64-change history per size), and times each step of storing a large delta without Repo: building it, `getChangesSince`, `decodeChange`, `getChangesMetaSince`, `saveSince` (what `main` writes), the current and candidate `extractNewCommits`, `extractFragments`, `extractRecords`, `A.diff`, `save` and `load`.
+
 The browser benchmark remains the check for UI responsiveness and IndexedDB
 performance. Changes in Node's WASM/native initialization, memory behavior,
 or fixture shape can change these results; compare only runs with matching

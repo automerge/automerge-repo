@@ -9,6 +9,10 @@ const root = fileURLToPath(new URL("../../", import.meta.url))
 const smoke = process.argv.includes("--smoke")
 const reseed = process.argv.includes("--reseed")
 const edits = process.argv.find(arg => arg.startsWith("--edits="))?.slice(8)
+// `--large` runs only the large-document scenarios; `--large=full` adds 64 MiB.
+const large = process.argv
+  .find(arg => arg === "--large" || arg.startsWith("--large="))
+  ?.slice(8)
 const targetName = process.env.BENCH_NAME ?? "poc"
 const runs = Number(
   process.argv.find(arg => arg.startsWith("--runs="))?.slice(7) ?? 1
@@ -39,6 +43,7 @@ try {
   if (smoke) params.set("smoke", "")
   if (reseed) params.set("reseed", "")
   if (edits) params.set("edits", edits)
+  if (large !== undefined) params.set("large", large)
   const url = `http://127.0.0.1:4173/${params.size ? `?${params}` : ""}`
   let ready = false
   for (let i = 0; i < 100; i++) {
@@ -120,7 +125,7 @@ try {
         browser: browser.browser()?.version(),
       }
       completed = output
-      const name = `browser-${targetName}-${smoke ? "smoke-" : ""}${new Date().toISOString().replaceAll(":", "-")}-${i + 1}.json`
+      const name = `browser-${targetName}-${large !== undefined ? "large-" : ""}${smoke ? "smoke-" : ""}${new Date().toISOString().replaceAll(":", "-")}-${i + 1}.json`
       await writeFile(
         join(directory, "results", name),
         JSON.stringify(output, null, 2) + "\n"

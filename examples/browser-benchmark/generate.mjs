@@ -6,9 +6,17 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { canonicalJson, mixedPlan, replayBatch } from "./src/mixed.ts"
+import {
+  largeInitial,
+  largeName,
+  largeParts,
+  largePlans,
+  largeSummary,
+} from "./src/large.ts"
 
 const args = process.argv.slice(2)
 const mixedOnly = args.includes("--mixed")
+const largeOnly = args.includes("--large")
 const count = Number(args.find(arg => !arg.startsWith("--")) ?? 1000)
 if (!Number.isSafeInteger(count) || count < 1 || count > 1000)
   throw new Error("Count must be an integer between 1 and 1000")
@@ -16,6 +24,42 @@ if (!Number.isSafeInteger(count) || count < 1 || count > 1000)
 const output = fileURLToPath(new URL("./public/fixtures/v1/", import.meta.url))
 await mkdir(output, { recursive: true })
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex")
+
+// Large documents are slow to build (~20 min in total), so they are only
+// generated on request, into their own manifest.
+if (largeOnly) {
+  const files = []
+  const api = { ImmutableString: A.ImmutableString, splice: A.splice }
+  for (const plan of largePlans()) {
+    const started = performance.now()
+    let doc = A.from(largeInitial(plan), {
+      actor: "3".padStart(32, "0"),
+    })
+    for (const mutate of largeParts(plan, api))
+      doc = A.change(doc, { time: 0 }, mutate)
+    const bytes = A.save(doc)
+    const name = largeName(plan)
+    await writeFile(join(output, name), bytes)
+    const summary = largeSummary(doc)
+    files.push({
+      ...plan,
+      name,
+      sha256: sha256(bytes),
+      bytes: bytes.length,
+      changeBytes: A.getAllChanges(doc).reduce((n, c) => n + c.length, 0),
+      units: summary.units,
+      last: summary.last,
+    })
+    console.log(
+      `Large fixture ${name}: ${bytes.length} bytes in ${((performance.now() - started) / 1000).toFixed(1)} s`
+    )
+  }
+  await writeFile(
+    join(output, "large.json"),
+    JSON.stringify({ version: 1, files }, null, 2) + "\n"
+  )
+  process.exit(0)
+}
 
 // Mixed documents are replayed by each target through its own Repo; this
 // plain-Automerge replay only records what each final document must contain.

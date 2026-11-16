@@ -52,6 +52,23 @@ Mixed loads time 100, 500 and 1,000 documents (50 with `?smoke`), each as one `f
 
 Results contain fixture hash, exact ref SHA, adapter, browser version, dirty flag, seed reuse/time, raw samples and summary medians/ranges relative to `main`. For a meaningful conclusion run three rounds, rather than judging a single warm-browser run. The edit workload does not yet overlap loads; add that as a separate scenario later.
 
+## Large documents
+
+`?large` (automation: `automate --large`) skips every other scenario and runs large-document writes instead; `?large=full` adds the 64 MiB records, 32 MiB JSON and saved-size fixtures. Generate the fixtures first with `node --max-old-space-size=12288 examples/browser-benchmark/generate.mjs --large` (~20 minutes; not part of `bench:fixtures`). Shapes and sizes are defined in `src/large.ts`. Sizes are approximate MiB of encoded change bytes, except `records-saved-32` and `records-saved-64`, which are sized by saved document (81 and 163 MiB of changes), since "a 32 MB document" can mean either:
+
+- `records`: rows of numbers, booleans and `ImmutableString`s; `decodeChange` costs ~100 ms/MiB, in the range reported for real large documents.
+- `json`: the same rows with plain strings, which Automerge 3 stores as text, one op per character (what `A.from(json)` produces).
+- `text`: one text field, capped at 4 MiB since it costs ~5x more per byte than `records`.
+
+Each fixture is a 64-change history. For each one, in a fresh database that is deleted afterwards:
+
+- `change`: one `handle.change` that inserts the fixture's whole content, as a paste or `A.from(json)` would.
+- `import`: `import()` of the saved fixture.
+- `merge`: `merge()` of the imported fixture (from another database) into an existing, unrelated document.
+- `edits`: 100 small edits to the imported document after a reload, yielding a frame every 10 edits.
+
+Samples record call time, time until durable, reload `find()` time (content checked), worst frame gap, long tasks, stored bytes and JS heap.
+
 ## Seeding investigation
 
 `pnpm --filter @automerge/automerge-repo-browser-benchmark diagnose` writes `results/seed-diagnosis.json` from a Node `DummySubductionStorageAdapter` experiment (1 vs 10 documents, 1/10/51/80 changes), counting storage loads and listings per seed. Compare read counts before trying to optimize; a Chrome CPU profile helps distinguish JavaScript decoding, native work, and IndexedDB transaction overhead.

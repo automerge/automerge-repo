@@ -28,6 +28,8 @@ export type Target = {
   id: string
   adapter: string
   open(database: string, stats?: StorageStats): Session
+  /** The branch's own Automerge `ImmutableString`, for large fixtures. */
+  ImmutableString: new (value: string) => unknown
   /** The branch's own Automerge `splice`, for text edits inside `change`. */
   splice: (
     doc: unknown,
