@@ -36,7 +36,7 @@ export interface SedimentreeBackend<X extends HandleExtensionSpec = {}> {
    * Features this backend adds to every handle of its Repo; none if absent.
    * Its sessions must implement whatever these need of a session. List them
    * with {@link provides}, which works out what they add; a plain array
-   * gives plain handles.
+   * gives plain handles. Must not change once a Repo uses the backend.
    *
    * @experimental
    */

@@ -24,7 +24,6 @@ import {
   BackendError,
   idBytes,
   sedimentreeId,
-  type AnyHandleExtension,
   type HandleExtensionSpec,
   type SedimentreeBackend,
   type SedimentreeId,
@@ -53,8 +52,6 @@ export class Repo<out X extends HandleExtensionSpec = {}> extends EventEmitter<
   #closed = false
   #shutdown?: Promise<void>
   #id: RepoId
-  /** The backend's handle extensions, by kind. */
-  #extensions: ReadonlyMap<string, AnyHandleExtension>
   /** The class of every handle: DocHandle with the backend's extensions. */
   #Handle: typeof DocHandle
 
@@ -67,9 +64,7 @@ export class Repo<out X extends HandleExtensionSpec = {}> extends EventEmitter<
       throw new TypeError("id must be a nonempty string")
     this.#backend = backend ?? new MemoryBackend()
     this.#id = id
-    const extensions = this.#backend.handleExtensions ?? []
-    this.#Handle = extendHandle(extensions)
-    this.#extensions = new Map(extensions.map(e => [e.kind, e]))
+    this.#Handle = extendHandle(this.#backend.handleExtensions ?? [])
   }
 
   /** This Repo instance's identity; see {@link RepoConfig.id}. */
@@ -223,7 +218,6 @@ export class Repo<out X extends HandleExtensionSpec = {}> extends EventEmitter<
       this.#backend,
       this.#id,
       initial,
-      this.#extensions,
       this.#Handle
     )
     const handle = this.#handle(document)

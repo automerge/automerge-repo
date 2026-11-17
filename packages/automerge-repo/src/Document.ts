@@ -9,7 +9,6 @@ import {
   recordHead,
   type CommitId,
   type AnyExtensionEvent,
-  type AnyHandleExtension,
   type ExtensionContext,
   type FragmentRecord,
   type HistoryMarker,
@@ -100,8 +99,7 @@ export class Document<T> {
     private backend: SedimentreeBackend,
     repoId: RepoId,
     initial?: A.Doc<T>,
-    /** The backend's extensions by kind, and the handle class built from them. */
-    private extensions: ReadonlyMap<string, AnyHandleExtension> = new Map(),
+    /** The handle class built from the backend's extensions. */
     readonly Handle: typeof DocHandle = DocHandle
   ) {
     this.#created = !!initial
@@ -364,8 +362,8 @@ export class Document<T> {
       // Typed by kind for whoever sends it; routed here by name alone.
       case "extension": {
         try {
-          this.extensions
-            .get(event.kind)
+          this.backend.handleExtensions
+            ?.find(extension => extension.kind === event.kind)
             ?.receive?.(this.extensionContext, event.payload)
         } catch (error) {
           this.#log("extension event failed: %o", error)
