@@ -51,7 +51,7 @@ describe("backend handle extensions", () => {
   async function setup({ answers = true } = {}) {
     const scripted = scriptedBackend()
     const backend = Object.assign(scripted.backend, {
-      handleExtensions: provides<PingSpec>(ping),
+      handleExtensions: provides(ping),
     })
     const repo = new Repo({ backend })
     repos.push(repo)

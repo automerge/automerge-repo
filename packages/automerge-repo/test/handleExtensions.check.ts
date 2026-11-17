@@ -7,6 +7,7 @@ import type { AsHandle, HandleOf } from "../src/Repo.js"
 import type { DocHandleChangePayload } from "../src/DocHandleEvents.js"
 import type { DocumentQuery, QueryState } from "../src/DocumentQuery.js"
 import type {
+  AnyHandleExtension,
   ExtensionsOf,
   HandleExtension,
   SedimentreeBackend,
@@ -24,20 +25,30 @@ interface ASpec {
 }
 interface BSpec {
   members: { b(): void }
-  events: {}
+  events: { "b-event": { s: string } }
 }
 /** The session extension `a` needs of its backend. */
 interface SessionA extends SedimentreeSession {
   ping(text: string): Promise<number>
 }
-declare const extA: HandleExtension<SessionA, ASpec["events"], { n: number }>
-declare const extB: HandleExtension
+declare const extA: HandleExtension<
+  SessionA,
+  ASpec["events"],
+  { n: number },
+  ASpec
+>
+declare const extB: HandleExtension<
+  SedimentreeSession,
+  BSpec["events"],
+  unknown,
+  BSpec
+>
 class BackendA extends MemoryBackend {
-  readonly handleExtensions = provides<ASpec>(extA)
+  readonly handleExtensions = provides(extA)
 }
-/** Several extensions declare the intersection of their specs. */
+/** Several extensions give the intersection of their specs. */
 class BackendAB extends MemoryBackend {
-  readonly handleExtensions = provides<ASpec & BSpec>(extA, extB)
+  readonly handleExtensions = provides(extA, extB)
 }
 declare const loose: SedimentreeBackend
 const url = "automerge:x" as any
@@ -128,7 +139,11 @@ async function members() {
   handle.view(handle.heads()).b()
   // Extension event payloads carry the extended handle.
   handle.on("a-event", ({ n, handle }) => handle.a() + n.toFixed())
+  // Each listed extension's events are there.
+  handle.on("b-event", ({ s, handle }) => handle.b() ?? s.toUpperCase())
   handle.on("change", () => {}).b()
+  // @ts-expect-error repoA does not list b's extension
+  ;(await repoA.find<Doc>(url)).on("b-event", () => {})
   // @ts-expect-error
   ;(await plainRepo.find<Doc>(url)).a()
   // @ts-expect-error
@@ -213,13 +228,13 @@ const implemented = {
 // A backend that declares its sessions as what its extension needs has that
 // checked where it opens them.
 class Serving extends MemoryBackend {
-  readonly handleExtensions = provides<ASpec>(extA)
+  readonly handleExtensions = provides(extA)
   override open(id: SedimentreeId): SessionA {
     return Object.assign(super.open(id), { ping: async () => 1 })
   }
 }
 class NotServing extends MemoryBackend {
-  readonly handleExtensions = provides<ASpec>(extA)
+  readonly handleExtensions = provides(extA)
   override open(id: SedimentreeId): SessionA {
     // @ts-expect-error its sessions lack `ping`
     return super.open(id)
@@ -268,5 +283,30 @@ const specOfA: Equal<ExtensionsOf<BackendA>, ASpec> = true
 const specOfAB: Equal<ExtensionsOf<BackendAB>, ASpec & BSpec> = true
 const specOfMemory: Equal<ExtensionsOf<MemoryBackend>, {}> = true
 void [specOfA, specOfAB, specOfMemory]
+
+// provides() reads each extension's spec: defineExtension's, or the one a
+// record states in its type. A record without one, or typed loosely, adds
+// nothing and leaves the others intact.
+declare const untypedExt: HandleExtension
+declare const anyExt: AnyHandleExtension
+const fromDefined = provides(defined, extB)
+const specOfDefined: Equal<
+  ExtensionsOf<{ handleExtensions: typeof fromDefined } & MemoryBackend>,
+  ASpec & BSpec
+> = true
+const withUntyped = provides(extA, untypedExt, anyExt)
+const specWithUntyped: Equal<
+  ExtensionsOf<{ handleExtensions: typeof withUntyped } & MemoryBackend>,
+  ASpec
+> = true
+const none = provides()
+const specOfNone: Equal<
+  ExtensionsOf<{ handleExtensions: typeof none } & MemoryBackend>,
+  {}
+> = true
+// The spec is inferred, not declared.
+// @ts-expect-error
+provides<ASpec>(untypedExt)
+void [specOfDefined, specWithUntyped, specOfNone]
 
 void [common, members, implemented, Serving, NotServing]

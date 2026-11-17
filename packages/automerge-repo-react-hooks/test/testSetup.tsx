@@ -31,7 +31,7 @@ const ephemeral = defineExtension<SedimentreeSession, EphemeralSpec>({
 })
 
 class EphemeralBackend extends MemoryBackend {
-  readonly handleExtensions = provides<EphemeralSpec>(ephemeral)
+  readonly handleExtensions = provides(ephemeral)
 }
 
 const repos = new Set<Repo<EphemeralSpec>>()

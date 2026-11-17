@@ -12,9 +12,9 @@ import type {
 } from "./extension.js"
 
 /**
- * An interface for storing and syncing sedimentrees. `X` declares what its
- * handle extensions add, so a Repo on the backend gives typed handles; a
- * backend typed as plain {@link SedimentreeBackend} gives plain ones.
+ * An interface for storing and syncing sedimentrees. `X` is what its handle
+ * extensions add, so a Repo on the backend gives typed handles; a backend
+ * typed as plain {@link SedimentreeBackend} gives plain ones.
  */
 export interface SedimentreeBackend<X extends HandleExtensionSpec = {}> {
   create(
@@ -35,8 +35,8 @@ export interface SedimentreeBackend<X extends HandleExtensionSpec = {}> {
   /**
    * Features this backend adds to every handle of its Repo; none if absent.
    * Its sessions must implement whatever these need of a session. List them
-   * with {@link provides} to declare what they add; a plain array gives
-   * plain handles.
+   * with {@link provides}, which works out what they add; a plain array
+   * gives plain handles.
    *
    * @experimental
    */
@@ -44,8 +44,8 @@ export interface SedimentreeBackend<X extends HandleExtensionSpec = {}> {
 }
 
 /**
- * The extensions a backend lists, claiming they add `X` to its handles; made
- * with {@link provides}.
+ * The extensions a backend lists, adding `X` to its handles; made with
+ * {@link provides}.
  */
 export type HandleExtensions<X extends HandleExtensionSpec> =
   readonly AnyHandleExtension[] & {
@@ -53,22 +53,39 @@ export type HandleExtensions<X extends HandleExtensionSpec> =
     readonly "~spec"?: X
   }
 
+/** The spec an extension carries; `{}` if it carries none, or `any`. */
+type SpecOf<E> = E extends { readonly "~spec"?: infer X }
+  ? 0 extends 1 & X
+    ? {}
+    : X
+  : {}
+
+/** `A & B`, leaving out an empty side so a single spec stays itself. */
+type Join<A, B> = {} extends A ? B : {} extends B ? A : A & B
+
+/** The intersection of the specs of a tuple of extensions. */
+type SpecsOf<L extends readonly unknown[]> = L extends readonly [
+  infer Head,
+  ...infer Rest,
+]
+  ? Join<SpecOf<Head>, SpecsOf<Rest>>
+  : {}
+
 /**
- * Declares that `extensions` add `X` (see {@link HandleExtensionSpec}) to
- * every handle of a Repo on the listing backend:
+ * Lists `extensions` for a backend: every handle of a Repo on it gets what
+ * they add, the intersection of their specs:
  *
  * ```ts
- * readonly handleExtensions = provides<MySpec>(mine)
+ * readonly handleExtensions = provides(mine, theirs)
  * ```
  *
- * The claim is the backend author's, not checked against the extensions;
- * each extension is checked against its own spec by {@link defineExtension}.
+ * A plain array declares nothing.
  *
  * @experimental
  */
-export function provides<X extends HandleExtensionSpec>(
-  ...extensions: readonly AnyHandleExtension[]
-): HandleExtensions<X> {
+export function provides<const L extends readonly AnyHandleExtension[]>(
+  ...extensions: L
+): HandleExtensions<SpecsOf<L>> {
   return extensions
 }
 

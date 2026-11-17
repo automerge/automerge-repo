@@ -71,6 +71,6 @@ export function defineExtension<
   P = unknown,
 >(
   definition: ExtensionDefinition<S, X, P>
-): HandleExtension<S, EventsOf<X>, P> {
+): HandleExtension<S, EventsOf<X>, P, X> {
   return definition
 }

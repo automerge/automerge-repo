@@ -1,5 +1,6 @@
 import {
   defineExtension,
+  provides,
   type AnyExtensionEvent,
   type SedimentreeBackend,
   type SedimentreeEvent,
@@ -77,7 +78,7 @@ export class EphemeralHub {
     const store = this.store
     const opened = new Set<SedimentreeSession>()
     return {
-      handleExtensions: [ephemeral],
+      handleExtensions: provides(ephemeral),
       create: (records, options) => store.create(records, options),
       store: (id, batch) => store.store(id, batch),
       flush: ids => store.flush(ids),

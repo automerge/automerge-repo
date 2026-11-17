@@ -3,25 +3,24 @@ import type { DocumentId, RepoId } from "../types.js"
 import type { SedimentreeSession } from "./backend.js"
 
 /**
- * What a backend's handle extensions add to every handle of its Repo, as a
- * type the backend declares with {@link provides}: the members its
- * extensions add and the events they emit. A backend with several
- * extensions declares the intersection of their specs.
+ * What a handle extension adds to every handle of its Repo: the members it
+ * adds and the events it emits. Each extension carries its own spec (see
+ * {@link defineExtension}); {@link provides} intersects the specs of the
+ * extensions a backend lists.
  *
  * ```ts
  * interface MySpec {
  *   members: { mine(): string }
  *   events: { "mine-event": { n: number } }
  * }
+ * const mine = defineExtension<MySession, MySpec>({ … })
  * class MyBackend implements SedimentreeBackend<MySpec> {
- *   readonly handleExtensions = provides<MySpec>(mine)
+ *   readonly handleExtensions = provides(mine)
  *   // …
  * }
  * ```
  *
- * The spec is declared, not inferred: it is the backend author's job that it
- * matches what the listed extensions actually add. Members may not depend on
- * the handle's document type.
+ * Members may not depend on the handle's document type.
  *
  * @experimental
  */
@@ -69,13 +68,15 @@ export type ExtensionEvents<T, X extends HandleExtensionSpec> = {
  * where the backend declares what `open()` returns.
  *
  * `E` is the events the extension emits ({@link ExtensionContext.emit});
- * `P` is the payload of the `extension` events its backend sends it.
+ * `P` is the payload of the `extension` events its backend sends it; `X` is
+ * what it adds to handles, which {@link provides} reads.
  *
  * An extension is a record of methods taking the document's
  * {@link ExtensionContext} first. Repo installs wrappers on one shared
  * subclass of its handle class. Extensions have no constructors, getters,
  * or per-handle state. Write one with {@link defineExtension} to check its
- * methods against the spec.
+ * methods against the spec; a record written by hand states `X` in its type
+ * or adds nothing to the handle type.
  *
  * @experimental
  */
@@ -83,8 +84,11 @@ export interface HandleExtension<
   S extends SedimentreeSession = SedimentreeSession,
   E extends object = Record<string, unknown>,
   P = unknown,
+  X extends HandleExtensionSpec = {},
 > {
   readonly kind: string
+  /** Type only: never set. */
+  readonly "~spec"?: X
   /** The methods added to every handle, by string or symbol name. Each takes
    * the handle's document context first; callers do not pass it. */
   readonly members: {
@@ -100,7 +104,7 @@ export interface HandleExtension<
 
 /** A handle extension of any session, event and payload types: how lists of
  * heterogeneous extensions are typed. */
-export type AnyHandleExtension = HandleExtension<any, any, any>
+export type AnyHandleExtension = HandleExtension<any, any, any, any>
 
 /** What an extension can do with one document. */
 export interface ExtensionContext<

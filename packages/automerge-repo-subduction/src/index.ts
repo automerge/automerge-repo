@@ -56,6 +56,7 @@ export {
   type EphemeralInbound,
   type EphemeralMembers,
   type EphemeralMessagePayload,
+  type EphemeralSpec,
   type SubductionEvent,
   type SubductionExtensions,
   type SubductionSession,
@@ -227,7 +228,7 @@ async function failures(promises: readonly unknown[]): Promise<unknown[]> {
  */
 export class SubductionBackend implements SedimentreeBackend<SubductionExtensions> {
   /** Every handle of a Repo on this backend has ephemeral messaging. */
-  readonly handleExtensions = provides<SubductionExtensions>(ephemeral)
+  readonly handleExtensions = provides(ephemeral)
   readonly #engine: N.Subduction
   #closed = false
   #closing?: Promise<void>

@@ -90,19 +90,21 @@ messaging is such an extension, provided by the Subduction backend.
 - Nothing here supports a backend that wraps or combines others. One built
   later would list the inner extensions it exposes, have its own sessions
   forward the methods they need, and pass the inner `extension` events on.
-- Types: the backend declares what its extensions add, as a
-  `HandleExtensionSpec` (`members` and `events`) on the list itself:
-  `handleExtensions = provides<MySpec>(mine)`. Several extensions declare the
-  intersection of their specs; a plain array declares nothing. Nothing is
-  declared globally, and nothing is inferred from the extension values: the
-  declaration is the backend author's claim, checked by its own tests. An extension types its own `receive` payload and the events
-  it emits, `HandleExtension<Session, Events, Inbound>`. Members may not
-  depend on the handle's document type. Event payloads leave out `handle`:
-  Repo adds it, typed as the extended handle, to each.
+- Types: each extension carries what it adds, a `HandleExtensionSpec`
+  (`members` and `events`): `defineExtension<Session, Spec>` records it, and a
+  record written by hand states it in its type,
+  `HandleExtension<Session, Events, Inbound, Spec>`. The backend lists them
+  with `provides`, which infers the intersection of their specs:
+  `handleExtensions = provides(mine, theirs)`. An extension without a spec,
+  and a plain array, add nothing. Nothing is declared globally. Members may
+  not depend on the handle's document type. Event payloads leave out
+  `handle`: Repo adds it, typed as the extended handle, to each.
 - A Repo built on such a backend is a `Repo<X>`, `X` being the backend's
   spec, and returns `DocHandle<T, X>`, with its members; a backend typed as plain
   `SedimentreeBackend` gives plain `DocHandle<T>`. A backend package should
-  export a name for its spec, such as `SubductionExtensions`.
+  export a name for its extensions' combined spec, such as
+  `SubductionExtensions`, and implement `SedimentreeBackend` with it, which
+  checks the inferred list against that name.
 - Annotating a construction (`const r: Repo<X> = new Repo(…)`) asserts the
   spec unchecked; a Repo built elsewhere does not pass for one with
   extensions it lacks.

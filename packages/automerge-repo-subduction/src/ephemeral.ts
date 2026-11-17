@@ -69,6 +69,9 @@ export interface EphemeralMembers {
    * may share, and this Repo's `id` as `originId`, which tells those Repos apart. Neither is a
    * user identifier. Messages are scoped to the whole document: a sub-handle's broadcasts reach
    * the root and every other handle of it.
+   *
+   * Throws if `message` cannot be CBOR-encoded (a function, a symbol, a circular object). Send
+   * failures are logged, never thrown. Once the document is closed, it does nothing.
    */
   broadcast(message: unknown): void
 }
@@ -79,12 +82,15 @@ export interface EphemeralEvents {
   "ephemeral-message": PresenceInbound
 }
 
-/** What the Subduction backend's extensions add to the handles of a Repo on
- * it; name such a Repo as `Repo<SubductionExtensions>`. */
-export interface SubductionExtensions {
+/** What the `ephemeral` extension adds to a handle. */
+export interface EphemeralSpec {
   members: EphemeralMembers
   events: EphemeralEvents
 }
+
+/** What the Subduction backend's extensions add to the handles of a Repo on
+ * it; name such a Repo as `Repo<SubductionExtensions>`. */
+export type SubductionExtensions = EphemeralSpec
 
 // Fails to compile if handles with this extension stop fitting Presence.
 type Fits<Contract, _Handle extends Contract> = Contract
@@ -155,7 +161,7 @@ export function decodeEphemeral(
  */
 export const ephemeral = defineExtension<
   SubductionSession,
-  SubductionExtensions,
+  EphemeralSpec,
   EphemeralInbound
 >({
   kind: ephemeralKind,
@@ -173,9 +179,11 @@ export const ephemeral = defineExtension<
         origin: { kind: "repo", id: context.repoId, path: [] },
         payload,
       }
+      // Nowhere to send once the document is closed.
+      const { session } = context
+      if (!session) return
       // Best effort: failures are logged, never thrown.
       void (async () => {
-        const session = context.requireSession()
         await session.publishEphemeral(envelope)
       })().catch(error =>
         context.log("ephemeral publication failed: %o", error)
