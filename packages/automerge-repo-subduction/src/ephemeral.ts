@@ -29,11 +29,14 @@ export interface EphemeralInbound {
   readonly sender: BackendIdentity
 }
 
+/** The `ephemeral` extension's kind, shared with the events the backend sends it. */
+export const ephemeralKind = "ephemeral"
+
 /** A session event carrying a message to the `ephemeral` extension. */
 export interface EphemeralEvent {
   readonly type: "extension"
   readonly sequence: number
-  readonly kind: "ephemeral"
+  readonly kind: typeof ephemeralKind
   readonly payload: EphemeralInbound
 }
 
@@ -155,9 +158,9 @@ export const ephemeral = defineExtension<
   SubductionExtensions,
   EphemeralInbound
 >({
-  kind: "ephemeral",
+  kind: ephemeralKind,
   members: {
-    broadcast(document, message: unknown): void {
+    broadcast(context, message) {
       // Encoded now, so later changes to `message` are not sent.
       const bytes = codec.encode(message)
       const payload = new Uint8Array(
@@ -167,29 +170,29 @@ export const ephemeral = defineExtension<
       )
       const envelope: EphemeralEnvelope = {
         messageId: crypto.randomUUID(),
-        origin: { kind: "repo", id: document.repoId, path: [] },
+        origin: { kind: "repo", id: context.repoId, path: [] },
         payload,
       }
       // Best effort: failures are logged, never thrown.
       void (async () => {
-        const session = document.requireSession()
+        const session = context.requireSession()
         await session.publishEphemeral(envelope)
       })().catch(error =>
-        document.log("ephemeral publication failed: %o", error)
+        context.log("ephemeral publication failed: %o", error)
       )
     },
   },
-  receive(document, { message, sender }) {
+  receive(context, { message, sender }) {
     // Subduction also delivers a peer's own publications back to it.
-    if (message.origin.id === document.repoId) return
+    if (message.origin.id === context.repoId) return
     let decoded: unknown
     try {
       decoded = decode(message.payload)
     } catch (error) {
-      document.log("invalid ephemeral message: %o", error)
+      context.log("invalid ephemeral message: %o", error)
       return
     }
-    document.emit("ephemeral-message", {
+    context.emit("ephemeral-message", {
       senderId: sender.id as PeerId,
       originId: message.origin.id as RepoId,
       message: decoded,

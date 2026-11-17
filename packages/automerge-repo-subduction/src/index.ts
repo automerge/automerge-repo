@@ -34,6 +34,7 @@ import {
   decodeEphemeral,
   encodeEphemeral,
   ephemeral,
+  ephemeralKind,
   type SubductionEvent,
   type SubductionExtensions,
   type SubductionSession,
@@ -323,7 +324,7 @@ export class SubductionBackend implements SedimentreeBackend<SubductionExtension
     for (const { watch } of active)
       watch.push({
         type: "extension",
-        kind: "ephemeral",
+        kind: ephemeralKind,
         sequence,
         payload: {
           message: { ...message, payload: new Uint8Array(message.payload) },
