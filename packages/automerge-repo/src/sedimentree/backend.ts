@@ -61,8 +61,8 @@ export type HandleExtensions<X extends HandleExtensionSpec> =
  * readonly handleExtensions = provides<MySpec>(mine)
  * ```
  *
- * The claim is the backend author's, not checked against the extensions; a
- * backend's own tests are (see {@link checkHandleExtensions}).
+ * The claim is the backend author's, not checked against the extensions;
+ * each extension is checked against its own spec by {@link defineExtension}.
  *
  * @experimental
  */

@@ -194,14 +194,11 @@ void [ok, bad1, bad2, bad3, bad4, bad5, bad6, gap1, gap2, bad9, okBoth]
 // Inside an extension, the session and its declared events are typed.
 const implemented = {
   kind: "a" as const,
-  extend: (base, context) =>
-    class extends base {
-      a() {
-        return context(this)
-          .session?.ping("x")
-          .then(n => n.toFixed())
-      }
+  members: {
+    a(context) {
+      return context.session?.ping("x").then(n => n.toFixed())
     },
+  },
   receive(context, payload) {
     payload.n.toFixed()
     void context.session?.ping("x")

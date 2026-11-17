@@ -2,15 +2,11 @@ import type { DocHandle } from "../types/DocHandle.js"
 import type { DocumentId, RepoId } from "../types.js"
 import type { SedimentreeSession } from "./backend.js"
 
-/** A handle class, as extensions see it. */
-export type HandleClass = new (...args: any[]) => DocHandle<any>
-
 /**
  * What a backend's handle extensions add to every handle of its Repo, as a
- * type the backend declares on itself (see
- * {@link SedimentreeBackend."~extensions"}): the members its extensions add
- * and the events they emit. A backend with several extensions declares the
- * intersection of their specs.
+ * type the backend declares with {@link provides}: the members its
+ * extensions add and the events they emit. A backend with several
+ * extensions declares the intersection of their specs.
  *
  * ```ts
  * interface MySpec {
@@ -18,8 +14,7 @@ export type HandleClass = new (...args: any[]) => DocHandle<any>
  *   events: { "mine-event": { n: number } }
  * }
  * class MyBackend implements SedimentreeBackend<MySpec> {
- *   declare readonly "~extensions"?: MySpec
- *   readonly handleExtensions = [mine]
+ *   readonly handleExtensions = provides<MySpec>(mine)
  *   // …
  * }
  * ```
@@ -31,7 +26,7 @@ export type HandleClass = new (...args: any[]) => DocHandle<any>
  * @experimental
  */
 export interface HandleExtensionSpec {
-  /** The methods and getters added to a handle. */
+  /** The methods added to a handle. */
   readonly members?: object
   /** Added events' payloads by name. Each also carries the `handle` it is
    * emitted on, which Repo adds. */
@@ -76,19 +71,11 @@ export type ExtensionEvents<T, X extends HandleExtensionSpec> = {
  * `E` is the events the extension emits ({@link ExtensionContext.emit});
  * `P` is the payload of the `extension` events its backend sends it.
  *
- * Most extensions are written with {@link defineExtension}, which builds the
- * subclass from plain functions. Implement this interface directly for
- * getters or per-handle state; declare such an exported extension with this
- * type (its inferred type carries an anonymous class, which declaration emit
- * cannot name):
- *
- * ```ts
- * export const mine: HandleExtension<MySession, MySpec["events"], MyInbound> = {
- *   kind: "mine",
- *   extend: (base, context) => class extends base { … },
- *   receive(context, payload) { … },
- * }
- * ```
+ * An extension is a record of methods taking the document's
+ * {@link ExtensionContext} first. Repo installs wrappers on one shared
+ * subclass of its handle class. Extensions have no constructors, getters,
+ * or per-handle state. Write one with {@link defineExtension} to check its
+ * methods against the spec.
  *
  * @experimental
  */
@@ -98,12 +85,14 @@ export interface HandleExtension<
   P = unknown,
 > {
   readonly kind: string
-  /** Returns a subclass of `base` with this extension's members; `context`
-   * gives a handle's document. */
-  extend(
-    base: HandleClass,
-    context: (handle: DocHandle<any>) => ExtensionContext<S, E>
-  ): HandleClass
+  /** The methods added to every handle, by string or symbol name. Each takes
+   * the handle's document context first; callers do not pass it. */
+  readonly members: {
+    readonly [name: PropertyKey]: (
+      context: ExtensionContext<S, E>,
+      ...args: any[]
+    ) => unknown
+  }
   /** The backend sent `payload`: a session event `{ type: "extension" }` of
    * this kind. */
   receive?(context: ExtensionContext<S, E>, payload: P): void

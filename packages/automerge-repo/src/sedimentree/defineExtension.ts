@@ -3,13 +3,14 @@ import type {
   EventsOf,
   ExtensionContext,
   ExtensionMembers,
-  HandleClass,
   HandleExtension,
   HandleExtensionSpec,
 } from "./extension.js"
 
 /** The spec's members as an extension defines them: each method takes the
- * document's {@link ExtensionContext} first; callers never see it. */
+ * document's {@link ExtensionContext} first; callers never see it.
+ * Reject signatures whose generic or overload relationships would be lost
+ * by reducing them to one argument tuple and return type. */
 export type ContextualMembers<
   S extends SedimentreeSession,
   X extends HandleExtensionSpec,
@@ -17,7 +18,9 @@ export type ContextualMembers<
   readonly [N in keyof ExtensionMembers<X>]: ExtensionMembers<X>[N] extends (
     ...args: infer A
   ) => infer R
-    ? (context: ExtensionContext<S, EventsOf<X>>, ...args: A) => R
+    ? ((...args: A) => R) extends ExtensionMembers<X>[N]
+      ? (context: ExtensionContext<S, EventsOf<X>>, ...args: A) => R
+      : never
     : never
 }
 
@@ -40,9 +43,9 @@ export interface ExtensionDefinition<
 }
 
 /**
- * A {@link HandleExtension} from plain functions: the ergonomic way to write
- * one. Members are the spec's, checked against it, with the document's
- * context as a leading parameter the builder supplies:
+ * A {@link HandleExtension}, checked against the spec `X` it implements:
+ * the spec's methods, with the document's context as a leading parameter
+ * that Repo supplies:
  *
  * ```ts
  * export const count = defineExtension<CountSession, CountSpec>({
@@ -56,9 +59,9 @@ export interface ExtensionDefinition<
  * })
  * ```
  *
- * Members defined this way are methods only, with no per-handle state; an
- * extension that needs getters or instance fields implements
- * {@link HandleExtension} itself.
+ * Methods must be representable by one argument tuple and return type.
+ * Generic or overloaded signatures that need more are rejected; use
+ * concrete, single-signature methods instead.
  *
  * @experimental
  */
@@ -69,29 +72,5 @@ export function defineExtension<
 >(
   definition: ExtensionDefinition<S, X, P>
 ): HandleExtension<S, EventsOf<X>, P> {
-  const { kind, members, receive } = definition
-  const extension: HandleExtension<S, EventsOf<X>, P> = {
-    kind,
-    extend(base: HandleClass, context) {
-      class Extended extends base {}
-      for (const [name, member] of Object.entries(members)) {
-        Object.defineProperty(Extended.prototype, name, {
-          value: function (
-            this: InstanceType<HandleClass>,
-            ...args: unknown[]
-          ) {
-            return (member as (...inner: unknown[]) => unknown)(
-              context(this),
-              ...args
-            )
-          },
-          writable: true,
-          configurable: true,
-        })
-      }
-      return Extended
-    },
-  }
-  if (receive) extension.receive = receive
-  return extension
+  return definition
 }

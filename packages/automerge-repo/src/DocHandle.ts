@@ -20,9 +20,7 @@ import type { DocHandleEvents } from "./DocHandleEvents.js"
 import type { DocHandle as Handle } from "./types/DocHandle.js"
 import type {
   AnyHandleExtension,
-  ExtensionContext,
   ExtensionEvents,
-  HandleClass,
   HandleExtensionSpec,
 } from "./sedimentree/extension.js"
 import {
@@ -930,36 +928,38 @@ export class DocHandle<T, out X extends HandleExtensionSpec = {}> {
 }
 
 /**
- * @internal The handle class with `extensions` applied, each a subclass of
- * the last.
+ * @internal One Repo-specific subclass with all extension methods on its
+ * prototype. Instances retain DocHandle's private fields and constructor.
  */
 export function extendHandle(
   extensions: readonly AnyHandleExtension[]
 ): typeof DocHandle {
-  const context = (handle: DocHandle<any>): ExtensionContext =>
-    stateOf(handle).extensionContext
+  if (!extensions.length) return DocHandle
+  class Extended<T, X extends HandleExtensionSpec = {}> extends DocHandle<
+    T,
+    X
+  > {}
   const kinds = new Set<string>()
-  let Handle: HandleClass = DocHandle
-  for (const extension of extensions) {
-    const { kind } = extension
+  for (const { kind, members } of extensions) {
     if (kinds.has(kind)) throw new Error(`Duplicate handle extension: ${kind}`)
     kinds.add(kind)
-    const base = Handle
-    Handle = extension.extend(base, context)
-    if (!(Handle.prototype instanceof base))
-      throw new Error(`Handle extension ${kind} must subclass its base`)
-    // Extensions only add: a replaced member would change the handle for
-    // everyone else, and cannot be typed.
-    for (
-      let added = Handle.prototype;
-      added !== base.prototype;
-      added = Object.getPrototypeOf(added)
-    )
-      for (const name of Reflect.ownKeys(added)) {
-        if (name === "constructor") continue
-        if (name in base.prototype || instanceMembers.includes(name as string))
-          throw new Error(`Handle extension ${kind} redefines ${String(name)}`)
-      }
+    for (const name of Reflect.ownKeys(members)) {
+      // Extensions only add: a replaced member would change the handle for
+      // everyone else, and cannot be typed.
+      if (
+        name in Extended.prototype ||
+        (typeof name === "string" && instanceMembers.includes(name))
+      )
+        throw new Error(`Handle extension ${kind} redefines ${String(name)}`)
+      const member = members[name]
+      Object.defineProperty(Extended.prototype, name, {
+        value: function (this: DocHandle<any>, ...args: unknown[]) {
+          return member(stateOf(this).extensionContext, ...args)
+        },
+        writable: true,
+        configurable: true,
+      })
+    }
   }
-  return Handle as typeof DocHandle
+  return Extended
 }

@@ -61,18 +61,19 @@ A backend may add features to every handle of its Repo by listing
 `handleExtensions`; a backend that lists none gives plain handles. Ephemeral
 messaging is such an extension, provided by the Subduction backend.
 
-- An extension is written with `defineExtension`: the spec's members as plain
-  functions, each taking the document's `ExtensionContext` first
-  (`context.requireSession()` for members that need the document open), and
-  checked against the spec. Implementing `HandleExtension` directly is the
-  escape hatch for getters or per-handle state (in private `#` fields).
-- Either way it subclasses the handle and may only add members, not replace
-  them. Repo throws at construction if two extensions share a `kind` or an
-  extension redefines a member. It cannot see a property an extension sets on
-  the handle itself (a class field, say), which could silently replace
-  another's. A package that provides extensions should therefore run
-  `await checkHandleExtensions(extensions)` in its tests: it makes Repo's
-  checks and rejects those properties too.
+- An extension is a record of methods, written with `defineExtension`: each
+  takes the document's `ExtensionContext` first (`context.requireSession()`
+  for methods that need the document open). String and symbol names are
+  supported. Methods are checked against the spec; signatures whose generic
+  or overload relationships cannot be represented by one argument tuple and
+  return type are rejected. Use concrete, single-signature methods instead.
+- Repo builds one subclass of `DocHandle` with all extension methods on its
+  shared prototype. Handles keep their normal class identity and private
+  fields. Extensions are document-level methods: they have no constructors,
+  getters, or per-handle state.
+- Extensions may only add methods. Repo throws at construction if two
+  extensions share a `kind` or an extension redefines a member, including
+  core methods, getters, and bound instance members.
 - An extension reaches its backend through the document's session
   (`context.session`), using whatever methods that backend's sessions have.
   It names the session type it needs, `HandleExtension<Session>`.

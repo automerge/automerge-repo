@@ -1,12 +1,12 @@
 import { next as A } from "@automerge/automerge"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { extendHandle, instanceMembers } from "../src/DocHandle.js"
+import { instanceMembers } from "../src/DocHandle.js"
 import { DocHandle } from "../src/types/DocHandle.js"
 import { Repo } from "../src/Repo.js"
 import {
-  checkHandleExtensions,
   defineExtension,
   provides,
+  type AnyHandleExtension,
   type HandleExtension,
   type SedimentreeSession,
 } from "../src/sedimentree/index.js"
@@ -111,28 +111,14 @@ describe("backend handle extensions", () => {
   })
 
   describe("what an extension may add", () => {
-    /** An extension whose subclass is `extend(base)`. */
-    const extension = (
-      kind: string,
-      extend: HandleExtension["extend"]
-    ): HandleExtension => ({ kind, extend })
-    const defining = (kind: string, name: string) =>
-      extension(kind, base => {
-        const Extended = class extends base {}
-        Object.defineProperty(Extended.prototype, name, { value: () => {} })
-        return Extended
-      })
-    const withField = (kind: string) =>
-      extension(
-        kind,
-        base =>
-          class extends base {
-            cache = new Map()
-          }
-      )
+    /** An extension adding one method called `name`. */
+    const defining = (kind: string, name: string): HandleExtension => ({
+      kind,
+      members: { [name]: () => {} },
+    })
 
     it("Repo rejects extensions that share a kind or redefine a member", () => {
-      const repo = (...handleExtensions: HandleExtension[]) =>
+      const repo = (...handleExtensions: AnyHandleExtension[]) =>
         new Repo({
           backend: Object.assign(new MemoryBackend(), { handleExtensions }),
         })
@@ -143,40 +129,6 @@ describe("backend handle extensions", () => {
           `replacing redefines ${name}`
         )
       expect(() => repo(ping, defining("second", "ping"))).toThrow(/redefines/)
-      expect(() => repo(extension("unrelated", () => class {} as any))).toThrow(
-        /subclass/
-      )
-    })
-
-    it("the check for extension authors also rejects properties set on the handle", async () => {
-      await expect(checkHandleExtensions([ping])).resolves.toBeUndefined()
-      await expect(checkHandleExtensions([ping, ping])).rejects.toThrow(
-        /Duplicate/
-      )
-      await expect(checkHandleExtensions([withField("field")])).rejects.toThrow(
-        "field sets a property on the handle"
-      )
-      // Repo cannot see these, so two could silently share one name.
-      const fields = [withField("first"), withField("second")]
-      expect(() => extendHandle(fields)).not.toThrow()
-      await expect(checkHandleExtensions(fields)).rejects.toThrow(/first sets/)
-      await expect(
-        checkHandleExtensions([ping, withField("after")])
-      ).rejects.toThrow(/after sets/)
-      // Private fields cannot clash, so they are allowed.
-      const withPrivate = extension(
-        "private",
-        base =>
-          class extends base {
-            #cache = new Map()
-            cached() {
-              return this.#cache.size
-            }
-          }
-      )
-      await expect(
-        checkHandleExtensions([withPrivate])
-      ).resolves.toBeUndefined()
     })
 
     it("knows every member DocHandle defines per instance", async () => {

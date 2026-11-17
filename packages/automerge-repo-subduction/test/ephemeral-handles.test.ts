@@ -12,7 +12,6 @@ import {
 } from "@automerge/automerge-repo"
 import { extractRecords } from "@automerge/automerge-repo/sedimentree/automerge"
 import {
-  checkHandleExtensions,
   sedimentreeId,
   type SedimentreeId,
 } from "@automerge/automerge-repo/sedimentree"
@@ -185,11 +184,6 @@ describe("ephemeral handle extension", () => {
     }
     expect(removed).not.toHaveBeenCalled()
     expect(backend.sessions[0].publish).toHaveBeenCalledOnce()
-  })
-
-  it("passes the check for handle extensions", async () => {
-    const { backend } = setup()
-    await checkHandleExtensions(backend.handleExtensions)
   })
 
   it("carries Presence", async () => {
