@@ -2,7 +2,7 @@
 // Not a test: checked by `pnpm lint`.
 import { EventEmitter } from "eventemitter3"
 import { Repo } from "../src/Repo.js"
-import type { DocHandle, ExtendedHandle } from "../src/DocHandle.js"
+import { DocHandle } from "../src/types/DocHandle.js"
 import type { AsHandle, HandleOf } from "../src/Repo.js"
 import type { DocHandleChangePayload } from "../src/DocHandleEvents.js"
 import type { DocumentQuery, QueryState } from "../src/DocumentQuery.js"
@@ -47,8 +47,8 @@ const repoA = new Repo({ backend: new BackendA() })
 const repoAB = new Repo({ backend: new BackendAB() })
 const repoLoose = new Repo({ backend: loose })
 declare const hPlain: DocHandle<Doc>
-declare const hA: ExtendedHandle<Doc, ASpec>
-declare const hAB: ExtendedHandle<Doc, ASpec & BSpec>
+declare const hA: DocHandle<Doc, ASpec>
+declare const hAB: DocHandle<Doc, ASpec & BSpec>
 
 // Extended things are accepted where plain ones, or ones with fewer
 // extensions, are wanted.
@@ -61,7 +61,7 @@ const ok: [
   DocHandle<Doc>,
   DocHandle<unknown>,
   DocHandle<Doc, ASpec>,
-  ExtendedHandle<Doc, ASpec>,
+  DocHandle<Doc, ASpec>,
   DocHandle<Doc>[],
   DocumentQuery<Doc>,
   DocumentQuery<Doc, ASpec>,
@@ -90,9 +90,9 @@ const bad1: Repo<ASpec> = plainRepo
 // @ts-expect-error
 const bad2: Repo<ASpec & BSpec> = repoA
 // @ts-expect-error
-const bad3: ExtendedHandle<Doc, ASpec> = hPlain
+const bad3: DocHandle<Doc, ASpec> = hPlain
 // @ts-expect-error
-const bad4: ExtendedHandle<Doc, ASpec & BSpec> = hA
+const bad4: DocHandle<Doc, ASpec & BSpec> = hA
 // @ts-expect-error
 const bad5: DocumentQuery<Doc, ASpec> = plainRepo.query<Doc>(url)
 // @ts-expect-error a backend typed loosely gives a plain Repo
@@ -156,8 +156,8 @@ type Equal<A, B> =
     : false
 // A handle type is kept.
 const keepsHandle: Equal<
-  AsHandle<ExtendedHandle<Doc, ASpec>, Repo>,
-  ExtendedHandle<Doc, ASpec>
+  AsHandle<DocHandle<Doc, ASpec>, Repo>,
+  DocHandle<Doc, ASpec>
 > = true
 // `any` is a document type, so it gives a handle, not `any`.
 declare const ofAny: AsHandle<any, typeof repoA>
@@ -167,13 +167,10 @@ ofAny.notAMember()
 // A union of document types gives one handle of the union.
 const ofUnion: Equal<
   AsHandle<Doc | { other: number }, typeof repoA>,
-  ExtendedHandle<Doc | { other: number }, ASpec>
+  DocHandle<Doc | { other: number }, ASpec>
 > = true
 // HandleOf names a Repo's handle type.
-const ofRepo: Equal<
-  HandleOf<typeof repoA, Doc>,
-  ExtendedHandle<Doc, ASpec>
-> = true
+const ofRepo: Equal<HandleOf<typeof repoA, Doc>, DocHandle<Doc, ASpec>> = true
 void [keepsHandle, ofUnion, ofRepo]
 
 // Repo-level event payloads carry the extended handle; handle-level

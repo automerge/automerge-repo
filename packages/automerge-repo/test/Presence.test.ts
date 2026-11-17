@@ -11,7 +11,7 @@ import type {
 } from "../src/presence/types.js"
 import { Repo } from "../src/Repo.js"
 import { setLoggerFactory } from "../src/Logger.js"
-import type { ExtendedHandle } from "../src/DocHandle.js"
+import type { DocHandle } from "../src/types/DocHandle.js"
 import type { RepoId } from "../src/types.js"
 import { EphemeralHub, type HubExtensions } from "./helpers/ephemeralHub.js"
 
@@ -38,7 +38,7 @@ async function setup<const Names extends string>(
     Names,
     {
       repo: Repo<HubExtensions>
-      handle: ExtendedHandle<unknown, HubExtensions>
+      handle: DocHandle<unknown, HubExtensions>
       presence: Presence<PresenceState>
     }
   >
@@ -49,7 +49,7 @@ async function setup<const Names extends string>(
       id: name as RepoId,
     })
     repos.push(repo)
-    const handle: ExtendedHandle<unknown, HubExtensions> = url
+    const handle: DocHandle<unknown, HubExtensions> = url
       ? await repo.find(url)
       : await repo.create({ test: "doc" })
     url = handle.url

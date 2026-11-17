@@ -4,7 +4,6 @@ import {
   Repo,
   Presence,
   type DocHandle,
-  type ExtendedHandle,
 } from "@automerge/automerge-repo/slim"
 import type { SedimentreeBackend } from "@automerge/automerge-repo/sedimentree"
 import {
@@ -90,9 +89,10 @@ void [extended, plain, untyped, either]
 
 declare const base: DocHandle<Todo>
 // @ts-expect-error a plain handle is not an extended one
-const reverse: ExtendedHandle<Todo, SubductionExtensions> = base
-// @ts-expect-error nor does it pass for one by its class
-const reverseClass: DocHandle<Todo, SubductionExtensions> = base
+const reverse: DocHandle<Todo, SubductionExtensions> = base
+// A DocHandle with the extension, written by hand, has its members.
+declare const written: DocHandle<Todo, SubductionExtensions>
+written.broadcast("hi")
 const memoryRepo = new Repo({ backend: new MemoryBackend() })
 // @ts-expect-error a plain Repo does not pass for an extended one
 const reverseRepo: Repo<SubductionExtensions> = memoryRepo
@@ -100,7 +100,7 @@ const reverseRepo: Repo<SubductionExtensions> = memoryRepo
 const claimed: Repo<SubductionExtensions> = new Repo()
 // An extended Repo is still a plain one.
 const plainRepo: Repo = new Repo({ backend })
-void [reverse, reverseClass, reverseRepo, claimed, plainRepo]
+void [reverse, reverseRepo, claimed, plainRepo]
 
 // The README's way of naming the extended types.
 const appRepo = new Repo({ backend })
@@ -130,7 +130,7 @@ const foreign: SubductionEvent = {
 void foreign
 
 // eventNames() offers the extension's event beside the core ones.
-declare const named: ExtendedHandle<Todo, SubductionExtensions>
+declare const named: DocHandle<Todo, SubductionExtensions>
 type Names = ReturnType<typeof named.eventNames>[number]
 type Listed<N> = N extends string ? (string extends N ? never : N) : never
 const listed: Listed<Names>[] = ["ephemeral-message", "change"]

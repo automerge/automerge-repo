@@ -1,4 +1,4 @@
-import type { DocHandle, ExtendedHandle } from "./DocHandle.js"
+import type { DocHandle } from "./types/DocHandle.js"
 import type { HandleExtensionSpec } from "./sedimentree/extension.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { Segment } from "./subdoc-handles/types.js"
@@ -19,7 +19,7 @@ const log = makeLogger("automerge-repo:query")
  */
 export type QueryState<T, X extends HandleExtensionSpec = {}> =
   | { status: "loading" }
-  | { status: "ready"; handle: ExtendedHandle<T, X> }
+  | { status: "ready"; handle: DocHandle<T, X> }
   | { status: "unavailable" }
   | { status: "deleted" }
   | { status: "failed"; error: Error }
@@ -153,10 +153,7 @@ export function queryAtPath<T, X extends HandleExtensionSpec = {}>(
     state.status === "ready"
       ? {
           status: "ready",
-          handle: state.handle.sub(...(segments as any[])) as ExtendedHandle<
-            T,
-            X
-          >,
+          handle: state.handle.sub(...(segments as any[])) as DocHandle<T, X>,
         }
       : state
   return {
@@ -170,8 +167,8 @@ export function queryAtPath<T, X extends HandleExtensionSpec = {}>(
 export function waitUntilReady<T, X extends HandleExtensionSpec = {}>(
   query: DocumentQuery<T, X>,
   signal?: AbortSignal
-): Promise<ExtendedHandle<T, X>> {
-  return new Promise<ExtendedHandle<T, X>>((resolve, reject) => {
+): Promise<DocHandle<T, X>> {
+  return new Promise<DocHandle<T, X>>((resolve, reject) => {
     signal?.throwIfAborted()
     let unsubscribe: (() => void) | undefined
     let settled = false

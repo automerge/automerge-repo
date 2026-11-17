@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import * as Automerge from "@automerge/automerge"
 import { Repo } from "../../src/Repo.js"
-import type { DocHandle } from "../../src/DocHandle.js"
+import type { DocHandle } from "../../src/types/DocHandle.js"
 import { cursor } from "../../src/subdoc-handles/utils.js"
 import { encodeHeads } from "../../src/AutomergeUrl.js"
 import { CURSOR_MARKER } from "../../src/subdoc-handles/types.js"

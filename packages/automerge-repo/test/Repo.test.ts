@@ -2,7 +2,7 @@ import { next as A } from "@automerge/automerge"
 import bs58check from "bs58check"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Repo, type RepoConfig } from "../src/Repo.js"
-import { DocHandle } from "../src/DocHandle.js"
+import { DocHandle } from "../src/types/DocHandle.js"
 import {
   binaryToDocumentId,
   documentIdToBinary,

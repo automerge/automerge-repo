@@ -1,5 +1,5 @@
 import type { next as A } from "@automerge/automerge/slim"
-import type { DocHandle } from "./DocHandle.js"
+import type { DocHandle } from "./types/DocHandle.js"
 import type { PeerId, UrlHeads } from "./types.js"
 
 /**

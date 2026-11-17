@@ -7,7 +7,7 @@ import {
   type SedimentreeSession,
 } from "@automerge/automerge-repo/sedimentree"
 import type {
-  ExtendedHandle,
+  DocHandle,
   PeerId,
   RepoId,
   PresenceHandle,
@@ -53,7 +53,7 @@ export interface SubductionSession extends SedimentreeSession {
  * is the peer Subduction authenticated; `originId` is the sending Repo's `id`.
  */
 export interface EphemeralMessagePayload<T> extends PresenceInbound {
-  handle: ExtendedHandle<T, SubductionExtensions>
+  handle: DocHandle<T, SubductionExtensions>
 }
 
 /** What the `ephemeral` extension adds to a handle. */
@@ -87,7 +87,7 @@ export interface SubductionExtensions {
 type Fits<Contract, _Handle extends Contract> = Contract
 type _FitsPresence = Fits<
   PresenceHandle,
-  ExtendedHandle<unknown, SubductionExtensions>
+  DocHandle<unknown, SubductionExtensions>
 >
 
 // Untagged byte strings keep the encoding identical with and without Node's Buffer.

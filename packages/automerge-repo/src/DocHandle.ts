@@ -15,11 +15,13 @@ import type {
   UrlHeads,
 } from "./types.js"
 import type { DocHandleEvents } from "./DocHandleEvents.js"
+// The public type: this class's members and the backend's extension members.
+// Methods returning handles return it, so derived handles keep the extensions.
+import type { DocHandle as Handle } from "./types/DocHandle.js"
 import type {
   AnyHandleExtension,
   ExtensionContext,
   ExtensionEvents,
-  ExtensionMembers,
   HandleClass,
   HandleExtensionSpec,
 } from "./sedimentree/extension.js"
@@ -71,16 +73,6 @@ export type HandleEvents<
   T,
   X extends HandleExtensionSpec = {},
 > = DocHandleEvents<T> & ExtensionEvents<T, X>
-
-/**
- * A {@link DocHandle} with the members its Repo's backend adds; see
- * {@link HandleExtensionSpec}.
- */
-export type ExtendedHandle<T, X extends HandleExtensionSpec = {}> = DocHandle<
-  T,
-  X
-> &
-  ExtensionMembers<X>
 
 let stateOf: (handle: DocHandle<any>) => DocumentState<any>
 
@@ -302,8 +294,8 @@ export class DocHandle<T, out X extends HandleExtensionSpec = {}> {
    * @param heads - The heads to view the document at. See history().
    * @returns DocHandle<T> at the time of `heads`
    */
-  view(heads: UrlHeads): ExtendedHandle<T, X> {
-    return this.#createSubHandle([], { heads }) as ExtendedHandle<T, X>
+  view(heads: UrlHeads): Handle<T, X> {
+    return this.#createSubHandle([], { heads }) as Handle<T, X>
   }
 
   /**
@@ -533,11 +525,8 @@ export class DocHandle<T, out X extends HandleExtensionSpec = {}> {
    */
   sub<TPath extends readonly PathInput[]>(
     ...segments: [...TPath]
-  ): ExtendedHandle<InferSubType<T, TPath>, X> {
-    return this.#createSubHandle(segments) as ExtendedHandle<
-      InferSubType<T, TPath>,
-      X
-    >
+  ): Handle<InferSubType<T, TPath>, X> {
+    return this.#createSubHandle(segments) as Handle<InferSubType<T, TPath>, X>
   }
 
   // Path / range introspection

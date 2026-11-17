@@ -1,4 +1,4 @@
-import type { ExtendedHandle } from "./DocHandle.js"
+import type { DocHandle } from "./types/DocHandle.js"
 import type { HandleExtensionSpec } from "./sedimentree/extension.js"
 import {
   stateError,
@@ -21,7 +21,7 @@ export type ProgressState<T, X extends HandleExtensionSpec = {}> =
   | { state: "loading"; sources: Record<string, SourceState> }
   | {
       state: "ready"
-      handle: ExtendedHandle<T, X>
+      handle: DocHandle<T, X>
       sources: Record<string, SourceState>
     }
   | { state: "unavailable"; sources: Record<string, SourceState> }
@@ -36,7 +36,7 @@ export interface DocumentProgress<T, out X extends HandleExtensionSpec = {}> {
   readonly documentId: DocumentId
   peek(): ProgressState<T, X>
   subscribe(callback: (state: ProgressState<T, X>) => void): () => void
-  whenReady(options?: { signal?: AbortSignal }): Promise<ExtendedHandle<T, X>>
+  whenReady(options?: { signal?: AbortSignal }): Promise<DocHandle<T, X>>
 }
 
 /** Adapt a query to the deprecated {@link DocumentProgress} shape. */

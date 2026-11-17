@@ -99,7 +99,7 @@ messaging is such an extension, provided by the Subduction backend.
   depend on the handle's document type. Event payloads leave out `handle`:
   Repo adds it, typed as the extended handle, to each.
 - A Repo built on such a backend is a `Repo<X>`, `X` being the backend's
-  spec, and returns `ExtendedHandle<T, X>`; a backend typed as plain
+  spec, and returns `DocHandle<T, X>`, with its members; a backend typed as plain
   `SedimentreeBackend` gives plain `DocHandle<T>`. A backend package should
   export a name for its spec, such as `SubductionExtensions`.
 - Annotating a construction (`const r: Repo<X> = new Repo(…)`) asserts the

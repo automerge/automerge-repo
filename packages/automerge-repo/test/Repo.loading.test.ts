@@ -2,7 +2,7 @@ import { next as A } from "@automerge/automerge"
 import { next as SlimA } from "@automerge/automerge/slim"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Repo } from "../src/Repo.js"
-import type { DocHandle } from "../src/DocHandle.js"
+import type { DocHandle } from "../src/types/DocHandle.js"
 import {
   binaryToDocumentId,
   encodeHeads,

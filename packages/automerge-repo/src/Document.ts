@@ -1,5 +1,5 @@
 import { next as A } from "@automerge/automerge/slim"
-import { DocHandle } from "./DocHandle.js"
+import { DocHandle } from "./types/DocHandle.js"
 import { DocumentState } from "./DocumentState.js"
 import type { RootQuery } from "./DocumentQuery.js"
 import type { DocumentId, RepoId, PeerId } from "./types.js"

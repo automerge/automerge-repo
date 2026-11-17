@@ -1,4 +1,4 @@
-import type { DocHandle, ExtendedHandle } from "../DocHandle.js"
+import type { DocHandle } from "../types/DocHandle.js"
 import type { DocumentId, RepoId } from "../types.js"
 import type { SedimentreeSession } from "./backend.js"
 
@@ -56,7 +56,7 @@ export type EventsOf<X extends HandleExtensionSpec> = X extends {
 /** The events the spec `X` adds to a handle of a `T`, as listeners. */
 export type ExtensionEvents<T, X extends HandleExtensionSpec> = {
   [N in keyof EventsOf<X>]: (
-    payload: EventsOf<X>[N] & { handle: ExtendedHandle<T, X> }
+    payload: EventsOf<X>[N] & { handle: DocHandle<T, X> }
   ) => void
 }
 

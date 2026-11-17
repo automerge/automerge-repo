@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import * as Automerge from "@automerge/automerge"
 import { Repo } from "../../src/Repo.js"
-import { DocHandle } from "../../src/DocHandle.js"
+import { DocHandle } from "../../src/types/DocHandle.js"
 import { createTestDocument } from "../helpers/testHandle.js"
 import type { HandleRegistry } from "../../src/subdoc-handles/handle-registry.js"
 import type { Listeners } from "../../src/Listeners.js"

@@ -7,7 +7,8 @@ import {
   isValidAutomergeUrl,
   parseAutomergeUrl,
 } from "./AutomergeUrl.js"
-import { DocHandle, extendHandle, type ExtendedHandle } from "./DocHandle.js"
+import { extendHandle } from "./DocHandle.js"
+import type { DocHandle } from "./types/DocHandle.js"
 import { Document } from "./Document.js"
 import {
   queryAtHeads,
@@ -76,14 +77,14 @@ export class Repo<out X extends HandleExtensionSpec = {}> extends EventEmitter<
     return this.#id
   }
 
-  get handles(): Record<DocumentId, ExtendedHandle<any, X>> {
+  get handles(): Record<DocumentId, DocHandle<any, X>> {
     return Object.fromEntries(
       [...this.#documents].map(([id, document]) => [id, document.handle])
-    ) as Record<DocumentId, ExtendedHandle<any, X>>
+    ) as Record<DocumentId, DocHandle<any, X>>
   }
 
   /** Resolve after initial history is locally recoverable, without waiting for peers. */
-  async create<T>(initialValue?: T): Promise<ExtendedHandle<T, X>> {
+  async create<T>(initialValue?: T): Promise<DocHandle<T, X>> {
     this.#checkOpen()
     const doc =
       isPlainObject(initialValue) && Object.keys(initialValue).length
@@ -92,7 +93,7 @@ export class Repo<out X extends HandleExtensionSpec = {}> extends EventEmitter<
     return this.#track(this.#createDocument(doc))
   }
 
-  async clone<T>(handle: DocHandle<T>): Promise<ExtendedHandle<T, X>> {
+  async clone<T>(handle: DocHandle<T>): Promise<DocHandle<T, X>> {
     this.#checkOpen()
     return this.#track(this.#createDocument(A.clone(handle.fullDoc())))
   }
@@ -112,7 +113,7 @@ export class Repo<out X extends HandleExtensionSpec = {}> extends EventEmitter<
   async find<T>(
     id: AnyDocumentId,
     options: RepoFindOptions = {}
-  ): Promise<ExtendedHandle<T, X>> {
+  ): Promise<DocHandle<T, X>> {
     options.signal?.throwIfAborted()
     return waitUntilReady(this.query<T>(id), options.signal)
   }
@@ -144,7 +145,7 @@ export class Repo<out X extends HandleExtensionSpec = {}> extends EventEmitter<
   async import<T>(
     binary: Uint8Array,
     args?: { docId?: DocumentId }
-  ): Promise<ExtendedHandle<T, X>> {
+  ): Promise<DocHandle<T, X>> {
     this.#checkOpen()
     const doc = A.load<T>(binary)
     const id = args?.docId && interpretAsDocumentId(args.docId)
@@ -154,7 +155,7 @@ export class Repo<out X extends HandleExtensionSpec = {}> extends EventEmitter<
   async #importDocument<T>(
     doc: A.Doc<T>,
     id?: DocumentId
-  ): Promise<ExtendedHandle<T, X>> {
+  ): Promise<DocHandle<T, X>> {
     if (!id) return this.#createDocument(doc)
     const existing = this.#documents.get(id)
     if (existing?.query.state().status === "ready") {
@@ -185,7 +186,7 @@ export class Repo<out X extends HandleExtensionSpec = {}> extends EventEmitter<
   async #createDocument<T>(
     doc: A.Doc<T>,
     requested?: DocumentId
-  ): Promise<ExtendedHandle<T, X>> {
+  ): Promise<DocHandle<T, X>> {
     if (!A.getHeads(doc).length) doc = A.emptyChange(doc)
     const allocated = await this.#backend.create(
       extractRecords(doc),
@@ -205,8 +206,8 @@ export class Repo<out X extends HandleExtensionSpec = {}> extends EventEmitter<
   }
 
   /** The root handle, typed with the backend's extensions. */
-  #handle<T>(document: Document<T>): ExtendedHandle<T, X> {
-    return document.handle as ExtendedHandle<T, X>
+  #handle<T>(document: Document<T>): DocHandle<T, X> {
+    return document.handle as DocHandle<T, X>
   }
 
   #backendId(id: DocumentId): SedimentreeId {
@@ -416,7 +417,7 @@ function collectErrors(results: PromiseSettledResult<unknown>[]): unknown[] {
  * `type AppHandle<T> = HandleOf<typeof repo, T>`.
  */
 export type HandleOf<R extends Repo, T> =
-  R extends Repo<infer X> ? ExtendedHandle<T, X> : DocHandle<T>
+  R extends Repo<infer X> ? DocHandle<T, X> : DocHandle<T>
 
 /** The document type of a handle type `H`, or `H` itself if not a handle. */
 export type DocOf<H> = H extends DocHandle<infer T> ? T : H
@@ -455,7 +456,7 @@ export interface AbortOptions {
 export type RepoFindOptions = AbortOptions
 export type DeleteDocumentPayload = { documentId: DocumentId }
 export type DocumentPayload<X extends HandleExtensionSpec = {}> = {
-  handle: ExtendedHandle<any, X>
+  handle: DocHandle<any, X>
 }
 export interface RepoEvents<X extends HandleExtensionSpec = {}> {
   document: (payload: DocumentPayload<X>) => void

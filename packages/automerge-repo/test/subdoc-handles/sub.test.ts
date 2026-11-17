@@ -1,7 +1,7 @@
 import * as Automerge from "@automerge/automerge"
 import { beforeEach, describe, expect, it } from "vitest"
 import { Repo } from "../../src/Repo.js"
-import type { DocHandle } from "../../src/DocHandle.js"
+import type { DocHandle } from "../../src/types/DocHandle.js"
 import { KIND } from "../../src/subdoc-handles/types.js"
 import { cursor } from "../../src/subdoc-handles/utils.js"
 import { encodeHeads, parseAutomergeUrl } from "../../src/AutomergeUrl.js"

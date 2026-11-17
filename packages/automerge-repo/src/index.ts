@@ -24,8 +24,11 @@
  * ```
  */
 
-export { DocHandle } from "./DocHandle.js"
-export type { ExtendedHandle, HandleEvents } from "./DocHandle.js"
+export { DocHandle } from "./types/DocHandle.js"
+export type { HandleEvents } from "./DocHandle.js"
+/** @hidden The class's own type; use {@link DocHandle}. Exported so other
+ * packages' declarations can name handle types. */
+export type { DocHandle as DocHandleClass } from "./DocHandle.js"
 export type {
   ExtensionContext,
   ExtensionEvents,

@@ -9,7 +9,7 @@ import {
 import { toProgress } from "../src/DocumentProgress.js"
 import { encodeHeads } from "../src/AutomergeUrl.js"
 import type { DocumentId, UrlHeads } from "../src/types.js"
-import type { DocHandle } from "../src/DocHandle.js"
+import type { DocHandle } from "../src/types/DocHandle.js"
 import { applyInbound, createTestQuery } from "./helpers/testHandle.js"
 
 const docId = "test-doc-id" as DocumentId

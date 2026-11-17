@@ -1,6 +1,7 @@
 import { next as A } from "@automerge/automerge"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { DocHandle, extendHandle, instanceMembers } from "../src/DocHandle.js"
+import { extendHandle, instanceMembers } from "../src/DocHandle.js"
+import { DocHandle } from "../src/types/DocHandle.js"
 import { Repo } from "../src/Repo.js"
 import {
   checkHandleExtensions,
