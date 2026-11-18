@@ -6,13 +6,12 @@ import os from "os"
 import path from "path"
 import { describe, it, expect } from "vitest"
 import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
-import { PeerId, cbor, Chunk } from "../src/index.js"
+import { cbor } from "../src/index.js"
 import { StorageSubsystem } from "../src/storage/StorageSubsystem.js"
 import { StorageId, StorageKey } from "../src/storage/types.js"
 import { StorageAdapterInterface } from "../src/storage/StorageAdapterInterface.js"
 import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import * as Uuid from "uuid"
-import { chunkTypeFromKey } from "../src/storage/chunkTypeFromKey.js"
 import { DocumentId } from "../src/types.js"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
@@ -79,7 +78,7 @@ describe("StorageSubsystem", () => {
 
           // save it to storage
           const key = parseAutomergeUrl(generateAutomergeUrl()).documentId
-          storage.saveDoc(key, doc)
+          await storage.saveDoc(key, doc)
 
           // reload it from storage, simulating a new process
           const storage2 = new StorageSubsystem(adapter)
@@ -93,7 +92,7 @@ describe("StorageSubsystem", () => {
           })
 
           // save it to storage
-          storage2.saveDoc(key, changedDoc)
+          await storage2.saveDoc(key, changedDoc)
         })
 
         it("removes an Automerge document", async () => {

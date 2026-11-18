@@ -216,7 +216,7 @@ describe("useLocalAwareness", () => {
       const { handleA, wrapper } = setup()
       const broadcastSpy = vi.spyOn(handleA, "broadcast")
 
-      const { rerender, getByText } = render(
+      const { rerender } = render(
         <Component userId="user1" initialState={{ test: true }} />,
         { wrapper }
       )

@@ -341,7 +341,7 @@ describe("useDocuments", () => {
       })
 
       // Should only have loaded the remaining document
-      waitFor(() => {
+      await waitFor(() => {
         docs = onState.mock.lastCall?.[0]
         expect(docs.size).toBe(1)
         expect(docs.has(handleA.url)).toBe(true)

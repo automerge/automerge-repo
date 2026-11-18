@@ -106,12 +106,12 @@ describe("SyncStateTracker", () => {
       const subsystem = new StorageSubsystem(new DummyStorageAdapter())
       const release = Promise.withResolvers<void>()
       const savedDocs: string[] = []
-      vi.spyOn(subsystem, "saveSyncState").mockImplementation(
-        async documentId => {
+      const saveSyncState = vi
+        .spyOn(subsystem, "saveSyncState")
+        .mockImplementation(async documentId => {
           if (savedDocs.length === 0) await release.promise
           savedDocs.push(documentId)
-        }
-      )
+        })
       const tracker = new SyncStateTracker(subsystem, 10, 1)
 
       const deleted = new Set<string>()
@@ -126,7 +126,7 @@ describe("SyncStateTracker", () => {
       syncWithPeer(tracker, holder, handleFor(holder))
       syncWithPeer(tracker, queued, handleFor(queued))
       await vi.advanceTimersByTimeAsync(10)
-      assert.equal(vi.mocked(subsystem.saveSyncState).mock.calls.length, 1)
+      assert.equal(saveSyncState.mock.calls.length, 1)
       syncWithPeer(tracker, throttled, handleFor(throttled))
 
       deleted.add(queued)

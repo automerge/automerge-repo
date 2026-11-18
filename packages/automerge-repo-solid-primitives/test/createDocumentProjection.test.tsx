@@ -4,7 +4,7 @@ import {
   type AutomergeUrl,
   type DocHandle,
 } from "@automerge/automerge-repo"
-import { render, renderHook, testEffect } from "@solidjs/testing-library"
+import { renderHook, testEffect } from "@solidjs/testing-library"
 import { describe, expect, it, vi } from "vitest"
 import { RepoContext } from "../src/context.js"
 import {
@@ -339,7 +339,9 @@ describe("createDocumentProjection", () => {
         initialProps: [() => handle],
       }
     )
-    testEffect(() => {
+    // No `done` callback, so this promise never settles: register the
+    // effect and move on.
+    void testEffect(() => {
       createEffect(() => {
         fn(doc()?.projects[1].title)
       })

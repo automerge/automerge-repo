@@ -8,14 +8,14 @@
     "**/dist/**",
     "**/.svelte-kit/**",
     "examples/**",
-    "**/test/**",
     "**/*.d.ts",
     "**/*.config.ts",
     "**/fuzz/**",
     "**/testSetup.ts",
     "playwright.base.ts",
     "packages/create-vite-app/**",
-    "packages/create-repo-node-app/**"
+    "packages/create-repo-node-app/**",
+    "**/*.check.ts"
   ],
   "rules": {
     "no-restricted-imports": [
@@ -51,7 +51,12 @@
         "caughtErrors": "none"
       }
     ],
-    "no-unused-expressions": ["error", { "allowShortCircuit": true }],
+    "no-unused-expressions": [
+      "error",
+      {
+        "allowShortCircuit": true
+      }
+    ],
     "typescript/no-floating-promises": "error",
     "no-empty-function": "off",
     "no-param-reassign": "off",
@@ -64,7 +69,9 @@
     "typescript/no-meaningless-void-operator": "off"
   },
   "settings": {
-    "react": { "version": "18" }
+    "react": {
+      "version": "18"
+    }
   },
   "options": {
     "typeAware": true
@@ -75,6 +82,12 @@
         "packages/automerge-react/**",
         "packages/automerge-vanillajs/**"
       ],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    },
+    {
+      "files": ["**/test/**", "**/*.test.ts", "**/*.test.tsx"],
       "rules": {
         "no-restricted-imports": "off"
       }

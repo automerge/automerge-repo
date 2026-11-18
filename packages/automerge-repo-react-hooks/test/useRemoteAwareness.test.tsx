@@ -97,7 +97,7 @@ describe("useRemoteAwareness", () => {
       const mockGetTime = vi.fn(() => 1000)
 
       const ComponentWithTime = () => {
-        const [peerStates, heartbeats] = useRemoteAwareness({
+        const [, heartbeats] = useRemoteAwareness({
           handle: handleA,
           localUserId: "local-user",
           getTime: mockGetTime,
