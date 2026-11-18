@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from "vitest"
 import { ErrorBoundary } from "react-error-boundary"
 import { setup, setupPairedRepos } from "./testSetup"
 import { useDocHandles } from "../src/useDocHandles"
-import { pause } from "../src/helpers/DummyNetworkAdapter"
+import { pause } from "@automerge/automerge-repo/helpers/pause.js"
 
 describe("useDocHandles", () => {
   function mockOnHandles() {
