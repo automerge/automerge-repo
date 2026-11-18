@@ -3,7 +3,15 @@
 import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { intro, outro, text, isCancel, cancel, log } from "@clack/prompts"
+import {
+  intro,
+  outro,
+  text,
+  CANCEL_SYMBOL,
+  isCancel,
+  cancel,
+  log,
+} from "@clack/prompts"
 
 const detectPackageManager = (): string => {
   const ua = process.env.npm_config_user_agent ?? ""
@@ -37,14 +45,16 @@ const main = async () => {
 
   let projectName = process.argv[2]
   if (!projectName) {
-    const answer = await text({
+    // text() is typed `string | symbol`, but isCancel narrows to the one
+    // cancel symbol, which TypeScript cannot subtract from `symbol`.
+    const answer = (await text({
       message: "Project name?",
       placeholder: "my-automerge-app",
       validate: value =>
         value && value.trim().length > 0
           ? undefined
           : "Please enter a project name",
-    })
+    })) as string | typeof CANCEL_SYMBOL
     if (isCancel(answer)) {
       cancel("Scaffolding cancelled.")
       process.exit(0)
