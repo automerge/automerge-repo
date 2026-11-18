@@ -5,6 +5,7 @@ import { PresenceEventHeartbeat } from "../src/presence/types.js"
 import { Repo } from "../src/Repo.js"
 import { PeerId } from "../src/types.js"
 import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
+import { whenPeersConnected } from "./helpers/whenPeerConnected.js"
 import { waitFor } from "./helpers/waitFor.js"
 
 type PresenceState = { position: number }
@@ -20,10 +21,7 @@ describe("Presence", () => {
       aliceToBob.peerCandidate("bob" as PeerId)
       bobToAlice.peerCandidate("alice" as PeerId)
     }
-    await Promise.all([
-      alice.networkSubsystem.whenReady(),
-      bob.networkSubsystem.whenReady(),
-    ])
+    if (!opts?.skipAnnounce) await whenPeersConnected(alice, bob)
 
     const aliceHandle = alice.create({
       test: "doc",
