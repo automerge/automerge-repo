@@ -954,7 +954,7 @@ export function extendHandle(
       const member = members[name]
       Object.defineProperty(Extended.prototype, name, {
         value: function (this: DocHandle<any>, ...args: unknown[]) {
-          return member(stateOf(this).extensionContext, ...args)
+          return member(stateOf(this).extensionContext, this, ...args)
         },
         writable: true,
         configurable: true,

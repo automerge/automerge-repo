@@ -15,7 +15,7 @@ import { scriptedBackend } from "./helpers/scriptedBackend.js"
 
 /** What `ping` adds to the handles of a Repo on a backend listing it. */
 interface PingSpec {
-  members: { ping(): Promise<string> }
+  members: { ping(): Promise<string>; caller(): string }
   events: { pong: { n: number } }
 }
 
@@ -33,6 +33,7 @@ const ping = defineExtension<PingSession, PingSpec, number | "throw">({
       const { repoId, documentId } = context
       return session.ping(`${repoId}/${documentId}`)
     },
+    caller: (_context, handle) => handle.url,
   },
   receive(context, payload) {
     if (payload === "throw") throw new Error("receive failed")
@@ -71,6 +72,8 @@ describe("backend handle extensions", () => {
     for (const h of [handle, sub, view, await repo.find(handle.url)]) {
       expect(h).toBeInstanceOf(DocHandle)
       expect(await h.ping()).toBe(`pong:${repo.id}/${handle.documentId}`)
+      // Each call gets the handle it was made on.
+      expect(h.caller()).toBe(h.url)
     }
     expect(answer).toHaveBeenCalledTimes(4)
     // A backend need not provide any: its handles are plain.

@@ -44,7 +44,7 @@ const ephemeral = defineExtension<
 >({
   kind: "ephemeral",
   members: {
-    broadcast(context, message) {
+    broadcast(context, _handle, message) {
       const { session, repoId } = context
       session?.publish({ originId: repoId, message })
     },

@@ -166,7 +166,7 @@ export const ephemeral = defineExtension<
 >({
   kind: ephemeralKind,
   members: {
-    broadcast(context, message) {
+    broadcast(context, _handle, message) {
       // Encoded now, so later changes to `message` are not sent.
       const bytes = codec.encode(message)
       const payload = new Uint8Array(

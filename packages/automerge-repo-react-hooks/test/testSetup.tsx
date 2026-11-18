@@ -26,7 +26,7 @@ interface EphemeralSpec {
 const ephemeral = defineExtension<SedimentreeSession, EphemeralSpec>({
   kind: "ephemeral",
   members: {
-    broadcast(_context, _message: unknown): void {},
+    broadcast(_context, _handle, _message: unknown): void {},
   },
 })
 

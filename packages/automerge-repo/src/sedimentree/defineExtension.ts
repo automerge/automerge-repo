@@ -1,3 +1,4 @@
+import type { DocHandle } from "../types/DocHandle.js"
 import type { SedimentreeSession } from "./backend.js"
 import type {
   EventsOf,
@@ -8,9 +9,10 @@ import type {
 } from "./extension.js"
 
 /** The spec's members as an extension defines them: each method takes the
- * document's {@link ExtensionContext} first; callers never see it.
- * Reject signatures whose generic or overload relationships would be lost
- * by reducing them to one argument tuple and return type. */
+ * document's {@link ExtensionContext} and the handle it was called on first;
+ * callers pass neither. Reject signatures whose generic or overload
+ * relationships would be lost by reducing them to one argument tuple and
+ * return type. */
 export type ContextualMembers<
   S extends SedimentreeSession,
   X extends HandleExtensionSpec,
@@ -19,7 +21,11 @@ export type ContextualMembers<
     ...args: infer A
   ) => infer R
     ? ((...args: A) => R) extends ExtensionMembers<X>[N]
-      ? (context: ExtensionContext<S, EventsOf<X>>, ...args: A) => R
+      ? (
+          context: ExtensionContext<S, EventsOf<X>>,
+          handle: DocHandle<unknown, X>,
+          ...args: A
+        ) => R
       : never
     : never
 }
@@ -44,8 +50,8 @@ export interface ExtensionDefinition<
 
 /**
  * A {@link HandleExtension}, checked against the spec `X` it implements:
- * the spec's methods, with the document's context as a leading parameter
- * that Repo supplies:
+ * the spec's methods, with the document's context and the calling handle as
+ * leading parameters that Repo supplies:
  *
  * ```ts
  * export const count = defineExtension<CountSession, CountSpec>({

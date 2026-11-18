@@ -246,10 +246,11 @@ class NotServing extends MemoryBackend {
 const defined = defineExtension<SessionA, ASpec, { n: number }>({
   kind: "a",
   members: {
-    a(context) {
+    a(context, handle) {
       const session = context.requireSession()
       void session.ping("x")
-      return "a"
+      // The calling handle has the spec's members.
+      return handle.a() + handle.url
     },
   },
   receive(context, payload) {

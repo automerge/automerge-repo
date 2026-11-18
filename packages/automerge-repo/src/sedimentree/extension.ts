@@ -71,12 +71,11 @@ export type ExtensionEvents<T, X extends HandleExtensionSpec> = {
  * `P` is the payload of the `extension` events its backend sends it; `X` is
  * what it adds to handles, which {@link provides} reads.
  *
- * An extension is a record of methods taking the document's
- * {@link ExtensionContext} first. Repo installs wrappers on one shared
- * subclass of its handle class. Extensions have no constructors, getters,
- * or per-handle state. Write one with {@link defineExtension} to check its
- * methods against the spec; a record written by hand states `X` in its type
- * or adds nothing to the handle type.
+ * An extension is a record of methods. Each takes the document's
+ * {@link ExtensionContext}, then the handle it was called on, then the
+ * caller's arguments. Getters are not supported. Write one with
+ * {@link defineExtension} to check its methods against the spec; a record
+ * written by hand states `X` in its type or adds nothing to the handle type.
  *
  * @experimental
  */
@@ -90,10 +89,12 @@ export interface HandleExtension<
   /** Type only: never set. */
   readonly "~spec"?: X
   /** The methods added to every handle, by string or symbol name. Each takes
-   * the handle's document context first; callers do not pass it. */
+   * the document's context and the handle it was called on first; callers
+   * pass neither. */
   readonly members: {
     readonly [name: PropertyKey]: (
       context: ExtensionContext<S, E>,
+      handle: DocHandle<unknown, X>,
       ...args: any[]
     ) => unknown
   }
