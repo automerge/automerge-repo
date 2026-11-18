@@ -22,6 +22,8 @@ abstract class WebSocketNetworkAdapter extends NetworkAdapter {
   socket?: WebSocket
 }
 
+type WebSocketFactory = (url: string) => WebSocket
+
 export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
   #ready = false
   #readyResolver?: () => void
@@ -49,15 +51,18 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
   #forceReadyTimeoutId?: TimeoutId
   #disconnected = false
   #log = debug("automerge-repo:websocket:browser")
+  #socketFactory: WebSocketFactory
 
   remotePeerId?: PeerId // this adapter only connects to one remote client at a time
 
   constructor(
     public readonly url: string,
-    public readonly retryInterval = 5000
+    public readonly retryInterval = 5000,
+    socketFactory?: WebSocketFactory
   ) {
     super()
     this.#log = this.#log.extend(url)
+    this.#socketFactory = socketFactory ?? (url => new WebSocket(url))
   }
 
   connect(peerId: PeerId, peerMetadata?: PeerMetadata) {
@@ -82,7 +87,7 @@ export class WebSocketClientAdapter extends WebSocketNetworkAdapter {
         this.connect(peerId, peerMetadata)
       }, this.retryInterval)
 
-    this.socket = new WebSocket(this.url)
+    this.socket = this.#socketFactory(this.url)
 
     this.socket.binaryType = "arraybuffer"
 
