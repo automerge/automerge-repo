@@ -101,7 +101,7 @@ describe("SyncStateTracker", () => {
   })
 
   it("does not save sync state for a document deleted while its save is queued", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] })
     try {
       const subsystem = new StorageSubsystem(new DummyStorageAdapter())
       const release = Promise.withResolvers<void>()
