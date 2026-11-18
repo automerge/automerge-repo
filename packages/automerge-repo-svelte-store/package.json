@@ -34,7 +34,7 @@
   "devDependencies": {
     "@sveltejs/package": "^2.5.8",
     "svelte": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:ts6"
   },
   "watch": {
     "build": {
