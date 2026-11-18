@@ -105,16 +105,23 @@ export function createAutomergeStore(repo: Repo) {
   function createDocumentStore<T>(
     handle: DocHandle<T>
   ): AutomergeDocumentStore<T> {
-    // Create a writable store with the current document
-    const { subscribe, set } = writable<Doc<T> | null>(handle.doc() ?? null)
-
-    // Set up change listener
-    const onChange = ({ doc }: { doc: Doc<T> | undefined }) => {
-      set(doc ?? null)
-    }
-
-    // Subscribe to changes
-    handle.on("change", onChange)
+    // Create a writable store with the current document. The start/stop
+    // notifier ties the handle's "change" subscription to the store's own
+    // subscriber lifecycle: attach the listener when the first subscriber
+    // arrives, detach it when the last unsubscribes.
+    const { subscribe, set } = writable<Doc<T> | null>(
+      handle.doc() ?? null,
+      () => {
+        const onChange = ({ doc }: { doc: Doc<T> | undefined }) => {
+          set(doc ?? null)
+        }
+        handle.on("change", onChange)
+        // Re-sync in case the document changed between store creation and the
+        // first subscription.
+        set(handle.doc() ?? null)
+        return () => handle.removeListener("change", onChange)
+      }
+    )
 
     // Create the store implementation
     const store: AutomergeDocumentStore<T> = {
