@@ -6,6 +6,7 @@ import { DocHandle } from "../src/types/DocHandle.js"
 import type { HandleOf } from "../src/Repo.js"
 import type { DocHandleChangePayload } from "../src/DocHandleEvents.js"
 import type { DocumentQuery, QueryState } from "../src/DocumentQuery.js"
+import type { UrlHeads } from "../src/types.js"
 import type {
   AnyHandleExtension,
   EventFor,
@@ -243,6 +244,62 @@ const badReturn = defineExtension<ASpec>({
   },
 })
 void [defined, badMember, badReturn]
+
+// A member generic in the calling handle's document type declares it as
+// `this`; callers get their own document type, the implementation `unknown`.
+interface BookmarkSession extends SedimentreeSession {
+  findBookmark(label: string): Promise<UrlHeads | undefined>
+}
+interface BookmarkSpec {
+  session: BookmarkSession
+  members: {
+    openBookmark<T>(
+      this: DocHandle<T>,
+      label: string
+    ): Promise<DocHandle<T> | undefined>
+    label(this: DocHandle<unknown>, prefix: string): string
+  }
+}
+const bookmarks = defineExtension<BookmarkSpec>({
+  members: {
+    async openBookmark(context, handle, label) {
+      const heads = await context.requireSession().findBookmark(label)
+      return heads && handle.view(heads)
+    },
+    label: (_context, handle, prefix) => prefix + handle.url,
+  },
+})
+class BookmarkBackend extends MemoryBackend {
+  readonly handleExtensions = provides(bookmarks)
+}
+async function bookmarkTypes() {
+  const handle = await new Repo({ backend: new BookmarkBackend() }).find<Doc>(
+    url
+  )
+  const whole: DocHandle<Doc> | undefined = await handle.openBookmark("v1")
+  const title: DocHandle<string> | undefined = await handle
+    .sub("title")
+    .openBookmark("v1")
+  handle.label("x").toUpperCase()
+  // @ts-expect-error the bookmark is of a Doc
+  const wrong: DocHandle<number> | undefined = await handle.openBookmark("v1")
+  void [whole, title, wrong]
+}
+defineExtension<{ members: { first<T>(this: DocHandle<T>): T } }>({
+  members: {
+    // @ts-expect-error the implementation sees the document as `unknown`
+    first: (_context, handle): string => handle.doc(),
+  },
+})
+defineExtension<{ members: { first<T>(): T } }>({
+  // @ts-expect-error a generic member without a `this` handle
+  members: { first: () => undefined as never },
+})
+defineExtension<{ members: { first<T>(this: { n: T }): T } }>({
+  // @ts-expect-error a `this` that is not a handle
+  members: { first: () => undefined as never },
+})
+void bookmarkTypes
 
 // ExtensionEvent names one extension's events: its kind and payload are
 // typed, and the base session accepts it.

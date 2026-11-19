@@ -18,7 +18,9 @@ import type { HandleExtension, HandleExtensionSpec } from "./extension.js"
  *
  * Methods must be representable by one argument tuple and return type.
  * Generic or overloaded signatures that need more are rejected; use
- * concrete, single-signature methods instead.
+ * concrete, single-signature methods instead. The exception is a method
+ * generic in the document type of the handle it is called on, declared with
+ * `this: DocHandle<T>`; its implementation sees that type as `unknown`.
  *
  * @experimental
  */

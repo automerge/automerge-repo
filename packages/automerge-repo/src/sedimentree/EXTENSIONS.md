@@ -205,6 +205,42 @@ handle.peers() // peers the backend knows have this document
 
 `context.sedimentreeId` tells the backend which document the call is for.
 
+## Using the document type
+
+A method whose types depend on the document takes them from the handle it is
+called on. Declare that handle as `this` in the spec:
+
+```ts
+interface BookmarkSession extends SedimentreeSession {
+  findBookmark(label: string): Promise<UrlHeads | undefined>
+}
+
+interface BookmarkSpec {
+  session: BookmarkSession
+  members: {
+    /** A view of the document where the backend bookmarked `label`. */
+    openBookmark<T>(
+      // `this` is typescript only, and is erased at runtime
+      this: DocHandle<T>,
+      label: string
+    ): Promise<DocHandle<T> | undefined>
+  }
+}
+
+const bookmarks = defineExtension<BookmarkSpec>({
+  members: {
+    // note `label` is passed here, but not `this`
+    async openBookmark(context, handle, label) {
+      const heads = await context.requireSession().findBookmark(label)
+      return heads && handle.view(heads)
+    },
+  },
+})
+
+await handle.openBookmark("v1") // DocHandle<Doc> | undefined
+await handle.sub("title").openBookmark("v1") // DocHandle<string> | undefined
+```
+
 ## Rules and Restrictions
 
 - For now, at least, **add, don't replace.** An extension can't redefine a handle member

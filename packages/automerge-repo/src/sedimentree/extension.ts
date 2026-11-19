@@ -24,7 +24,8 @@ import type { SedimentreeId } from "./ids.js"
  * }
  * ```
  *
- * Members may not depend on the handle's document type.
+ * A member that depends on the handle's document type takes it from the
+ * calling handle: `first<T>(this: DocHandle<T>): T`.
  *
  * @experimental
  */
@@ -71,25 +72,36 @@ export type EventsOf<X extends HandleExtensionSpec> = X extends {
 
 /** The spec's members as an extension writes them: the document's
  * {@link ExtensionContext} and the calling handle first, then the caller's
- * arguments. A generic or overloaded method is `never`: it can't be reduced
- * to one argument list and return type. A spec without members takes
- * `members: {}`. */
+ * arguments. A generic method must declare a `this` handle, as in
+ * `first<T>(this: DocHandle<T>): T`; its implementation is checked with the
+ * document type as `unknown`. Any other generic or overloaded method is
+ * `never`: it can't be reduced to one argument list and return type. A spec
+ * without members takes `members: {}`. */
 type ContextualMembers<
   X extends HandleExtensionSpec,
   M = ExtensionMembers<X>,
 > = [keyof M] extends [never]
   ? { readonly [name: PropertyKey]: never }
   : {
-      readonly [N in keyof M]: M[N] extends (...args: infer A) => infer R
+      readonly [N in keyof M]: M[N] extends (
+        this: infer H,
+        ...args: infer A
+      ) => infer R
         ? ((...args: A) => R) extends M[N]
-          ? (
-              context: ExtensionContext<X>,
-              handle: DocHandle<unknown, X>,
-              ...args: A
-            ) => R
-          : never
+          ? Contextual<X, A, R>
+          : unknown extends H
+            ? never
+            : H extends DocHandle<unknown>
+              ? Contextual<X, A, R>
+              : never
         : never
     }
+
+type Contextual<X extends HandleExtensionSpec, A extends unknown[], R> = (
+  context: ExtensionContext<X>,
+  handle: DocHandle<unknown, X>,
+  ...args: A
+) => R
 
 /** What `receive` must be when a spec's `receives` does not list its kinds
  * by name: an index signature (`Record<string, …>`) or a non-string key. No
