@@ -41,8 +41,7 @@ import { isPlainObject } from "./helpers/isPlainObject.js"
  * what the backend's extensions add to every handle; it is taken from the
  * backend's type, see {@link SedimentreeBackend}.
  */
-// `out`: see the note on DocHandle's spec parameter.
-export class Repo<out X extends HandleExtensionSpec = {}> extends EventEmitter<
+export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   RepoEvents<X>
 > {
   #log = makeLogger("automerge-repo:repo")

@@ -32,7 +32,7 @@ export type ProgressState<T, X extends HandleExtensionSpec = {}> =
     }
 
 /** @deprecated Use {@link Repo.query}. Returned by {@link Repo.findWithProgress}. */
-export interface DocumentProgress<T, out X extends HandleExtensionSpec = {}> {
+export interface DocumentProgress<T, X extends HandleExtensionSpec = {}> {
   readonly documentId: DocumentId
   peek(): ProgressState<T, X>
   subscribe(callback: (state: ProgressState<T, X>) => void): () => void

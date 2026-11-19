@@ -115,9 +115,7 @@ export const instanceMembers: readonly string[] = ["isReady", "isDeleted"]
  * the `Repo` handles persisting to your local storage as well as propagating
  * changes to connected peers.
  */
-// `out`: TypeScript cannot measure the spec's variance through the
-// conditional types that read it, and would otherwise relate all handles.
-export class DocHandle<T, out X extends HandleExtensionSpec = {}> {
+export class DocHandle<T, X extends HandleExtensionSpec = {}> {
   static {
     stateOf = handle => handle.#state
   }
@@ -916,7 +914,7 @@ export class DocHandle<T, out X extends HandleExtensionSpec = {}> {
    * handle's event names, though open to any string: a handle with more
    * events must still be usable where one with fewer is expected.
    */
-  eventNames(): (keyof HandleEvents<T, X> | (string & {}))[] {
+  eventNames(): ((keyof HandleEvents<T, X> & string) | (string & {}))[] {
     return this.#state.listeners.eventNames(this)
   }
 
@@ -926,7 +924,7 @@ export class DocHandle<T, out X extends HandleExtensionSpec = {}> {
    */
   emit<E extends keyof HandleEvents<T, X>>(
     event: E,
-    payload: Parameters<HandleEvents<T, X>[E] & ((p: any) => any)>[0]
+    payload: Parameters<HandleEvents<T, X>[E]>[0]
   ): boolean {
     return this.#state.listeners.emit(this, event as string, payload)
   }

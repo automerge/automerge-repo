@@ -25,7 +25,7 @@ export type QueryState<T, X extends HandleExtensionSpec = {}> =
   | { status: "failed"; error: Error }
 
 /** An observable view of a document's readiness, returned by {@link Repo.query}. */
-export interface DocumentQuery<T, out X extends HandleExtensionSpec = {}> {
+export interface DocumentQuery<T, X extends HandleExtensionSpec = {}> {
   readonly documentId: DocumentId
   /** The current state. */
   state(): QueryState<T, X>

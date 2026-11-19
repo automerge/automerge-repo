@@ -49,26 +49,18 @@ export type SessionOf<X extends HandleExtensionSpec> = X extends {
   : SedimentreeSession
 
 /** What the spec `X`'s backend sends it: payloads by kind. */
-export type ReceivesOf<X extends HandleExtensionSpec> = X extends {
-  receives: infer R extends object
-}
-  ? R
-  : {}
+export type ReceivesOf<X extends HandleExtensionSpec> = NonNullable<
+  X["receives"]
+>
 
 /** The members the spec `X` adds to a handle. */
-export type ExtensionMembers<X extends HandleExtensionSpec> = X extends {
-  members: infer M extends object
-}
-  ? M
-  : {}
+export type ExtensionMembers<X extends HandleExtensionSpec> = NonNullable<
+  X["members"]
+>
 
 /** The events the spec `X` declares: payloads by name, without the `handle`
  * Repo adds on delivery. What {@link ExtensionContext.emit} takes. */
-export type EventsOf<X extends HandleExtensionSpec> = X extends {
-  events: infer E extends object
-}
-  ? E
-  : {}
+export type EventsOf<X extends HandleExtensionSpec> = NonNullable<X["events"]>
 
 /** The spec's members as an extension writes them: the document's
  * {@link ExtensionContext} and the calling handle first, then the caller's
@@ -82,20 +74,19 @@ type ContextualMembers<
   M = ExtensionMembers<X>,
 > = [keyof M] extends [never]
   ? { readonly [name: PropertyKey]: never }
-  : {
-      readonly [N in keyof M]: M[N] extends (
-        this: infer H,
-        ...args: infer A
-      ) => infer R
-        ? ((...args: A) => R) extends M[N]
-          ? Contextual<X, A, R>
-          : unknown extends H
-            ? never
-            : H extends DocHandle<unknown>
-              ? Contextual<X, A, R>
-              : never
-        : never
-    }
+  : { readonly [N in keyof M]: ContextualMember<X, M[N]> }
+
+/** One spec method `F` as an extension writes it; `never` if it can't be. */
+type ContextualMember<X extends HandleExtensionSpec, F> = F extends (
+  this: infer H,
+  ...args: infer A
+) => infer R
+  ? ((...args: A) => R) extends F
+    ? Contextual<X, A, R>
+    : H extends DocHandle<unknown>
+      ? Contextual<X, A, R>
+      : never
+  : never
 
 type Contextual<X extends HandleExtensionSpec, A extends unknown[], R> = (
   context: ExtensionContext<X>,
