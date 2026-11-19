@@ -864,10 +864,16 @@ async function edits(
       latest = handle.doc()?.count ?? 0
       element("document-view").textContent = String(latest)
     })
+    // Set by `automate --trace-edits`: records a browser trace of this loop.
+    await window.benchTrace?.("start")
     for (let i = 1; i <= count; i++) {
       const frame = await new Promise<number>(resolve =>
         requestAnimationFrame(resolve)
       )
+      if (previousFrame && frame - previousFrame > 100)
+        performance.mark(`stall-${i}`, {
+          detail: { gapMs: frame - previousFrame },
+        })
       if (previousFrame) frameGapMs.push(frame - previousFrame)
       previousFrame = frame
       const started = performance.now()
@@ -905,6 +911,7 @@ async function edits(
         }
       }
     }
+    await window.benchTrace?.("stop")
     if (latest !== count) throw new Error(`Change event stopped at ${latest}`)
     progress("Draining persistence", 1, true)
     const drainStart = performance.now()
@@ -1247,6 +1254,7 @@ declare global {
       prepare: typeof prepare
       getResult: () => Result | LargeResult | undefined
     }
+    benchTrace?: (phase: "start" | "stop") => Promise<void>
   }
 }
 window.benchmark = {

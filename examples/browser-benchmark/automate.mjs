@@ -13,6 +13,18 @@ const edits = process.argv.find(arg => arg.startsWith("--edits="))?.slice(8)
 const large = process.argv
   .find(arg => arg === "--large" || arg.startsWith("--large="))
   ?.slice(8)
+// `--trace-edits` saves a Chrome trace of each run's paced-edit loop.
+const traceEdits = process.argv.includes("--trace-edits")
+const traceCategories = [
+  "toplevel",
+  "devtools.timeline",
+  "disabled-by-default-devtools.timeline.frame",
+  "blink.user_timing",
+  "disabled-by-default-v8.gc",
+  "v8.execute",
+  "gpu",
+  "viz",
+]
 const targetName = process.env.BENCH_NAME ?? "poc"
 const runs = Number(
   process.argv.find(arg => arg.startsWith("--runs="))?.slice(7) ?? 1
@@ -84,6 +96,39 @@ try {
         if (message.type() === "error") console.error(message.text())
       })
       page.on("pageerror", error => console.error(error))
+      if (traceEdits) {
+        const cdp = await page.context().newCDPSession(page)
+        const traceFile = join(
+          directory,
+          "results",
+          `trace-${targetName}-${new Date().toISOString().replaceAll(":", "-")}-${i + 1}.json`
+        )
+        await page.exposeFunction("benchTrace", async phase => {
+          if (phase === "start") {
+            await cdp.send("Tracing.start", {
+              traceConfig: { includedCategories: traceCategories },
+              transferMode: "ReturnAsStream",
+            })
+            return
+          }
+          const done = new Promise(resolve =>
+            cdp.once("Tracing.tracingComplete", resolve)
+          )
+          await cdp.send("Tracing.end")
+          const { stream } = await done
+          const chunks = []
+          for (;;) {
+            const { data, eof, base64Encoded } = await cdp.send("IO.read", {
+              handle: stream,
+            })
+            chunks.push(Buffer.from(data, base64Encoded ? "base64" : "utf8"))
+            if (eof) break
+          }
+          await cdp.send("IO.close", { handle: stream })
+          await writeFile(traceFile, Buffer.concat(chunks))
+          console.log(`Saved ${traceFile}`)
+        })
+      }
       await page.goto(url)
       await page.waitForFunction(() => !!window.benchmark, null, {
         timeout: 60000,
