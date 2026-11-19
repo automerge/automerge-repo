@@ -6,52 +6,42 @@ import type {
   ExtensionMembers,
   HandleExtension,
   HandleExtensionSpec,
+  HandleFeatures,
 } from "./extension.js"
 
-/** The spec's members as an extension defines them: each method takes the
- * document's {@link ExtensionContext} and the handle it was called on first;
- * callers pass neither. Reject signatures whose generic or overload
- * relationships would be lost by reducing them to one argument tuple and
- * return type. */
-export type ContextualMembers<
+/** The spec's members as an extension writes them: the document's
+ * {@link ExtensionContext} and the calling handle first, then the caller's
+ * arguments. A generic or overloaded method is `never`: it can't be reduced
+ * to one argument list and return type. */
+type ContextualMembers<
   S extends SedimentreeSession,
   X extends HandleExtensionSpec,
+  M = ExtensionMembers<X>,
 > = {
-  readonly [N in keyof ExtensionMembers<X>]: ExtensionMembers<X>[N] extends (
-    ...args: infer A
-  ) => infer R
-    ? ((...args: A) => R) extends ExtensionMembers<X>[N]
+  readonly [N in keyof M]: M[N] extends (...args: infer A) => infer R
+    ? ((...args: A) => R) extends M[N]
       ? (
           context: ExtensionContext<S, EventsOf<X>>,
-          handle: DocHandle<unknown, X>,
+          handle: DocHandle<unknown, HandleFeatures<X>>,
           ...args: A
         ) => R
       : never
     : never
 }
 
-/** What {@link defineExtension} takes; see {@link HandleExtension} for `S`
- * (the session the extension needs) and `P` (its inbound payload). */
-export interface ExtensionDefinition<
+/** What {@link defineExtension} takes: a {@link HandleExtension} whose
+ * members are checked against the spec `X`. */
+type ExtensionDefinition<
   S extends SedimentreeSession,
   X extends HandleExtensionSpec,
-  P = unknown,
-> {
-  readonly kind: string
-  /** The members of the spec `X`, each taking the context first. */
+> = Pick<HandleExtension<S, X>, "kind" | "receive"> & {
   readonly members: ContextualMembers<S, X>
-  /** The backend sent `payload`: a session event `{ type: "extension" }` of
-   * this kind. */
-  readonly receive?: (
-    context: ExtensionContext<S, EventsOf<X>>,
-    payload: P
-  ) => void
 }
 
 /**
  * A {@link HandleExtension}, checked against the spec `X` it implements:
- * the spec's methods, with the document's context and the calling handle as
- * leading parameters that Repo supplies:
+ * its kind, and the spec's methods, with the document's context and the
+ * calling handle as leading parameters that Repo supplies:
  *
  * ```ts
  * export const count = defineExtension<CountSession, CountSpec>({
@@ -74,9 +64,6 @@ export interface ExtensionDefinition<
 export function defineExtension<
   S extends SedimentreeSession = SedimentreeSession,
   X extends HandleExtensionSpec = {},
-  P = unknown,
->(
-  definition: ExtensionDefinition<S, X, P>
-): HandleExtension<S, EventsOf<X>, P, X> {
-  return definition
+>(definition: ExtensionDefinition<S, X>): HandleExtension<S, X> {
+  return definition as HandleExtension<S, X>
 }

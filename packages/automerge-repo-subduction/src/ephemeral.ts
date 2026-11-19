@@ -3,7 +3,7 @@ import {
   BackendError,
   defineExtension,
   type BackendIdentity,
-  type SedimentreeEvent,
+  type HandleFeatures,
   type SedimentreeSession,
 } from "@automerge/automerge-repo/sedimentree"
 import type {
@@ -32,22 +32,9 @@ export interface EphemeralInbound {
 /** The `ephemeral` extension's kind, shared with the events the backend sends it. */
 export const ephemeralKind = "ephemeral"
 
-/** A session event carrying a message to the `ephemeral` extension. */
-export interface EphemeralEvent {
-  readonly type: "extension"
-  readonly sequence: number
-  readonly kind: typeof ephemeralKind
-  readonly payload: EphemeralInbound
-}
-
-/** An event of a Subduction session. */
-export type SubductionEvent = SedimentreeEvent | EphemeralEvent
-
-/** A session of the Subduction backend. */
-export interface SubductionSession extends SedimentreeSession {
-  readonly events: AsyncIterable<SubductionEvent>
-  /** Publish to the peers subscribed to this session's document. The
-   * `ephemeral` handle extension sends through this. */
+/** What the `ephemeral` extension needs of a session. */
+export interface EphemeralSession extends SedimentreeSession {
+  /** Publish to the peers subscribed to this session's document. */
   publishEphemeral(message: EphemeralEnvelope): Promise<void>
 }
 
@@ -56,7 +43,7 @@ export interface SubductionSession extends SedimentreeSession {
  * is the peer Subduction authenticated; `originId` is the sending Repo's `id`.
  */
 export interface EphemeralMessagePayload<T> extends PresenceInbound {
-  handle: DocHandle<T, SubductionExtensions>
+  handle: DocHandle<T, HandleFeatures<EphemeralSpec>>
 }
 
 /** What the `ephemeral` extension adds to a handle. */
@@ -82,21 +69,20 @@ export interface EphemeralEvents {
   "ephemeral-message": PresenceInbound
 }
 
-/** What the `ephemeral` extension adds to a handle. */
+/** The `ephemeral` extension's types: its kind, what the backend sends it,
+ * and what it adds to handles. */
 export interface EphemeralSpec {
+  kind: typeof ephemeralKind
+  inbound: EphemeralInbound
   members: EphemeralMembers
   events: EphemeralEvents
 }
-
-/** What the Subduction backend's extensions add to the handles of a Repo on
- * it; name such a Repo as `Repo<SubductionExtensions>`. */
-export type SubductionExtensions = EphemeralSpec
 
 // Fails to compile if handles with this extension stop fitting Presence.
 type Fits<Contract, _Handle extends Contract> = Contract
 type _FitsPresence = Fits<
   PresenceHandle,
-  DocHandle<unknown, SubductionExtensions>
+  DocHandle<unknown, HandleFeatures<EphemeralSpec>>
 >
 
 // Untagged byte strings keep the encoding identical with and without Node's Buffer.
@@ -159,11 +145,7 @@ export function decodeEphemeral(
  * Ephemeral messaging on every handle: `broadcast()` and the
  * `ephemeral-message` event, carried by Subduction's ephemeral topics.
  */
-export const ephemeral = defineExtension<
-  SubductionSession,
-  EphemeralSpec,
-  EphemeralInbound
->({
+export const ephemeral = defineExtension<EphemeralSession, EphemeralSpec>({
   kind: ephemeralKind,
   members: {
     broadcast(context, _handle, message) {

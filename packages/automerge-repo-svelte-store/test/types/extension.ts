@@ -12,12 +12,7 @@ interface PingSpec {
   events: { pong: {} }
 }
 
-declare const ping: HandleExtension<
-  SedimentreeSession,
-  PingSpec["events"],
-  unknown,
-  PingSpec
->
+declare const ping: HandleExtension<SedimentreeSession, PingSpec>
 export class PingBackend extends MemoryBackend {
   readonly handleExtensions = provides(ping)
 }

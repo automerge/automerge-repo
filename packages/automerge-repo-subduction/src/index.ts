@@ -17,9 +17,12 @@ import {
   type FragmentRecord,
   type LooseCommitRecord,
   type RecordBatch,
+  type EventFor,
+  type ExtensionsOf,
   type SedimentreeBackend,
   type SedimentreeEvent,
   type SedimentreeId,
+  type SessionFor,
   type SyncRoundResult,
 } from "@automerge/automerge-repo/sedimentree"
 import { StorageBridge } from "./storage.js"
@@ -35,9 +38,6 @@ import {
   encodeEphemeral,
   ephemeral,
   ephemeralKind,
-  type SubductionEvent,
-  type SubductionExtensions,
-  type SubductionSession,
 } from "./ephemeral.js"
 import { SyncRules, type SyncPolicy, type SyncRule } from "./sync-policy.js"
 
@@ -51,15 +51,12 @@ export {
 export {
   ephemeral,
   type EphemeralEnvelope,
-  type EphemeralEvent,
   type EphemeralEvents,
   type EphemeralInbound,
   type EphemeralMembers,
   type EphemeralMessagePayload,
+  type EphemeralSession,
   type EphemeralSpec,
-  type SubductionEvent,
-  type SubductionExtensions,
-  type SubductionSession,
 } from "./ephemeral.js"
 export type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
 export type {
@@ -222,6 +219,14 @@ async function failures(promises: readonly unknown[]): Promise<unknown[]> {
     r.status === "rejected" ? [r.reason] : []
   )
 }
+
+/** What the Subduction backend's extensions add to the handles of a Repo on
+ * it; name such a Repo as `Repo<SubductionExtensions>`. */
+export type SubductionExtensions = ExtensionsOf<SubductionBackend>
+/** A session of the Subduction backend: what its extensions need. */
+export type SubductionSession = SessionFor<SubductionBackend>
+/** An event the Subduction backend sends on its sessions. */
+export type SubductionEvent = EventFor<SubductionBackend>
 
 /** EXPERIMENTAL: real WASM persistence and authenticated peer sync.
  * Initialize Subduction WASM before construction. Storage is exclusively owned.

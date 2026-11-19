@@ -15,6 +15,8 @@ import { scriptedBackend } from "./helpers/scriptedBackend.js"
 
 /** What `ping` adds to the handles of a Repo on a backend listing it. */
 interface PingSpec {
+  kind: "ping"
+  inbound: number | "throw"
   members: { ping(): Promise<string>; caller(): string }
   events: { pong: { n: number } }
 }
@@ -25,7 +27,7 @@ interface PingSession extends SedimentreeSession {
 }
 
 /** Asks its backend to answer, and reports the backend's `pong`s. */
-const ping = defineExtension<PingSession, PingSpec, number | "throw">({
+const ping = defineExtension<PingSession, PingSpec>({
   kind: "ping",
   members: {
     async ping(context): Promise<string> {

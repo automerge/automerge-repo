@@ -7,15 +7,21 @@ import type { AsHandle, HandleOf } from "../src/Repo.js"
 import type { DocHandleChangePayload } from "../src/DocHandleEvents.js"
 import type { DocumentQuery, QueryState } from "../src/DocumentQuery.js"
 import type {
+  AnyExtensionEvent,
   AnyHandleExtension,
+  EventFor,
+  ExtensionEvent,
   ExtensionsOf,
   HandleExtension,
+  HandleFeatures,
+  SessionFor,
   SedimentreeBackend,
+  SedimentreeEvent,
   SedimentreeId,
   SedimentreeSession,
 } from "../src/sedimentree/index.js"
 import { defineExtension } from "../src/sedimentree/defineExtension.js"
-import { provides } from "../src/sedimentree/backend.js"
+import { provides } from "../src/sedimentree/provides.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 
 type Doc = { title: string }
@@ -27,22 +33,17 @@ interface BSpec {
   members: { b(): void }
   events: { "b-event": { s: string } }
 }
+/** Extension `a`'s spec in full: also its kind and what its backend sends it. */
+interface ASpecFull extends ASpec {
+  kind: "a"
+  inbound: { n: number }
+}
 /** The session extension `a` needs of its backend. */
 interface SessionA extends SedimentreeSession {
   ping(text: string): Promise<number>
 }
-declare const extA: HandleExtension<
-  SessionA,
-  ASpec["events"],
-  { n: number },
-  ASpec
->
-declare const extB: HandleExtension<
-  SedimentreeSession,
-  BSpec["events"],
-  unknown,
-  BSpec
->
+declare const extA: HandleExtension<SessionA, ASpecFull>
+declare const extB: HandleExtension<SedimentreeSession, BSpec>
 class BackendA extends MemoryBackend {
   readonly handleExtensions = provides(extA)
 }
@@ -223,7 +224,7 @@ const implemented = {
     // @ts-expect-error the event's payload, without the handle Repo adds
     context.emit("a-event", { n: "1" })
   },
-} satisfies HandleExtension<SessionA, ASpec["events"], { n: number }>
+} satisfies HandleExtension<SessionA, ASpecFull>
 
 // A backend that declares its sessions as what its extension needs has that
 // checked where it opens them.
@@ -243,7 +244,7 @@ class NotServing extends MemoryBackend {
 
 // defineExtension: the context is typed, members are checked against the
 // spec, and the declared events are the only ones it can emit.
-const defined = defineExtension<SessionA, ASpec, { n: number }>({
+const defined = defineExtension<SessionA, ASpecFull>({
   kind: "a",
   members: {
     a(context, handle) {
@@ -279,9 +280,28 @@ const badReturn = defineExtension<SessionA, ASpec>({
 })
 void [defined, badMember, badReturn]
 
-// ExtensionsOf reads a backend type's spec; an undeclared backend gives `{}`.
-const specOfA: Equal<ExtensionsOf<BackendA>, ASpec> = true
-const specOfAB: Equal<ExtensionsOf<BackendAB>, ASpec & BSpec> = true
+// ExtensionEvent names one extension's events: its kind and payload are
+// typed, and the base session accepts it.
+declare const aEvent: ExtensionEvent<"a", { n: number }>
+aEvent.payload.n.toFixed()
+const kindA: "a" = aEvent.kind
+const onBase: SedimentreeEvent | AnyExtensionEvent = aEvent
+const wrongPayload: ExtensionEvent<"a", { n: number }> = {
+  type: "extension",
+  sequence: 1,
+  kind: "a",
+  // @ts-expect-error the payload's type is checked
+  payload: { n: "1" },
+}
+void [kindA, onBase, wrongPayload]
+
+// ExtensionsOf reads what a backend type's extensions add to handles (their
+// members and events); an undeclared backend gives `{}`.
+const specOfA: Equal<ExtensionsOf<BackendA>, HandleFeatures<ASpecFull>> = true
+const specOfAB: Equal<
+  ExtensionsOf<BackendAB>,
+  HandleFeatures<ASpecFull> & HandleFeatures<BSpec>
+> = true
 const specOfMemory: Equal<ExtensionsOf<MemoryBackend>, {}> = true
 void [specOfA, specOfAB, specOfMemory]
 
@@ -293,12 +313,12 @@ declare const anyExt: AnyHandleExtension
 const fromDefined = provides(defined, extB)
 const specOfDefined: Equal<
   ExtensionsOf<{ handleExtensions: typeof fromDefined } & MemoryBackend>,
-  ASpec & BSpec
+  HandleFeatures<ASpecFull> & HandleFeatures<BSpec>
 > = true
 const withUntyped = provides(extA, untypedExt, anyExt)
 const specWithUntyped: Equal<
   ExtensionsOf<{ handleExtensions: typeof withUntyped } & MemoryBackend>,
-  ASpec
+  HandleFeatures<ASpecFull>
 > = true
 const none = provides()
 const specOfNone: Equal<
@@ -311,3 +331,161 @@ provides<ASpec>(untypedExt)
 void [specOfDefined, specWithUntyped, specOfNone]
 
 void [common, members, implemented, Serving, NotServing]
+
+// SessionFor and EventFor work out a backend's session and events from its
+// extensions: what each needs of a session, and one event per declared kind.
+interface CountSpec {
+  kind: "count"
+  inbound: { count: number }
+  members: { docsOpened(): number }
+}
+class Derived extends MemoryBackend {
+  readonly handleExtensions = provides(
+    extA,
+    // Defined here, so its methods can use the backend itself.
+    defineExtension<SedimentreeSession, CountSpec>({
+      kind: "count",
+      members: { docsOpened: () => this.#opened },
+      receive: (_context, payload) => void payload.count.toFixed(),
+    })
+  )
+  #opened = 0
+  override open(id: SedimentreeId): SessionFor<Derived> {
+    this.#opened++
+    return Object.assign(super.open(id) as SessionFor<Derived>, {
+      ping: async () => 1,
+    })
+  }
+}
+declare const derivedSession: SessionFor<Derived>
+// What extension `a` needs is there.
+void derivedSession.ping("x")
+declare const derivedEvent: EventFor<Derived>
+if (derivedEvent.type === "extension" && derivedEvent.kind === "a")
+  derivedEvent.payload.n.toFixed()
+if (derivedEvent.type === "extension" && derivedEvent.kind === "count")
+  derivedEvent.payload.count.toFixed()
+const sendCount: EventFor<Derived> = {
+  type: "extension",
+  sequence: 1,
+  kind: "count",
+  payload: { count: 1 },
+}
+const sendWrong: EventFor<Derived> = {
+  type: "extension",
+  sequence: 1,
+  kind: "a",
+  // @ts-expect-error count's payload under a's kind
+  payload: { count: 1 },
+}
+const sendUnknown: EventFor<Derived> = {
+  type: "extension",
+  sequence: 1,
+  // @ts-expect-error a kind no listed extension has
+  kind: "other",
+  // @ts-expect-error nor a payload of one
+  payload: 1,
+}
+// Handles get both extensions' members.
+async function derivedHandles() {
+  const handle = await new Repo({ backend: new Derived() }).find<Doc>(url)
+  handle.a()
+  handle.docsOpened().toFixed()
+}
+class Forgetful extends MemoryBackend {
+  readonly handleExtensions = provides(extA)
+  override open(id: SedimentreeId): SessionFor<Forgetful> {
+    // @ts-expect-error its sessions lack what extension `a` needs
+    return super.open(id)
+  }
+}
+void [sendCount, sendWrong, sendUnknown, derivedHandles, Forgetful]
+
+// A subclass may list more extensions than its parent.
+class DerivedMore extends Derived {
+  override readonly handleExtensions = provides(
+    extA,
+    defineExtension<SedimentreeSession, CountSpec>({
+      kind: "count",
+      members: { docsOpened: () => 0 },
+    }),
+    defineExtension<SedimentreeSession, { members: { label(): string } }>({
+      kind: "label",
+      members: { label: () => "x" },
+    })
+  )
+}
+async function moreHandles() {
+  const handle = await new Repo({ backend: new DerivedMore() }).find<Doc>(url)
+  handle.label().toUpperCase()
+}
+
+// A methods-only spec matches the Repo inferred from it, both ways.
+interface PingOnly {
+  members: { ping(): number }
+}
+const pingOnly = defineExtension<SedimentreeSession, PingOnly>({
+  kind: "ping",
+  members: { ping: () => 1 },
+})
+class PingOnlyBackend extends MemoryBackend {
+  readonly handleExtensions = provides(pingOnly)
+}
+const inferredPing = new Repo({ backend: new PingOnlyBackend() })
+const namedPing: Repo<PingOnly> = inferredPing
+const backToInferred: typeof inferredPing = namedPing
+
+// An extension's kind is its spec's, as a value too.
+const kindOfA: "a" = defined.kind
+const wrongKind: HandleExtension<SessionA, ASpecFull> = {
+  // @ts-expect-error the value's kind must be the spec's
+  kind: "b",
+  members: {},
+}
+const greedy: HandleExtension<SessionA, ASpecFull> = {
+  kind: "a",
+  members: {},
+  // @ts-expect-error a receiver may not demand more than the spec's inbound
+  receive: (_context, _payload: { n: number; label: string }) => {},
+}
+
+// A list element that may be one of several extensions: the session must
+// serve each, and each kind keeps its own payload.
+interface CSpec {
+  kind: "c"
+  inbound: { s: string }
+  members: { c(): void }
+}
+interface SessionC extends SedimentreeSession {
+  pong(): void
+}
+declare const extC: HandleExtension<SessionC, CSpec>
+declare const flag: boolean
+class Either extends MemoryBackend {
+  readonly handleExtensions = provides(flag ? extA : extC)
+}
+declare const eitherSession: SessionFor<Either>
+void eitherSession.ping("x")
+eitherSession.pong()
+const eitherC: EventFor<Either> = {
+  type: "extension",
+  sequence: 1,
+  kind: "c",
+  payload: { s: "x" },
+}
+const eitherMixed: EventFor<Either> = {
+  type: "extension",
+  sequence: 1,
+  kind: "a",
+  // @ts-expect-error c's payload under a's kind
+  payload: { s: "x" },
+}
+void [
+  moreHandles,
+  backToInferred,
+  kindOfA,
+  wrongKind,
+  greedy,
+  eitherC,
+  eitherMixed,
+]

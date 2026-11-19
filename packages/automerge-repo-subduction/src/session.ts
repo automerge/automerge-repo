@@ -1,7 +1,7 @@
 import type * as N from "@automerge/subduction/slim"
 import type { SedimentreeId } from "@automerge/automerge-repo/sedimentree"
 import type { Watch } from "./watch.js"
-import type { SubductionEvent } from "./ephemeral.js"
+import type { SubductionEvent } from "./index.js"
 
 /** Backend-side state of one open session. */
 export interface SessionState {

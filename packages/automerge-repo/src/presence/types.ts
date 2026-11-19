@@ -16,31 +16,9 @@ export type PresenceInbound = {
 }
 
 /**
- * The contract a handle must meet to be used with {@link Presence}. Core
- * handles do not: a backend adds ephemeral messaging to its Repo's handles
- * with a handle extension, under whatever name and with whatever else it
- * likes, and any handle of this shape works.
- *
- * For a backend to provide it, its extension must:
- * - add `broadcast(message)`: encode `message` when called, tag it with the
- *   sending Repo's ID (`context.repoId`), and send it through the document's
- *   session (`context.session`) to the peers that have the document open.
- *   Best effort: log a failure to send, never throw or reject for one;
- * - on each message the backend delivers for the document (an `extension`
- *   session event of its kind), drop it if it is tagged with this Repo's own
- *   ID, since Presence would take its own broadcasts for a new peer;
- *   otherwise emit `ephemeral-message` on every handle of the document
- *   (`context.emit`);
- * - report as `senderId` the peer the backend authenticated, and as
- *   `originId` the sending Repo's tag, so that several Repos behind one peer
- *   stay distinct;
- * - declare `broadcast` and `ephemeral-message` in its
- *   `HandleExtensionSpec`, so that handles are typed with them.
- *
- * The backend lists the extension in `handleExtensions`, and its sessions
- * implement whatever the extension calls in order to send. The Subduction
- * backend's `ephemeral` extension is one such implementation, and asserts at
- * compile time that its handles fit this interface.
+ * A handle with ephemeral messaging, as {@link Presence} needs. A backend
+ * provides it with a handle extension; see `src/presence/README.md` for how
+ * the handle must behave.
  */
 export interface PresenceHandle {
   broadcast(message: unknown): void

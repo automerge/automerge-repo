@@ -3,13 +3,12 @@ import * as N from "@automerge/subduction"
 import { Repo } from "@automerge/automerge-repo/slim"
 import { sedimentreeId } from "@automerge/automerge-repo/sedimentree"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { SubductionBackend } from "../src/index.js"
+import { SubductionBackend, type SubductionEvent } from "../src/index.js"
 import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
 import {
   encodeEphemeral,
   type EphemeralEnvelope,
   type EphemeralInbound,
-  type SubductionEvent,
 } from "../src/ephemeral.js"
 import {
   PairedTransport,

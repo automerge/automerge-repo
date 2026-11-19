@@ -11,6 +11,7 @@ const PROJECTS = [
   "packages/automerge-repo/test/tsconfig.checks.json",
   "packages/automerge-repo/test/sedimentree/tsconfig.json",
   "packages/automerge-repo-subduction/test/tsconfig.json",
+  "packages/automerge-repo-subduction/test/tsconfig.consumer.json",
   "packages/automerge-react/test/tsconfig.types.json",
   "packages/automerge-repo-solid-primitives/tsconfig.test.json",
   "packages/automerge-repo-solid-primitives/test/types/tsconfig.types.json",

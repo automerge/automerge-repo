@@ -107,6 +107,7 @@ export class Document<T> {
     const session = () => (this.state.closed ? undefined : this.#session)
     this.extensionContext = {
       documentId,
+      sedimentreeId,
       repoId,
       get session() {
         return session()
@@ -361,12 +362,16 @@ export class Document<T> {
     switch (event.type) {
       // Typed by kind for whoever sends it; routed here by name alone.
       case "extension": {
+        const failed = (error: unknown) =>
+          this.#log("extension event failed: %o", error)
         try {
-          this.backend.handleExtensions
+          const result: unknown = this.backend.handleExtensions
             ?.find(extension => extension.kind === event.kind)
             ?.receive?.(this.extensionContext, event.payload)
+          // `receive` is typed as synchronous, but an async one compiles.
+          if (result instanceof Promise) result.catch(failed)
         } catch (error) {
-          this.#log("extension event failed: %o", error)
+          failed(error)
         }
         break
       }

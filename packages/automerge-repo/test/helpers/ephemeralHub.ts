@@ -2,6 +2,7 @@ import {
   defineExtension,
   provides,
   type AnyExtensionEvent,
+  type HandleFeatures,
   type SedimentreeBackend,
   type SedimentreeEvent,
   type SedimentreeId,
@@ -30,18 +31,19 @@ interface HubEvents {
   }
 }
 
-/** What the hub's extension adds to the handles of a Repo on it. */
-export interface HubExtensions {
+/** The hub's ephemeral extension's types. */
+interface HubSpec {
+  kind: "ephemeral"
+  inbound: HubMessage & { senderId: PeerId }
   members: { broadcast(message: unknown): void }
   events: HubEvents
 }
 
+/** What the hub's extension adds to the handles of a Repo on it. */
+export type HubExtensions = HandleFeatures<HubSpec>
+
 /** Ephemeral messaging over the hub, as a backend's handle extension. */
-const ephemeral = defineExtension<
-  HubBackendSession,
-  HubExtensions,
-  HubMessage & { senderId: PeerId }
->({
+const ephemeral = defineExtension<HubBackendSession, HubSpec>({
   kind: "ephemeral",
   members: {
     broadcast(context, _handle, message) {
