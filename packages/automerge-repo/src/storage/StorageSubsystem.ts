@@ -10,6 +10,7 @@ import * as Uuid from "uuid"
 import { EventEmitter } from "eventemitter3"
 import { encodeHeads } from "../AutomergeUrl.js"
 import { SavedHeads } from "./SavedHeads.js"
+import { kTrackedDocuments } from "../internals.js"
 
 type StorageSubsystemEvents = {
   "document-loaded": (arg: {
@@ -46,13 +47,19 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   #chunkInfos: Map<DocumentId, ChunkInfo[]> = new Map()
 
   /**
-   * Bumped when {@link StorageSubsystem.saveDoc} stops tracking a document's
-   * chunks. Saves begun under an earlier generation leave the chunk list alone.
-   * Values come from one counter for all documents, so they never repeat even
-   * if an entry is removed.
+   * Changes when {@link StorageSubsystem.saveDoc} stops tracking a document's
+   * chunks or {@link StorageSubsystem.forget} drops them. Saves begun under an
+   * earlier generation leave the chunk list alone. Values come from one counter
+   * for all documents, so they never repeat even after an entry is removed.
    */
   #chunkGenerations: Map<DocumentId, number> = new Map()
   #lastChunkGeneration = 0
+
+  /**
+   * Saves still writing, per document, so a removal can wait for them. The
+   * entry goes once the document's last save settles.
+   */
+  #savesInFlight: Map<DocumentId, Set<Promise<void>>> = new Map()
 
   /** Flag to avoid compacting when a compaction is already underway */
   #compacting = false
@@ -176,8 +183,13 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
       binaries.push(chunk.data)
     }
 
-    // Store chunk infos for future reference
-    this.#chunkInfos.set(documentId, chunkInfos)
+    // A missing entry reads as "no chunks", so a document storage doesn't
+    // hold leaves no entry behind; otherwise every id ever looked up would.
+    if (chunkInfos.length > 0) {
+      this.#chunkInfos.set(documentId, chunkInfos)
+    } else {
+      this.#chunkInfos.delete(documentId)
+    }
 
     // If no chunks were found, return null
     if (binaries.length === 0) {
@@ -221,6 +233,22 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
    * snapshot size, at which point the document is compacted into a single snapshot.
    */
   async saveDoc(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
+    const saving = this.#writeDoc(documentId, doc)
+    let saves = this.#savesInFlight.get(documentId)
+    if (!saves) {
+      saves = new Set()
+      this.#savesInFlight.set(documentId, saves)
+    }
+    saves.add(saving)
+    try {
+      await saving
+    } finally {
+      saves.delete(saving)
+      if (saves.size === 0) this.#savesInFlight.delete(documentId)
+    }
+  }
+
+  async #writeDoc(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
     // Don't bother saving if the document hasn't changed
     if (!this.#shouldSave(documentId, doc)) return
 
@@ -253,9 +281,57 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
    * Removes the Automerge document with the given ID from storage
    */
   async removeDoc(documentId: DocumentId) {
+    // Forget before the first await: storage is about to hold nothing for the
+    // document, so a save issued meanwhile must not be skipped as unchanged.
+    this.forget(documentId)
+    // Let saves that began earlier land first. A compaction's remove() that
+    // landed after the removal could delete a re-import of the same history,
+    // which writes the same snapshot key.
+    await Promise.allSettled(this.#savesInFlight.get(documentId) ?? [])
     await this.#storageAdapter.removeRange([documentId, "snapshot"])
     await this.#storageAdapter.removeRange([documentId, "incremental"])
     await this.#storageAdapter.removeRange([documentId, "sync-state"])
+    // Anything that began before this point (a load, a save, or a re-import
+    // flushed while the removal was running) may have recorded heads or chunks
+    // for data that is now gone. Forget them again, and leave a heads floor
+    // that outranks them rather than no entry, which an older handle would
+    // overwrite.
+    this.forget(documentId)
+    this.#storedHeads.reset(documentId)
+  }
+
+  /**
+   * Drop the in-memory bookkeeping (last saved heads and known chunks) for a
+   * document. The next load rebuilds both from storage, and a save without
+   * them writes a full snapshot instead of an incremental. A save already in
+   * flight leaves its chunk untracked, so a later compaction can't delete it.
+   */
+  forget(documentId: DocumentId): void {
+    this.#storedHeads.delete(documentId)
+    this.#chunkInfos.delete(documentId)
+    this.#chunkGenerations.delete(documentId)
+  }
+
+  /**
+   * The document's chunk generation, assigned on first use. A save tracks its
+   * chunk only if the generation is unchanged once the write lands.
+   */
+  #chunkGeneration(documentId: DocumentId): number {
+    let generation = this.#chunkGenerations.get(documentId)
+    if (generation === undefined) {
+      generation = ++this.#lastChunkGeneration
+      this.#chunkGenerations.set(documentId, generation)
+    }
+    return generation
+  }
+
+  /**
+   * Number of documents with tracked chunks. For tests.
+   *
+   * @internal
+   */
+  get [kTrackedDocuments](): number {
+    return this.#chunkInfos.size
   }
 
   /**
@@ -266,7 +342,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     doc: A.Doc<unknown>
   ): Promise<void> {
     const headsHandle = this.#storedHeads.lastSavedHeads(documentId)
-    const generation = this.#chunkGenerations.get(documentId)
+    const generation = this.#chunkGeneration(documentId)
     const sinceHeads = headsHandle.value
     if (!sinceHeads || sinceHeads.length === 0) {
       // No prior save recorded — save a full snapshot instead of calling
@@ -319,7 +395,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     this.#compacting = true
     try {
       const headsHandle = this.#storedHeads.lastSavedHeads(documentId)
-      const generation = this.#chunkGenerations.get(documentId)
+      const generation = this.#chunkGeneration(documentId)
 
       const start = performance.now()
       const binary = A.save(doc)
@@ -342,6 +418,9 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
       await this.#storageAdapter.save(key, binary)
 
       for (const key of oldKeys) {
+        // Once the chunks are reset or forgotten, the old keys are no longer
+        // this save's to remove: a re-import may have written one again.
+        if (this.#chunkGenerations.get(documentId) !== generation) break
         await this.#storageAdapter.remove(key)
       }
 

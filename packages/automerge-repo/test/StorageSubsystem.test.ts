@@ -14,6 +14,8 @@ import { DummyStorageAdapter } from "../src/helpers/DummyStorageAdapter.js"
 import * as Uuid from "uuid"
 import { chunkTypeFromKey } from "../src/storage/chunkTypeFromKey.js"
 import { DocumentId } from "../src/types.js"
+import { kTrackedDocuments } from "../src/internals.js"
+import { pause } from "../src/helpers/pause.js"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
@@ -534,6 +536,274 @@ describe("StorageSubsystem", () => {
         "sinceHeads was rolled back — expected heads from the latest concurrent save"
       ).toEqual(lastConcurrentHeads)
     })
+  })
+})
+
+describe("StorageSubsystem bookkeeping", () => {
+  it("re-saves a removed document even when its heads are unchanged", async () => {
+    const adapter = new DummyStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const doc = A.from({ foo: "bar" })
+
+    await storage.saveDoc(documentId, doc)
+    await storage.removeDoc(documentId)
+    await storage.saveDoc(documentId, doc)
+
+    const reloaded = await new StorageSubsystem(adapter).loadDoc(documentId)
+    assert.deepStrictEqual(reloaded, doc)
+  })
+})
+
+/** Wraps an adapter so chosen operations can be held until released. */
+class GatedStorageAdapter extends DummyStorageAdapter {
+  gates: {
+    removeRange?: Promise<void>
+    loadRange?: Promise<void>
+    remove?: Promise<void>
+  } = {}
+
+  /** Number of remove() calls made, including any still held. */
+  removesStarted = 0
+
+  async removeRange(keyPrefix: string[]): Promise<void> {
+    await this.gates.removeRange
+    return super.removeRange(keyPrefix)
+  }
+
+  async remove(key: string[]): Promise<void> {
+    this.removesStarted++
+    await this.gates.remove
+    return super.remove(key)
+  }
+
+  /** Reads first, then holds the result: the read has landed but not returned. */
+  async loadRange(keyPrefix: StorageKey): Promise<Chunk[]> {
+    const chunks = await super.loadRange(keyPrefix)
+    await this.gates.loadRange
+    return chunks
+  }
+}
+
+const deferred = () => {
+  let release!: () => void
+  const promise = new Promise<void>(resolve => (release = resolve))
+  return { promise, release }
+}
+
+describe("StorageSubsystem removal in flight", () => {
+  it("persists a document re-imported and saved while its removal is pending", async () => {
+    const adapter = new GatedStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const doc = A.from({ foo: "bar" })
+    await storage.saveDoc(documentId, doc)
+
+    const gate = deferred()
+    adapter.gates.removeRange = gate.promise
+    const removal = storage.removeDoc(documentId)
+    await storage.saveDoc(documentId, doc) // re-import, flushed mid-removal
+    gate.release()
+    await removal
+
+    await storage.saveDoc(documentId, doc)
+    const reloaded = await new StorageSubsystem(adapter).loadDoc(documentId)
+    assert.deepStrictEqual(reloaded, doc)
+  })
+
+  it("ignores a load that resolves after the document was removed", async () => {
+    const adapter = new GatedStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const doc = A.from({ foo: "bar" })
+    await storage.saveDoc(documentId, doc)
+
+    const gate = deferred()
+    adapter.gates.loadRange = gate.promise
+    const load = storage.loadDoc(documentId) // has read, has not returned
+    await storage.removeDoc(documentId)
+    gate.release()
+    await load
+
+    adapter.gates.loadRange = undefined
+    await storage.saveDoc(documentId, doc)
+    const reloaded = await new StorageSubsystem(adapter).loadDoc(documentId)
+    assert.deepStrictEqual(reloaded, doc)
+  })
+
+  // A compaction removes the old snapshot after writing the new one. Snapshot
+  // keys depend only on the heads, so a re-import of the old history writes
+  // that same key again, and a late remove() would delete it.
+  it("keeps a re-import when a compaction from before the removal finishes late", async () => {
+    const adapter = new GatedStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const d1 = A.from({ foo: "bar" })
+    await storage.saveDoc(documentId, d1)
+
+    const gate = deferred()
+    adapter.gates.remove = gate.promise
+    const compaction = storage.saveDoc(
+      documentId,
+      A.change(d1, d => (d.foo = "baz"))
+    )
+    await storage.removeDoc(documentId)
+    await storage.saveDoc(documentId, d1) // re-import
+    gate.release()
+    await compaction
+
+    adapter.gates.remove = undefined
+    await storage.saveDoc(documentId, d1)
+    assert.ok(await new StorageSubsystem(adapter).loadDoc(documentId))
+  })
+
+  it("keeps a re-import when a compaction's remove() was in flight before the removal", async () => {
+    const adapter = new GatedStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const d1 = A.from({ foo: "bar" })
+    await storage.saveDoc(documentId, d1)
+
+    const gate = deferred()
+    adapter.gates.remove = gate.promise
+    const compaction = storage.saveDoc(
+      documentId,
+      A.change(d1, d => (d.foo = "baz"))
+    )
+    await pause()
+    assert.equal(
+      adapter.removesStarted,
+      1,
+      "the old snapshot's remove() is held"
+    )
+
+    const removal = storage.removeDoc(documentId)
+    const reimport = removal.then(() => storage.saveDoc(documentId, d1))
+    await pause() // a removal that doesn't wait lets the re-import land here
+    gate.release()
+    await Promise.all([compaction, removal, reimport])
+
+    adapter.gates.remove = undefined
+    await storage.saveDoc(documentId, d1)
+    assert.ok(await new StorageSubsystem(adapter).loadDoc(documentId))
+  })
+})
+
+describe("StorageSubsystem forgetting a document with a save in flight", () => {
+  /** Holds the next save of one chunk type until the test releases it. */
+  class HoldOneSaveAdapter extends DummyStorageAdapter {
+    hold?: {
+      type: "incremental" | "snapshot"
+      started: () => void
+      release: Promise<void>
+    }
+    override async save(key: string[], binary: Uint8Array) {
+      const hold = this.hold
+      if (hold && key[1] === hold.type) {
+        this.hold = undefined
+        hold.started()
+        await hold.release
+      }
+      return super.save(key, binary)
+    }
+  }
+
+  type Doc = {
+    big?: string
+    c1?: boolean
+    c2?: boolean
+    fork?: boolean
+    n?: number
+  }
+
+  /** Text that barely compresses, so each change grows the saved doc. */
+  const noise = (length: number) => {
+    let x = length || 1
+    return Array.from({ length }, () => {
+      x ^= x << 13
+      x ^= x >>> 17
+      x ^= x << 5
+      return String.fromCharCode(33 + ((x >>> 0) % 90))
+    }).join("")
+  }
+
+  const saveUntilCompacted = async (
+    storage: StorageSubsystem,
+    documentId: DocumentId,
+    doc: A.Doc<Doc>
+  ) => {
+    let compacted = false
+    const onCompacted = () => (compacted = true)
+    storage.on("doc-compacted", onCompacted)
+    for (let i = 0; i < 20 && !compacted; i++) {
+      doc = A.change(doc, d => (d.n = i))
+      if (i > 0) doc = A.change(doc, d => (d.big = noise(3000 + i)))
+      await storage.saveDoc(documentId, doc)
+    }
+    storage.off("doc-compacted", onCompacted)
+    assert(compacted, "the doc never compacted")
+  }
+
+  for (const priorReset of [false, true]) {
+    for (const held of ["incremental", "snapshot"] as const) {
+      it(`keeps the change (priorReset=${priorReset}, held=${held})`, async () => {
+        const adapter = new HoldOneSaveAdapter()
+        const storage = new StorageSubsystem(adapter)
+        const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+
+        // A large snapshot makes the next save incremental; a small one
+        // makes it compact.
+        let base = A.from<Doc>({
+          big: noise(held === "incremental" ? 2000 : 10),
+        })
+        if (priorReset) {
+          // Store a fork, then save a doc that lacks it: the reset path gives
+          // the document a chunk generation before forget().
+          await storage.saveDoc(
+            documentId,
+            A.change(A.clone(base), d => (d.fork = true))
+          )
+          base = A.change(base, d => (d.n = -1))
+        }
+        await storage.saveDoc(documentId, base)
+
+        const release = Promise.withResolvers<void>()
+        const started = Promise.withResolvers<void>()
+        adapter.hold = {
+          type: held,
+          started: started.resolve,
+          release: release.promise,
+        }
+        const inFlight = storage.saveDoc(
+          documentId,
+          A.change(A.clone(base), d => (d.c1 = true))
+        )
+        await started.promise
+
+        storage.forget(documentId)
+        const doc2 = A.change(A.clone(base), d => (d.c2 = true))
+        await storage.saveDoc(documentId, doc2)
+        release.resolve()
+        await inFlight
+
+        // Compaction must not delete the chunk holding c1, which doc2 lacks.
+        await saveUntilCompacted(storage, documentId, doc2)
+        const reloaded = await new StorageSubsystem(adapter).loadDoc<Doc>(
+          documentId
+        )
+        assert.equal(reloaded?.c1, true)
+      })
+    }
+  }
+})
+
+describe("StorageSubsystem bookkeeping release", () => {
+  it("tracks nothing for a document storage does not hold", async () => {
+    const storage = new StorageSubsystem(new DummyStorageAdapter())
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+
+    assert.equal(await storage.loadDoc(documentId), null)
+    assert.equal(storage[kTrackedDocuments], 0)
   })
 })
 
