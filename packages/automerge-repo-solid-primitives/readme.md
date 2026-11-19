@@ -63,7 +63,7 @@ Just like `createDocumentProjection`, but without a reactive input.
 Underlying primitive for [`createDocumentProjection`](#createDocumentProjection).
 
 ```ts
-makeDocumentProjection<T>(handle: Handle<T>): Doc<T>
+makeDocumentProjection<T>(handle: DocHandle<T>): Doc<T>
 ```
 
 ```tsx
@@ -141,7 +141,7 @@ Perfect for handing to `createDocumentProjection`.
 useDocHandle<T>(
     () => AnyDocumentId,
     options?: {repo: Repo}
-): Resource<Handle<T>>
+): Resource<DocHandle<T>>
 ```
 
 ```tsx
@@ -163,7 +163,7 @@ A convenience context for Automerge-Repo Solid apps. Optional: if you prefer you
 can pass a repo as an option to `useDocHandle` and `useDocument`.
 
 ```tsx
-<RepoContext.Provider repo={Repo}>
+<RepoContext.Provider value={repo}>
   <App />
 </RepoContext.Provider>
 ```
@@ -184,7 +184,7 @@ const repo = useRepo()
 
 ## Typed handles
 
-For handles with [the features a backend adds](../automerge-repo/README.md#dochandle),
+For handles with [the features a backend adds](../automerge-repo/README.md#extensions),
 such as `handle.broadcast`, the primitives need the Repo's type: `RepoContext` only
 knows a plain `Repo`.
 

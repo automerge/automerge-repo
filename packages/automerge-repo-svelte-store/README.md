@@ -191,7 +191,7 @@ Convenience method to load a document from the repo in context or a provided rep
 
 ## Typed handles
 
-For handles with [the features a backend adds](../automerge-repo/README.md#dochandle),
+For handles with [the features a backend adds](../automerge-repo/README.md#extensions),
 such as `handle.broadcast`:
 
 - **`createAutomergeStore(repo)`** is typed from `repo`: its stores' `handle` has those
@@ -201,7 +201,7 @@ such as `handle.broadcast`:
 
   ```ts
   type AppHandle<T> = HandleOf<typeof repo, T>
-  const store = await document<AppHandle<Todo>>(url) // store.handle.broadcast
+  const store = await document<AppHandle<Todo>>(url) // store?.handle.broadcast
   ```
 
 `document()` with a handle type asserts what the Repo in context is; nothing checks it.

@@ -50,7 +50,7 @@ failures.
 
 ## Typed handles
 
-For handles with [the features a backend adds](../automerge-repo/README.md#dochandle),
+For handles with [the features a backend adds](../automerge-repo/README.md#extensions),
 such as `handle.broadcast`, the hooks need the Repo's type: `RepoContext` only knows a
 plain `Repo`. There are two ways to give it.
 
@@ -84,7 +84,7 @@ place of the document type:
 export type AppHandle<T> = HandleOf<typeof repo, T>
 
 const handle = useDocHandle<AppHandle<Todo>>(url)
-const repo = useRepo<typeof repo>()
+const appRepo = useRepo<typeof repo>()
 ```
 
 ## Subduction and browser storage
