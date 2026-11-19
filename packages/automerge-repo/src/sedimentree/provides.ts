@@ -46,6 +46,10 @@ export function provides<const L extends readonly AnyHandleExtension[]>(
  * The spec of a backend type `B`: the intersection of those of the
  * extensions it lists; `{}` if untyped. A Repo on it is a
  * `Repo<ExtensionsOf<B>>`.
+ *
+ * For naming Repos and handles: only its `members` and `events` are
+ * stable. Use {@link SessionFor} and {@link EventFor} for its sessions and
+ * their events.
  */
 export type ExtensionsOf<B> = B extends {
   readonly handleExtensions?: HandleExtensions<infer X>
