@@ -3,14 +3,15 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import {
   Presence,
   PresenceConfig,
-  DocHandle,
+  PresenceHandle,
   PeerStateView,
   PresenceState,
 } from "@automerge/automerge-repo/slim"
 
 export type UsePresenceConfig<State extends PresenceState> =
   PresenceConfig<State> & {
-    handle: DocHandle<unknown>
+    /** Its Repo's backend must provide ephemeral messaging. */
+    handle: PresenceHandle
   }
 
 export type UsePresenceResult<State extends PresenceState> = {

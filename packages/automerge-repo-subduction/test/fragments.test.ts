@@ -18,13 +18,13 @@ import {
   sedimentreeId,
   type FragmentRecord,
   type LooseCommitRecord,
-  type SedimentreeEvent,
   type SedimentreeRecord,
 } from "@automerge/automerge-repo/sedimentree"
 import {
   SubductionBackend,
   type SubductionStorageAdapterInterface,
   type SubductionBackendOptions,
+  type SubductionEvent,
 } from "../src/index.js"
 import {
   applyRecords,
@@ -84,7 +84,7 @@ function sameHeadVariants() {
   )
   return { variants, docs }
 }
-async function next(iterator: AsyncIterator<SedimentreeEvent>) {
+async function next(iterator: AsyncIterator<SubductionEvent>) {
   const result = await iterator.next()
   if (result.done) throw new Error("Unexpected end")
   return result.value
@@ -106,7 +106,7 @@ async function initial(backend: SubductionBackend) {
         let confirmed = await next(iterator)
         while (
           confirmed.type === "remote-heads" ||
-          confirmed.type === "ephemeral"
+          confirmed.type === "extension"
         )
           confirmed = await next(iterator)
         expect(confirmed).toMatchObject({ type: "synchronized" })

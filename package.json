@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-monorepo",
-  "version": "3.0.0-alpha.2",
+  "version": "3.0.0-experimental.4",
   "description": "Automerge Repo monorepo",
   "main": "packages/automerge-repo/dist/index.js",
   "repository": "https://github.com/automerge/automerge-repo",
@@ -28,8 +28,9 @@
     "test:coverage": "vitest --coverage",
     "test:ui": "vitest --coverage --ui",
     "watch": "pnpm run --parallel --stream -r watch ",
-    "lint:check-types": "pnpm run lint:check-types:packages",
-    "lint:check-types:packages": "pnpm --filter './packages/*' exec tsc --noEmit"
+    "lint:check-types": "pnpm run lint:check-types:packages && pnpm run lint:check-types:checks",
+    "lint:check-types:packages": "pnpm --filter './packages/*' exec tsc --noEmit",
+    "lint:check-types:checks": "node scripts/check-types.mjs"
   },
   "engines": {
     "node": ">=22.13",

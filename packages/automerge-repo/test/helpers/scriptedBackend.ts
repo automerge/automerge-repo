@@ -1,16 +1,19 @@
 import { vi, type Mock } from "vitest"
 import { MemoryBackend } from "../../src/sedimentree/memory/MemoryBackend.js"
 import type {
-  SedimentreeEvent,
+  ExtensionEvent,
+  SedimentreeEvent as CoreEvent,
   SedimentreeId,
   SedimentreeSession,
   SyncRoundResult,
 } from "../../src/sedimentree/index.js"
 
+/** Any event a session may yield, extension events of any kind included. */
+type SedimentreeEvent = CoreEvent | ExtensionEvent
+
 /** A session whose events the test pushes by hand. */
 export interface ScriptedSession {
   readonly id: SedimentreeId
-  readonly publishEphemeral: Mock<SedimentreeSession["publishEphemeral"]>
   readonly markReady: Mock<() => void>
   readonly close: Mock<SedimentreeSession["close"]>
   readonly closed: boolean
@@ -80,7 +83,6 @@ export function scriptedBackend() {
       get closed() {
         return closed
       },
-      publishEphemeral: vi.fn(async () => {}),
       markReady: vi.fn(),
       close: vi.fn(async () => {
         closed = true

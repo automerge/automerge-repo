@@ -4,7 +4,7 @@
  * This file is not executed - it's purely for type checking.
  */
 
-import type { DocHandle } from "../../src/DocHandle.js"
+import type { DocHandle } from "../../src/types/DocHandle.js"
 import type { MutableText } from "../../src/subdoc-handles/types.js"
 
 type TestDoc = {

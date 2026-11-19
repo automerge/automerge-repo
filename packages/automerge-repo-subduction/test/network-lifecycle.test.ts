@@ -5,11 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   recordHead,
   sedimentreeId,
-  type SedimentreeEvent,
   type SedimentreeId,
 } from "@automerge/automerge-repo/sedimentree"
 import { extractRecords } from "@automerge/automerge-repo/sedimentree/automerge"
-import { SubductionBackend } from "../src/index.js"
+import { SubductionBackend, type SubductionEvent } from "../src/index.js"
 import { TestStore, deferred } from "./storage.js"
 import {
   PairedTransport,
@@ -138,7 +137,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     }, wait)
     return { session, ...observed }
   }
-  function initialRecords(events: SedimentreeEvent[]) {
+  function initialRecords(events: SubductionEvent[]) {
     return events.flatMap(e =>
       e.type === "records" && e.phase === "initial" ? e.records : []
     )

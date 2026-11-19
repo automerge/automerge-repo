@@ -96,8 +96,30 @@ rule.set(syncAll) // e.g. on login
 
 ## Ephemeral messages
 
-- Best-effort and not stored.
-- `sender` is the peer ID of the backend that signed the message, even when it arrives via a
-  relay. `origin` is set by the originator (usually Repo, here) and is not verified.
+Every handle of a Repo on this backend has
+[ephemeral messaging](../automerge-repo/README.md#ephemeral-messages):
+
+```ts
+const repo = new Repo({ backend })
+const handle = await repo.find(url)
+handle.on("ephemeral-message", ({ handle, senderId, originId, message }) => {})
+handle.broadcast({ cursor: 3 })
+```
+
+- `handle.broadcast(message)` sends `message` to the peers with the document open. Messages
+  are scoped to the whole document: a sub-handle's broadcasts reach every handle of it.
+- `ephemeral-message` `{ handle, senderId, originId, message }` is emitted on every handle of
+  the document when one arrives. A Repo never receives its own broadcasts.
+
+The handle's type is `DocHandle<T, SubductionExtensions>`, and a Repo on this backend is
+a `Repo<SubductionExtensions>`. The handles work with
+[`Presence`](../automerge-repo/README.md#presence) and the presence hooks.
+
+- Best-effort and not stored. Send failures are logged, not thrown.
+- `senderId` is the peer ID of the backend that signed the message, even when it arrives via a
+  relay. Several Repos can share one, e.g. browser tabs using one signer.
+- `originId` is the sending Repo's `repo.id`; the sender sets it and it is not verified.
 - Encoded messages are limited to 64 KiB.
+- `broadcast` throws for a message it can't encode, such as a function or a circular object.
+- After `repo.shutdown()`, `broadcast` does nothing.
 - Publishing the same message twice delivers it twice.

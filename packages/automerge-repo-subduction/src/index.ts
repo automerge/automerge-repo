@@ -7,6 +7,7 @@ import {
   copyRecord,
   headsOf,
   mintBackendId,
+  provides,
   type BackendIdentity,
   type CoverageItem,
   type MintDocumentId,
@@ -16,10 +17,12 @@ import {
   type FragmentRecord,
   type LooseCommitRecord,
   type RecordBatch,
+  type EventFor,
+  type ExtensionsOf,
   type SedimentreeBackend,
   type SedimentreeEvent,
   type SedimentreeId,
-  type SedimentreeSession,
+  type SessionFor,
   type SyncRoundResult,
 } from "@automerge/automerge-repo/sedimentree"
 import { StorageBridge } from "./storage.js"
@@ -30,7 +33,7 @@ import type {
 } from "./network/SubductionNetworkAdapterInterface.js"
 import { Watch } from "./watch.js"
 import type { SessionState } from "./session.js"
-import { decodeEphemeral, encodeEphemeral } from "./ephemeral.js"
+import { decodeEphemeral, encodeEphemeral, ephemeral } from "./ephemeral.js"
 import { SyncRules, type SyncPolicy, type SyncRule } from "./sync-policy.js"
 
 export {
@@ -40,6 +43,16 @@ export {
   type SyncRule,
   type SyncRuleSignal,
 } from "./sync-policy.js"
+export {
+  ephemeral,
+  type EphemeralEnvelope,
+  type EphemeralEvents,
+  type EphemeralInbound,
+  type EphemeralMembers,
+  type EphemeralMessagePayload,
+  type EphemeralSession,
+  type EphemeralSpec,
+} from "./ephemeral.js"
 export type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
 export type {
   SubductionConnect,
@@ -202,10 +215,20 @@ async function failures(promises: readonly unknown[]): Promise<unknown[]> {
   )
 }
 
+/** What the Subduction backend's extensions add to the handles of a Repo on
+ * it; name such a Repo as `Repo<SubductionExtensions>`. */
+export type SubductionExtensions = ExtensionsOf<SubductionBackend>
+/** A session of the Subduction backend: what its extensions need. */
+export type SubductionSession = SessionFor<SubductionBackend>
+/** An event the Subduction backend sends on its sessions. */
+export type SubductionEvent = EventFor<SubductionBackend>
+
 /** EXPERIMENTAL: real WASM persistence and authenticated peer sync.
  * Initialize Subduction WASM before construction. Storage is exclusively owned.
  */
 export class SubductionBackend implements SedimentreeBackend {
+  /** Every handle of a Repo on this backend has ephemeral messaging. */
+  readonly handleExtensions = provides(ephemeral)
   readonly #engine: N.Subduction
   #closed = false
   #closing?: Promise<void>
@@ -301,10 +324,13 @@ export class SubductionBackend implements SedimentreeBackend {
     // Metadata is frozen and shared; each session owns its payload bytes.
     for (const { watch } of active)
       watch.push({
-        type: "ephemeral",
+        type: "extension",
+        kind: "ephemeral",
         sequence,
-        message: { ...message, payload: new Uint8Array(message.payload) },
-        sender,
+        payload: {
+          message: { ...message, payload: new Uint8Array(message.payload) },
+          sender,
+        },
       })
   }
   #onRemoteHeads(id: N.SedimentreeId, peer: N.PeerId, heads: N.CommitId[]) {
@@ -324,11 +350,11 @@ export class SubductionBackend implements SedimentreeBackend {
   #sessionsFor(id: SedimentreeId): Iterable<SessionState> {
     return this.#sessions.get(id) ?? []
   }
-  #broadcast(id: SedimentreeId, event: SedimentreeEvent): void {
+  #broadcast(id: SedimentreeId, event: SubductionEvent): void {
     for (const { watch } of this.#sessionsFor(id)) this.#deliver(watch, event)
   }
   /** A nonretryable failure ends the watch; everything else queues. */
-  #deliver(watch: Watch<SedimentreeEvent>, event: SedimentreeEvent): void {
+  #deliver(watch: Watch<SubductionEvent>, event: SubductionEvent): void {
     if (event.type === "failure" && !event.error.retryable) watch.finish(event)
     else watch.push(event)
   }
@@ -636,13 +662,13 @@ export class SubductionBackend implements SedimentreeBackend {
       updates.close()
     }
   }
-  open(input: SedimentreeId): SedimentreeSession {
+  open(input: SedimentreeId): SubductionSession {
     this.#check("open")
     const id = backendId("open", input)
     this.#check("open", id)
     const session: SessionState = {
       id,
-      watch: new Watch<SedimentreeEvent>(() => this.#release(session)),
+      watch: new Watch<SubductionEvent>(() => this.#release(session)),
       released: false,
       ready: false,
       confirming: false,
@@ -662,12 +688,12 @@ export class SubductionBackend implements SedimentreeBackend {
     return {
       events: watch,
       publishEphemeral: async message => {
-        sessionCheck("ephemeral")
+        sessionCheck("extension")
         const bytes = encodeEphemeral(message)
         try {
           await this.#engine.publishEphemeral(id, bytes)
         } catch (cause) {
-          throw error("ephemeral", cause)
+          throw error("extension", cause)
         }
       },
       markReady: () => {

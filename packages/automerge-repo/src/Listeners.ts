@@ -1,4 +1,4 @@
-import type { DocHandle } from "./DocHandle.js"
+import type { DocHandle } from "./types/DocHandle.js"
 import type { Logger } from "./Logger.js"
 
 /** Event listener; payload shape is event-specific. */

@@ -4,6 +4,7 @@ import type {
   Doc,
   DocHandle,
   DocumentId,
+  HandleOf,
   Repo,
 } from "@automerge/automerge-repo/slim"
 
@@ -22,11 +23,12 @@ export function setContextRepo(repo: Repo): void {
 }
 
 /**
- * Get the Automerge Repo from the Svelte context
+ * Get the Automerge Repo from the Svelte context, typed as `R` (a plain
+ * `Repo` by default; not checked)
  * @returns The Automerge Repo instance
  */
-export function getContextRepo(): Repo {
-  const repo = getContext<Repo>(REPO_CONTEXT_KEY)
+export function getContextRepo<R extends Repo = Repo>(): R {
+  const repo = getContext<R>(REPO_CONTEXT_KEY)
   if (!repo) {
     throw new Error(
       "No Automerge Repo found in context. Did you call setContextRepo?"
@@ -36,9 +38,14 @@ export function getContextRepo(): Repo {
 }
 
 /**
- * The Automerge document store interface
+ * The Automerge document store interface. `H` is its handle's type: a plain
+ * `DocHandle<T>` unless the store comes from a Repo whose backend adds
+ * features to handles.
  */
-export interface AutomergeDocumentStore<T> extends Writable<Doc<T> | null> {
+export interface AutomergeDocumentStore<
+  T,
+  H = DocHandle<T>,
+> extends Writable<Doc<T> | null> {
   /**
    * Make changes to the document
    * @param changeFn Function that modifies the document
@@ -58,43 +65,54 @@ export interface AutomergeDocumentStore<T> extends Writable<Doc<T> | null> {
   /**
    * The underlying Automerge document handle
    */
-  readonly handle: DocHandle<T>
+  readonly handle: H
+}
+
+/** What {@link createAutomergeStore} returns for a Repo of type `R`. */
+export interface AutomergeStores<R extends Repo> {
+  /** Find a document by URL and create a reactive wrapper */
+  find<T>(
+    automergeUrl: AutomergeUrl
+  ): Promise<AutomergeDocumentStore<T, HandleOf<R, T>> | null>
+  /** Create a new document and wrap it with reactive state */
+  create<T>(
+    initialContent?: T
+  ): Promise<AutomergeDocumentStore<T, HandleOf<R, T>>>
+  /** Delete a document */
+  delete(automergeUrl: AutomergeUrl): Promise<void>
+  getRepo(): R
 }
 
 /**
- * Creates an Automerge-repo store using standard Svelte stores
+ * Creates an Automerge-repo store using standard Svelte stores. Its stores'
+ * handles are typed with the features `repo`'s backend adds to them.
  * @param repo A configured Automerge Repo instance
  * @returns API for interacting with Automerge-repo
  */
-export function createAutomergeStore(repo: Repo) {
+export function createAutomergeStore<R extends Repo>(
+  repo: R
+): AutomergeStores<R> {
   if (!repo) {
     throw new Error("A Repo instance is required")
   }
 
-  /**
-   * Find a document by URL and create a reactive wrapper
-   */
-  const find = async <T>(
-    automergeUrl: AutomergeUrl
-  ): Promise<AutomergeDocumentStore<T> | null> => {
+  const find = async <T>(automergeUrl: AutomergeUrl) => {
     const handle = await repo.find<T>(automergeUrl)
     if (!handle) return null
-    return createDocumentStore<T>(handle)
+    return createDocumentStore<T>(handle) as AutomergeDocumentStore<
+      T,
+      HandleOf<R, T>
+    >
   }
 
-  /**
-   * Create a new document and wrap it with reactive state
-   */
-  const create = async <T>(
-    initialContent?: T
-  ): Promise<AutomergeDocumentStore<T>> => {
+  const create = async <T>(initialContent?: T) => {
     const handle = await repo.create<T>(initialContent)
-    return createDocumentStore<T>(handle)
+    return createDocumentStore<T>(handle) as AutomergeDocumentStore<
+      T,
+      HandleOf<R, T>
+    >
   }
 
-  /**
-   * Delete a document
-   */
   const deleteDocument = async (automergeUrl: AutomergeUrl) => {
     return repo.delete(automergeUrl)
   }
@@ -162,7 +180,8 @@ export function createAutomergeStore(repo: Repo) {
 
 /**
  * Create a document store from a document ID or URL
- * Uses the repo from context if no repo is provided
+ * Uses the repo from context if no repo is provided. For handles typed with
+ * the features the Repo's backend adds, use {@link createAutomergeStore}.
  * @param docIdOrUrl The document ID or URL
  * @param repoInstance Optional Automerge Repo instance
  * @returns A promise resolving to the document store

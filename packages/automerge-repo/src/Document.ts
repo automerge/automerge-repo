@@ -1,15 +1,15 @@
 import { next as A } from "@automerge/automerge/slim"
-import type { DocHandle } from "./DocHandle.js"
+import { DocHandle } from "./types/DocHandle.js"
 import { DocumentState } from "./DocumentState.js"
 import type { RootQuery } from "./DocumentQuery.js"
-import { decode } from "./helpers/cbor.js"
 import type { DocumentId, RepoId, PeerId } from "./types.js"
 import {
   checkpointForCommit,
   fragmentRequests,
   recordHead,
-  type BackendIdentity,
   type CommitId,
+  type ExtensionEvent,
+  type ExtensionContext,
   type FragmentRecord,
   type HistoryMarker,
   type RecordBatch,
@@ -90,17 +90,43 @@ export class Document<T> {
   /** Created locally with initial history: ready as soon as it starts. */
   #created: boolean
   readonly state: DocumentState<T>
+  /** What the backend's handle extensions can do with this document. */
+  readonly extensionContext: ExtensionContext
 
   constructor(
     readonly sedimentreeId: SedimentreeId,
     documentId: DocumentId,
     private backend: SedimentreeBackend,
-    /** The owning Repo's identity, e.g. as the origin of its ephemerals. */
-    private repoIdentity: BackendIdentity,
-    initial?: A.Doc<T>
+    repoId: RepoId,
+    initial?: A.Doc<T>,
+    /** The handle class built from the backend's extensions. */
+    readonly Handle: typeof DocHandle = DocHandle
   ) {
     this.#created = !!initial
     this.state = new DocumentState(documentId, this, initial)
+    const session = () => (this.state.closed ? undefined : this.#session)
+    this.extensionContext = {
+      documentId,
+      sedimentreeId,
+      repoId,
+      get session() {
+        return session()
+      },
+      requireSession: () => {
+        const current = session()
+        if (!current) throw new Error("No active session")
+        return current
+      },
+      emit: (event, payload) => {
+        const { state } = this
+        if (!state.closed && !state.deleted)
+          state.listeners.emitAll(event, handle => ({
+            ...(payload as object),
+            handle,
+          }))
+      },
+      log: (message, detail) => this.state.log.error(message, detail),
+    }
   }
 
   /** The root handle. */
@@ -299,21 +325,6 @@ export class Document<T> {
     this.#complete()
   }
 
-  /** Best-effort: failures are logged, never rejected. */
-  async publishEphemeral(payload: Uint8Array): Promise<void> {
-    try {
-      const session = this.#session
-      if (!session || this.state.closed) throw new Error("No active session")
-      await session.publishEphemeral({
-        messageId: crypto.randomUUID(),
-        origin: this.repoIdentity,
-        payload,
-      })
-    } catch (error) {
-      this.state.log.error("ephemeral publication failed: %o", error)
-    }
-  }
-
   /** Stop edits; stores in flight can still be awaited with the backend's flush. */
   close(): void {
     this.#cancelScheduled()
@@ -346,9 +357,26 @@ export class Document<T> {
 
   // -- Events --
 
-  onEvent(event: SedimentreeEvent): void {
+  onEvent(event: SedimentreeEvent | ExtensionEvent): void {
     if (this.state.closed || this.query.terminal) return
     switch (event.type) {
+      // Typed by kind for whoever sends it; routed here by name alone.
+      case "extension": {
+        const failed = (error: unknown) =>
+          this.state.log.error("extension event failed: %o", error)
+        try {
+          const result: unknown = this.backend.handleExtensions
+            ?.find(
+              ({ receive }) => receive && Object.hasOwn(receive, event.kind)
+            )
+            ?.receive?.[event.kind](this.extensionContext, event.payload)
+          // `receive` is typed as synchronous, but an async one compiles.
+          if (result instanceof Promise) result.catch(failed)
+        } catch (error) {
+          failed(error)
+        }
+        break
+      }
       case "records": {
         // The initial cut is applied in one load at local-load-complete.
         if (event.phase === "initial" && !this.#loaded) {
@@ -399,26 +427,12 @@ export class Document<T> {
         break
       }
       case "failure":
-        if (event.error.operation === "ephemeral") {
-          this.state.log.error("ephemeral operation failed: %o", event.error)
-        } else if (event.error.retryable)
+        if (event.error.retryable)
           this.state.log.error("backend failure: %o", event.error)
         else this.fail(event.error)
         break
       case "remote-heads":
         this.state.recordRemoteHeads(event.remote.id as PeerId, event.heads)
-        break
-      case "ephemeral":
-        if (event.message.origin.id === this.repoIdentity.id) break
-        try {
-          this.state.receiveEphemeral(
-            event.sender.id as PeerId,
-            event.message.origin.id as RepoId,
-            decode(event.message.payload)
-          )
-        } catch (error) {
-          this.state.log.error("invalid ephemeral message: %o", error)
-        }
         break
     }
   }

@@ -4,7 +4,6 @@ import {
   mintBackendId,
   type BackendOperation,
   type MintDocumentId,
-  type EphemeralEnvelope,
   type SedimentreeBackend,
   type SedimentreeEvent,
   type SedimentreeSession,
@@ -162,7 +161,6 @@ export class MemoryBackend implements SedimentreeBackend {
       initial(),
       copyEvent,
       () => {
-        session.invalidate()
         tree.sessions.delete(session)
         this.#releaseEmpty(id, tree)
       }
@@ -378,31 +376,10 @@ export class MemoryBackend implements SedimentreeBackend {
 }
 
 class MemorySession implements SedimentreeSession {
-  #closed = false
   constructor(readonly events: Observation<SedimentreeEvent>) {}
 
-  invalidate(): void {
-    this.#closed = true
-  }
   end(event?: SedimentreeEvent): void {
     this.events.end(event)
-  }
-
-  async publishEphemeral(message: EphemeralEnvelope): Promise<void> {
-    this.#assertOpen("ephemeral")
-    if (
-      !message.messageId ||
-      !message.origin.id ||
-      !message.origin.kind ||
-      !(message.payload instanceof Uint8Array)
-    ) {
-      throw new BackendError(
-        "ephemeral",
-        "invalid-record",
-        "Invalid ephemeral envelope"
-      )
-    }
-    // Best effort with no peers: there is no delivery or retained payload.
   }
 
   /** No readiness work to stop: markers are computed from memory as it changes. */
@@ -410,11 +387,6 @@ class MemorySession implements SedimentreeSession {
 
   async close(): Promise<void> {
     this.end()
-  }
-
-  #assertOpen(operation: BackendOperation): void {
-    if (this.#closed)
-      throw new BackendError(operation, "closed", "Session is closed")
   }
 }
 
@@ -438,9 +410,8 @@ function copyEvent(event: SedimentreeEvent): SedimentreeEvent {
       }
     case "synchronized":
       return { ...event, result: copySyncResult(event.result) }
-    // The memory double never produces peers, remote heads, ephemerals or failures.
+    // The memory double never produces peers, remote heads or failures.
     case "remote-heads":
-    case "ephemeral":
     case "failure":
       throw new Error(`Unexpected memory observation: ${event.type}`)
     default:

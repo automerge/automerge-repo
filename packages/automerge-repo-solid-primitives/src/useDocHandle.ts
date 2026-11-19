@@ -1,4 +1,8 @@
-import type { AutomergeUrl, DocHandle } from "@automerge/automerge-repo/slim"
+import type {
+  AutomergeUrl,
+  DocHandle,
+  Repo,
+} from "@automerge/automerge-repo/slim"
 import {
   createEffect,
   createResource,
@@ -15,20 +19,31 @@ import type { MaybeAccessor, UseDocHandleOptions } from "./types.js"
  * [AutomergeUrl](https://automerge.org/automerge-repo/types/_automerge_automerge_repo.AutomergeUrl.html)
  * as a
  * [Resource](https://docs.solidjs.com/reference/basic-reactivity/create-resource).
- * Waits for the handle to be ready.
+ * Waits for the handle to be ready. For handles typed with the features the
+ * Repo's backend adds, use {@link createRepoPrimitives}.
  */
 export default function useDocHandle<T>(
   url: MaybeAccessor<AutomergeUrl | undefined>,
   options?: UseDocHandleOptions
 ): Resource<DocHandle<T> | undefined> {
-  const contextRepo = useContext(RepoContext)
+  return useDocHandleIn<T>(repoFor(options), url, options)
+}
 
+/** @internal `options.repo`, else the one in {@link RepoContext}. */
+export function repoFor(options?: UseDocHandleOptions): Repo {
+  const contextRepo = useContext(RepoContext)
   if (!options?.repo && !contextRepo) {
     throw new Error("use outside <RepoContext> requires options.repo")
   }
+  return (options?.repo || contextRepo)!
+}
 
-  const repo = (options?.repo || contextRepo)!
-
+/** @internal {@link useDocHandle} on a given Repo. */
+export function useDocHandleIn<T>(
+  repo: Repo,
+  url: MaybeAccessor<AutomergeUrl | undefined>,
+  options?: Pick<UseDocHandleOptions, "~skipInitialValue">
+): Resource<DocHandle<T> | undefined> {
   function getExistingHandle() {
     if (options?.["~skipInitialValue"]) return undefined
     const unwrappedURL = typeof url == "function" ? url() : url

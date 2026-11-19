@@ -3,6 +3,35 @@ import { PRESENCE_MESSAGE_MARKER } from "./constants.js"
 
 export type PresenceState = Record<string, any>
 
+/** An ephemeral message as Presence receives it. */
+export type PresenceInbound = {
+  /** The peer that sent it, as the backend authenticated it; several Repos
+   * may share one. */
+  senderId: PeerId
+  /** The Repo that sent it, telling one peer's Repos apart; claimed, not
+   * authenticated. */
+  originId: RepoId
+  /** What the sender passed to `broadcast`. */
+  message: unknown
+}
+
+/**
+ * A handle with ephemeral messaging, as {@link Presence} needs. A backend
+ * provides it with a handle extension; see `src/presence/README.md` for how
+ * the handle must behave.
+ */
+export interface PresenceHandle {
+  broadcast(message: unknown): void
+  on(
+    event: "ephemeral-message",
+    fn: (payload: PresenceInbound) => void
+  ): unknown
+  off(
+    event: "ephemeral-message",
+    fn?: (payload: PresenceInbound) => void
+  ): unknown
+}
+
 /** Peer states by the publishing Repo's {@link PeerState.originId}. */
 export type PeerStatesValue<State extends PresenceState> = Record<
   RepoId,

@@ -5,11 +5,17 @@ import {
   type SedimentreeId,
 } from "./ids.js"
 import type { RecordBatch } from "./records.js"
+import type {
+  AnyHandleExtension,
+  ExtensionEvent,
+  HandleExtensionSpec,
+} from "./extension.js"
 
 /**
- * An interface for storing and syncing sedimentrees
+ * An interface for storing and syncing sedimentrees. `X` is the spec of its
+ * handle extensions, worked out from the list; a backend need not state it.
  */
-export interface SedimentreeBackend {
+export interface SedimentreeBackend<X extends HandleExtensionSpec = {}> {
   create(
     initialRecords: RecordBatch,
     options?: { documentId?: SedimentreeId }
@@ -24,12 +30,21 @@ export interface SedimentreeBackend {
   deleteLocal(id: SedimentreeId): Promise<void>
 
   close(): Promise<void>
+
+  readonly handleExtensions?: HandleExtensions<X>
+}
+
+/**
+ * The extensions a backend lists, `X` being the intersection of their specs;
+ * made with {@link provides}.
+ */
+export type HandleExtensions<X = {}> = readonly AnyHandleExtension[] & {
+  /** Type only: never set. */
+  readonly "~spec"?: X
 }
 
 export interface SedimentreeSession {
-  readonly events: AsyncIterable<SedimentreeEvent>
-
-  publishEphemeral(message: EphemeralEnvelope): Promise<void>
+  readonly events: AsyncIterable<SedimentreeEvent | ExtensionEvent>
 
   /**
    * The consumer has verified its initial load; the backend may stop work done
@@ -49,7 +64,7 @@ export type BackendOperation =
   | "flush"
   | "delete"
   | "synchronize"
-  | "ephemeral"
+  | "extension"
   | "close"
 
 export class BackendError extends Error {
@@ -120,12 +135,6 @@ export interface BackendIdentity {
   readonly path: readonly string[]
 }
 
-export interface EphemeralEnvelope {
-  readonly messageId: string
-  readonly origin: BackendIdentity
-  readonly payload: Uint8Array
-}
-
 /** Heads to verify, at a process-local stream position. */
 export interface HistoryMarker {
   readonly sequence: number
@@ -145,6 +154,8 @@ export interface SyncRoundResult {
   }[]
 }
 
+/** A session event. A backend with handle extensions unions its own
+ * `extension` event types with this; see {@link ExtensionEvent}. */
 export type SedimentreeEvent =
   /** `initial` records form the local load; `live` records follow. */
   | {
@@ -170,13 +181,6 @@ export type SedimentreeEvent =
       readonly sequence: number
       readonly remote: BackendIdentity
       readonly heads: readonly CommitId[]
-    }
-  | {
-      readonly type: "ephemeral"
-      readonly sequence: number
-      readonly message: EphemeralEnvelope
-      /** Verified sender. */
-      readonly sender: BackendIdentity
     }
   /** A nonretryable failure ends the stream. */
   | {

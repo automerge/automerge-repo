@@ -1,17 +1,19 @@
 import { next as A } from "@automerge/automerge/slim"
 import { makeLogger, Logger } from "./Logger.js"
 import { decodeHeads, encodeHeads } from "./AutomergeUrl.js"
-import type { DocumentId, PeerId, RepoId, SyncInfo, UrlHeads } from "./types.js"
+import type { DocumentId, PeerId, SyncInfo, UrlHeads } from "./types.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { Listeners } from "./Listeners.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
 import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
-import { DocHandle } from "./DocHandle.js"
+import { DocHandle } from "./types/DocHandle.js"
 import { RootQuery } from "./DocumentQuery.js"
 import type { Document } from "./Document.js"
+import type { ExtensionContext } from "./sedimentree/extension.js"
 
 /** What a {@link DocumentState} asks of the {@link Document} that owns it. */
-type Owner = Pick<Document<any>, "commit" | "publishEphemeral">
+type Owner = Pick<Document<any>, "commit"> &
+  Partial<Pick<Document<any>, "Handle" | "extensionContext">>
 
 /**
  * Per-document shared state - one per `documentId`, referenced by every
@@ -19,8 +21,8 @@ type Owner = Pick<Document<any>, "commit" | "publishEphemeral">
  * snapshot, the root handle, its readiness query, the {@link Listeners} of
  * every handle, and the {@link HandleRegistry} (identity, pattern
  * resolution, `change` dispatch).
- * Local edits and ephemeral messages go out through its owning
- * {@link Document}. Not part of the public API.
+ * Local edits go out through its owning {@link Document}. Not part of the
+ * public API.
  *
  * @internal
  */
@@ -29,6 +31,8 @@ export class DocumentState<T = unknown> {
   readonly registry: HandleRegistry
   readonly listeners: Listeners
   readonly log: Logger
+  /** The class of every handle of this document. */
+  readonly Handle: typeof DocHandle
   /** The root handle Repo hands out. */
   readonly handle: DocHandle<T>
   /** Owns readiness. */
@@ -72,24 +76,16 @@ export class DocumentState<T = unknown> {
     this.log = makeLogger(`automerge-repo:doc:${documentId.slice(0, 5)}`)
     this.listeners = new Listeners(this.log)
     this.registry = new HandleRegistry(this)
-    this.handle = new DocHandle(this)
+    this.Handle = owner.Handle ?? DocHandle
+    this.handle = new this.Handle(this)
     this.query = new RootQuery(this.handle)
   }
 
-  /** Best-effort; failures are logged by the owner, never rejected. */
-  publishEphemeral(payload: Uint8Array): Promise<void> {
-    return this.#owner.publishEphemeral(payload)
-  }
-
-  /** Deliver an inbound ephemeral message to every handle. */
-  receiveEphemeral(senderId: PeerId, originId: RepoId, message: unknown): void {
-    if (this.closed || this.deleted) return
-    this.listeners.emitAll("ephemeral-message", handle => ({
-      handle,
-      senderId,
-      originId,
-      message,
-    }))
+  /** What handle extensions can do with this document. */
+  get extensionContext(): ExtensionContext {
+    const context = this.#owner.extensionContext
+    if (!context) throw new Error("Document has no backend")
+    return context
   }
 
   get doc(): A.Doc<T> {

@@ -1,13 +1,16 @@
 import type { next as A } from "@automerge/automerge/slim"
-import type { DocHandle } from "./DocHandle.js"
-import type { RepoId, PeerId, UrlHeads } from "./types.js"
+import type { DocHandle } from "./types/DocHandle.js"
+import type { PeerId, UrlHeads } from "./types.js"
 
-/** These are the events that this DocHandle emits to external listeners */
+/**
+ * These are the events that this DocHandle emits to external listeners.
+ * Payloads carry the handle with them, typed as a plain handle: a listener
+ * that needs a backend extension's members uses the handle it attached to.
+ */
 export interface DocHandleEvents<T> {
   "heads-changed": (payload: DocHandleHeadsChangedPayload<T>) => void
   change: (payload: DocHandleChangePayload<T>) => void
   delete: (payload: DocHandleDeletePayload<T>) => void
-  "ephemeral-message": (payload: DocHandleEphemeralMessagePayload<T>) => void
   /**
    * A peer reported its heads. Reports received before the handle is ready
    * are delivered once, per peer with its latest heads, shortly after it
@@ -59,16 +62,6 @@ export interface DocHandleChangePayload<T> {
 /** Emitted when this document is deleted */
 export interface DocHandleDeletePayload<T> {
   handle: DocHandle<T>
-}
-
-/** Emitted when an ephemeral message is received for the document */
-export interface DocHandleEphemeralMessagePayload<T> {
-  handle: DocHandle<T>
-  /** The peer that sent it, as the backend authenticated it; several Repos may share one. */
-  senderId: PeerId
-  /** The Repo it was sent for (that Repo's `id`); claimed, not authenticated. */
-  originId: RepoId
-  message: unknown
 }
 
 /** Emitted when we have new remote heads for this document */

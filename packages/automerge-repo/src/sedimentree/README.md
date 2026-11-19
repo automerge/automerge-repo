@@ -55,10 +55,18 @@ Deletion invalidates existing sessions and supersedes queued old-generation
 records with a final `deleted` event. A later explicit open/store can reacquire
 the ID. Deletion is not a replicated tombstone. A closed backend rejects new work.
 
-Ephemeral envelopes carry untrusted claimed `origin` for loop suppression.
-The event's `sender` identifies the authenticated signed originator, not the
-immediate relay/transport peer. Application sender identity comes from `sender`,
-never from the envelope's claimed origin. Ephemeral data is not persisted.
+## Handle extensions
+
+A backend can add its own methods and events to every handle of its Repo by
+listing `handleExtensions`. A backend that lists none gives plain handles.
+
+- Write extensions with `defineExtension` and list them with
+  `provides(...)`, which gives handles their types.
+- An extension reaches its backend through the document's session, or
+  directly when the backend defines it. The backend reaches the extension with
+  `{ type: "extension", kind, payload }` session events.
+
+See [EXTENSIONS.md](./EXTENSIONS.md) for a worked example and the full rules.
 
 ## In-memory backend
 
@@ -87,8 +95,7 @@ is a simple metadata scan. It is not designed for large stores.
 Stores finish synchronously in memory unless the `beforeStore` hook holds one
 open, so `flush` normally has an immediate barrier.
 An empty initial cut is followed by a `no-peers` `synchronized` result with an
-ordered history marker. Ephemeral publication has no recipients
-and is a best-effort no-op, not simulated transport delivery. Backend close
+ordered history marker. It provides no handle extensions. Backend close
 releases watches and memory; its process-local state cannot be reopened afterward.
 
 ## Scope and validation

@@ -1,11 +1,11 @@
-import { DocHandle } from "@automerge/automerge-repo"
+import type { PresenceHandle } from "@automerge/automerge-repo"
 import { render, waitFor } from "@testing-library/react"
 import React from "react"
 import { describe, expect, it, vi } from "vitest"
 import "@testing-library/jest-dom"
 
 import { useRemoteAwareness } from "../src/useRemoteAwareness"
-import { setup, ExampleDoc } from "./testSetup"
+import { setup } from "./testSetup"
 
 describe("useRemoteAwareness", () => {
   describe("with defined handle", () => {
@@ -13,7 +13,7 @@ describe("useRemoteAwareness", () => {
       handle,
       localUserId,
     }: {
-      handle: DocHandle<ExampleDoc>
+      handle: PresenceHandle
       localUserId?: string
     }) => {
       const [peerStates, heartbeats] = useRemoteAwareness({
@@ -185,7 +185,7 @@ describe("useRemoteAwareness", () => {
 
     it("should cleanup listeners on unmount", async () => {
       const { handleA, wrapper } = await setup()
-      const removeListenerSpy = vi.spyOn(handleA, "removeListener")
+      const removeListenerSpy = vi.spyOn(handleA, "off")
 
       const { unmount } = render(
         <Component handle={handleA} localUserId="local-user" />,
@@ -208,7 +208,7 @@ describe("useRemoteAwareness", () => {
       handle,
       localUserId,
     }: {
-      handle?: DocHandle<ExampleDoc>
+      handle?: PresenceHandle
       localUserId?: string
     }) => {
       const [peerStates, heartbeats] = useRemoteAwareness({

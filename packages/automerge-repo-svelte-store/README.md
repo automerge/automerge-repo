@@ -189,6 +189,16 @@ Gets the Automerge repo from the current component's context.
 Convenience method to load a document from the repo in context or a provided repo.
 **Important:** This function returns a Promise that resolves to the document store.
 
+## Typed handles
+
+For handles with [the features a backend adds](../automerge-repo/README.md#extensions),
+such as `handle.broadcast`:
+
+- **`createAutomergeStore(repo)`** is typed from `repo`: its stores' `handle` has those
+  features, with nothing written.
+- **`document()`** reads the Repo from context, which only knows a plain `Repo`, so its
+  stores' `handle` is plain.
+
 ## Store API
 
 The document store returned by `find()` and `create()` implements Svelte's writable store contract with these additional methods:
@@ -196,7 +206,7 @@ The document store returned by `find()` and `create()` implements Svelte's writa
 - `change(fn)`: Apply edits immediately; return `Promise<void>` for persistence. Await it to observe persistence failures.
 - `url`: Get the document URL
 - `documentId`: Get the document ID
-- `handle`: Access the underlying Automerge document handle
+- `handle`: Access the underlying Automerge document handle (see [Typed handles](#typed-handles))
 
 ## Contributors
 

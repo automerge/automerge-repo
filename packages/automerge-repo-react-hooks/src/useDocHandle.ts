@@ -1,6 +1,7 @@
 import {
   AnyDocumentId,
   DocHandle,
+  Repo,
   isValidAutomergeUrl,
   interpretAsDocumentId,
   parseAutomergeUrl,
@@ -26,10 +27,15 @@ export interface UseDocHandleSynchronousParams {
   suspense: false
 }
 
-type UseDocHandleParams =
+export type UseDocHandleParams =
   | UseDocHandleSuspendingParams
   | UseDocHandleSynchronousParams
 
+/**
+ * The handle for a document, from the Repo in {@link RepoContext}. For
+ * handles typed with the features the Repo's backend adds, use
+ * {@link createRepoHooks}.
+ */
 export function useDocHandle<T>(
   id: AnyDocumentId,
   params: UseDocHandleSuspendingParams
@@ -40,9 +46,17 @@ export function useDocHandle<T>(
 ): DocHandle<T> | undefined
 export function useDocHandle<T>(
   id: AnyDocumentId | undefined,
+  params?: UseDocHandleParams
+): DocHandle<T> | undefined {
+  return useDocHandleIn<T>(useRepo(), id, params)
+}
+
+/** @internal {@link useDocHandle} on a given Repo. */
+export function useDocHandleIn<T>(
+  repo: Repo,
+  id: AnyDocumentId | undefined,
   { suspense }: UseDocHandleParams = { suspense: false }
 ): DocHandle<T> | undefined {
-  const repo = useRepo()
   const controllerRef = useRef<AbortController | undefined>(undefined)
   const [handle, setHandle] = useState<DocHandle<T> | undefined>()
 

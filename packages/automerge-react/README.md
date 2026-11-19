@@ -48,6 +48,36 @@ export function App() {
 Changes apply locally immediately; await a hook updater to observe persistence
 failures.
 
+## Typed handles
+
+For handles with [the features a backend adds](../automerge-repo/README.md#extensions),
+such as `handle.broadcast`, the hooks need the Repo's type: `RepoContext` only knows a
+plain `Repo`. `createRepoHooks` makes hooks for your Repo: it infers the type from the
+Repo, and its provider only accepts a Repo of that type, so the two cannot disagree:
+
+```tsx
+// repo.ts
+export const repo = new Repo({ backend })
+export const { RepoProvider, useRepo, useDocHandle, useDocHandles } =
+  createRepoHooks(repo)
+// If the Repo is made later, give its type:
+// createRepoHooks<Repo<SubductionExtensions>>()
+
+// main.tsx
+<RepoProvider value={repo}>
+  <App />
+</RepoProvider>
+
+// App.tsx: import these hooks from "./repo"; the rest from "@automerge/react".
+const handle = useDocHandle<Todo>(url, { suspense: true }) // has broadcast
+```
+
+The provider also sets `RepoContext`, so the package's other hooks keep working. Its
+hooks throw outside a `RepoProvider`.
+
+The package's own `useDocHandle` and `useDocHandles` give plain handles.
+`useRepo<typeof repo>()` names the Repo's type without checking it.
+
 ## Subduction and browser storage
 
 ```ts

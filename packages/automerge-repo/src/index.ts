@@ -24,7 +24,15 @@
  * ```
  */
 
-export { DocHandle } from "./DocHandle.js"
+export { DocHandle } from "./types/DocHandle.js"
+export type { HandleEvents } from "./DocHandle.js"
+/** @hidden The class's own type; use {@link DocHandle}. Exported so other
+ * packages' declarations can name handle types. */
+export type { DocHandle as DocHandleClass } from "./DocHandle.js"
+/** What a backend's extensions add to handles: the `X` of `Repo<X>` and
+ * `DocHandle<T, X>`. Extensions are written and listed with the
+ * `@automerge/automerge-repo/sedimentree` entry. */
+export type { HandleExtensionSpec } from "./sedimentree/extension.js"
 export {
   isValidAutomergeUrl,
   isValidDocumentId,
@@ -51,6 +59,8 @@ export type {
   PeerState,
   PresenceState,
   PresenceConfig,
+  PresenceHandle,
+  PresenceInbound,
   PeerStatesValue,
   PresenceEvents,
   PresenceEventUpdate,
@@ -77,7 +87,6 @@ export type {
   DocHandleChangePayload,
   DocHandleDeletePayload,
   DocHandleEncodedChangePayload,
-  DocHandleEphemeralMessagePayload,
   DocHandleHeadsChangedPayload,
   DocHandleRemoteHeadsPayload,
   DocHandleEvents,
@@ -87,6 +96,7 @@ export type {
   AbortOptions,
   DeleteDocumentPayload,
   DocumentPayload,
+  HandleOf,
   RepoConfig,
   RepoEvents,
   RepoFindOptions,

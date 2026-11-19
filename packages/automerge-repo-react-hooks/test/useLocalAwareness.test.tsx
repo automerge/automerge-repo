@@ -1,11 +1,11 @@
-import { DocHandle } from "@automerge/automerge-repo"
+import type { PresenceHandle } from "@automerge/automerge-repo"
 import { render, waitFor } from "@testing-library/react"
 import React from "react"
 import { describe, expect, it, vi } from "vitest"
 import "@testing-library/jest-dom"
 
 import { useLocalAwareness } from "../src/useLocalAwareness"
-import { setup, ExampleDoc } from "./testSetup"
+import { setup } from "./testSetup"
 
 describe("useLocalAwareness", () => {
   describe("with defined handle", () => {
@@ -14,7 +14,7 @@ describe("useLocalAwareness", () => {
       userId,
       initialState,
     }: {
-      handle: DocHandle<ExampleDoc>
+      handle: PresenceHandle
       userId: string
       initialState: any
     }) => {
@@ -150,7 +150,7 @@ describe("useLocalAwareness", () => {
       userId,
       initialState,
     }: {
-      handle?: DocHandle<ExampleDoc>
+      handle?: PresenceHandle
       userId: string
       initialState: any
     }) => {
