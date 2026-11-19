@@ -15,6 +15,7 @@ import * as Uuid from "uuid"
 import { chunkTypeFromKey } from "../src/storage/chunkTypeFromKey.js"
 import { DocumentId } from "../src/types.js"
 import { kTrackedDocuments } from "../src/internals.js"
+import { pause } from "../src/helpers/pause.js"
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "automerge-repo-tests"))
 
@@ -559,11 +560,21 @@ class GatedStorageAdapter extends DummyStorageAdapter {
   gates: {
     removeRange?: Promise<void>
     loadRange?: Promise<void>
+    remove?: Promise<void>
   } = {}
+
+  /** Number of remove() calls made, including any still held. */
+  removesStarted = 0
 
   async removeRange(keyPrefix: string[]): Promise<void> {
     await this.gates.removeRange
     return super.removeRange(keyPrefix)
+  }
+
+  async remove(key: string[]): Promise<void> {
+    this.removesStarted++
+    await this.gates.remove
+    return super.remove(key)
   }
 
   /** Reads first, then holds the result: the read has landed but not returned. */
@@ -618,6 +629,63 @@ describe("StorageSubsystem removal in flight", () => {
     await storage.saveDoc(documentId, doc)
     const reloaded = await new StorageSubsystem(adapter).loadDoc(documentId)
     assert.deepStrictEqual(reloaded, doc)
+  })
+
+  // A compaction removes the old snapshot after writing the new one. Snapshot
+  // keys depend only on the heads, so a re-import of the old history writes
+  // that same key again, and a late remove() would delete it.
+  it("keeps a re-import when a compaction from before the removal finishes late", async () => {
+    const adapter = new GatedStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const d1 = A.from({ foo: "bar" })
+    await storage.saveDoc(documentId, d1)
+
+    const gate = deferred()
+    adapter.gates.remove = gate.promise
+    const compaction = storage.saveDoc(
+      documentId,
+      A.change(d1, d => (d.foo = "baz"))
+    )
+    await storage.removeDoc(documentId)
+    await storage.saveDoc(documentId, d1) // re-import
+    gate.release()
+    await compaction
+
+    adapter.gates.remove = undefined
+    await storage.saveDoc(documentId, d1)
+    assert.ok(await new StorageSubsystem(adapter).loadDoc(documentId))
+  })
+
+  it("keeps a re-import when a compaction's remove() was in flight before the removal", async () => {
+    const adapter = new GatedStorageAdapter()
+    const storage = new StorageSubsystem(adapter)
+    const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+    const d1 = A.from({ foo: "bar" })
+    await storage.saveDoc(documentId, d1)
+
+    const gate = deferred()
+    adapter.gates.remove = gate.promise
+    const compaction = storage.saveDoc(
+      documentId,
+      A.change(d1, d => (d.foo = "baz"))
+    )
+    await pause()
+    assert.equal(
+      adapter.removesStarted,
+      1,
+      "the old snapshot's remove() is held"
+    )
+
+    const removal = storage.removeDoc(documentId)
+    const reimport = removal.then(() => storage.saveDoc(documentId, d1))
+    await pause() // a removal that doesn't wait lets the re-import land here
+    gate.release()
+    await Promise.all([compaction, removal, reimport])
+
+    adapter.gates.remove = undefined
+    await storage.saveDoc(documentId, d1)
+    assert.ok(await new StorageSubsystem(adapter).loadDoc(documentId))
   })
 })
 

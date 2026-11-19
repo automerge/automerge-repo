@@ -55,6 +55,12 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   #chunkGenerations: Map<DocumentId, number> = new Map()
   #lastChunkGeneration = 0
 
+  /**
+   * Saves still writing, per document, so a removal can wait for them. The
+   * entry goes once the document's last save settles.
+   */
+  #savesInFlight: Map<DocumentId, Set<Promise<void>>> = new Map()
+
   /** Flag to avoid compacting when a compaction is already underway */
   #compacting = false
 
@@ -227,6 +233,22 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
    * snapshot size, at which point the document is compacted into a single snapshot.
    */
   async saveDoc(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
+    const saving = this.#writeDoc(documentId, doc)
+    let saves = this.#savesInFlight.get(documentId)
+    if (!saves) {
+      saves = new Set()
+      this.#savesInFlight.set(documentId, saves)
+    }
+    saves.add(saving)
+    try {
+      await saving
+    } finally {
+      saves.delete(saving)
+      if (saves.size === 0) this.#savesInFlight.delete(documentId)
+    }
+  }
+
+  async #writeDoc(documentId: DocumentId, doc: A.Doc<unknown>): Promise<void> {
     // Don't bother saving if the document hasn't changed
     if (!this.#shouldSave(documentId, doc)) return
 
@@ -262,6 +284,10 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     // Forget before the first await: storage is about to hold nothing for the
     // document, so a save issued meanwhile must not be skipped as unchanged.
     this.forget(documentId)
+    // Let saves that began earlier land first. A compaction's remove() that
+    // landed after the removal could delete a re-import of the same history,
+    // which writes the same snapshot key.
+    await Promise.allSettled(this.#savesInFlight.get(documentId) ?? [])
     await this.#storageAdapter.removeRange([documentId, "snapshot"])
     await this.#storageAdapter.removeRange([documentId, "incremental"])
     await this.#storageAdapter.removeRange([documentId, "sync-state"])
@@ -392,6 +418,9 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
       await this.#storageAdapter.save(key, binary)
 
       for (const key of oldKeys) {
+        // Once the chunks are reset or forgotten, the old keys are no longer
+        // this save's to remove: a re-import may have written one again.
+        if (this.#chunkGenerations.get(documentId) !== generation) break
         await this.#storageAdapter.remove(key)
       }
 
