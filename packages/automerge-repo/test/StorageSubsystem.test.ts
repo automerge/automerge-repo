@@ -621,6 +621,114 @@ describe("StorageSubsystem removal in flight", () => {
   })
 })
 
+describe("StorageSubsystem forgetting a document with a save in flight", () => {
+  /** Holds the next save of one chunk type until the test releases it. */
+  class HoldOneSaveAdapter extends DummyStorageAdapter {
+    hold?: {
+      type: "incremental" | "snapshot"
+      started: () => void
+      release: Promise<void>
+    }
+    override async save(key: string[], binary: Uint8Array) {
+      const hold = this.hold
+      if (hold && key[1] === hold.type) {
+        this.hold = undefined
+        hold.started()
+        await hold.release
+      }
+      return super.save(key, binary)
+    }
+  }
+
+  type Doc = {
+    big?: string
+    c1?: boolean
+    c2?: boolean
+    fork?: boolean
+    n?: number
+  }
+
+  /** Text that barely compresses, so each change grows the saved doc. */
+  const noise = (length: number) => {
+    let x = length || 1
+    return Array.from({ length }, () => {
+      x ^= x << 13
+      x ^= x >>> 17
+      x ^= x << 5
+      return String.fromCharCode(33 + ((x >>> 0) % 90))
+    }).join("")
+  }
+
+  const saveUntilCompacted = async (
+    storage: StorageSubsystem,
+    documentId: DocumentId,
+    doc: A.Doc<Doc>
+  ) => {
+    let compacted = false
+    const onCompacted = () => (compacted = true)
+    storage.on("doc-compacted", onCompacted)
+    for (let i = 0; i < 20 && !compacted; i++) {
+      doc = A.change(doc, d => (d.n = i))
+      if (i > 0) doc = A.change(doc, d => (d.big = noise(3000 + i)))
+      await storage.saveDoc(documentId, doc)
+    }
+    storage.off("doc-compacted", onCompacted)
+    assert(compacted, "the doc never compacted")
+  }
+
+  for (const priorReset of [false, true]) {
+    for (const held of ["incremental", "snapshot"] as const) {
+      it(`keeps the change (priorReset=${priorReset}, held=${held})`, async () => {
+        const adapter = new HoldOneSaveAdapter()
+        const storage = new StorageSubsystem(adapter)
+        const documentId = parseAutomergeUrl(generateAutomergeUrl()).documentId
+
+        // A large snapshot makes the next save incremental; a small one
+        // makes it compact.
+        let base = A.from<Doc>({
+          big: noise(held === "incremental" ? 2000 : 10),
+        })
+        if (priorReset) {
+          // Store a fork, then save a doc that lacks it: the reset path gives
+          // the document a chunk generation before forget().
+          await storage.saveDoc(
+            documentId,
+            A.change(A.clone(base), d => (d.fork = true))
+          )
+          base = A.change(base, d => (d.n = -1))
+        }
+        await storage.saveDoc(documentId, base)
+
+        const release = Promise.withResolvers<void>()
+        const started = Promise.withResolvers<void>()
+        adapter.hold = {
+          type: held,
+          started: started.resolve,
+          release: release.promise,
+        }
+        const inFlight = storage.saveDoc(
+          documentId,
+          A.change(A.clone(base), d => (d.c1 = true))
+        )
+        await started.promise
+
+        storage.forget(documentId)
+        const doc2 = A.change(A.clone(base), d => (d.c2 = true))
+        await storage.saveDoc(documentId, doc2)
+        release.resolve()
+        await inFlight
+
+        // Compaction must not delete the chunk holding c1, which doc2 lacks.
+        await saveUntilCompacted(storage, documentId, doc2)
+        const reloaded = await new StorageSubsystem(adapter).loadDoc<Doc>(
+          documentId
+        )
+        assert.equal(reloaded?.c1, true)
+      })
+    }
+  }
+})
+
 describe("StorageSubsystem bookkeeping release", () => {
   it("tracks nothing for a document storage does not hold", async () => {
     const storage = new StorageSubsystem(new DummyStorageAdapter())

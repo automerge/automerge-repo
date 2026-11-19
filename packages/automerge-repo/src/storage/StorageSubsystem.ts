@@ -47,10 +47,10 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   #chunkInfos: Map<DocumentId, ChunkInfo[]> = new Map()
 
   /**
-   * Bumped when {@link StorageSubsystem.saveDoc} stops tracking a document's
-   * chunks. Saves begun under an earlier generation leave the chunk list alone.
-   * Values come from one counter for all documents, so they never repeat even
-   * if an entry is removed.
+   * Changes when {@link StorageSubsystem.saveDoc} stops tracking a document's
+   * chunks or {@link StorageSubsystem.forget} drops them. Saves begun under an
+   * earlier generation leave the chunk list alone. Values come from one counter
+   * for all documents, so they never repeat even after an entry is removed.
    */
   #chunkGenerations: Map<DocumentId, number> = new Map()
   #lastChunkGeneration = 0
@@ -277,11 +277,26 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
   /**
    * Drop the in-memory bookkeeping (last saved heads and known chunks) for a
    * document. The next load rebuilds both from storage, and a save without
-   * them writes a full snapshot instead of an incremental.
+   * them writes a full snapshot instead of an incremental. A save already in
+   * flight leaves its chunk untracked, so a later compaction can't delete it.
    */
   forget(documentId: DocumentId): void {
     this.#storedHeads.delete(documentId)
     this.#chunkInfos.delete(documentId)
+    this.#chunkGenerations.delete(documentId)
+  }
+
+  /**
+   * The document's chunk generation, assigned on first use. A save tracks its
+   * chunk only if the generation is unchanged once the write lands.
+   */
+  #chunkGeneration(documentId: DocumentId): number {
+    let generation = this.#chunkGenerations.get(documentId)
+    if (generation === undefined) {
+      generation = ++this.#lastChunkGeneration
+      this.#chunkGenerations.set(documentId, generation)
+    }
+    return generation
   }
 
   /**
@@ -301,7 +316,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     doc: A.Doc<unknown>
   ): Promise<void> {
     const headsHandle = this.#storedHeads.lastSavedHeads(documentId)
-    const generation = this.#chunkGenerations.get(documentId)
+    const generation = this.#chunkGeneration(documentId)
     const sinceHeads = headsHandle.value
     if (!sinceHeads || sinceHeads.length === 0) {
       // No prior save recorded — save a full snapshot instead of calling
@@ -354,7 +369,7 @@ export class StorageSubsystem extends EventEmitter<StorageSubsystemEvents> {
     this.#compacting = true
     try {
       const headsHandle = this.#storedHeads.lastSavedHeads(documentId)
-      const generation = this.#chunkGenerations.get(documentId)
+      const generation = this.#chunkGeneration(documentId)
 
       const start = performance.now()
       const binary = A.save(doc)
