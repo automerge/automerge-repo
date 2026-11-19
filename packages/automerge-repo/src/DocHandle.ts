@@ -72,7 +72,7 @@ export type HandleEvents<
   T,
   X extends HandleExtensionSpec = {},
 > = DocHandleEvents<T> & {
-  [N in keyof EventsOf<X>]: (
+  [N in keyof EventsOf<X> & string]: (
     payload: EventsOf<X>[N] & { handle: Handle<T, X> }
   ) => void
 }
@@ -914,7 +914,7 @@ export class DocHandle<T, X extends HandleExtensionSpec = {}> {
    * handle's event names, though open to any string: a handle with more
    * events must still be usable where one with fewer is expected.
    */
-  eventNames(): ((keyof HandleEvents<T, X> & string) | (string & {}))[] {
+  eventNames(): (keyof HandleEvents<T, X> | (string & {}))[] {
     return this.#state.listeners.eventNames(this)
   }
 
