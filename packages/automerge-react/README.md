@@ -50,10 +50,9 @@ failures.
 
 ## Typed handles
 
-A backend can add features to every handle of its Repo, such as the Subduction
-backend's ephemeral messaging (`handle.broadcast`). `RepoContext` only knows a plain
-`Repo`, so hooks reading it return plain handles unless told the Repo's type. There are
-two ways to tell them.
+For handles with [the features a backend adds](../automerge-repo/README.md#dochandle),
+such as `handle.broadcast`, the hooks need the Repo's type: `RepoContext` only knows a
+plain `Repo`. There are two ways to give it.
 
 **Recommended: hooks made for your Repo.** `createRepoHooks` infers the type from the
 Repo, and its provider only accepts a Repo of that type, so the two cannot disagree:
@@ -87,8 +86,6 @@ export type AppHandle<T> = HandleOf<typeof repo, T>
 const handle = useDocHandle<AppHandle<Todo>>(url)
 const repo = useRepo<typeof repo>()
 ```
-
-The second asserts what the Repo in `RepoContext` is; nothing checks it.
 
 ## Subduction and browser storage
 

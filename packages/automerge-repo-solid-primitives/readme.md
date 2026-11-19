@@ -184,9 +184,9 @@ const repo = useRepo()
 
 ## Typed handles
 
-A backend can add features to every handle of its Repo, such as the Subduction
-backend's ephemeral messaging (`handle.broadcast`). `RepoContext` only knows a plain
-`Repo`, so these primitives return plain handles unless told the Repo's type.
+For handles with [the features a backend adds](../automerge-repo/README.md#dochandle),
+such as `handle.broadcast`, the primitives need the Repo's type: `RepoContext` only
+knows a plain `Repo`.
 
 **Recommended: primitives made for your Repo.** `createRepoPrimitives` infers the type
 from the Repo, and its provider only accepts a Repo of that type:

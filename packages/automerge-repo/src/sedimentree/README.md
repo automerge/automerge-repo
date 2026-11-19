@@ -57,60 +57,16 @@ the ID. Deletion is not a replicated tombstone. A closed backend rejects new wor
 
 ## Handle extensions
 
-A backend may add features to every handle of its Repo by listing
-`handleExtensions`; a backend that lists none gives plain handles. Ephemeral
-messaging is such an extension, provided by the Subduction backend.
+A backend can add its own methods and events to every handle of its Repo by
+listing `handleExtensions`. A backend that lists none gives plain handles.
 
-- An extension is a record of methods, written with `defineExtension`: each
-  takes the document's `ExtensionContext` first (`context.requireSession()`
-  for methods that need the document open). String and symbol names are
-  supported. Methods are checked against the spec; signatures whose generic
-  or overload relationships cannot be represented by one argument tuple and
-  return type are rejected. Use concrete, single-signature methods instead.
-- Repo builds one subclass of `DocHandle` with all extension methods on its
-  shared prototype. Handles keep their normal class identity and private
-  fields. Extensions are document-level methods: they have no constructors,
-  getters, or per-handle state.
-- Extensions may only add methods. Repo throws at construction if two
-  extensions share a `kind` or an extension redefines a member, including
-  core methods, getters, and bound instance members.
-- An extension reaches its backend through the document's session
-  (`context.session`), using whatever methods that backend's sessions have.
-  It names the session type it needs, `HandleExtension<Session>`.
-  Nothing is added to the backend or session interfaces.
-- It is the backend's job to make its sessions implement what its extensions
-  need. Typing the extension against the backend's own session type, and
-  declaring `open()` to return that type, makes the compiler check it. Core
-  does not: a session lacking a method fails when the extension calls it.
-- The backend reaches the extension with session events
-  `{ type: "extension", kind, payload }`, which Repo hands to the extension's
-  `receive`. A backend unions its own `extension` event types with
-  `SedimentreeEvent` (as Subduction's `SubductionEvent` does). Repo drops
-  events of kinds it does not have.
-- Nothing here supports a backend that wraps or combines others. One built
-  later would list the inner extensions it exposes, have its own sessions
-  forward the methods they need, and pass the inner `extension` events on.
-- Types: each extension carries what it adds, a `HandleExtensionSpec`
-  (`members` and `events`): `defineExtension<Session, Spec>` records it, and a
-  record written by hand states it in its type,
-  `HandleExtension<Session, Events, Inbound, Spec>`. The backend lists them
-  with `provides`, which infers the intersection of their specs:
-  `handleExtensions = provides(mine, theirs)`. An extension without a spec,
-  and a plain array, add nothing. Nothing is declared globally. Members may
-  not depend on the handle's document type. Event payloads leave out
-  `handle`: Repo adds it, typed as the extended handle, to each.
-- A Repo built on such a backend is a `Repo<X>`, `X` being the backend's
-  spec, and returns `DocHandle<T, X>`, with its members; a backend typed as plain
-  `SedimentreeBackend` gives plain `DocHandle<T>`. A backend package should
-  export a name for its extensions' combined spec, such as
-  `SubductionExtensions`, and implement `SedimentreeBackend` with it, which
-  checks the inferred list against that name.
-- Annotating a construction (`const r: Repo<X> = new Repo(…)`) asserts the
-  spec unchecked; a Repo built elsewhere does not pass for one with
-  extensions it lacks.
-- Kinds are runtime names only: two packages may use the same one, but one
-  Repo cannot have both, and two extensions cannot add the same member, so
-  choose names unlikely to collide.
+- Write extensions with `defineExtension` and list them with
+  `provides(...)`, which gives handles their types.
+- An extension reaches its backend through the document's session, or
+  directly when the backend defines it. The backend reaches the extension with
+  `{ type: "extension", kind, payload }` session events.
+
+See [EXTENSIONS.md](./EXTENSIONS.md) for a worked example and the full rules.
 
 ## In-memory backend
 

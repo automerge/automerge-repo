@@ -133,12 +133,11 @@ repo.on("document", ({ handle }) => {})
 - `merge(otherHandle)`: merges another document into this one.
 - `sub(...path)`: a handle scoped to a path inside the document. `remove()` deletes it.
 
-A backend can add its own features to every handle of its Repo, such as
-[ephemeral messages](#ephemeral-messages). `new Repo({ backend })` picks them up from the
-backend's type, so `find()`, `create()`, `sub()`, `view()` and event payloads are typed with
-them. The plain names `Repo` and `DocHandle<T>` mean "no extensions": anything extended is
-accepted where they are wanted, but not the reverse. To keep the extensions in your own
-annotations, name the types from the Repo:
+### Extensions
+
+A backend can add its own features to handles eg [ephemeral messages](#ephemeral-messages).
+Handles returned from the Repo will be automatically typed with the extended members and events,
+and there are type helpers available if you need to use them explicitly.
 
 ```ts
 const repo = new Repo({ backend })
@@ -146,8 +145,8 @@ type AppRepo = typeof repo // or by the backend's extensions: Repo<SubductionExt
 type AppHandle<T> = HandleOf<AppRepo, T>
 ```
 
-Each Repo's types come from its own backend: two Repos on different backends have
-different handle types, and a package providing an extension changes no other Repo.
+To add features to handles from your own backend, see
+[Handle extensions](./src/sedimentree/EXTENSIONS.md).
 
 ### Events
 
@@ -195,24 +194,15 @@ const unsubscribe = query.subscribe(state => {
 
 ## Ephemeral Messages
 
-Ephemeral messaging is a backend feature, not part of every handle. The
-[Subduction backend](../automerge-repo-subduction/) adds it to the handles of its Repo:
+Ephemeral messages are a backend feature and should not be assumed to be a part of every handle.
+For example, the [Subduction backend](../automerge-repo-subduction/README.md#ephemeral-messages) does.
 
-- `handle.broadcast(message)`: sends an ephemeral message.
-- `ephemeral-message` `{ handle, senderId, originId, message }`: one was received.
+### Presence
 
-Handles of a Repo on another backend (such as the default `MemoryBackend`) have neither.
-
-Ephemeral messages are best-effort and not stored. Each `ephemeral-message` carries
-both [IDs](#repoid-and-peer-ids):
-
-- `senderId`: the sending peer's ID, authenticated by the backend.
-- `originId`: the sending Repo's `repo.id`.
-
-`Presence` works with any handle that meets the `PresenceHandle` contract: `broadcast()`
-and the `ephemeral-message` event above, with a Repo never receiving its own broadcasts.
-A handle without them is rejected at compile time. It keeps one entry per `originId`;
-`getStates()` groups by Repo by default, or by peer with `groupingFn: senderIdentity`.
+`Presence` shares short-lived state, such as who is online or where their cursor is, over
+ephemeral messages. It needs a handle that fits the
+[`PresenceHandle`](./src/presence/README.md#what-the-handle-must-provide) interface.
+See [Presence](./src/presence/README.md).
 
 ## Bindings
 

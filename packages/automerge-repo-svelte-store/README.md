@@ -191,8 +191,8 @@ Convenience method to load a document from the repo in context or a provided rep
 
 ## Typed handles
 
-A backend can add features to every handle of its Repo, such as the Subduction
-backend's ephemeral messaging (`handle.broadcast`).
+For handles with [the features a backend adds](../automerge-repo/README.md#dochandle),
+such as `handle.broadcast`:
 
 - **`createAutomergeStore(repo)`** is typed from `repo`: its stores' `handle` has those
   features, with nothing written.
