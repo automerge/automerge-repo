@@ -60,6 +60,7 @@ extended handle.
 `defineExtension` checks plain functions against the spec. Each method
 takes the document's context, then the handle it was called on, then the
 caller's arguments. `receive` has one function for each kind in `receives`.
+Both `members` and `receive` should be plain objects.
 
 ```ts
 import { decode, encode } from "cbor-x"

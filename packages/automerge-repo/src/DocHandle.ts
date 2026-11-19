@@ -946,7 +946,8 @@ export function extendHandle(
   > {}
   const kinds = new Set<string>()
   for (const { members, receive = {} } of extensions) {
-    for (const kind of Object.keys(receive)) {
+    // The keys Repo routes events by: own string keys.
+    for (const kind of Object.getOwnPropertyNames(receive)) {
       if (kinds.has(kind))
         throw new Error(`Two handle extensions receive ${kind}`)
       kinds.add(kind)
