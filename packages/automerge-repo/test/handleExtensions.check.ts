@@ -458,6 +458,28 @@ defineExtension<{}>({ members: { helper: () => 1 } })
 // @ts-expect-error not a record
 const notMembers: HandleExtension = { members: false }
 
+// A session union is one of its members, not just what they share.
+interface Live extends SedimentreeSession {
+  send(): void
+}
+interface Queued extends SedimentreeSession {
+  sendLater(): void
+}
+class Sending extends MemoryBackend {
+  readonly handleExtensions = provides(
+    defineExtension<{ session: Live | Queued }>({ members: {} })
+  )
+}
+const base: Omit<SedimentreeSession, "events"> = {
+  markReady() {},
+  close: async () => {},
+}
+const events = (async function* () {})()
+const live: SessionFor<Sending> = { ...base, events, send() {} }
+// @ts-expect-error neither kind of session
+const neither: SessionFor<Sending> = { ...base, events }
+void [live, neither]
+
 // A list element that may be one of several extensions: the session must
 // serve each, and each kind keeps its own payload.
 interface SessionC extends SedimentreeSession {

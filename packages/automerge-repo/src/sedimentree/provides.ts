@@ -86,6 +86,10 @@ export type EventFor<B> = SedimentreeEvent | Received<ExtensionsOf<B>>
  *
  * @experimental
  */
-export type SessionFor<B> = Omit<SessionOf<ExtensionsOf<B>>, "events"> & {
+export type SessionFor<B> = WithoutEvents<SessionOf<ExtensionsOf<B>>> & {
   readonly events: AsyncIterable<EventFor<B>>
 }
+
+/** Session type `S` without its events; a union one member at a time, so
+ * a session must be one of its members, not just what they share. */
+type WithoutEvents<S> = S extends unknown ? Omit<S, "events"> : never
