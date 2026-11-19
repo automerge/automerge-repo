@@ -1,10 +1,8 @@
 import type {
-  AsHandle,
   AutomergeUrl,
   ChangeFn,
   Doc,
   DocHandle,
-  DocOf,
   DocumentId,
   HandleOf,
   Repo,
@@ -182,22 +180,17 @@ export function createAutomergeStore<R extends Repo>(
 
 /**
  * Create a document store from a document ID or URL
- * Uses the repo from context if no repo is provided. Takes the document type
- * (`document<Todo>`) or a handle type (`document<AppHandle<Todo>>`, with
- * `type AppHandle<T> = HandleOf<typeof repo, T>`) to be typed with the
- * features the Repo's backend adds; both assert what the Repo is.
- * {@link createAutomergeStore} is typed from its Repo instead.
+ * Uses the repo from context if no repo is provided. For handles typed with
+ * the features the Repo's backend adds, use {@link createAutomergeStore}.
  * @param docIdOrUrl The document ID or URL
  * @param repoInstance Optional Automerge Repo instance
  * @returns A promise resolving to the document store
  */
-export function document<X>(
+export function document<T>(
   docIdOrUrl: DocumentId | AutomergeUrl,
   repoInstance?: Repo
-): Promise<AutomergeDocumentStore<DocOf<X>, AsHandle<X>> | null> {
+): Promise<AutomergeDocumentStore<T> | null> {
   const repo = repoInstance || getContextRepo()
   const store = createAutomergeStore(repo)
-  return store.find<DocOf<X>>(
-    docIdOrUrl as AutomergeUrl
-  ) as Promise<AutomergeDocumentStore<DocOf<X>, AsHandle<X>> | null>
+  return store.find<T>(docIdOrUrl as AutomergeUrl)
 }

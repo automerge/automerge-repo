@@ -33,12 +33,7 @@ import type {
 } from "./network/SubductionNetworkAdapterInterface.js"
 import { Watch } from "./watch.js"
 import type { SessionState } from "./session.js"
-import {
-  decodeEphemeral,
-  encodeEphemeral,
-  ephemeral,
-  ephemeralKind,
-} from "./ephemeral.js"
+import { decodeEphemeral, encodeEphemeral, ephemeral } from "./ephemeral.js"
 import { SyncRules, type SyncPolicy, type SyncRule } from "./sync-policy.js"
 
 export {
@@ -231,7 +226,7 @@ export type SubductionEvent = EventFor<SubductionBackend>
 /** EXPERIMENTAL: real WASM persistence and authenticated peer sync.
  * Initialize Subduction WASM before construction. Storage is exclusively owned.
  */
-export class SubductionBackend implements SedimentreeBackend<SubductionExtensions> {
+export class SubductionBackend implements SedimentreeBackend {
   /** Every handle of a Repo on this backend has ephemeral messaging. */
   readonly handleExtensions = provides(ephemeral)
   readonly #engine: N.Subduction
@@ -330,7 +325,7 @@ export class SubductionBackend implements SedimentreeBackend<SubductionExtension
     for (const { watch } of active)
       watch.push({
         type: "extension",
-        kind: ephemeralKind,
+        kind: "ephemeral",
         sequence,
         payload: {
           message: { ...message, payload: new Uint8Array(message.payload) },

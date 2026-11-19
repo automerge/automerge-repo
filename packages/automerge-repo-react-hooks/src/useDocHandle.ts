@@ -2,7 +2,6 @@ import {
   AnyDocumentId,
   DocHandle,
   Repo,
-  type AsHandle,
   isValidAutomergeUrl,
   interpretAsDocumentId,
   parseAutomergeUrl,
@@ -33,26 +32,23 @@ export type UseDocHandleParams =
   | UseDocHandleSynchronousParams
 
 /**
- * The handle for a document, from the Repo in {@link RepoContext}. Takes the
- * document type (`useDocHandle<Todo>`) or a handle type
- * (`useDocHandle<AppHandle<Todo>>`, with
- * `type AppHandle<T> = HandleOf<typeof repo, T>`) to be typed with the
- * features the Repo's backend adds. Both assert what the Repo in context
- * is; {@link createRepoHooks} checks it.
+ * The handle for a document, from the Repo in {@link RepoContext}. For
+ * handles typed with the features the Repo's backend adds, use
+ * {@link createRepoHooks}.
  */
-export function useDocHandle<X>(
+export function useDocHandle<T>(
   id: AnyDocumentId,
   params: UseDocHandleSuspendingParams
-): AsHandle<X>
-export function useDocHandle<X>(
+): DocHandle<T>
+export function useDocHandle<T>(
   id: AnyDocumentId | undefined,
   params?: UseDocHandleSynchronousParams
-): AsHandle<X> | undefined
-export function useDocHandle<X>(
+): DocHandle<T> | undefined
+export function useDocHandle<T>(
   id: AnyDocumentId | undefined,
   params?: UseDocHandleParams
-): AsHandle<X> | undefined {
-  return useDocHandleIn(useRepo(), id, params) as AsHandle<X> | undefined
+): DocHandle<T> | undefined {
+  return useDocHandleIn<T>(useRepo(), id, params)
 }
 
 /** @internal {@link useDocHandle} on a given Repo. */

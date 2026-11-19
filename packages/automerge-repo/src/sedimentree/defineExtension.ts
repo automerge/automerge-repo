@@ -1,51 +1,12 @@
-import type { DocHandle } from "../types/DocHandle.js"
-import type { SedimentreeSession } from "./backend.js"
-import type {
-  EventsOf,
-  ExtensionContext,
-  ExtensionMembers,
-  HandleExtension,
-  HandleExtensionSpec,
-  HandleFeatures,
-} from "./extension.js"
-
-/** The spec's members as an extension writes them: the document's
- * {@link ExtensionContext} and the calling handle first, then the caller's
- * arguments. A generic or overloaded method is `never`: it can't be reduced
- * to one argument list and return type. */
-type ContextualMembers<
-  S extends SedimentreeSession,
-  X extends HandleExtensionSpec,
-  M = ExtensionMembers<X>,
-> = {
-  readonly [N in keyof M]: M[N] extends (...args: infer A) => infer R
-    ? ((...args: A) => R) extends M[N]
-      ? (
-          context: ExtensionContext<S, EventsOf<X>>,
-          handle: DocHandle<unknown, HandleFeatures<X>>,
-          ...args: A
-        ) => R
-      : never
-    : never
-}
-
-/** What {@link defineExtension} takes: a {@link HandleExtension} whose
- * members are checked against the spec `X`. */
-type ExtensionDefinition<
-  S extends SedimentreeSession,
-  X extends HandleExtensionSpec,
-> = Pick<HandleExtension<S, X>, "kind" | "receive"> & {
-  readonly members: ContextualMembers<S, X>
-}
+import type { HandleExtension, HandleExtensionSpec } from "./extension.js"
 
 /**
- * A {@link HandleExtension}, checked against the spec `X` it implements:
- * its kind, and the spec's methods, with the document's context and the
- * calling handle as leading parameters that Repo supplies:
+ * A {@link HandleExtension} of the spec `X`: the spec's methods, with the
+ * document's context and the calling handle as leading parameters that Repo
+ * supplies, and a receiver for each kind of event its backend sends it:
  *
  * ```ts
- * export const count = defineExtension<CountSession, CountSpec>({
- *   kind: "count",
+ * export const count = defineExtension<CountSpec>({
  *   members: {
  *     async docCount(context) {
  *       const session = context.requireSession()
@@ -61,9 +22,8 @@ type ExtensionDefinition<
  *
  * @experimental
  */
-export function defineExtension<
-  S extends SedimentreeSession = SedimentreeSession,
-  X extends HandleExtensionSpec = {},
->(definition: ExtensionDefinition<S, X>): HandleExtension<S, X> {
-  return definition as HandleExtension<S, X>
+export function defineExtension<X extends HandleExtensionSpec = {}>(
+  extension: HandleExtension<X>
+): HandleExtension<X> {
+  return extension
 }

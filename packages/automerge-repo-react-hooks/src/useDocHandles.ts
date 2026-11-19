@@ -1,5 +1,4 @@
 import type {
-  AsHandle,
   AutomergeUrl,
   DocHandle,
   Repo,
@@ -14,19 +13,18 @@ export interface UseDocHandlesParams {
   suspense?: boolean
 }
 
-/** Handles by URL; `X` is a document type or a handle type, as for
- * {@link useDocHandle}. */
-export type DocHandleMap<X> = Map<AutomergeUrl, AsHandle<X> | undefined>
+export type DocHandleMap<T> = Map<AutomergeUrl, DocHandle<T> | undefined>
 
 /**
- * Handles for several documents, from the Repo in {@link RepoContext}.
- * Takes a document type or a handle type, as {@link useDocHandle} does.
+ * Handles for several documents, from the Repo in {@link RepoContext}. For
+ * handles typed with the features the Repo's backend adds, use
+ * {@link createRepoHooks}.
  */
-export function useDocHandles<X>(
+export function useDocHandles<T>(
   ids: AutomergeUrl[],
   params: UseDocHandlesParams = {}
-): DocHandleMap<X> {
-  return useDocHandlesIn(useRepo(), ids, params) as DocHandleMap<X>
+): DocHandleMap<T> {
+  return useDocHandlesIn<T>(useRepo(), ids, params)
 }
 
 /** @internal {@link useDocHandles} on a given Repo. */

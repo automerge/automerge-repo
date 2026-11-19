@@ -2,15 +2,16 @@ import React, { type PropsWithChildren } from "react"
 import {
   MemoryBackend,
   Repo,
-  defineExtension,
   parseAutomergeUrl,
-  provides,
   type AutomergeUrl,
   type PresenceInbound,
   type DocumentQuery,
   type QueryState,
 } from "@automerge/automerge-repo"
-import type { SedimentreeSession } from "@automerge/automerge-repo/sedimentree"
+import {
+  defineExtension,
+  provides,
+} from "@automerge/automerge-repo/sedimentree"
 import "@testing-library/jest-dom"
 import { cleanup } from "@testing-library/react"
 import { afterEach, vi } from "vitest"
@@ -23,8 +24,7 @@ interface EphemeralSpec {
 }
 
 /** Stands in for a backend with ephemeral messaging; broadcasts go nowhere. */
-const ephemeral = defineExtension<SedimentreeSession, EphemeralSpec>({
-  kind: "ephemeral",
+const ephemeral = defineExtension<EphemeralSpec>({
   members: {
     broadcast(_context, _handle, _message: unknown): void {},
   },

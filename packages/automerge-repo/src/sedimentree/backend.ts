@@ -6,14 +6,14 @@ import {
 } from "./ids.js"
 import type { RecordBatch } from "./records.js"
 import type {
-  AnyExtensionEvent,
   AnyHandleExtension,
+  ExtensionEvent,
   HandleExtensionSpec,
 } from "./extension.js"
 
 /**
- * An interface for storing and syncing sedimentrees. `X` is what its handle
- * extensions add
+ * An interface for storing and syncing sedimentrees. `X` is the spec of its
+ * handle extensions, worked out from the list; a backend need not state it.
  */
 export interface SedimentreeBackend<X extends HandleExtensionSpec = {}> {
   create(
@@ -35,17 +35,16 @@ export interface SedimentreeBackend<X extends HandleExtensionSpec = {}> {
 }
 
 /**
- * The extensions a backend lists, adding `X` to its handles; made with
- * {@link provides}.
+ * The extensions a backend lists, `X` being the intersection of their specs;
+ * made with {@link provides}.
  */
-export type HandleExtensions<X extends HandleExtensionSpec> =
-  readonly AnyHandleExtension[] & {
-    /** Type only: never set. */
-    readonly "~spec"?: X
-  }
+export type HandleExtensions<X = {}> = readonly AnyHandleExtension[] & {
+  /** Type only: never set. */
+  readonly "~spec"?: X
+}
 
 export interface SedimentreeSession {
-  readonly events: AsyncIterable<SedimentreeEvent | AnyExtensionEvent>
+  readonly events: AsyncIterable<SedimentreeEvent | ExtensionEvent>
 
   /**
    * The consumer has verified its initial load; the backend may stop work done
@@ -156,7 +155,7 @@ export interface SyncRoundResult {
 }
 
 /** A session event. A backend with handle extensions unions its own
- * `extension` event types with this; see {@link AnyExtensionEvent}. */
+ * `extension` event types with this; see {@link ExtensionEvent}. */
 export type SedimentreeEvent =
   /** `initial` records form the local load; `live` records follow. */
   | {

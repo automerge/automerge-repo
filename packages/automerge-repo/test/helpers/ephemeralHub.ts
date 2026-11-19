@@ -1,8 +1,7 @@
 import {
   defineExtension,
   provides,
-  type AnyExtensionEvent,
-  type HandleFeatures,
+  type ExtensionEvent,
   type SedimentreeBackend,
   type SedimentreeEvent,
   type SedimentreeId,
@@ -31,36 +30,35 @@ interface HubEvents {
   }
 }
 
-/** The hub's ephemeral extension's types. */
-interface HubSpec {
-  kind: "ephemeral"
-  inbound: HubMessage & { senderId: PeerId }
+/** The hub's ephemeral extension's spec; a Repo on a hub backend is a
+ * `Repo<HubExtensions>`. */
+export interface HubExtensions {
+  session: HubBackendSession
+  receives: { ephemeral: HubMessage & { senderId: PeerId } }
   members: { broadcast(message: unknown): void }
   events: HubEvents
 }
 
-/** What the hub's extension adds to the handles of a Repo on it. */
-export type HubExtensions = HandleFeatures<HubSpec>
-
 /** Ephemeral messaging over the hub, as a backend's handle extension. */
-const ephemeral = defineExtension<HubBackendSession, HubSpec>({
-  kind: "ephemeral",
+const ephemeral = defineExtension<HubExtensions>({
   members: {
     broadcast(context, _handle, message) {
       const { session, repoId } = context
       session?.publish({ originId: repoId, message })
     },
   },
-  receive(context, { senderId, originId, message }) {
-    if (originId === context.repoId) return
-    context.emit("ephemeral-message", { senderId, originId, message })
+  receive: {
+    ephemeral(context, { senderId, originId, message }) {
+      if (originId === context.repoId) return
+      context.emit("ephemeral-message", { senderId, originId, message })
+    },
   },
 })
 
 interface HubSession {
   id: SedimentreeId
   sender: string
-  inject: (event: SedimentreeEvent | AnyExtensionEvent) => void
+  inject: (event: SedimentreeEvent | ExtensionEvent) => void
   closed: boolean
 }
 
@@ -107,7 +105,7 @@ export class EphemeralHub {
     onClose: () => void
   ): HubBackendSession {
     const inner = this.store.open(id)
-    const queue: (SedimentreeEvent | AnyExtensionEvent)[] = []
+    const queue: (SedimentreeEvent | ExtensionEvent)[] = []
     let wake: (() => void) | undefined
     let ended = false
     const self: HubSession = {
@@ -148,7 +146,7 @@ export class EphemeralHub {
           if (other === self || other.closed || other.id !== id) continue
           other.inject({
             type: "extension",
-            kind: ephemeral.kind,
+            kind: "ephemeral",
             sequence: 0,
             // Each receiver gets its own copy, as off the wire.
             payload: {

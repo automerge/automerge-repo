@@ -7,7 +7,6 @@ import {
   defineExtension,
   provides,
   type AnyHandleExtension,
-  type HandleExtension,
   type SedimentreeSession,
 } from "../src/sedimentree/index.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
@@ -15,8 +14,8 @@ import { scriptedBackend } from "./helpers/scriptedBackend.js"
 
 /** What `ping` adds to the handles of a Repo on a backend listing it. */
 interface PingSpec {
-  kind: "ping"
-  inbound: number | "throw"
+  session: PingSession
+  receives: { ping: number | "throw" }
   members: { ping(): Promise<string>; caller(): string }
   events: { pong: { n: number } }
 }
@@ -27,8 +26,7 @@ interface PingSession extends SedimentreeSession {
 }
 
 /** Asks its backend to answer, and reports the backend's `pong`s. */
-const ping = defineExtension<PingSession, PingSpec>({
-  kind: "ping",
+const ping = defineExtension<PingSpec>({
   members: {
     async ping(context): Promise<string> {
       const session = context.requireSession()
@@ -37,9 +35,11 @@ const ping = defineExtension<PingSession, PingSpec>({
     },
     caller: (_context, handle) => handle.url,
   },
-  receive(context, payload) {
-    if (payload === "throw") throw new Error("receive failed")
-    context.emit("pong", { n: payload })
+  receive: {
+    ping(context, payload) {
+      if (payload === "throw") throw new Error("receive failed")
+      context.emit("pong", { n: payload })
+    },
   },
 })
 
@@ -117,23 +117,20 @@ describe("backend handle extensions", () => {
 
   describe("what an extension may add", () => {
     /** An extension adding one method called `name`. */
-    const defining = (kind: string, name: string): HandleExtension => ({
-      kind,
+    const defining = (name: string): AnyHandleExtension => ({
       members: { [name]: () => {} },
     })
 
-    it("Repo rejects extensions that share a kind or redefine a member", () => {
+    it("Repo rejects extensions that receive one kind or redefine a member", () => {
       const repo = (...handleExtensions: AnyHandleExtension[]) =>
         new Repo({
           backend: Object.assign(new MemoryBackend(), { handleExtensions }),
         })
-      expect(() => repo(ping, ping)).toThrow(/Duplicate/)
+      expect(() => repo(ping, ping)).toThrow("receive ping")
       // A method, a getter, and a member DocHandle defines per instance.
       for (const name of ["change", "url", "isReady"])
-        expect(() => repo(defining("replacing", name))).toThrow(
-          `replacing redefines ${name}`
-        )
-      expect(() => repo(ping, defining("second", "ping"))).toThrow(/redefines/)
+        expect(() => repo(defining(name))).toThrow(`redefines ${name}`)
+      expect(() => repo(ping, defining("ping"))).toThrow("redefines ping")
     })
 
     it("knows every member DocHandle defines per instance", async () => {

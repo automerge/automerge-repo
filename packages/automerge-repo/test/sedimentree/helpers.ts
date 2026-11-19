@@ -1,6 +1,6 @@
 import { expect } from "vitest"
 import type {
-  AnyExtensionEvent,
+  ExtensionEvent,
   SedimentreeEvent,
 } from "../../src/sedimentree/index.js"
 import {
@@ -15,7 +15,7 @@ import type {
 } from "../../src/sedimentree/index.js"
 
 /** A session event stream, as backends type it. */
-type Events = AsyncIterator<SedimentreeEvent | AnyExtensionEvent>
+type Events = AsyncIterator<SedimentreeEvent | ExtensionEvent>
 
 export const treeId = (n = 1) =>
   sedimentreeId(n.toString(16).padStart(32, "0").padEnd(64, "0"))

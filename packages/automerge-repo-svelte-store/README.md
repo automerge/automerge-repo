@@ -196,15 +196,8 @@ such as `handle.broadcast`:
 
 - **`createAutomergeStore(repo)`** is typed from `repo`: its stores' `handle` has those
   features, with nothing written.
-- **`document()`** reads the Repo from context, which only knows a plain `Repo`. Pass a handle
-  type in place of the document type:
-
-  ```ts
-  type AppHandle<T> = HandleOf<typeof repo, T>
-  const store = await document<AppHandle<Todo>>(url) // store?.handle.broadcast
-  ```
-
-`document()` with a handle type asserts what the Repo in context is; nothing checks it.
+- **`document()`** reads the Repo from context, which only knows a plain `Repo`, so its
+  stores' `handle` is plain.
 
 ## Store API
 

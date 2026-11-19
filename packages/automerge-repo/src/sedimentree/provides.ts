@@ -1,15 +1,10 @@
-import type {
-  HandleExtensions,
-  SedimentreeBackend,
-  SedimentreeEvent,
-  SedimentreeSession,
-} from "./backend.js"
+import type { HandleExtensions, SedimentreeEvent } from "./backend.js"
 import type {
   AnyHandleExtension,
   ExtensionEvent,
   HandleExtensionSpec,
-  HandleFeatures,
-  InboundOf,
+  ReceivesOf,
+  SessionOf,
 } from "./extension.js"
 
 /** `T`, or `Fallback` where `T` is `any` or missing: an untyped extension. */
@@ -26,48 +21,8 @@ type All<U> = (U extends unknown ? (u: U) => void : never) extends (
   ? I
   : never
 
-// For one listed extension `E`: its spec, what it adds to handles, the
-// session it needs, and the event its backend sends it.
-
-type SpecOf<E> = E extends {
-  readonly "~spec"?: infer X extends HandleExtensionSpec
-}
-  ? Known<X, {}>
-  : {}
-
-type FeaturesOf<E> = E extends unknown ? HandleFeatures<SpecOf<E>> : never
-
-type SessionOf<E> = E extends {
-  readonly "~session"?: (session: infer S) => void
-}
-  ? Known<S, SedimentreeSession>
-  : SedimentreeSession
-
-/** None if the spec declares no kind, or one too wide to tell it from others. */
-type EventOf<E> = E extends unknown
-  ? SpecOf<E> extends { kind: infer K extends string }
-    ? string extends K
-      ? never
-      : ExtensionEvent<K, InboundOf<SpecOf<E>>>
-    : never
-  : never
-
-/**
- * The extensions {@link provides} lists, `E` being any one of them: what
- * they add to handles, what they need of a session, and the events their
- * backend sends them.
- *
- * @experimental
- */
-export type ProvidedExtensions<E extends AnyHandleExtension> =
-  readonly AnyHandleExtension[] & {
-    /** Type only: never set. */
-    readonly "~spec"?: All<FeaturesOf<E> | {}>
-    /** Type only: never set. */
-    readonly "~session"?: All<SessionOf<E> | SedimentreeSession>
-    /** Type only: never set. */
-    readonly "~events"?: (event: EventOf<E>) => void
-  }
+/** The spec a listed extension `E` carries; `{}` if it carries none. */
+type SpecOf<E> = E extends { readonly "~spec"?: infer X } ? Known<X, {}> : {}
 
 /**
  * Lists `extensions` for a backend: every handle of a Repo on it gets what
@@ -83,12 +38,16 @@ export type ProvidedExtensions<E extends AnyHandleExtension> =
  */
 export function provides<const L extends readonly AnyHandleExtension[]>(
   ...extensions: L
-): ProvidedExtensions<L[number]> {
+): HandleExtensions<All<SpecOf<L[number]> | {}>> {
   return extensions
 }
 
-/** What the handle extensions of a backend type `B` add; `{}` if untyped. */
-export type ExtensionsOf<B extends SedimentreeBackend<any>> = B extends {
+/**
+ * The spec of a backend type `B`: the intersection of those of the
+ * extensions it lists; `{}` if untyped. A Repo on it is a
+ * `Repo<ExtensionsOf<B>>`.
+ */
+export type ExtensionsOf<B> = B extends {
   readonly handleExtensions?: HandleExtensions<infer X>
 }
   ? X extends HandleExtensionSpec
@@ -96,10 +55,15 @@ export type ExtensionsOf<B extends SedimentreeBackend<any>> = B extends {
     : {}
   : {}
 
+/** One `extension` event for each kind the spec `X` receives. */
+type Received<X extends HandleExtensionSpec, R = ReceivesOf<X>> = {
+  [K in keyof R & string]: ExtensionEvent<K, R[K]>
+}[keyof R & string]
+
 /**
  * The events a backend type `B` sends on its sessions: the core ones, and
- * one `extension` event for each of its extensions whose spec declares a
- * kind. Type a backend's event queue with it:
+ * one `extension` event for each kind its extensions receive. Type a
+ * backend's event queue with it:
  *
  * ```ts
  * type MyEvent = EventFor<MyBackend>
@@ -107,22 +71,14 @@ export type ExtensionsOf<B extends SedimentreeBackend<any>> = B extends {
  *
  * @experimental
  */
-export type EventFor<B> =
-  | SedimentreeEvent
-  | (B extends {
-      readonly handleExtensions?: {
-        readonly "~events"?: (event: infer Ev) => void
-      }
-    }
-      ? Known<Ev, never>
-      : never)
+export type EventFor<B> = SedimentreeEvent | Received<ExtensionsOf<B>>
 
 /**
  * The session a backend type `B` must give from `open()`: everything its
  * extensions need of a session, with its events typed by {@link EventFor}:
  *
  * ```ts
- * class MyBackend implements SedimentreeBackend<…> {
+ * class MyBackend implements SedimentreeBackend {
  *   readonly handleExtensions = provides(mine)
  *   open(id: SedimentreeId): SessionFor<MyBackend> { … }
  * }
@@ -130,9 +86,6 @@ export type EventFor<B> =
  *
  * @experimental
  */
-export type SessionFor<B> = Omit<
-  B extends { readonly handleExtensions?: { readonly "~session"?: infer S } }
-    ? Known<S, SedimentreeSession>
-    : SedimentreeSession,
-  "events"
-> & { readonly events: AsyncIterable<EventFor<B>> }
+export type SessionFor<B> = Omit<SessionOf<ExtensionsOf<B>>, "events"> & {
+  readonly events: AsyncIterable<EventFor<B>>
+}

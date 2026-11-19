@@ -5,7 +5,6 @@ import {
   defineExtension,
   provides,
   type EventFor,
-  type SedimentreeSession,
 } from "@automerge/automerge-repo/sedimentree"
 import {
   SubductionBackend,
@@ -29,7 +28,7 @@ declare const payload: EphemeralInbound
 const sent: SubductionEvent = {
   type: "extension",
   sequence: 0,
-  kind: ephemeral.kind,
+  kind: "ephemeral",
   payload,
 }
 
@@ -37,8 +36,7 @@ const sent: SubductionEvent = {
 class More extends SubductionBackend {
   override readonly handleExtensions = provides(
     ephemeral,
-    defineExtension<SedimentreeSession, { members: { label(): string } }>({
-      kind: "label",
+    defineExtension<{ members: { label(): string } }>({
       members: { label: () => this.peerId },
     })
   )

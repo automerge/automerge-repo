@@ -413,20 +413,6 @@ function collectErrors(results: PromiseSettledResult<unknown>[]): unknown[] {
 export type HandleOf<R extends Repo, T> =
   R extends Repo<infer X> ? DocHandle<T, X> : DocHandle<T>
 
-/** The document type of a handle type `H`, or `H` itself if not a handle. */
-export type DocOf<H> = H extends DocHandle<infer T> ? T : H
-
-/**
- * For APIs taking either a document type or a handle type: `Todo` gives the
- * handle a Repo of type `R` makes for it (a plain `DocHandle<Todo>` by
- * default), and a handle type such as `HandleOf<typeof repo, Todo>` is kept.
- */
-export type AsHandle<A, R extends Repo = Repo> = 0 extends 1 & A
-  ? HandleOf<R, A> // `any` is a document type
-  : [A] extends [DocHandle<any>]
-    ? A
-    : HandleOf<R, A>
-
 export interface RepoConfig<X extends HandleExtensionSpec = {}> {
   /**
    * Owns storage and synchronization; closed by {@link Repo.shutdown}.

@@ -8,7 +8,7 @@ import {
   fragmentRequests,
   recordHead,
   type CommitId,
-  type AnyExtensionEvent,
+  type ExtensionEvent,
   type ExtensionContext,
   type FragmentRecord,
   type HistoryMarker,
@@ -357,7 +357,7 @@ export class Document<T> {
 
   // -- Events --
 
-  onEvent(event: SedimentreeEvent | AnyExtensionEvent): void {
+  onEvent(event: SedimentreeEvent | ExtensionEvent): void {
     if (this.state.closed || this.query.terminal) return
     switch (event.type) {
       // Typed by kind for whoever sends it; routed here by name alone.
@@ -366,8 +366,10 @@ export class Document<T> {
           this.#log("extension event failed: %o", error)
         try {
           const result: unknown = this.backend.handleExtensions
-            ?.find(extension => extension.kind === event.kind)
-            ?.receive?.(this.extensionContext, event.payload)
+            ?.find(
+              ({ receive }) => receive && Object.hasOwn(receive, event.kind)
+            )
+            ?.receive?.[event.kind](this.extensionContext, event.payload)
           // `receive` is typed as synchronous, but an async one compiles.
           if (result instanceof Promise) result.catch(failed)
         } catch (error) {

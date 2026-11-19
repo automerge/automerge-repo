@@ -52,9 +52,7 @@ failures.
 
 For handles with [the features a backend adds](../automerge-repo/README.md#extensions),
 such as `handle.broadcast`, the hooks need the Repo's type: `RepoContext` only knows a
-plain `Repo`. There are two ways to give it.
-
-**Recommended: hooks made for your Repo.** `createRepoHooks` infers the type from the
+plain `Repo`. `createRepoHooks` makes hooks for your Repo: it infers the type from the
 Repo, and its provider only accepts a Repo of that type, so the two cannot disagree:
 
 ```tsx
@@ -77,15 +75,8 @@ const handle = useDocHandle<Todo>(url, { suspense: true }) // has broadcast
 The provider also sets `RepoContext`, so the package's other hooks keep working. Its
 hooks throw outside a `RepoProvider`.
 
-**Per call: a handle type.** Name your handles from the Repo, and pass that type in
-place of the document type:
-
-```ts
-export type AppHandle<T> = HandleOf<typeof repo, T>
-
-const handle = useDocHandle<AppHandle<Todo>>(url)
-const appRepo = useRepo<typeof repo>()
-```
+The package's own `useDocHandle` and `useDocHandles` give plain handles.
+`useRepo<typeof repo>()` names the Repo's type without checking it.
 
 ## Subduction and browser storage
 

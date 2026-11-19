@@ -1,7 +1,7 @@
 import { vi, type Mock } from "vitest"
 import { MemoryBackend } from "../../src/sedimentree/memory/MemoryBackend.js"
 import type {
-  AnyExtensionEvent,
+  ExtensionEvent,
   SedimentreeEvent as CoreEvent,
   SedimentreeId,
   SedimentreeSession,
@@ -9,7 +9,7 @@ import type {
 } from "../../src/sedimentree/index.js"
 
 /** Any event a session may yield, extension events of any kind included. */
-type SedimentreeEvent = CoreEvent | AnyExtensionEvent
+type SedimentreeEvent = CoreEvent | ExtensionEvent
 
 /** A session whose events the test pushes by hand. */
 export interface ScriptedSession {

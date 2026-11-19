@@ -188,8 +188,8 @@ For handles with [the features a backend adds](../automerge-repo/README.md#exten
 such as `handle.broadcast`, the primitives need the Repo's type: `RepoContext` only
 knows a plain `Repo`.
 
-**Recommended: primitives made for your Repo.** `createRepoPrimitives` infers the type
-from the Repo, and its provider only accepts a Repo of that type:
+`createRepoPrimitives` makes primitives for your Repo: it infers the type from the
+Repo, and its provider only accepts a Repo of that type:
 
 ```tsx
 // repo.ts
@@ -209,12 +209,4 @@ const handle = useDocHandle<Todo>(url) // handle()?.broadcast
 The provider also sets `RepoContext`, so the package's other primitives keep working.
 Its primitives throw outside a `RepoProvider`, and take no `repo` option.
 
-**Per call: a handle type**, in place of the document type:
-
-```ts
-export type AppHandle<T> = HandleOf<typeof repo, T>
-
-const [doc, handle] = useDocument<AppHandle<Todo>>(url)
-```
-
-The second asserts what the Repo is; nothing checks it.
+The package's own primitives give plain handles.

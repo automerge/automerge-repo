@@ -3,7 +3,6 @@ import {
   BackendError,
   defineExtension,
   type BackendIdentity,
-  type HandleFeatures,
   type SedimentreeSession,
 } from "@automerge/automerge-repo/sedimentree"
 import type {
@@ -29,9 +28,6 @@ export interface EphemeralInbound {
   readonly sender: BackendIdentity
 }
 
-/** The `ephemeral` extension's kind, shared with the events the backend sends it. */
-export const ephemeralKind = "ephemeral"
-
 /** What the `ephemeral` extension needs of a session. */
 export interface EphemeralSession extends SedimentreeSession {
   /** Publish to the peers subscribed to this session's document. */
@@ -43,7 +39,7 @@ export interface EphemeralSession extends SedimentreeSession {
  * is the peer Subduction authenticated; `originId` is the sending Repo's `id`.
  */
 export interface EphemeralMessagePayload<T> extends PresenceInbound {
-  handle: DocHandle<T, HandleFeatures<EphemeralSpec>>
+  handle: DocHandle<T, EphemeralSpec>
 }
 
 /** What the `ephemeral` extension adds to a handle. */
@@ -69,21 +65,18 @@ export interface EphemeralEvents {
   "ephemeral-message": PresenceInbound
 }
 
-/** The `ephemeral` extension's types: its kind, what the backend sends it,
- * and what it adds to handles. */
+/** The `ephemeral` extension's types: the session it needs, what the backend
+ * sends it, and what it adds to handles. */
 export interface EphemeralSpec {
-  kind: typeof ephemeralKind
-  inbound: EphemeralInbound
+  session: EphemeralSession
+  receives: { ephemeral: EphemeralInbound }
   members: EphemeralMembers
   events: EphemeralEvents
 }
 
 // Fails to compile if handles with this extension stop fitting Presence.
 type Fits<Contract, _Handle extends Contract> = Contract
-type _FitsPresence = Fits<
-  PresenceHandle,
-  DocHandle<unknown, HandleFeatures<EphemeralSpec>>
->
+type _FitsPresence = Fits<PresenceHandle, DocHandle<unknown, EphemeralSpec>>
 
 // Untagged byte strings keep the encoding identical with and without Node's Buffer.
 const codec = new Encoder({ useRecords: false, tagUint8Array: false })
@@ -145,8 +138,7 @@ export function decodeEphemeral(
  * Ephemeral messaging on every handle: `broadcast()` and the
  * `ephemeral-message` event, carried by Subduction's ephemeral topics.
  */
-export const ephemeral = defineExtension<EphemeralSession, EphemeralSpec>({
-  kind: ephemeralKind,
+export const ephemeral = defineExtension<EphemeralSpec>({
   members: {
     broadcast(context, _handle, message) {
       // Encoded now, so later changes to `message` are not sent.
@@ -172,20 +164,22 @@ export const ephemeral = defineExtension<EphemeralSession, EphemeralSpec>({
       )
     },
   },
-  receive(context, { message, sender }) {
-    // Subduction also delivers a peer's own publications back to it.
-    if (message.origin.id === context.repoId) return
-    let decoded: unknown
-    try {
-      decoded = decode(message.payload)
-    } catch (error) {
-      context.log("invalid ephemeral message: %o", error)
-      return
-    }
-    context.emit("ephemeral-message", {
-      senderId: sender.id as PeerId,
-      originId: message.origin.id as RepoId,
-      message: decoded,
-    })
+  receive: {
+    ephemeral(context, { message, sender }) {
+      // Subduction also delivers a peer's own publications back to it.
+      if (message.origin.id === context.repoId) return
+      let decoded: unknown
+      try {
+        decoded = decode(message.payload)
+      } catch (error) {
+        context.log("invalid ephemeral message: %o", error)
+        return
+      }
+      context.emit("ephemeral-message", {
+        senderId: sender.id as PeerId,
+        originId: message.origin.id as RepoId,
+        message: decoded,
+      })
+    },
   },
 })

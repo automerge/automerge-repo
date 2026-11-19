@@ -1,5 +1,4 @@
 import type {
-  AsHandle,
   AutomergeUrl,
   DocHandle,
   Repo,
@@ -20,19 +19,14 @@ import type { MaybeAccessor, UseDocHandleOptions } from "./types.js"
  * [AutomergeUrl](https://automerge.org/automerge-repo/types/_automerge_automerge_repo.AutomergeUrl.html)
  * as a
  * [Resource](https://docs.solidjs.com/reference/basic-reactivity/create-resource).
- * Waits for the handle to be ready. Takes the document type
- * (`useDocHandle<Todo>`) or a handle type (`useDocHandle<AppHandle<Todo>>`,
- * with `type AppHandle<T> = HandleOf<typeof repo, T>`) to be typed with the
- * features the Repo's backend adds; both assert what the Repo is.
- * {@link createRepoPrimitives} checks it.
+ * Waits for the handle to be ready. For handles typed with the features the
+ * Repo's backend adds, use {@link createRepoPrimitives}.
  */
-export default function useDocHandle<X>(
+export default function useDocHandle<T>(
   url: MaybeAccessor<AutomergeUrl | undefined>,
   options?: UseDocHandleOptions
-): Resource<AsHandle<X> | undefined> {
-  return useDocHandleIn(repoFor(options), url, options) as Resource<
-    AsHandle<X> | undefined
-  >
+): Resource<DocHandle<T> | undefined> {
+  return useDocHandleIn<T>(repoFor(options), url, options)
 }
 
 /** @internal `options.repo`, else the one in {@link RepoContext}. */

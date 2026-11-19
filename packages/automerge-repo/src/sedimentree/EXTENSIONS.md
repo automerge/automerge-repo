@@ -12,7 +12,7 @@ event. A backend with no extensions gives plain handles.
 1. The backend lists its extensions on `handleExtensions`.
 2. `new Repo({ backend })` adds their methods to every handle it gives out and types them accordingly
 3. When app code calls an extension method, it has access to the backend and its document session.
-4. The backend communicates with the handle by emitting `extension` events which the handle then routes internally.
+4. The backend communicates with the handle by emitting `extension` events, which Repo routes to the extension receiving that kind.
 
 ## Writing an extension
 
@@ -20,20 +20,28 @@ This example is a cut-down version of Subduction's `ephemeral` extension. The
 full version, with message validation, size limits and dropping a Repo's own
 messages, is in `packages/automerge-repo-subduction/src/ephemeral.ts`.
 
-### 1. Declare what the extension adds
+### 1. Declare the extension's spec
 
-A spec describes the extension: its kind, what its backend sends it, the
-methods it adds to a handle and the events it emits:
+A spec describes the extension. Each part is optional:
+
+- `session`: what it needs of the document's session. Extend the base
+  `SedimentreeSession` with only the methods it calls.
+- `receives`: the payloads its backend sends it, by kind.
+- `members`: the methods it adds to a handle.
+- `events`: the payloads of the events it emits on handles, by name.
 
 ```ts
-interface EphemeralInbound {
-  sender: string
-  bytes: Uint8Array
+import type { SedimentreeSession } from "@automerge/automerge-repo/sedimentree"
+
+interface EphemeralSession extends SedimentreeSession {
+  publishEphemeral(bytes: Uint8Array): Promise<void>
 }
 
 interface EphemeralSpec {
-  kind: "ephemeral"
-  inbound: EphemeralInbound
+  session: EphemeralSession
+  receives: {
+    ephemeral: { sender: string; bytes: Uint8Array }
+  }
   members: {
     /** Send a message to peers; best effort, not stored. */
     broadcast(message: unknown): void
@@ -47,33 +55,17 @@ interface EphemeralSpec {
 Leave `handle` out of event payloads: Repo adds it to each one, typed as the
 extended handle.
 
-### 2. Declare what the extension needs from the backend
+### 2. Define the extension
 
-This extension reaches its backend through the document's session. Declare
-only the session methods it calls:
-
-```ts
-import type { SedimentreeSession } from "@automerge/automerge-repo/sedimentree"
-
-interface EphemeralSession extends SedimentreeSession {
-  publishEphemeral(bytes: Uint8Array): Promise<void>
-}
-```
-
-We extend the base `SedimentreeSession` here, and then use this to describe the backend session later.
-
-### 3. Define the extension
-
-`defineExtension` builds the extension from plain functions. Each method
+`defineExtension` checks plain functions against the spec. Each method
 takes the document's context, then the handle it was called on, then the
-caller's arguments.
+caller's arguments. `receive` has one function for each kind in `receives`.
 
 ```ts
 import { decode, encode } from "cbor-x"
 import { defineExtension } from "@automerge/automerge-repo/sedimentree"
 
-export const ephemeral = defineExtension<EphemeralSession, EphemeralSpec>({
-  kind: "ephemeral",
+export const ephemeral = defineExtension<EphemeralSpec>({
   // methods you would like to add to handles
   members: {
     broadcast(context, _handle, message) {
@@ -86,12 +78,14 @@ export const ephemeral = defineExtension<EphemeralSession, EphemeralSpec>({
       })().catch(error => context.log("ephemeral publish failed: %o", error))
     },
   },
-  // handle events received from the backend
-  receive(context, { sender, bytes }) {
-    context.emit("ephemeral-message", {
-      senderId: sender,
-      message: decode(bytes),
-    })
+  // handle events received from the backend, by kind
+  receive: {
+    ephemeral(context, { sender, bytes }) {
+      context.emit("ephemeral-message", {
+        senderId: sender,
+        message: decode(bytes),
+      })
+    },
   },
 })
 ```
@@ -108,7 +102,7 @@ export const ephemeral = defineExtension<EphemeralSession, EphemeralSpec>({
   `event`. Does nothing once the document is closed or deleted.
 - `log(message, detail)`: logs an error and never throws.
 
-### 4. List it on the backend
+### 3. List it on the backend
 
 ```ts
 import {
@@ -120,14 +114,14 @@ import {
   type SessionFor,
 } from "@automerge/automerge-repo/sedimentree"
 
-// What the extensions add to handles; exported to type Repo later
+// The backend's spec, its extensions' combined; exported to type Repo later
 export type MyExtensions = ExtensionsOf<MyBackend>
 // The session `open()` returns: what the extensions need
 export type MySession = SessionFor<MyBackend>
 // The events the backend sends on its sessions
 export type MyEvent = EventFor<MyBackend>
 
-export class MyBackend implements SedimentreeBackend<MyExtensions> {
+export class MyBackend implements SedimentreeBackend {
   // `provides` can be used to add one or more extensions
   readonly handleExtensions = provides(ephemeral)
 
@@ -144,24 +138,24 @@ export class MyBackend implements SedimentreeBackend<MyExtensions> {
 }
 ```
 
-### 5. Send events from the backend
+### 4. Send events from the backend
 
-When a message arrives for a document, put an `extension` event of the
-extension's kind on that document's session event stream:
+When a message arrives for a document, put an `extension` event of a kind
+the extension receives on that document's session event stream:
 
 ```ts
 yield {
   type: "extension",
   sequence, // the stream's next sequence number
-  // events are routed to the correct extension by `kind`
+  // events are routed to the extension receiving this `kind`
   kind: "ephemeral",
   payload: { sender, bytes },
 }
 ```
 
-Repo passes `payload` to that extension's `receive`.
+Repo passes `payload` to that extension's `receive.ephemeral`.
 
-Events can be type checked by ensuring your session event queue is properly typed with `MyEvent` (see section 4)
+Events can be type checked by ensuring your session event queue is properly typed with `MyEvent` (see section 3)
 
 ### The result
 
@@ -189,14 +183,12 @@ can then use `this`, private fields included, with nothing to declare:
 
 ```ts
 interface PeersSpec {
-  kind: "peers"
   members: { peers(): string[] }
 }
 
 class PeersBackend extends MemoryBackend {
   readonly handleExtensions = provides(
-    defineExtension<SedimentreeSession, PeersSpec>({
-      kind: "peers",
+    defineExtension<PeersSpec>({
       members: { peers: context => this.#peersWith(context.sedimentreeId) },
     })
   )
@@ -215,4 +207,4 @@ handle.peers() // peers the backend knows have this document
 ## Rules and Restrictions
 
 - For now, at least, **add, don't replace.** An extension can't redefine a handle member
-- **Unique `kind`** A Repo throws if two extensions share a `kind`.
+- **Unique kinds** A Repo throws if two extensions receive the same kind.

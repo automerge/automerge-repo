@@ -20,7 +20,7 @@ import type { DocHandleEvents } from "./DocHandleEvents.js"
 import type { DocHandle as Handle } from "./types/DocHandle.js"
 import type {
   AnyHandleExtension,
-  ExtensionEvents,
+  EventsOf,
   HandleExtensionSpec,
 } from "./sedimentree/extension.js"
 import {
@@ -66,11 +66,16 @@ type DocHandleOptions = {
   range?: CursorRange
 }
 
-/** The events of a handle whose backend's extensions declare the spec `X`. */
+/** The events of a handle whose backend's extensions declare the spec `X`:
+ * the core ones, and the spec's, each carrying the handle it is emitted on. */
 export type HandleEvents<
   T,
   X extends HandleExtensionSpec = {},
-> = DocHandleEvents<T> & ExtensionEvents<T, X>
+> = DocHandleEvents<T> & {
+  [N in keyof EventsOf<X>]: (
+    payload: EventsOf<X>[N] & { handle: Handle<T, X> }
+  ) => void
+}
 
 let stateOf: (handle: DocHandle<any>) => DocumentState<any>
 
@@ -940,9 +945,12 @@ export function extendHandle(
     X
   > {}
   const kinds = new Set<string>()
-  for (const { kind, members } of extensions) {
-    if (kinds.has(kind)) throw new Error(`Duplicate handle extension: ${kind}`)
-    kinds.add(kind)
+  for (const { members, receive = {} } of extensions) {
+    for (const kind of Object.keys(receive)) {
+      if (kinds.has(kind))
+        throw new Error(`Two handle extensions receive ${kind}`)
+      kinds.add(kind)
+    }
     for (const name of Reflect.ownKeys(members)) {
       // Extensions only add: a replaced member would change the handle for
       // everyone else, and cannot be typed.
@@ -950,7 +958,7 @@ export function extendHandle(
         name in Extended.prototype ||
         (typeof name === "string" && instanceMembers.includes(name))
       )
-        throw new Error(`Handle extension ${kind} redefines ${String(name)}`)
+        throw new Error(`A handle extension redefines ${String(name)}`)
       const member = members[name]
       Object.defineProperty(Extended.prototype, name, {
         value: function (this: DocHandle<any>, ...args: unknown[]) {

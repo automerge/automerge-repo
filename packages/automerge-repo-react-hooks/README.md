@@ -21,8 +21,7 @@ Most hooks depend on RepoContext being available.
 
 A provider and `useRepo`, `useDocHandle` and `useDocHandles` typed for one Repo, with
 the features its backend adds to handles. See
-[Typed handles](../automerge-react/README.md#typed-handles) for this and the other
-way to type handles, a handle type per call.
+[Typed handles](../automerge-react/README.md#typed-handles).
 
 #### [useDocument](./src/useDocument.ts)
 
