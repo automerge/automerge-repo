@@ -72,35 +72,52 @@ export type EventsOf<X extends HandleExtensionSpec> = X extends {
 /** The spec's members as an extension writes them: the document's
  * {@link ExtensionContext} and the calling handle first, then the caller's
  * arguments. A generic or overloaded method is `never`: it can't be reduced
- * to one argument list and return type. */
+ * to one argument list and return type. A spec without members takes
+ * `members: {}`. */
 type ContextualMembers<
   X extends HandleExtensionSpec,
   M = ExtensionMembers<X>,
-> = {
-  readonly [N in keyof M]: M[N] extends (...args: infer A) => infer R
-    ? ((...args: A) => R) extends M[N]
-      ? (
-          context: ExtensionContext<X>,
-          handle: DocHandle<unknown, X>,
-          ...args: A
-        ) => R
-      : never
-    : never
+> = [keyof M] extends [never]
+  ? { readonly [name: PropertyKey]: never }
+  : {
+      readonly [N in keyof M]: M[N] extends (...args: infer A) => infer R
+        ? ((...args: A) => R) extends M[N]
+          ? (
+              context: ExtensionContext<X>,
+              handle: DocHandle<unknown, X>,
+              ...args: A
+            ) => R
+          : never
+        : never
+    }
+
+/** What `receive` must be when a spec's `receives` does not list its kinds
+ * by name: an index signature (`Record<string, …>`) or a non-string key. No
+ * value fits it, so the extension does not compile. */
+export interface ReceivesMustNameItsKinds {
+  readonly "~error": "list each kind in receives as a string key"
 }
 
-/** A receiver for each kind the spec receives: the backend sent `payload`
- * in a session event `{ type: "extension", kind }`. Synchronous: Repo does
- * not wait for it. Required if the spec receives anything, else absent. */
-type Receivers<X extends HandleExtensionSpec, R = ReceivesOf<X>> = {} extends R
+/** A receiver for each kind the spec receives, optional ones included: the
+ * backend sent `payload` in a session event `{ type: "extension", kind }`.
+ * Synchronous: Repo does not wait for it. Absent if the spec receives
+ * nothing. */
+type Receivers<X extends HandleExtensionSpec, R = ReceivesOf<X>> = [
+  keyof R,
+] extends [never]
   ? { readonly receive?: never }
-  : {
-      readonly receive: {
-        readonly [K in keyof R]: (
-          context: ExtensionContext<X>,
-          payload: R[K]
-        ) => void
-      }
-    }
+  : string extends keyof R
+    ? { readonly receive: ReceivesMustNameItsKinds }
+    : [Exclude<keyof R, string>] extends [never]
+      ? {
+          readonly receive: {
+            readonly [K in keyof R]-?: (
+              context: ExtensionContext<X>,
+              payload: Required<R>[K]
+            ) => void
+          }
+        }
+      : { readonly receive: ReceivesMustNameItsKinds }
 
 /**
  * Adds a backend feature to every handle of a Repo using that backend; see

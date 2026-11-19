@@ -57,7 +57,7 @@ export type ExtensionsOf<B> = B extends {
 
 /** One `extension` event for each kind the spec `X` receives. */
 type Received<X extends HandleExtensionSpec, R = ReceivesOf<X>> = {
-  [K in keyof R & string]: ExtensionEvent<K, R[K]>
+  [K in keyof R & string]-?: ExtensionEvent<K, Required<R>[K]>
 }[keyof R & string]
 
 /**

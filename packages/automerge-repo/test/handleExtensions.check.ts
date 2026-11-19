@@ -419,6 +419,45 @@ const greedy: HandleExtension<ASpecFull> = {
   },
 }
 
+// An optional kind still needs its receiver, which gets the payload
+// without `undefined`; its backend can still send it.
+interface MaybeSpec {
+  receives: { maybe?: { n: number } }
+}
+const maybe = defineExtension<MaybeSpec>({
+  members: {},
+  receive: { maybe: (_context, payload) => void payload.n.toFixed() },
+})
+// @ts-expect-error the optional kind's receiver is missing
+defineExtension<MaybeSpec>({ members: {}, receive: {} })
+class MaybeBackend extends MemoryBackend {
+  readonly handleExtensions = provides(maybe)
+}
+const sendMaybe: EventFor<MaybeBackend> = {
+  type: "extension",
+  sequence: 1,
+  kind: "maybe",
+  payload: { n: 1 },
+}
+// Kinds must be named strings: an index signature or a number is rejected.
+defineExtension<{ receives: Record<string, number> }>({
+  members: {},
+  // @ts-expect-error receives does not name its kinds
+  receive: { any: () => {} },
+})
+defineExtension<{ receives: { 7: number } }>({
+  members: {},
+  // @ts-expect-error a kind is not a string
+  receive: { 7: () => {} },
+})
+// A spec without members takes `members: {}`: a method it does not list
+// would be on handles but not in their type.
+defineExtension<{}>({ members: {} })
+// @ts-expect-error not in the spec
+defineExtension<{}>({ members: { helper: () => 1 } })
+// @ts-expect-error not a record
+const notMembers: HandleExtension = { members: false }
+
 // A list element that may be one of several extensions: the session must
 // serve each, and each kind keeps its own payload.
 interface SessionC extends SedimentreeSession {
@@ -459,6 +498,8 @@ void [
   unexpected,
   wrongKind,
   greedy,
+  sendMaybe,
+  notMembers,
   eitherC,
   eitherMixed,
 ]
