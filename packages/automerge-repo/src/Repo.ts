@@ -9,6 +9,8 @@ import {
   parseAutomergeUrl,
 } from "./AutomergeUrl.js"
 import { extendHandle } from "./DocHandle.js"
+import type { Handle } from "./Handle.js"
+import { AutomergeHandle } from "./automerge/handle.js"
 import type { DocHandle } from "./types/DocHandle.js"
 import { Document } from "./Document.js"
 import {
@@ -53,7 +55,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   #shutdown?: Promise<void>
   #id: RepoId
   /** The class of every handle: DocHandle with the backend's extensions. */
-  #Handle: typeof DocHandle
+  #Handle: typeof Handle
 
   constructor({
     backend,
@@ -64,7 +66,10 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
       throw new TypeError("id must be a nonempty string")
     this.#backend = backend ?? new MemoryBackend()
     this.#id = id
-    this.#Handle = extendHandle(this.#backend.handleExtensions ?? [])
+    this.#Handle = extendHandle(
+      this.#backend.handleExtensions ?? [],
+      AutomergeHandle as typeof Handle
+    )
   }
 
   /** This Repo instance's identity; see {@link RepoConfig.id}. */

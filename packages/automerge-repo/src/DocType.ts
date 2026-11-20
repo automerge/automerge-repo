@@ -1,5 +1,12 @@
 import type { DocumentId, RepoId } from "./types.js"
 import type { DocumentState } from "./DocumentState.js"
+import type { Handle, HandleOptions } from "./Handle.js"
+
+/** A class of handles: constructed by the Repo, never by apps. */
+export type HandleClass = new (
+  state: DocumentState<any>,
+  options?: HandleOptions
+) => Handle<any, any, any>
 import type {
   CommitId,
   FragmentRecord,
@@ -71,6 +78,12 @@ export interface DocType<
   /** Bring `other`'s history into `state`. Defaults to applying all of
    * `other`'s records. */
   merge?(state: State, other: State): State
+
+  /**
+   * The class of this type's handles: {@link Handle}, or a subclass with
+   * the type's reading and editing API. Defaults to `Handle`.
+   */
+  readonly handle?: HandleClass
 
   /** @internal Identity of a handle scope, for caching derived handles. */
   scopeKey?(scope: unknown): string

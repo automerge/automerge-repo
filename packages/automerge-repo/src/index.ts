@@ -28,7 +28,7 @@ export { DocHandle } from "./types/DocHandle.js"
 export type { HandleEvents } from "./DocHandle.js"
 /** @hidden The class's own type; use {@link DocHandle}. Exported so other
  * packages' declarations can name handle types. */
-export type { DocHandle as DocHandleClass } from "./DocHandle.js"
+export type { Handle as DocHandleClass } from "./Handle.js"
 /** What a backend's extensions add to handles: the `X` of `Repo<X>` and
  * `DocHandle<T, X>`. Extensions are written and listed with the
  * `@automerge/automerge-repo/sedimentree` entry. */
@@ -119,6 +119,15 @@ export type {
   ProgressState,
   SourceState,
 } from "./DocumentProgress.js"
+
+export { isHandleOf } from "./types/DocHandle.js"
+export type { AnyDocHandle } from "./types/DocHandle.js"
+export { automerge } from "./automerge/docType.js"
+export type { AutomergeDocType } from "./automerge/docType.js"
+export { AutomergeHandle } from "./automerge/handle.js"
+export { Handle } from "./Handle.js"
+export { defineDocType } from "./DocType.js"
+export type { AnyDocType, DocType, DocTypeContext } from "./DocType.js"
 
 export * from "./types.js"
 

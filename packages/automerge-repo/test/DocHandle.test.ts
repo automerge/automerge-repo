@@ -24,7 +24,7 @@ describe("DocHandle", () => {
       doc
     )
     const handle = Object.keys(rest).length
-      ? new DocHandle<TestDoc>(state, rest)
+      ? (new state.Handle(state, rest) as DocHandle<TestDoc>)
       : root
     states.set(handle, state)
     return handle

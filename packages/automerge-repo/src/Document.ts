@@ -1,5 +1,6 @@
 import { next as A } from "@automerge/automerge/slim"
-import { DocHandle } from "./types/DocHandle.js"
+import type { DocHandle } from "./types/DocHandle.js"
+import type { Handle as BaseHandle } from "./Handle.js"
 import { DocumentState } from "./DocumentState.js"
 import type { RootQuery } from "./DocumentQuery.js"
 import type { DocumentId, RepoId, PeerId } from "./types.js"
@@ -94,8 +95,8 @@ export class Document<T> {
     private backend: SedimentreeBackend,
     readonly repoId: RepoId,
     initial?: A.Doc<T>,
-    /** The handle class built from the backend's extensions. */
-    readonly Handle: typeof DocHandle = DocHandle,
+    /** The handle class built for the type and the backend's extensions. */
+    readonly Handle?: typeof BaseHandle,
     /** How the document is stored, read and changed. */
     readonly type: AnyDocType = automerge
   ) {

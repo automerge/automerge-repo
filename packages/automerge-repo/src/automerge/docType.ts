@@ -1,5 +1,5 @@
 import { next as A } from "@automerge/automerge/slim"
-import { defineDocType } from "../DocType.js"
+import type { DocType } from "../DocType.js"
 import { isPlainObject } from "../helpers/isPlainObject.js"
 import { concatBytes } from "../sedimentree/concatBytes.js"
 import {
@@ -8,10 +8,22 @@ import {
   extractRecords,
 } from "../sedimentree/automerge/index.js"
 import { serializePath } from "../subdoc-handles/parser.js"
+import { AutomergeHandle } from "./handle.js"
 import type { CursorRange, Segment } from "../subdoc-handles/types.js"
 
+/** The default document type: Automerge, behind an {@link AutomergeHandle}. */
+export interface AutomergeDocType extends DocType<
+  A.Doc<any>,
+  A.Doc<any>,
+  A.ChangeFn<any>,
+  unknown,
+  "automerge"
+> {
+  readonly handle: typeof AutomergeHandle
+}
+
 /** The default document type: Automerge. */
-export const automerge = defineDocType({
+export const automerge: AutomergeDocType = {
   scheme: "automerge",
   // Only non-empty plain objects seed a document; anything else starts it
   // empty, with one empty change so it has a head.
@@ -57,6 +69,7 @@ export const automerge = defineDocType({
         })
     }
   },
+  handle: AutomergeHandle,
   scopeKey: scope => {
     const { path, range } = scope as {
       path: Segment[]
@@ -64,6 +77,4 @@ export const automerge = defineDocType({
     }
     return serializePath(range ? [...path, range] : path)
   },
-})
-
-export type AutomergeDocType = typeof automerge
+}

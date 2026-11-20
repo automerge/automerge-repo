@@ -6,7 +6,9 @@ import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { Listeners } from "./Listeners.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
 import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
-import { DocHandle } from "./types/DocHandle.js"
+import type { DocHandle } from "./types/DocHandle.js"
+import { Handle as BaseHandle } from "./Handle.js"
+import { extendHandle } from "./DocHandle.js"
 import { RootQuery } from "./DocumentQuery.js"
 import type { Document } from "./Document.js"
 import type { ExtensionContext } from "./sedimentree/extension.js"
@@ -43,7 +45,7 @@ export class DocumentState<T = unknown> {
   readonly listeners: Listeners
   readonly log: Logger
   /** The class of every handle of this document. */
-  readonly Handle: typeof DocHandle
+  readonly Handle: typeof BaseHandle
   /** The root handle Repo hands out. */
   readonly handle: DocHandle<T>
   /** Owns readiness. */
@@ -92,8 +94,10 @@ export class DocumentState<T = unknown> {
     this.log = makeLogger(`automerge-repo:doc:${documentId.slice(0, 5)}`)
     this.listeners = new Listeners(this.log)
     this.registry = new HandleRegistry(this)
-    this.Handle = owner.Handle ?? DocHandle
-    this.handle = new this.Handle(this)
+    this.Handle =
+      owner.Handle ??
+      extendHandle([], (this.type.handle ?? BaseHandle) as typeof BaseHandle)
+    this.handle = new this.Handle(this) as DocHandle<T>
     this.query = new RootQuery(this.handle)
   }
 
