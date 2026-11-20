@@ -1,4 +1,5 @@
 import type { DocumentId, RepoId } from "./types.js"
+import type { DocumentState } from "./DocumentState.js"
 import type {
   CommitId,
   FragmentRecord,
@@ -70,6 +71,30 @@ export interface DocType<
   /** Bring `other`'s history into `state`. Defaults to applying all of
    * `other`'s records. */
   merge?(state: State, other: State): State
+
+  /** @internal Identity of a handle scope, for caching derived handles. */
+  scopeKey?(scope: unknown): string
+
+  /**
+   * @internal How a change reaches handles' `change` listeners, in place of
+   * sending every writable listening handle `{ handle, doc }`. Called when
+   * the change is adopted; the returned function runs in event order.
+   */
+  changeDispatcher?(
+    document: DocumentState<any>,
+    change: StateChange<State>
+  ): () => void
+}
+
+/** @internal A change of state that moved the document's heads. */
+export interface StateChange<State> {
+  /** Undefined on the first load. May be `after`, changed in place. */
+  before: State | undefined
+  beforeHeads: string[]
+  after: State
+  afterHeads: string[]
+  /** The first load of a document with no history before it. */
+  initial: boolean
 }
 
 export type AnyDocType = DocType<any, any, any, any, string>

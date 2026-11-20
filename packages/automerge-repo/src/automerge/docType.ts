@@ -7,6 +7,8 @@ import {
   extractFragments,
   extractRecords,
 } from "../sedimentree/automerge/index.js"
+import { serializePath } from "../subdoc-handles/parser.js"
+import type { CursorRange, Segment } from "../subdoc-handles/types.js"
 
 /** The default document type: Automerge. */
 export const automerge = defineDocType({
@@ -36,7 +38,32 @@ export const automerge = defineDocType({
     heads.length ? extractCommitsSince(doc, heads) : extractRecords(doc),
   fragments: extractFragments,
   view: (doc, heads) => A.view(doc, [...heads]),
-  merge: (doc, other) => A.merge(doc, A.clone(other)),
+  merge: (doc, other) => A.merge(doc, other),
+  // Patches per handle, scoped to each sub-handle's path.
+  changeDispatcher: (
+    document,
+    { before, beforeHeads, after, afterHeads, initial }
+  ) => {
+    const patches = initial ? undefined : A.diff(after, beforeHeads, afterHeads)
+    return () => {
+      // A heads listener can attach a change listener during dispatch.
+      if (initial && !document.listeners.hasWritable("change")) return
+      const changes = patches ?? A.diff(after, beforeHeads, afterHeads)
+      if (changes.length > 0)
+        document.registry.dispatchChange(after, changes, {
+          before: before ?? A.view(after, []),
+          after,
+          source: "change",
+        })
+    }
+  },
+  scopeKey: scope => {
+    const { path, range } = scope as {
+      path: Segment[]
+      range?: CursorRange
+    }
+    return serializePath(range ? [...path, range] : path)
+  },
 })
 
 export type AutomergeDocType = typeof automerge

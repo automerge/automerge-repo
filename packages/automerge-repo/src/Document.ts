@@ -92,7 +92,7 @@ export class Document<T> {
     readonly sedimentreeId: SedimentreeId,
     documentId: DocumentId,
     private backend: SedimentreeBackend,
-    repoId: RepoId,
+    readonly repoId: RepoId,
     initial?: A.Doc<T>,
     /** The handle class built from the backend's extensions. */
     readonly Handle: typeof DocHandle = DocHandle,

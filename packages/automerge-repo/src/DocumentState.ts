@@ -1,7 +1,7 @@
 import { next as A } from "@automerge/automerge/slim"
 import { makeLogger, Logger } from "./Logger.js"
 import { decodeHeads, encodeHeads } from "./AutomergeUrl.js"
-import type { DocumentId, PeerId, SyncInfo, UrlHeads } from "./types.js"
+import type { DocumentId, PeerId, RepoId, SyncInfo, UrlHeads } from "./types.js"
 import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { Listeners } from "./Listeners.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
@@ -10,12 +10,15 @@ import { DocHandle } from "./types/DocHandle.js"
 import { RootQuery } from "./DocumentQuery.js"
 import type { Document } from "./Document.js"
 import type { ExtensionContext } from "./sedimentree/extension.js"
-import type { AnyDocType } from "./DocType.js"
+import type { AnyDocType, DocTypeContext, StateChange } from "./DocType.js"
+import type { Handle } from "./Handle.js"
 import { automerge } from "./automerge/docType.js"
 
 /** What a {@link DocumentState} asks of the {@link Document} that owns it. */
 type Owner = Pick<Document<any>, "commit"> &
-  Partial<Pick<Document<any>, "Handle" | "extensionContext" | "type">>
+  Partial<
+    Pick<Document<any>, "Handle" | "extensionContext" | "type" | "repoId">
+  >
 
 /**
  * Per-document shared state - one per `documentId`, referenced by every
@@ -32,6 +35,10 @@ export class DocumentState<T = unknown> {
   readonly documentId: DocumentId
   /** How the state is stored, read and changed. */
   readonly type: AnyDocType
+  /** What the type is told about this document. */
+  readonly context: DocTypeContext
+  /** Derived handles (views, scoped handles), weakly held. */
+  readonly handles = new WeakValueMap<string, Handle<any, any, any>>()
   readonly registry: HandleRegistry
   readonly listeners: Listeners
   readonly log: Logger
@@ -78,6 +85,10 @@ export class DocumentState<T = unknown> {
     this.#owner = owner
     this.#doc = initialDoc
     this.type = owner.type ?? automerge
+    this.context = {
+      documentId,
+      repoId: owner.repoId ?? ("" as RepoId),
+    }
     this.log = makeLogger(`automerge-repo:doc:${documentId.slice(0, 5)}`)
     this.listeners = new Listeners(this.log)
     this.registry = new HandleRegistry(this)
@@ -234,6 +245,16 @@ export class DocumentState<T = unknown> {
     return this.#adopt(before, beforeHeads, after, { incoming: true, initial })
   }
 
+  /** Every writable listening handle gets the document's new value. */
+  #dispatchChange({ after, initial }: StateChange<A.Doc<T>>): void {
+    // A heads listener can attach a change listener during dispatch.
+    if (initial && !this.listeners.hasWritable("change")) return
+    const doc = this.type.value(after)
+    this.listeners.emitAll("change", handle => ({ handle, doc }), {
+      writableOnly: true,
+    })
+  }
+
   #adopt(
     before: A.Doc<T> | undefined,
     beforeHeads: string[],
@@ -252,8 +273,11 @@ export class DocumentState<T = unknown> {
     void stored.catch(() => {})
     if (arraysAreEqual(beforeHeads, afterHeads)) return stored
     const initial =
-      options.incoming && options.initial && beforeHeads.length === 0
-    const patches = initial ? undefined : A.diff(after, beforeHeads, afterHeads)
+      !!options.incoming && !!options.initial && beforeHeads.length === 0
+    const change = { before, beforeHeads, after, afterHeads, initial }
+    const dispatchChange =
+      this.type.changeDispatcher?.(this, change) ??
+      (() => this.#dispatchChange(change))
     this.#events.push(() => {
       // Heads are document-level: the payload is the whole document.
       this.listeners.emitAll(
@@ -268,16 +292,7 @@ export class DocumentState<T = unknown> {
           this.log.error("error in heads subscriber: %o", e)
         }
       }
-      // A heads listener can attach a change listener during dispatch.
-      if (initial && !this.listeners.hasWritable("change")) return
-      const changes = patches ?? A.diff(after, beforeHeads, afterHeads)
-      if (changes.length > 0) {
-        this.registry.dispatchChange(after, changes, {
-          before: before ?? (A.view(after, []) as A.Doc<T>),
-          after,
-          source: "change",
-        })
-      }
+      dispatchChange()
     })
     if (!this.#dispatching) {
       this.#dispatching = true

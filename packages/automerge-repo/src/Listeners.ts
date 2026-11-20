@@ -1,4 +1,4 @@
-import type { DocHandle } from "./types/DocHandle.js"
+import type { Handle } from "./Handle.js"
 import type { Logger } from "./Logger.js"
 
 /** Event listener; payload shape is event-specific. */
@@ -12,14 +12,19 @@ type Listener = (payload: any) => void
  */
 export class Listeners {
   readonly #listeners = new Map<
-    DocHandle<any>,
+    Handle<any, any, any>,
     Map<string, Map<Listener, boolean>>
   >()
 
   constructor(private readonly log: Logger) {}
 
   /** A callback is stored once per event; if added both ways, permanent wins. */
-  add(handle: DocHandle<any>, event: string, fn: Listener, once = false): void {
+  add(
+    handle: Handle<any, any, any>,
+    event: string,
+    fn: Listener,
+    once = false
+  ): void {
     let m = this.#listeners.get(handle)
     if (!m) this.#listeners.set(handle, (m = new Map()))
     let s = m.get(event)
@@ -28,7 +33,7 @@ export class Listeners {
   }
 
   /** With `fn` undefined, removes every listener for `event`. */
-  remove(handle: DocHandle<any>, event: string, fn?: Listener): void {
+  remove(handle: Handle<any, any, any>, event: string, fn?: Listener): void {
     const m = this.#listeners.get(handle)
     if (!m) return
     if (fn !== undefined) m.get(event)?.delete(fn)
@@ -36,24 +41,24 @@ export class Listeners {
     if (m.size === 0) this.#listeners.delete(handle)
   }
 
-  removeAll(handle: DocHandle<any>): void {
+  removeAll(handle: Handle<any, any, any>): void {
     this.#listeners.delete(handle)
   }
 
   /** Handles with at least one listener, in registration order. */
-  handles(): DocHandle<any>[] {
+  handles(): Handle<any, any, any>[] {
     return [...this.#listeners.keys()]
   }
 
-  listeners(handle: DocHandle<any>, event: string): Listener[] {
+  listeners(handle: Handle<any, any, any>, event: string): Listener[] {
     return [...(this.#listeners.get(handle)?.get(event)?.keys() ?? [])]
   }
 
-  count(handle: DocHandle<any>, event: string): number {
+  count(handle: Handle<any, any, any>, event: string): number {
     return this.#listeners.get(handle)?.get(event)?.size ?? 0
   }
 
-  eventNames(handle: DocHandle<any>): string[] {
+  eventNames(handle: Handle<any, any, any>): string[] {
     return [...(this.#listeners.get(handle)?.keys() ?? [])]
   }
 
@@ -74,7 +79,11 @@ export class Listeners {
    * `once` callback is removed just before it runs, unless re-added as
    * permanent meanwhile. Swallows per-listener exceptions.
    */
-  emit(handle: DocHandle<any>, event: string, payload: unknown): boolean {
+  emit(
+    handle: Handle<any, any, any>,
+    event: string,
+    payload: unknown
+  ): boolean {
     const s = this.#listeners.get(handle)?.get(event)
     if (!s?.size) return false
     for (const fn of [...s.keys()]) {
@@ -94,7 +103,7 @@ export class Listeners {
    * skipped with `writableOnly`. */
   emitAll(
     event: string,
-    payload: (handle: DocHandle<any>) => unknown,
+    payload: (handle: Handle<any, any, any>) => unknown,
     { writableOnly = false } = {}
   ): void {
     for (const handle of this.handles()) {

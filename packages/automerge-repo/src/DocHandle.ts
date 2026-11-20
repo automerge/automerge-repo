@@ -7,13 +7,14 @@ import {
 } from "./AutomergeUrl.js"
 import type { DocumentState } from "./DocumentState.js"
 import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
-import type {
-  AutomergeUrl,
-  DocumentId,
-  PeerId,
-  SyncInfo,
-  UrlHeads,
-} from "./types.js"
+import type { AutomergeUrl, UrlHeads } from "./types.js"
+import {
+  Handle as BaseHandle,
+  deriveHandle,
+  handleHeads,
+  handleScope,
+  handleState,
+} from "./Handle.js"
 import type { DocHandleEvents } from "./DocHandleEvents.js"
 // The public type: this class's members and the backend's extension members.
 // Methods returning handles return it, so derived handles keep the extensions.
@@ -62,9 +63,14 @@ import {
 /** @internal Construction options; only the Repo and sub-handles build handles. */
 type DocHandleOptions = {
   heads?: UrlHeads
+  /** An Automerge scope, as {@link deriveHandle} passes it. */
+  scope?: AutomergeScope
   pathSegments?: PathSegment[]
   range?: CursorRange
 }
+
+/** Where an Automerge handle points: a symbolic path, and a text range. */
+type AutomergeScope = { path: PathSegment[]; range?: CursorRange }
 
 /** The events of a handle whose backend's extensions declare the spec `X`:
  * the core ones, and the spec's, each carrying the handle it is emitted on. */
@@ -76,8 +82,6 @@ export type HandleEvents<
     payload: EventsOf<X>[N] & { handle: Handle<T, X> }
   ) => void
 }
-
-let stateOf: (handle: DocHandle<any>) => DocumentState<any>
 
 /**
  * @internal The members DocHandle defines on each instance, not its
@@ -115,34 +119,39 @@ export const instanceMembers: readonly string[] = ["isReady", "isDeleted"]
  * the `Repo` handles persisting to your local storage as well as propagating
  * changes to connected peers.
  */
-export class DocHandle<T, X extends HandleExtensionSpec = {}> {
-  static {
-    stateOf = handle => handle.#state
+export class DocHandle<
+  T,
+  X extends HandleExtensionSpec = {},
+> extends BaseHandle<A.Doc<T>, X, HandleEvents<T, X>> {
+  /** Shared per-document state. Every handle into the same doc shares one;
+   * a sub-handle's `T` is its scoped value's type, not the document's. */
+  get #state(): DocumentState<any> {
+    return handleState(this)
   }
 
   /** If set, this handle will only show the document at these heads */
-  #fixedHeads?: UrlHeads
-
-  /** Shared per-document state. Every handle into the same doc shares one;
-   * a sub-handle's `T` is its scoped value's type, not the document's. */
-  readonly #state: DocumentState<any>
+  get #fixedHeads(): UrlHeads | undefined {
+    return handleHeads(this)
+  }
 
   /** Symbolic path. Empty on root handles; pattern segments resolved via the registry. */
-  #path: PathSegment[] = []
+  get #path(): PathSegment[] {
+    return (handleScope(this) as AutomergeScope | undefined)?.path ?? []
+  }
 
   /** Cursor range for text-range sub-handles. */
-  #range?: CursorRange
-
-  get documentId(): DocumentId {
-    return this.#state.documentId
+  get #range(): CursorRange | undefined {
+    return (handleScope(this) as AutomergeScope | undefined)?.range
   }
 
   /** @internal Handles are obtained from a {@link Repo} or another handle. */
   constructor(state: DocumentState<any>, options: DocHandleOptions = {}) {
-    this.#state = state
-    this.#fixedHeads = options.heads
-    this.#path = options.pathSegments ?? []
-    this.#range = options.range
+    const path = options.scope?.path ?? options.pathSegments ?? []
+    const range = options.scope?.range ?? options.range
+    super(state, {
+      heads: options.heads,
+      scope: path.length || range ? { path, range } : undefined,
+    })
 
     // Register in the per-document trie so dispatch can find us.
     const node = this.#state.registry.getOrCreateNode(this.#path)
@@ -169,16 +178,6 @@ export class DocHandle<T, X extends HandleExtensionSpec = {}> {
   }
 
   /**
-   * @returns true once the first snapshot is ready, unless deleted.
-   */
-  isReady = () => this.#state.ready && !this.#state.deleted
-
-  /**
-   * @returns true if the document has been marked as deleted.
-   */
-  isDeleted = () => this.#state.deleted
-
-  /**
    * The document (or subtree of one) that this handle is pointing at.
    * @returns the current Automerge.Doc value
    * @throws on deleted documents
@@ -196,16 +195,6 @@ export class DocHandle<T, X extends HandleExtensionSpec = {}> {
    */
   fullDoc(): A.Doc<T> {
     return this.#state.viewAt(this.#fixedHeads) as A.Doc<T>
-  }
-
-  /**
-   * Returns the "heads" of the document, akin to a git commit.
-   * This precisely defines the state of a document.
-   * @returns the current document's heads (which may be fixed by .view() or equivalent)
-   */
-  heads(): UrlHeads {
-    if (this.#fixedHeads) return this.#fixedHeads
-    return encodeHeads(this.#state.heads())
   }
 
   /**
@@ -365,11 +354,6 @@ export class DocHandle<T, X extends HandleExtensionSpec = {}> {
     }
   }
 
-  /** Returns the heads and the timestamp of the last update from the given peer. */
-  getSyncInfo(peerId: PeerId): SyncInfo | undefined {
-    return this.#state.getSyncInfo(peerId)
-  }
-
   /**
    * All changes to an Automerge document should be made through this method.
    * Inside the callback, the document should be treated as mutable: all edits will be recorded
@@ -444,50 +428,6 @@ export class DocHandle<T, X extends HandleExtensionSpec = {}> {
         return result.newDoc
       })
       .then(() => resultHeads)
-  }
-
-  /**
-   * Check if the document can be change()ed. Currently, documents can be
-   * edited unless we are viewing a particular point in time.
-   *
-   * @remarks It is technically possible to back-date changes using changeAt(),
-   *          but we block it for usability reasons when viewing a particular point in time.
-   *          To make changes in the past, use the primary document handle with no heads set.
-   *
-   * @returns boolean indicating whether changes are possible
-   */
-  isReadOnly() {
-    return !!this.#fixedHeads
-  }
-
-  /**
-   * Merges another document into this document. Any peers we are sharing changes with will be
-   * notified of the changes resulting from the merge.
-   *
-   * @returns the merged document.
-   *
-   * @throws if either document is not ready or if `otherHandle` is unavailable.
-   */
-  merge(
-    /** the handle of the document to merge into this one */
-    otherHandle: DocHandle<T>
-  ) {
-    this.#throwIfFixedHeads("merge")
-    // A merge can bring many boundaries at once; store their fragments with it.
-    return this.#state.applyMutation(
-      doc => A.merge(doc, otherHandle.fullDoc()),
-      { compact: true }
-    )
-  }
-
-  /**
-   * Marks the document deleted and fans `delete` out to every retained
-   * handle (root and subs alike). Calling on a sub-handle deletes the
-   * *whole document*; use {@link DocHandle.remove} to remove a subtree.
-   * Prefer {@link Repo.delete} from user code.
-   */
-  delete() {
-    this.#state.delete()
   }
 
   metrics(): { numOps: number; numChanges: number } {
@@ -566,11 +506,6 @@ export class DocHandle<T, X extends HandleExtensionSpec = {}> {
     return this.#rangePositions(this.fullDoc(), this.#getPropPath())
   }
 
-  /** True if the other handle has the same URL as this one. */
-  equals(other: DocHandle<any>): boolean {
-    return this.url === other.url
-  }
-
   /**
    * True if this handle's path is a strict ancestor of `other`'s path,
    * within the same document and view (heads).
@@ -641,16 +576,11 @@ export class DocHandle<T, X extends HandleExtensionSpec = {}> {
     // is scoped to this handle's path.)
     const { path, range } = this.#normalizePath(this.fullDoc(), combined)
 
-    const registry = this.#state.registry
-    const node = registry.getOrCreateNode(path)
-    const cached = registry.cachedHandle(node, range, heads)
-    if (cached) return cached
-
-    return new this.#state.Handle<unknown>(this.#state, {
-      pathSegments: path,
-      range,
-      heads,
-    })
+    return deriveHandle(
+      this,
+      path.length || range ? { path, range } : undefined,
+      heads
+    ) as DocHandle<any, any>
   }
 
   /**
@@ -839,117 +769,6 @@ export class DocHandle<T, X extends HandleExtensionSpec = {}> {
       )
     }
   }
-
-  // Event subscription. DocHandle doesn't extend EventEmitter; listeners
-  // live in the document's Listeners, keyed by handle, which holds handles
-  // strongly, so any handle with a listener is naturally retained.
-
-  on<E extends keyof HandleEvents<T, X>>(
-    event: E,
-    fn: HandleEvents<T, X>[E]
-  ): this {
-    this.#state.listeners.add(this, event as string, fn as any)
-    return this
-  }
-
-  addListener<E extends keyof HandleEvents<T, X>>(
-    event: E,
-    fn: HandleEvents<T, X>[E]
-  ): this {
-    return this.on(event, fn)
-  }
-
-  once<E extends keyof HandleEvents<T, X>>(
-    event: E,
-    fn: HandleEvents<T, X>[E]
-  ): this {
-    this.#state.listeners.add(this, event as string, fn as any, true)
-    return this
-  }
-
-  /**
-   * @deprecated Handles are shared across the app, so this also removes
-   * listeners other code added. Pass the listener to remove: `off(event, fn)`.
-   */
-  off<E extends keyof HandleEvents<T, X>>(event: E): this
-  off<E extends keyof HandleEvents<T, X>>(
-    event: E,
-    fn: HandleEvents<T, X>[E] | undefined
-  ): this
-  off<E extends keyof HandleEvents<T, X>>(
-    event: E,
-    fn?: HandleEvents<T, X>[E]
-  ): this {
-    this.#state.listeners.remove(this, event as string, fn as any)
-    return this
-  }
-
-  /**
-   * @deprecated Handles are shared across the app, so this also removes
-   * listeners other code added. Pass the listener to remove:
-   * `removeListener(event, fn)`.
-   */
-  removeListener<E extends keyof HandleEvents<T, X>>(event: E): this
-  removeListener<E extends keyof HandleEvents<T, X>>(
-    event: E,
-    fn: HandleEvents<T, X>[E] | undefined
-  ): this
-  removeListener<E extends keyof HandleEvents<T, X>>(
-    event: E,
-    fn?: HandleEvents<T, X>[E]
-  ): this {
-    return this.off(event, fn)
-  }
-
-  /**
-   * @deprecated Handles are shared across the app, so this also removes
-   * listeners other code added (bindings, `Presence`). Remove your own
-   * listeners with `off(event, fn)`.
-   */
-  removeAllListeners<E extends keyof HandleEvents<T, X>>(event?: E): this {
-    const listeners = this.#state.listeners
-    if (event === undefined) listeners.removeAll(this)
-    else listeners.remove(this, event as string)
-    return this
-  }
-
-  /** Number of listeners attached for the given event. */
-  listenerCount<E extends keyof HandleEvents<T, X>>(event: E): number {
-    return this.#state.listeners.count(this, event as string)
-  }
-
-  /** Snapshot of currently-registered listener functions for the given event. */
-  listeners<E extends keyof HandleEvents<T, X>>(
-    event: E
-  ): HandleEvents<T, X>[E][] {
-    return this.#state.listeners.listeners(
-      this,
-      event as string
-    ) as HandleEvents<T, X>[E][]
-  }
-
-  /**
-   * Names of events with at least one listener attached. Typed as this
-   * handle's event names, though open to any string: a handle with more
-   * events must still be usable where one with fewer is expected.
-   */
-  eventNames(): (keyof HandleEvents<T, X> | (string & {}))[] {
-    return this.#state.listeners.eventNames(this)
-  }
-
-  /**
-   * Emit an event on this handle. Fires *only* this handle's listeners; use
-   * `delete()` to fan out the document-level lifecycle events.
-   *
-   * @deprecated Events come from the document; emitting one by hand shows
-   * every listener on this shared handle an event that didn't happen.
-   */
-  emit<E extends keyof HandleEvents<T, X>>(
-    event: E,
-    payload: Parameters<HandleEvents<T, X>[E]>[0]
-  ): boolean {
-    return this.#state.listeners.emit(this, event as string, payload)
-  }
 }
 
 /**
@@ -983,7 +802,7 @@ export function extendHandle(
       const member = members[name]
       Object.defineProperty(Extended.prototype, name, {
         value: function (this: DocHandle<any>, ...args: unknown[]) {
-          return member(stateOf(this).extensionContext, this, ...args)
+          return member(handleState(this).extensionContext, this, ...args)
         },
         writable: true,
         configurable: true,

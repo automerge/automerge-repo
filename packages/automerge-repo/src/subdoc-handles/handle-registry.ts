@@ -237,13 +237,13 @@ export class HandleRegistry {
 
     for (const handle of this.state.listeners.handles()) {
       if (handle.isReadOnly()) continue
-      const scoped = perHandle.get(handle)
+      const scoped = perHandle.get(handle as DocHandle<any>)
       if (!scoped) continue
       if (scoped.patches.length === 0 && !scoped.scopeReplaced) continue
       this.state.listeners.emit(handle, "change", {
         handle,
         // Scope this event's snapshot, not a later reentrant edit.
-        doc: this.#scopedDoc(handle, doc),
+        doc: this.#scopedDoc(handle as DocHandle<any>, doc),
         patches: scoped.patches,
         scopeReplaced: scoped.scopeReplaced,
         patchInfo,
