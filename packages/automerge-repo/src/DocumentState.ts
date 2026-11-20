@@ -10,10 +10,12 @@ import { DocHandle } from "./types/DocHandle.js"
 import { RootQuery } from "./DocumentQuery.js"
 import type { Document } from "./Document.js"
 import type { ExtensionContext } from "./sedimentree/extension.js"
+import type { AnyDocType } from "./DocType.js"
+import { automerge } from "./automerge/docType.js"
 
 /** What a {@link DocumentState} asks of the {@link Document} that owns it. */
 type Owner = Pick<Document<any>, "commit"> &
-  Partial<Pick<Document<any>, "Handle" | "extensionContext">>
+  Partial<Pick<Document<any>, "Handle" | "extensionContext" | "type">>
 
 /**
  * Per-document shared state - one per `documentId`, referenced by every
@@ -28,6 +30,8 @@ type Owner = Pick<Document<any>, "commit"> &
  */
 export class DocumentState<T = unknown> {
   readonly documentId: DocumentId
+  /** How the state is stored, read and changed. */
+  readonly type: AnyDocType
   readonly registry: HandleRegistry
   readonly listeners: Listeners
   readonly log: Logger
@@ -73,6 +77,7 @@ export class DocumentState<T = unknown> {
     this.documentId = documentId
     this.#owner = owner
     this.#doc = initialDoc
+    this.type = owner.type ?? automerge
     this.log = makeLogger(`automerge-repo:doc:${documentId.slice(0, 5)}`)
     this.listeners = new Listeners(this.log)
     this.registry = new HandleRegistry(this)
@@ -89,7 +94,7 @@ export class DocumentState<T = unknown> {
   }
 
   get doc(): A.Doc<T> {
-    return (this.#doc ??= A.init<T>())
+    return (this.#doc ??= this.type.apply(undefined, []))
   }
 
   /** Set by {@link DocumentState.close}; edits and inbound data are then rejected. */
@@ -121,7 +126,7 @@ export class DocumentState<T = unknown> {
   }
 
   heads(): string[] {
-    return this.#doc ? A.getHeads(this.#doc) : []
+    return this.#doc ? this.type.heads(this.#doc) : []
   }
 
   /** Call `fn` after each heads change, after handle listeners. Returns an unsubscribe. */
@@ -190,10 +195,11 @@ export class DocumentState<T = unknown> {
    */
   viewAt(heads: UrlHeads | undefined): A.Doc<T> {
     if (!heads) return this.doc
+    const type = this.type
+    if (!type.view) throw new Error(`${type.scheme} documents have no views`)
     const key = [...heads].sort().join(",")
-    return this.#viewCache.getOrCompute(
-      key,
-      () => A.view(this.doc, decodeHeads(heads)) as A.Doc<T>
+    return this.#viewCache.getOrCompute(key, () =>
+      type.view!(this.doc, decodeHeads(heads))
     )
   }
 
@@ -213,19 +219,24 @@ export class DocumentState<T = unknown> {
     if (!options.incoming && this.writeFailure)
       return Promise.reject(this.writeFailure.error)
     const before = this.doc
+    // Read first: a type may change its state in place.
+    const beforeHeads = this.type.heads(before)
     const after = mutator(before)
-    return this.#adopt(before, after, options)
+    return this.#adopt(before, beforeHeads, after, options)
   }
 
   /** Adopt the first storage snapshot without allocating an empty WASM document. */
   applyLoaded(after: A.Doc<T>, initial: boolean): Promise<void> {
     if (this.deleted) throw new Error("Document is deleted")
     if (this.closed) throw new Error("Document is closed")
-    return this.#adopt(this.#doc, after, { incoming: true, initial })
+    const before = this.#doc
+    const beforeHeads = before ? this.type.heads(before) : []
+    return this.#adopt(before, beforeHeads, after, { incoming: true, initial })
   }
 
   #adopt(
     before: A.Doc<T> | undefined,
+    beforeHeads: string[],
     after: A.Doc<T>,
     options: { incoming?: boolean; initial?: boolean; compact?: boolean }
   ): Promise<void> {
@@ -233,12 +244,11 @@ export class DocumentState<T = unknown> {
     // `A.change` can hand back a fresh snapshot whose `before` is now
     // "outdated" for subsequent mutations.
     this.#doc = after
-    const beforeHeads = before ? A.getHeads(before) : []
-    const afterHeads = A.getHeads(after)
+    const afterHeads = this.type.heads(after)
     const stored =
       options.incoming || !before
         ? Promise.resolve()
-        : this.#owner.commit(before, after, { compact: options.compact })
+        : this.#owner.commit(beforeHeads, after, { compact: options.compact })
     void stored.catch(() => {})
     if (arraysAreEqual(beforeHeads, afterHeads)) return stored
     const initial =

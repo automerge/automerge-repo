@@ -19,7 +19,7 @@ import {
 } from "./DocumentQuery.js"
 import { toProgress, type DocumentProgress } from "./DocumentProgress.js"
 import { makeLogger } from "./Logger.js"
-import { extractRecords } from "./sedimentree/automerge/index.js"
+import { automerge } from "./automerge/docType.js"
 import { MemoryBackend } from "./sedimentree/memory/MemoryBackend.js"
 import {
   BackendError,
@@ -191,7 +191,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   ): Promise<DocHandle<T, X>> {
     if (!A.getHeads(doc).length) doc = A.emptyChange(doc)
     const allocated = await this.#backend.create(
-      extractRecords(doc),
+      automerge.recordsSince(doc, []),
       requested ? { documentId: this.#backendId(requested) } : undefined
     )
     const id = binaryToDocumentId(idBytes(allocated) as BinaryDocumentId)

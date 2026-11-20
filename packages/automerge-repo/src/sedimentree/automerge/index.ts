@@ -65,11 +65,18 @@ export function extractNewCommits(
   before: A.Doc<unknown>,
   after: A.Doc<unknown>
 ): LooseCommitRecord[] {
-  const heads = A.getHeads(before)
+  return extractCommitsSince(after, A.getHeads(before))
+}
+
+/** The changes in `doc` outside `heads`, as loose commits. */
+export function extractCommitsSince(
+  doc: A.Doc<unknown>,
+  heads: readonly string[]
+): LooseCommitRecord[] {
   // Both list changes through the same internal routine, so they share an
   // order; metadata avoids decoding every op of each change.
-  const meta = A.getChangesMetaSince(after, heads)
-  return A.getChangesSince(after, heads).map((blob, i) => ({
+  const meta = A.getChangesMetaSince(doc, [...heads])
+  return A.getChangesSince(doc, [...heads]).map((blob, i) => ({
     kind: "commit" as const,
     id: commitId(meta[i].hash),
     parents: canonicalIds(meta[i].deps),

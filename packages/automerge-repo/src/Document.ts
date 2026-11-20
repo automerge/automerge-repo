@@ -19,14 +19,9 @@ import {
   type SedimentreeRecord,
   type SedimentreeSession,
 } from "./sedimentree/index.js"
-import {
-  applyRecords,
-  extractFragments,
-  extractNewCommits,
-  isBoundary,
-  satisfiesMarker,
-} from "./sedimentree/automerge/index.js"
-import { concatBytes } from "./sedimentree/concatBytes.js"
+import { isBoundary } from "./sedimentree/records.js"
+import { mergeStates, type AnyDocType } from "./DocType.js"
+import { automerge } from "./automerge/docType.js"
 
 /** Compaction delay after a document first has a boundary due, so sustained
  * edits share one bundling run, plus jitter so documents that become due
@@ -100,7 +95,9 @@ export class Document<T> {
     repoId: RepoId,
     initial?: A.Doc<T>,
     /** The handle class built from the backend's extensions. */
-    readonly Handle: typeof DocHandle = DocHandle
+    readonly Handle: typeof DocHandle = DocHandle,
+    /** How the document is stored, read and changed. */
+    readonly type: AnyDocType = automerge
   ) {
     this.#created = !!initial
     this.state = new DocumentState(documentId, this, initial)
@@ -193,7 +190,7 @@ export class Document<T> {
    * reentrant listeners run. Boundaries among them are compacted later, or
    * with `compact` (merges and imports) bundled into this batch. */
   commit(
-    before: A.Doc<T>,
+    beforeHeads: readonly string[],
     after: A.Doc<T>,
     options: { compact?: boolean } = {}
   ): Promise<void> {
@@ -203,16 +200,24 @@ export class Document<T> {
     // The document has already adopted `after`: a failure to prepare its
     // records is a failed write, so it fail-stops like one.
     return this.#store(() => {
-      const commits = extractNewCommits(before, after)
-      if (!commits.length) return []
-      const boundaries = commits.flatMap(c => (isBoundary(c.id) ? [c.id] : []))
+      const records = this.type.recordsSince(after, beforeHeads)
+      if (!records.length) return []
+      // Without fragments, a type's boundaries are never compacted.
+      const boundaries = this.type.fragments
+        ? records.flatMap(r =>
+            r.kind === "commit" && isBoundary(r.id) ? [r.id] : []
+          )
+        : []
       if (!options.compact) {
         for (const head of boundaries) this.#markDue(head)
-        return commits
+        return records
       }
       // Local changes are all in `after`, so an absent head was absorbed into
       // a higher fragment in the same batch.
-      return [...commits, ...extractFragments(after, boundaries).records]
+      return [
+        ...records,
+        ...(this.#fragments(after, boundaries)?.records ?? []),
+      ]
     })
   }
 
@@ -259,14 +264,23 @@ export class Document<T> {
     if (!doc) return
     let fragments: FragmentRecord[] = []
     await this.#store(() => {
-      const { records, absent } = extractFragments(doc, this.#due)
+      const found = this.#fragments(doc, this.#due)
+      if (!found) {
+        this.#due.clear()
+        return []
+      }
+      const { records, absent } = found
       // Absorbed into a higher fragment, unless the head is still pending.
       for (const head of absent)
-        if (A.hasHeads(doc, [head])) this.#due.delete(head)
+        if (this.type.hasHeads(doc, [head])) this.#due.delete(head)
       fragments = records
       return records
     })
     for (const record of fragments) this.#due.delete(record.head)
+  }
+
+  #fragments(state: A.Doc<T>, heads: Iterable<CommitId>) {
+    return this.type.fragments?.(state, heads)
   }
 
   /** Deleted (through Repo or a handle) or fail-stopped: no more stores. */
@@ -318,10 +332,13 @@ export class Document<T> {
 
   /** Creation finished while a lookup was already observing this document. */
   adopt(doc: A.Doc<T>): void {
-    void this.state.applyMutation(current => A.merge(current, A.clone(doc)), {
-      incoming: true,
-      initial: this.query.pending,
-    })
+    void this.state.applyMutation(
+      current => mergeStates(this.type, current, doc),
+      {
+        incoming: true,
+        initial: this.query.pending,
+      }
+    )
     this.#complete()
   }
 
@@ -385,7 +402,7 @@ export class Document<T> {
         }
         const unknown = this.#unknown(event.records)
         if (unknown.length) {
-          const next = applyRecords(this.state.doc, unknown)
+          const next = this.type.apply(this.state.doc, unknown)
           void this.state.applyMutation(() => next, {
             incoming: true,
             initial: this.query.pending,
@@ -456,7 +473,9 @@ export class Document<T> {
   #unknown(records: RecordBatch): RecordBatch {
     const current = this.state.peekDoc()
     if (!current) return records
-    return records.filter(record => !A.hasHeads(current, [recordHead(record)]))
+    return records.filter(
+      record => !this.type.hasHeads(current, [recordHead(record)])
+    )
   }
 
   /** Apply the buffered initial cut in one update, and mark due the boundary
@@ -464,21 +483,20 @@ export class Document<T> {
   #applyInitial(): void {
     const records = this.#initial
     this.#initial = []
-    for (const head of fragmentRequests(records)) this.#due.add(head)
+    if (this.type.fragments)
+      for (const head of fragmentRequests(records)) this.#due.add(head)
     for (const record of records)
       if (record.kind === "fragment") this.#covered(record)
     this.#schedule()
-    const input = concatBytes(this.#unknown(records).map(record => record.blob))
-    if (!input.byteLength) return
+    const unknown = this.#unknown(records)
+    if (!unknown.length) return
     const current = this.state.peekDoc()
     if (!current) {
-      // The first scan can become the document directly. A crash mid-flush
-      // or an interrupted sync can leave a record on disk without its
-      // parents; load the complete prefix and keep the rest pending.
-      const next = A.load<T>(input, { allowMissingChanges: true })
+      // The first scan can become the document directly.
+      const next = this.type.apply(undefined, unknown)
       void this.state.applyLoaded(next, this.query.pending)
     } else {
-      const next = A.loadIncremental(current, input)
+      const next = this.type.apply(current, unknown)
       void this.state.applyMutation(() => next, {
         incoming: true,
         initial: this.query.pending,
@@ -497,7 +515,9 @@ export class Document<T> {
     const doc = this.state.peekDoc()
     if (!doc) return
     for (const target of this.#targets.values()) {
-      if (satisfiesMarker(doc, target.heads)) {
+      // History inclusion, not head equality. Empty targets are never
+      // evidence that a document is ready.
+      if (target.heads.length && this.type.hasHeads(doc, target.heads)) {
         this.#complete()
         return
       }
