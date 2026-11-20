@@ -8,8 +8,12 @@ import {
   getHeadsFromUrl,
   isValidAutomergeUrl,
   isValidDocumentId,
+  isValidDocumentUrl,
   parseAutomergeUrl,
+  parseDocumentUrl,
   stringifyAutomergeUrl,
+  stringifyDocumentUrl,
+  type UrlOptions,
 } from "../src/AutomergeUrl.js"
 import type {
   AutomergeUrl,
@@ -354,5 +358,61 @@ describe("empty heads section", () => {
 
     assert.equal(noHeads.heads, undefined)
     assert.deepEqual(emptyHeads.heads, [])
+  })
+})
+
+describe("DocumentUrl", () => {
+  const customUrl = `notes:${goodDocumentId}`
+
+  it("parses and stringifies a custom scheme", () => {
+    const parsed = parseDocumentUrl(customUrl)
+    assert.equal(parsed.scheme, "notes")
+    assert.equal(parsed.documentId, goodDocumentId)
+    assert.equal(
+      stringifyDocumentUrl({ documentId: parsed.documentId, scheme: "notes" }),
+      customUrl
+    )
+  })
+
+  it("keeps heads and paths with a custom scheme", () => {
+    const heads = [bs58check.encode(new Uint8Array(32).fill(1))] as UrlHeads
+    const url = stringifyDocumentUrl({
+      documentId: goodDocumentId,
+      heads,
+      scheme: "notes",
+    })
+    assert.deepEqual(parseDocumentUrl(url).heads, heads)
+    assert.deepEqual(getHeadsFromUrl(url), heads)
+  })
+
+  it("validates a specific scheme", () => {
+    assert(isValidDocumentUrl(customUrl))
+    assert(isValidDocumentUrl(customUrl, "notes"))
+    assert(!isValidDocumentUrl(customUrl, "automerge"))
+    assert(!isValidAutomergeUrl(customUrl))
+  })
+
+  it("rejects another scheme as an Automerge URL", () => {
+    assert.throws(() => parseAutomergeUrl(customUrl as AutomergeUrl))
+    assert(!("scheme" in parseAutomergeUrl(goodUrl)))
+  })
+
+  it("rejects malformed schemes", () => {
+    assert(!isValidDocumentUrl(`Notes:${goodDocumentId}`))
+    assert(!isValidDocumentUrl(`https://${goodDocumentId}`))
+    assert.throws(() =>
+      stringifyDocumentUrl({ documentId: goodDocumentId, scheme: "notes:" })
+    )
+  })
+
+  it("interprets a custom URL as its document ID", () => {
+    assert.equal(interpretAsDocumentId(customUrl as any), goodDocumentId)
+  })
+
+  it("accepts dynamically built UrlOptions", () => {
+    const options: UrlOptions = { documentId: goodDocumentId }
+    assert.equal(stringifyDocumentUrl(options), goodUrl)
+    options.scheme = "notes"
+    assert.equal(stringifyDocumentUrl(options), customUrl)
   })
 })

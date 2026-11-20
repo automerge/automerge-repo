@@ -5,6 +5,7 @@ import {
   documentIdToBinary,
   interpretAsDocumentId,
   isValidAutomergeUrl,
+  isValidDocumentUrl,
   parseAutomergeUrl,
 } from "./AutomergeUrl.js"
 import { extendHandle } from "./DocHandle.js"
@@ -119,6 +120,10 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
    */
   query<T>(id: AnyDocumentId): DocumentQuery<T, X> {
     this.#checkOpen()
+    if (isValidDocumentUrl(id) && !isValidAutomergeUrl(id))
+      throw new Error(
+        `Cannot open ${id}: its URL scheme requires a matching document type`
+      )
     const parsed = isValidAutomergeUrl(id)
       ? parseAutomergeUrl(id)
       : {

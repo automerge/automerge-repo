@@ -1,8 +1,17 @@
 /**
- * A branded string representing a URL for a document, in the form `automerge:<base58check encoded
- * string>`; for example, `automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu`.
+ * A branded document URL, `<scheme>:<base58check encoded ID>[/path][#heads]`. The scheme names
+ * the document's type.
  */
-export type AutomergeUrl = string & { __documentUrl: true } // for opening / linking
+export type DocumentUrl<Scheme extends string = string> = string & {
+  __documentUrl: true
+  readonly __urlScheme?: Scheme
+}
+
+/**
+ * A URL for an Automerge document, in the form `automerge:<base58check encoded string>`; for
+ * example, `automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu`.
+ */
+export type AutomergeUrl = DocumentUrl<"automerge"> // for opening / linking
 
 /**
  * The base58check-encoded 32-byte ID of a document, written as just the first
@@ -19,7 +28,7 @@ export type DocumentId = string & { __documentId: true } // for logging
  */
 export type BinaryDocumentId = Uint8Array & { __binaryDocumentId: true } // for storing / syncing
 
-export type AnyDocumentId = AutomergeUrl | DocumentId | BinaryDocumentId
+export type AnyDocumentId = DocumentUrl | DocumentId | BinaryDocumentId
 
 // We need to define our own version of heads because the AutomergeHeads type is not bs58check encoded
 export type UrlHeads = string[] & { __automergeUrlHeads: unknown }

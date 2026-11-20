@@ -10,6 +10,7 @@ import {
   encodeHeads,
   parseAutomergeUrl,
   stringifyAutomergeUrl,
+  stringifyDocumentUrl,
 } from "../src/AutomergeUrl.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import { idBytes, sedimentreeId } from "../src/sedimentree/index.js"
@@ -669,6 +670,17 @@ describe("backend-driven Repo", () => {
     expect(deleted).toHaveBeenCalledWith({ documentId: a.documentId })
     expect(deleted).toHaveBeenCalledWith({ documentId: b.documentId })
     await expect(r.find(b.url)).resolves.not.toBe(b)
+  })
+
+  it("rejects a URL with another scheme without a matching type", async () => {
+    const r = repo(new MemoryBackend())
+    const handle = await r.create({ n: 0 })
+    const url = stringifyDocumentUrl({
+      documentId: handle.documentId,
+      scheme: "gcounter",
+    })
+    expect(() => r.query(url)).toThrow(/URL scheme/)
+    await expect(r.find(url)).rejects.toThrow(/URL scheme/)
   })
 
   it("query resolves heads and path URLs to view and sub handles", async () => {
