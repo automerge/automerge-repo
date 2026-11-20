@@ -67,9 +67,6 @@ export function App() {
 }
 ```
 
-Changes apply locally immediately; await a hook updater to observe persistence
-failures.
-
 The hooks are typed for that Repo, so their handles have
 [the features its backend adds](../automerge-repo/README.md#extensions):
 
@@ -78,26 +75,8 @@ const handle = useDocHandle<CounterDoc>(url, { suspense: true })
 handle.broadcast("hello") // if the backend has ephemeral messages
 ```
 
-The provider only accepts a Repo of the type the hooks were made for, so the two
-cannot disagree, and the hooks that use the Repo throw outside it. Each
-`createRepoHooks` call makes its own provider, so an app can use several Repos,
+Each `createRepoHooks` call makes its own provider, so an app can use several Repos,
 each with its own hooks.
-
-Import `useDocument`, `useDocHandle` and the rest from your `repo.ts`, not from
-`@automerge/react`: the package exports hooks of the same names (see below), and an
-editor's auto-import may pick those. To catch this, a lint rule can forbid them in
-app code, e.g. with ESLint or oxlint:
-
-```json
-"no-restricted-imports": ["error", {
-  "paths": [{
-    "name": "@automerge/react",
-    "importNames": ["useRepo", "useDocument", "useDocuments", "useDocHandle",
-      "useDocHandles", "usePresence"],
-    "message": "Import hooks from ./repo (createRepoHooks)."
-  }]
-}]
-```
 
 ### Without the factory
 
@@ -119,6 +98,17 @@ export function App() {
 
 These give plain handles, without the features the backend adds.
 `useRepo<typeof repo>()` names the Repo's type without checking it.
+
+If you want to make sure you always use the typed hooks, you can add the following lint rule:
+
+```json
+"no-restricted-imports": ["error", {
+  "paths": [{
+    "name": "@automerge/react",
+    "importNames": ["useRepo", "useDocument", "useDocuments", "useDocHandle", "useDocHandles", "usePresence"]
+  }]
+}]
+```
 
 ## Slim entrypoint
 
