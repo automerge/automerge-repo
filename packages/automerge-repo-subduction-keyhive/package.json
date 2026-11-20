@@ -1,0 +1,44 @@
+{
+  "name": "@automerge/automerge-repo-subduction-keyhive",
+  "version": "3.0.0-alpha.1",
+  "description": "Keyhive access control and E2EE for Automerge Repo",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/automerge/automerge-repo.git",
+    "directory": "packages/automerge-repo-subduction-keyhive"
+  },
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo-subduction": "workspace:*",
+    "@automerge/subduction": "catalog:",
+    "@keyhive/keyhive": "catalog:"
+  },
+  "devDependencies": {
+    "@automerge/automerge": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "files": [
+    "dist",
+    "src"
+  ]
+}
