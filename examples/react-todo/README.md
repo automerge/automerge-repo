@@ -26,7 +26,7 @@ pnpm --filter @automerge/automerge-repo-subduction-network-websocket build
 pnpm --filter @automerge/automerge-repo-subduction-storage-indexeddb build
 pnpm --filter @automerge/automerge-repo-react-hooks build
 pnpm --filter @automerge/react build
-pnpm dev:demo
+pnpm --filter @automerge/automerge-repo-demo-todo dev
 ```
 
 Add a todo, then open the same URL (including its hash) in another tab. Changes

@@ -36,5 +36,5 @@ documents at once, with pluggable persistence and synchronization.
 pnpm install
 pnpm build
 pnpm test
-pnpm dev:demo # react-todo against the hosted Subduction server
+pnpm --filter @automerge/automerge-repo-demo-todo dev # react-todo against the hosted Subduction server
 ```
