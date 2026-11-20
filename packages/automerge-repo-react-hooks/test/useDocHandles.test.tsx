@@ -14,6 +14,7 @@ import {
   setup,
   setupDelayedRepo,
   setupLongUrl,
+  setupSharedDoc,
   pause,
 } from "./testSetup"
 import { useDocHandles } from "../src/useDocHandles"
@@ -328,6 +329,30 @@ describe("useDocHandles", () => {
       const result2 = onHandles.mock.lastCall?.at(0)
       expect(result2?.size).toBe(1)
       expect(result2?.get(handleB.url)?.url).toEqual(handleB.url)
+    })
+
+    it("gives the new Repo's handles when the provided Repo changes", async () => {
+      const { first, second, source, copy, Provider } = await setupSharedDoc()
+      const onHandles = mockOnHandles()
+      const last = () => onHandles.mock.lastCall?.at(0)?.get(source.url)
+
+      const { rerender } = render(
+        <Provider repo={first.repoFinder}>
+          <Component urls={[source.url]} onHandles={onHandles} />
+        </Provider>
+      )
+      await waitFor(() => expect(last()).toBe(source))
+      onHandles.mockClear()
+      rerender(
+        <Provider repo={second.repoFinder}>
+          <Component urls={[source.url]} onHandles={onHandles} />
+        </Provider>
+      )
+      await waitFor(() => expect(last()).toBe(copy))
+      // Dropped at once, not shown until the new Repo's handle loads.
+      expect(
+        onHandles.mock.calls.map(([handles]) => handles.get(source.url))
+      ).not.toContain(source)
     })
 
     it("does not let a superseded url set overwrite the current one", async () => {

@@ -16,7 +16,6 @@ import "@testing-library/jest-dom"
 import { cleanup } from "@testing-library/react"
 import { afterEach, vi } from "vitest"
 import { RepoContext } from "../src/useRepo"
-import { wrapperCache } from "../src/useDocHandle"
 
 interface EphemeralSpec {
   members: { broadcast(message: unknown): void }
@@ -38,7 +37,6 @@ const repos = new Set<Repo<EphemeralSpec>>()
 
 afterEach(async () => {
   cleanup()
-  wrapperCache.clear()
   vi.restoreAllMocks()
   await Promise.all(Array.from(repos, repo => repo.shutdown()))
   repos.clear()
@@ -108,6 +106,22 @@ export function setupDelayedRepo(latency = 10) {
     <RepoContext.Provider value={repoFinder}>{children}</RepoContext.Provider>
   )
   return { repoCreator, repoFinder, wrapper }
+}
+
+/** One document in two Repos, each with its own handle for it, and a
+ * component providing whichever Repo it is given. */
+export async function setupSharedDoc() {
+  const first = setupDelayedRepo()
+  const second = setupDelayedRepo()
+  const source = await first.repoCreator.create<ExampleDoc>({ foo: "shared" })
+  const copy = await second.repoCreator.import<ExampleDoc>(
+    (await first.repoCreator.export(source.url))!,
+    { docId: source.documentId }
+  )
+  const Provider = ({ repo, children }: PropsWithChildren<{ repo: Repo }>) => (
+    <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
+  )
+  return { first, second, source, copy, Provider }
 }
 
 export async function setup(latency = 100) {

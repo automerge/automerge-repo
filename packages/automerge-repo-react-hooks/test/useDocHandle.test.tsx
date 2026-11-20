@@ -8,13 +8,15 @@ import { render, screen, waitFor } from "@testing-library/react"
 import "@testing-library/jest-dom"
 
 import { describe, expect, it, vi } from "vitest"
-import { useDocHandle, wrapperCache } from "../src/useDocHandle"
+import { useDocHandle } from "../src/useDocHandle"
+import { cacheKey, handleCache } from "../src/handleCache"
 import { ErrorBoundary } from "react-error-boundary"
 import {
   longUrl,
   setup,
   setupDelayedRepo,
   setupLongUrl,
+  setupSharedDoc,
   pause,
 } from "./testSetup"
 
@@ -276,7 +278,7 @@ describe("useDocHandle", () => {
     })
 
     it("evicts a rejected wrapper so a later attempt can retry", async () => {
-      const { wrapper } = await setup()
+      const { wrapper, repo } = await setup()
       const url = generateAutomergeUrl() // unavailable document
       const onHandle = vi.fn()
 
@@ -300,7 +302,7 @@ describe("useDocHandle", () => {
       // later render re-fetches instead of replaying the stored rejection.
       await waitFor(() => {
         expect(onHandle).toHaveBeenLastCalledWith(undefined)
-        expect(wrapperCache.has(url)).toBe(false)
+        expect(handleCache(repo).has(cacheKey(url))).toBe(false)
       })
     })
 
@@ -400,6 +402,77 @@ describe("useDocHandle", () => {
       rerender(<NonSuspenseComponent url={handleA.url} onHandle={onHandle} />)
       await act(pause) // allow time for extra re-renders
       expect(onHandle).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe("lookup cache", () => {
+    it("gives each Repo its own handle for one document", async () => {
+      const { first, second, source, copy } = await setupSharedDoc()
+      const onFirst = vi.fn()
+      const onSecond = vi.fn()
+
+      render(
+        <Suspense fallback={null}>
+          <Component url={source.url} onHandle={onFirst} />
+        </Suspense>,
+        { wrapper: first.wrapper }
+      )
+      await waitFor(() => expect(onFirst).toHaveBeenLastCalledWith(source))
+      render(
+        <Suspense fallback={null}>
+          <Component url={source.url} onHandle={onSecond} />
+        </Suspense>,
+        { wrapper: second.wrapper }
+      )
+      await waitFor(() => expect(onSecond).toHaveBeenLastCalledWith(copy))
+    })
+
+    it("gives the new Repo's handle when the provided Repo changes", async () => {
+      const { first, second, source, copy, Provider } = await setupSharedDoc()
+      const onHandle = vi.fn()
+      const NonSuspense = () => {
+        onHandle(useDocHandle(source.url, { suspense: false }))
+        return null
+      }
+
+      const { rerender } = render(
+        <Provider repo={first.repoFinder}>
+          <NonSuspense />
+        </Provider>
+      )
+      await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(source))
+      onHandle.mockClear()
+      rerender(
+        <Provider repo={second.repoFinder}>
+          <NonSuspense />
+        </Provider>
+      )
+      await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(copy))
+      // Dropped at once, not shown until the new Repo's handle loads.
+      expect(onHandle).not.toHaveBeenCalledWith(source)
+    })
+
+    it("shares one lookup between a URL and its document ID", async () => {
+      const { repoCreator, repoFinder, wrapper } = setupDelayedRepo()
+      const handle = await repoCreator.create({ foo: "same" })
+      const onUrl = vi.fn()
+      const onId = vi.fn()
+
+      render(
+        <Suspense fallback={null}>
+          <Component url={handle.url} onHandle={onUrl} />
+          <Component
+            url={handle.documentId as unknown as AutomergeUrl}
+            onHandle={onId}
+          />
+        </Suspense>,
+        { wrapper }
+      )
+      await waitFor(() => {
+        expect(onUrl).toHaveBeenLastCalledWith(handle)
+        expect(onId).toHaveBeenLastCalledWith(handle)
+      })
+      expect(repoFinder.find).toHaveBeenCalledTimes(1)
     })
   })
 })

@@ -1,24 +1,8 @@
-import {
-  AnyDocumentId,
-  DocHandle,
-  Repo,
-  isValidAutomergeUrl,
-  interpretAsDocumentId,
-  parseAutomergeUrl,
-  stringifyAutomergeUrl,
-} from "@automerge/automerge-repo/slim"
-import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
+import { AnyDocumentId, DocHandle, Repo } from "@automerge/automerge-repo/slim"
+import { wrapPromise } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
+import { cacheKey, handleCache, normalizeId } from "./handleCache.js"
 import { useEffect, useRef, useState } from "react"
-
-// Shared with useDocHandles
-export const wrapperCache = new Map<
-  AnyDocumentId,
-  PromiseWrapper<DocHandle<unknown>>
->()
-// NB: this is a global cache that isn't keyed on the Repo
-//     so if your app uses the same documents in two Repos
-//     this could cause problems. please let me know if you do.
 
 export interface UseDocHandleSuspendingParams {
   suspense: true
@@ -58,21 +42,16 @@ export function useDocHandleIn<T>(
   { suspense }: UseDocHandleParams = { suspense: false }
 ): DocHandle<T> | undefined {
   const controllerRef = useRef<AbortController | undefined>(undefined)
-  const [handle, setHandle] = useState<DocHandle<T> | undefined>()
+  // With the Repo it came from: a handle found on another Repo (the provided
+  // one changed) is not this Repo's.
+  const [found, setFound] = useState<
+    { repo: Repo; handle: DocHandle<T> } | undefined
+  >()
+  const handle = found?.repo === repo ? found.handle : undefined
 
   let currentHandle: DocHandle<T> | undefined =
     // make sure the handle matches the id
-    id &&
-    handle &&
-    handle.url ===
-      // Normalized, as handle.url is (e.g. a long ID's short form).
-      stringifyAutomergeUrl(
-        isValidAutomergeUrl(id)
-          ? parseAutomergeUrl(id)
-          : { documentId: interpretAsDocumentId(id) }
-      )
-      ? handle
-      : undefined
+    id && handle && handle.url === normalizeId(id) ? handle : undefined
 
   if (id && !currentHandle) {
     // Preserve synchronous initial values; find() resolves asynchronously.
@@ -82,14 +61,16 @@ export function useDocHandleIn<T>(
     }
   }
 
-  let wrapper = id ? wrapperCache.get(id) : undefined
-  if (!wrapper && id) {
+  const cache = handleCache(repo)
+  const key = id ? cacheKey(id) : undefined
+  let wrapper = key ? cache.get(key) : undefined
+  if (!wrapper && id && key) {
     controllerRef.current?.abort()
     controllerRef.current = new AbortController()
 
     const promise = repo.find<T>(id, { signal: controllerRef.current.signal })
     wrapper = wrapPromise(promise)
-    wrapperCache.set(id, wrapper)
+    cache.set(key, wrapper)
   }
 
   /* From here we split into two paths: suspense and not.
@@ -107,20 +88,18 @@ export function useDocHandleIn<T>(
     let active = true
     wrapper.promise
       .then(handle => {
-        if (active) setHandle(handle as DocHandle<T>)
+        if (active) setFound({ repo, handle: handle as DocHandle<T> })
       })
       .catch(() => {
         // Drop the failed wrapper so a later render retries instead of reusing
         // the rejection.
-        if (id && wrapperCache.get(id) === wrapper) {
-          wrapperCache.delete(id)
-        }
-        if (active) setHandle(undefined)
+        if (key && cache.get(key) === wrapper) cache.delete(key)
+        if (active) setFound(undefined)
       })
     return () => {
       active = false
     }
-  }, [currentHandle, suspense, wrapper, id])
+  }, [currentHandle, suspense, wrapper, key, cache, repo])
 
   if (currentHandle || !suspense || !wrapper) {
     return currentHandle

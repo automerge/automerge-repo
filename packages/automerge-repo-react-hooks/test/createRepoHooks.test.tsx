@@ -5,12 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createRepoHooks } from "../src/createRepoHooks.js"
 import { useDocument } from "../src/useDocument.js"
 import { RepoContext, useRepo as usePackageRepo } from "../src/useRepo.js"
-import { wrapperCache } from "../src/useDocHandle.js"
 
 describe("createRepoHooks", () => {
   const repos: Repo[] = []
   afterEach(async () => {
-    wrapperCache.clear()
     await Promise.all(repos.splice(0).map(repo => repo.shutdown()))
   })
   function repo() {

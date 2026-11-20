@@ -6,7 +6,7 @@ import type {
 import { useState, useEffect } from "react"
 import { useRepo } from "./useRepo.js"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
-import { wrapperCache } from "./useDocHandle.js"
+import { cacheKey, handleCache } from "./handleCache.js"
 import { useSet } from "./helpers/useSet.js"
 
 export interface UseDocHandlesParams {
@@ -27,6 +27,24 @@ export function useDocHandles<T>(
   return useDocHandlesIn<T>(useRepo(), ids, params)
 }
 
+/** The handles of `ids` that `repo` already has ready. */
+function readyHandles<T>(repo: Repo, ids: Set<AutomergeUrl>): DocHandleMap<T> {
+  const map: DocHandleMap<T> = new Map()
+  for (const id of ids.values()) {
+    let state
+    try {
+      state = repo.query<T>(id).state()
+    } catch (e) {
+      continue
+    }
+
+    if (state.status === "ready") {
+      map.set(id, state.handle)
+    }
+  }
+  return map
+}
+
 /** @internal {@link useDocHandles} on a given Repo. */
 export function useDocHandlesIn<T>(
   repo: Repo,
@@ -34,41 +52,34 @@ export function useDocHandlesIn<T>(
   { suspense = false }: UseDocHandlesParams = {}
 ): Map<AutomergeUrl, DocHandle<T> | undefined> {
   const idSet = useSet(ids)
-  const [handleMap, setHandleMap] = useState<
-    Map<AutomergeUrl, DocHandle<T> | undefined>
-  >(() => {
-    const map = new Map()
-
-    // Initialize the map with any handles that are ready
-    for (const id of idSet.values()) {
-      let state
-      try {
-        state = repo.query<T>(id).state()
-      } catch (e) {
-        continue
-      }
-
-      if (state.status === "ready") {
-        map.set(id, state.handle)
-      }
-    }
-
-    return map
-  })
+  // Initialize the map with any handles that are ready
+  const [found, setFound] = useState(() => ({
+    repo,
+    map: readyHandles<T>(repo, idSet),
+  }))
+  let handleMap = found.map
+  if (found.repo !== repo) {
+    // The provided Repo changed: its handles replace the other Repo's.
+    handleMap = readyHandles<T>(repo, idSet)
+    setFound({ repo, map: handleMap })
+  }
+  const setHandleMap = (map: DocHandleMap<T>) => setFound({ repo, map })
 
   const pendingPromises: PromiseWrapper<DocHandle<T>>[] = []
   const pendingIds: AutomergeUrl[] = []
   const nextHandleMap = new Map<AutomergeUrl, DocHandle<T> | undefined>()
 
+  const cache = handleCache(repo)
   // Check if we need any new wrappers
   for (const id of idSet.values()) {
     let handle = handleMap.get(id)
-    let wrapper = wrapperCache.get(id)
+    const key = cacheKey(id)
+    let wrapper = cache.get(key)
     if (!wrapper) {
       try {
         const promise = repo.find<T>(id)
         wrapper = wrapPromise(promise)
-        wrapperCache.set(id, wrapper)
+        cache.set(key, wrapper)
       } catch (e) {
         continue
       }
@@ -115,7 +126,7 @@ export function useDocHandlesIn<T>(
     return () => {
       active = false
     }
-  }, [suspense, idSet])
+  }, [suspense, idSet, repo])
 
   // If any promises are pending, suspend with Promise.all
   // Note that this behaviour is different from the synchronous

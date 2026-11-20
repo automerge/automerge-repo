@@ -10,6 +10,7 @@ import {
   setup,
   setupDelayedRepo,
   setupLongUrl,
+  setupSharedDoc,
 } from "./testSetup"
 
 describe("useDocuments", () => {
@@ -496,6 +497,36 @@ describe("useDocuments", () => {
       docs = onState.mock.lastCall?.[0]
       expect(docs).toBeDefined()
       expect(docs.size).toBe(0)
+    })
+
+    it("follows the provided Repo when it changes", async () => {
+      const { first, second, source, copy, Provider } = await setupSharedDoc()
+      await copy.change(doc => (doc.foo = "second"))
+      const onState = vi.fn()
+      const Component = () => {
+        const [docs] = useDocuments<ExampleDoc>([source.url], {
+          suspense: false,
+        })
+        onState(docs.get(source.url)?.foo)
+        return null
+      }
+
+      const { rerender } = render(
+        <Provider repo={first.repoFinder}>
+          <Component />
+        </Provider>
+      )
+      await waitFor(() => expect(onState).toHaveBeenLastCalledWith("shared"))
+      rerender(
+        <Provider repo={second.repoFinder}>
+          <Component />
+        </Provider>
+      )
+      await waitFor(() => expect(onState).toHaveBeenLastCalledWith("second"))
+      // Settles: no render loop from a handle map that changes every render.
+      const renders = onState.mock.calls.length
+      await act(() => new Promise(resolve => setTimeout(resolve, 50)))
+      expect(onState.mock.calls.length).toBe(renders)
     })
   })
 })
