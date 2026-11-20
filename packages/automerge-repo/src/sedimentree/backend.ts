@@ -31,7 +31,21 @@ export interface SedimentreeBackend<X extends HandleExtensionSpec = {}> {
 
   close(): Promise<void>
 
+  /**
+   * The signer for `id`, or the default signer if `id` is omitted. Unknown
+   * IDs get the default. Undefined if the backend has none.
+   */
+  signer?(id?: SedimentreeId): Signer | undefined
+
   readonly handleExtensions?: HandleExtensions<X>
+}
+
+/** Signs as a peer with an Ed25519 key. */
+export interface Signer {
+  /** The 64-byte Ed25519 signature of `message`. */
+  sign(message: Uint8Array): Uint8Array | Promise<Uint8Array>
+  /** The 32-byte Ed25519 verifying (public) key. */
+  verifyingKey(): Uint8Array
 }
 
 /**

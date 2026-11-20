@@ -308,6 +308,11 @@ export class SubductionBackend implements SedimentreeBackend {
     ).join("")
   }
 
+  /** This backend's signer, for every document. */
+  signer(_id?: SedimentreeId): NativeSigner {
+    return this.#signer
+  }
+
   /** This backend's Subduction instance */
   get subduction(): N.Subduction {
     return this.#engine

@@ -115,6 +115,16 @@ describe("real local Subduction", () => {
     expect(backend.subduction).toBe(nodeOf(backend))
   })
 
+  it("returns its signer for any document, also once closed", async () => {
+    const backend = create()
+    const id = await backend.create([record(1)])
+    expect(backend.signer()).toBe(signer)
+    expect(backend.signer(id)).toBe(signer)
+    expect(backend.signer(tree)).toBe(signer)
+    await backend.close()
+    expect(backend.signer()).toBe(signer)
+  })
+
   it("mints distinct IDs and stores initial history before returning", async () => {
     const backend = create()
     const first = await backend.create([record(1)])

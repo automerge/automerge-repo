@@ -29,14 +29,14 @@ Pass `backend` to `new Repo({ backend })`; see the
 
 ## Options
 
-| Option                    | Default                     | Notes                                                                    |
-| ------------------------- | --------------------------- | ------------------------------------------------------------------------ |
-| `storage`                 | required                    | A [storage adapter](#storage-adapters).                                  |
-| `network`                 | `[]`                        | [Network adapters](#network-adapters). Owned by the backend.             |
-| `signer`                  | new in-memory identity      | Signs records and handshakes. `backend.peerId` is its hex verifying key. |
-| `syncTimeoutMilliseconds` | Subduction's default (30 s) | Deadline for sync requests.                                              |
-| `mintDocumentId`          | 16 random + 16 zero bytes   | Mints the ID for `create()`. See [Document IDs](#document-ids).          |
-| `syncPolicy`              | everything syncs            | Which documents sync with which peers. See [Sync policy](#sync-policy).  |
+| Option                    | Default                     | Notes                                                                                                   |
+| ------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `storage`                 | required                    | A [storage adapter](#storage-adapters).                                                                 |
+| `network`                 | `[]`                        | [Network adapters](#network-adapters). Owned by the backend.                                            |
+| `signer`                  | new in-memory identity      | Signs records and handshakes. `backend.signer()` returns it; `backend.peerId` is its hex verifying key. |
+| `syncTimeoutMilliseconds` | Subduction's default (30 s) | Deadline for sync requests.                                                                             |
+| `mintDocumentId`          | 16 random + 16 zero bytes   | Mints the ID for `create()`. See [Document IDs](#document-ids).                                         |
+| `syncPolicy`              | everything syncs            | Which documents sync with which peers. See [Sync policy](#sync-policy).                                 |
 
 ## Lifecycle
 

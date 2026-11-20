@@ -55,6 +55,12 @@ Deletion invalidates existing sessions and supersedes queued old-generation
 records with a final `deleted` event. A later explicit open/store can reacquire
 the ID. Deletion is not a replicated tombstone. A closed backend rejects new work.
 
+## Signer
+
+A backend may implement `signer(id?)`, returning the Ed25519 `Signer` it uses
+for document `id`, or its default signer when `id` is omitted. Unknown IDs get
+the default. It returns `undefined` if the backend has no signer.
+
 ## Handle extensions
 
 A backend can add its own methods and events to every handle of its Repo by
