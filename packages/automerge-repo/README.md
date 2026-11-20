@@ -92,6 +92,8 @@ In v2, `peerId` identified both the Repo and its network peer. v3 splits them:
 - `repo.flush()` rejects if any write has failed, and keeps rejecting for that document.
 - `repo.find(id, { signal })` can be aborted.
 - `handle.hasHeads(heads)` checks whether the document contains the given heads.
+- Document types other than Automerge: `repo.create(init, { type })`. See
+  [Document types](#document-types).
 
 ## Repo
 
@@ -147,6 +149,20 @@ type AppHandle<T> = HandleOf<AppRepo, T>
 
 To add features to handles from your own backend, see
 [Handle extensions](./src/sedimentree/EXTENSIONS.md).
+
+### Document types
+
+Automerge is the default document type. Other types (anything whose history is a graph of
+commits) are chosen per call, and their URLs carry their own scheme:
+
+```ts
+const counter = await repo.create(5, { type: gcounter }) // gcounter:…
+await counter.increment()
+await repo.find(counter.url, { type: gcounter })
+```
+
+Every handle is a `DocHandle`; `repo.handles` and the `document` event list every type, so
+narrow with `isHandleOf(handle, automerge)`. See [Document types](./src/DOCTYPES.md).
 
 ### Events
 
