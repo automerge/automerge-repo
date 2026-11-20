@@ -10,6 +10,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@automerge/automerge-repo-subduction": "workspace:*",
+    "@automerge/automerge-repo-subduction-network-websocket": "workspace:*",
+    "@automerge/automerge-repo-subduction-storage-indexeddb": "workspace:*",
     "@automerge/react": "workspace:*",
     "@automerge/subduction": "catalog:",
     "autoprefixer": "^10.5.2",

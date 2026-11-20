@@ -192,6 +192,15 @@ importers:
 
   examples/react-todo:
     dependencies:
+      '@automerge/automerge-repo-subduction':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-subduction
+      '@automerge/automerge-repo-subduction-network-websocket':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-subduction-network-websocket
+      '@automerge/automerge-repo-subduction-storage-indexeddb':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-subduction-storage-indexeddb
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
@@ -247,18 +256,6 @@ importers:
       '@automerge/automerge-repo-react-hooks':
         specifier: workspace:*
         version: link:../automerge-repo-react-hooks
-      '@automerge/automerge-repo-subduction':
-        specifier: workspace:*
-        version: link:../automerge-repo-subduction
-      '@automerge/automerge-repo-subduction-network-websocket':
-        specifier: workspace:*
-        version: link:../automerge-repo-subduction-network-websocket
-      '@automerge/automerge-repo-subduction-storage-indexeddb':
-        specifier: workspace:*
-        version: link:../automerge-repo-subduction-storage-indexeddb
-      '@automerge/subduction':
-        specifier: 'catalog:'
-        version: 0.27.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'

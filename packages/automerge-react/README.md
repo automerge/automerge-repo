@@ -1,13 +1,13 @@
 # @automerge/react
 
-Repo, React hooks, and the experimental Subduction backend in one package.
+Repo and React hooks in one package.
 
 ## React usage
 
-The default entrypoint initializes both Automerge and Subduction WASM. A Repo
-still has no backend unless one is explicitly supplied. See the
-[Automerge Repo quick start](../automerge-repo/README.md#quick-start) for making
-a Repo and its backend, and for shutting them down.
+The package has no backend of its own: install one, such as the
+[Subduction backend](../automerge-repo-subduction/README.md), and pass it to the
+Repo. See the [Automerge Repo quick start](../automerge-repo/README.md#quick-start)
+for making a Repo and its backend, and for shutting them down.
 
 Make the hooks once, next to the Repo, with `createRepoHooks`, and import every
 hook from there:
@@ -27,7 +27,7 @@ export const {
   useDocHandles,
   usePresence,
 } = createRepoHooks(repo)
-// If the Repo is made later, give its type instead:
+// If the Repo is made later, give its type instead, e.g. for Subduction:
 // createRepoHooks<Repo<SubductionExtensions>>()
 ```
 
@@ -120,18 +120,7 @@ export function App() {
 These give plain handles, without the features the backend adds.
 `useRepo<typeof repo>()` names the Repo's type without checking it.
 
-## Subduction
-
-The package re-exports the
-[Subduction backend](../automerge-repo-subduction/README.md), its
-[IndexedDB storage adapter](../automerge-repo-subduction-storage-indexeddb/README.md)
-and its
-[WebSocket network adapter](../automerge-repo-subduction-network-websocket/README.md).
-See their READMEs for setup, shutdown, browser bundler configuration and
-limitations.
-
 ## Slim entrypoint
 
-`@automerge/react/slim` does not initialize either WASM runtime. Initialize
-Automerge and Subduction yourself before creating a backend, using their matching
-slim runtime wrappers.
+The default entrypoint initializes Automerge's WASM. `@automerge/react/slim` does
+not: initialize Automerge yourself before creating a Repo.

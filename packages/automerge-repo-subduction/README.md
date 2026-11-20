@@ -75,7 +75,7 @@ An adapter implements `SubductionStorageAdapterInterface`:
 ## Network adapters
 
 - [automerge-repo-subduction-network-websocket](../automerge-repo-subduction-network-websocket/):
-  WebSocket client (also re-exported by `@automerge/react`).
+  WebSocket client.
 
 An adapter implements `SubductionNetworkAdapterInterface`. It only supplies byte transports;
 Subduction authenticates them and drives all traffic.

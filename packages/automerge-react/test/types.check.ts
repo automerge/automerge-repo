@@ -6,14 +6,26 @@ import {
   usePresence,
   Repo,
   createRepoHooks,
-  SubductionBackend,
-  type SubductionExtensions,
   MemoryBackend,
+  type PresenceInbound,
 } from "@automerge/react"
+import {
+  provides,
+  type HandleExtension,
+} from "@automerge/automerge-repo/sedimentree"
 import type { ReactElement } from "react"
 type Todo = { title: string }
-declare const backend: SubductionBackend
-const repo = new Repo({ backend })
+
+/** Stands in for a backend with ephemeral messaging, such as Subduction. */
+interface EphemeralSpec {
+  members: { broadcast(message: unknown): void }
+  events: { "ephemeral-message": PresenceInbound }
+}
+declare const ephemeral: HandleExtension<EphemeralSpec>
+class EphemeralBackend extends MemoryBackend {
+  readonly handleExtensions = provides(ephemeral)
+}
+const repo = new Repo({ backend: new EphemeralBackend() })
 export function component(url: any) {
   const h = useDocHandle<Todo>(url, { suspense: true })
   // @ts-expect-error a plain handle by default
@@ -54,7 +66,7 @@ export function component(url: any) {
   RepoProvider({ value: new Repo({ backend: new MemoryBackend() }) })
   const typeOnly = createRepoHooks<typeof repo>()
   typeOnly.useDocHandle<Todo>(url, { suspense: true }).broadcast("t")
-  const byName = createRepoHooks<Repo<SubductionExtensions>>()
+  const byName = createRepoHooks<Repo<EphemeralSpec>>()
   byName.useDocHandle<Todo>(url, { suspense: true }).broadcast("t")
   byName.RepoProvider({ value: repo })
   void [r, ok]

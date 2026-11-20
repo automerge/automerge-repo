@@ -1,12 +1,13 @@
+import "@automerge/subduction" // initializes Subduction's WASM
 import {
   Repo,
   RepoContext,
-  SubductionBackend,
-  IndexedDBSubductionStorageAdapter,
-  WebSocketSubductionNetworkAdapter,
   isValidAutomergeUrl,
   type DocHandle,
 } from "@automerge/react"
+import { SubductionBackend } from "@automerge/automerge-repo-subduction"
+import { WebSocketSubductionNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
+import { IndexedDBSubductionStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
 
 import React, { Suspense } from "react"
 import { ErrorBoundary } from "react-error-boundary"

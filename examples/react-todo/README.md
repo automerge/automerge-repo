@@ -22,6 +22,8 @@ From this workspace root (no local server required for the default URL):
 pnpm install
 pnpm --filter @automerge/automerge-repo build
 pnpm --filter @automerge/automerge-repo-subduction build
+pnpm --filter @automerge/automerge-repo-subduction-network-websocket build
+pnpm --filter @automerge/automerge-repo-subduction-storage-indexeddb build
 pnpm --filter @automerge/automerge-repo-react-hooks build
 pnpm --filter @automerge/react build
 pnpm dev:demo
