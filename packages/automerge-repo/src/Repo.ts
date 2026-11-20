@@ -92,13 +92,15 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     ) as Record<DocumentId, DocHandle<any, X, AnyDocType>>
   }
 
-  /** Resolve after initial history is locally recoverable, without waiting for peers. */
-  create<T>(initialValue?: T): Promise<DocHandle<T, X>>
   /** A document of the doc type `type`. */
-  create<D extends AnyDocType>(
+  // `_T` lets `repo.create<T>` instantiate every overload; the last one,
+  // Automerge's, is what `ReturnType` reads.
+  create<_T = unknown, D extends AnyDocType = AnyDocType>(
     initialValue: InitOf<D>,
     options: { type: D }
   ): Promise<DocHandle<unknown, X, D>>
+  /** Resolve after initial history is locally recoverable, without waiting for peers. */
+  create<T>(initialValue?: T): Promise<DocHandle<T, X>>
   async create(
     initialValue?: unknown,
     { type = automerge }: { type?: AnyDocType } = {}
@@ -119,14 +121,14 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
    * @deprecated Use {@link Repo.query} to observe loading, or
    * {@link Repo.find} to await it.
    */
+  findWithProgress<_T = unknown, D extends AnyDocType = AnyDocType>(
+    id: AnyDocumentId,
+    options: AbortOptions & { type: D }
+  ): DocumentProgress<unknown, X, D>
   findWithProgress<T>(
     id: AnyDocumentId,
     options?: AbortOptions
   ): DocumentProgress<T, X>
-  findWithProgress<D extends AnyDocType>(
-    id: AnyDocumentId,
-    options: AbortOptions & { type: D }
-  ): DocumentProgress<unknown, X, D>
   findWithProgress(
     id: AnyDocumentId,
     options: AbortOptions & { type?: AnyDocType } = {}
@@ -134,16 +136,16 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     return toProgress(this.query(id, options as { type: AnyDocType }))
   }
 
+  /** A document of the doc type `type`; its URL must have `type`'s scheme. */
+  find<_T = unknown, D extends AnyDocType = AnyDocType>(
+    id: AnyDocumentId,
+    options: RepoFindOptions & { type: D }
+  ): Promise<DocHandle<unknown, X, D>>
   /** Cancellation stops this wait, not the shared document's loading. */
   find<T>(
     id: AnyDocumentId,
     options?: RepoFindOptions
   ): Promise<DocHandle<T, X>>
-  /** A document of the doc type `type`; its URL must have `type`'s scheme. */
-  find<D extends AnyDocType>(
-    id: AnyDocumentId,
-    options: RepoFindOptions & { type: D }
-  ): Promise<DocHandle<unknown, X, D>>
   async find(
     id: AnyDocumentId,
     options: RepoFindOptions & { type?: AnyDocType } = {}
@@ -160,12 +162,12 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
    * Accepts everything {@link Repo.find} does; heads and paths in a URL
    * yield the matching view or sub-handle once ready.
    */
-  query<T>(id: AnyDocumentId): DocumentQuery<T, X>
   /** A document of the doc type `type`; its URL must have `type`'s scheme. */
-  query<D extends AnyDocType>(
+  query<_T = unknown, D extends AnyDocType = AnyDocType>(
     id: AnyDocumentId,
     options: { type: D }
   ): DocumentQuery<unknown, X, D>
+  query<T>(id: AnyDocumentId): DocumentQuery<T, X>
   query(
     id: AnyDocumentId,
     { type = automerge }: { type?: AnyDocType } = {}
