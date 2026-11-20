@@ -85,7 +85,26 @@ export interface SubductionBackendOptions {
   /** Which documents sync with which peers; defaults to all with all.
    * See {@link SyncPolicy}. */
   syncPolicy?: SyncPolicy
+  /** A keyhive for Subduction's keyhive sync protocol. Subduction's calls on
+   * it are not serialized against the caller's own. The caller must keep
+   * the two from overlapping. The protocol doesn't store anything. Persist
+   * keyhive state from the keyhive's event listener. Frame outcomes are
+   * passed to {@link SubductionBackend.onKeyhiveOutcome}. */
+  keyhive?: N.KeyhiveAccess
 }
+
+/**
+ * Called after each keyhive frame from `peer`. `ingested` is whether its sync
+ * ops increased keyhive's op count. A contact card is not counted.
+ * `confirmed` is whether the peer showed it ingested events this side sent
+ * it. A frame that fails is not reported though it still might have ingested
+ * events.
+ */
+export type KeyhiveOutcomeListener = (
+  peer: N.PeerId,
+  ingested: boolean,
+  confirmed: boolean
+) => void
 
 /** Apply `fn` now to a plain value, or once a promise resolves. */
 function settle<T, U>(
@@ -259,6 +278,7 @@ export class SubductionBackend implements SedimentreeBackend {
   readonly #networkSettled: Promise<void>
   #markClosed!: () => void
   readonly #rules: SyncRules
+  #keyhiveOutcome?: KeyhiveOutcomeListener
 
   constructor(options: SubductionBackendOptions) {
     if (!options.storage) throw new TypeError("A storage adapter is required")
@@ -274,6 +294,12 @@ export class SubductionBackend implements SedimentreeBackend {
       storage: new StorageBridge(options.storage),
       ...nativePolicies((id, peer) => this.#rules.rule(id, peer)),
       defaultTimeoutMilliseconds: options.syncTimeoutMilliseconds,
+      keyhive: options.keyhive,
+      onKeyhiveOutcome: (
+        peer: N.PeerId,
+        ingested: boolean,
+        confirmed: boolean
+      ) => this.#keyhiveOutcome?.(peer, ingested, confirmed),
       onEphemeral: (topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) =>
         this.#onEphemeral(topic, peer, bytes),
       onRemoteHeads: (
@@ -316,6 +342,11 @@ export class SubductionBackend implements SedimentreeBackend {
   /** This backend's Subduction instance */
   get subduction(): N.Subduction {
     return this.#engine
+  }
+
+  /** Replace or remove the listener for the outcomes of keyhive frames. */
+  onKeyhiveOutcome(listener: KeyhiveOutcomeListener | undefined): void {
+    this.#keyhiveOutcome = listener
   }
 
   #onEphemeral(topic: N.Topic, peer: N.PeerId, bytes: Uint8Array) {
@@ -380,6 +411,18 @@ export class SubductionBackend implements SedimentreeBackend {
       id: peer,
       path: Object.freeze([]),
     })
+  }
+
+  /**
+   * Run a sync round for `input` with each connected peer the sync policy
+   * announces it to. It emits no `synchronized` event. For a wrapper that
+   * learns of something this backend cannot see that may change whether a
+   * peer accepts a round, such as new keyhive access.
+   */
+  async syncDocument(input: SedimentreeId): Promise<void> {
+    const id = backendId("synchronize", input)
+    this.#check("synchronize", id)
+    await this.#syncAllPeers(id)
   }
   /** Authenticate an outgoing transport with this backend's signer and add
    * the connection; resolves to the remote peer ID. The engine disconnects it

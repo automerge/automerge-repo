@@ -12,6 +12,9 @@ catalogs:
     '@automerge/subduction':
       specifier: 0.27.0
       version: 0.27.0
+    '@keyhive/keyhive':
+      specifier: 0.8.3
+      version: 0.8.3
     '@testing-library/jest-dom':
       specifier: ^6.9.1
       version: 6.9.1
@@ -420,6 +423,31 @@ importers:
         specifier: 'catalog:'
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
 
+  packages/automerge-repo-subduction-keyhive:
+    dependencies:
+      '@automerge/automerge-repo':
+        specifier: workspace:*
+        version: link:../automerge-repo
+      '@automerge/automerge-repo-subduction':
+        specifier: workspace:*
+        version: link:../automerge-repo-subduction
+      '@automerge/subduction':
+        specifier: 'catalog:'
+        version: 0.27.0
+      '@keyhive/keyhive':
+        specifier: 'catalog:'
+        version: 0.8.3
+    devDependencies:
+      '@automerge/automerge':
+        specifier: 'catalog:'
+        version: 3.5.0
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
+
   packages/automerge-repo-subduction-network-websocket:
     devDependencies:
       '@automerge/automerge-repo':
@@ -799,6 +827,9 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@keyhive/keyhive@0.8.3':
+    resolution: {integrity: sha512-+OeoE/gaEZsqpZXyR2w/WdVsZhNnqYjNZFwxnZtXP6VUmruFNFAUSJwB1JUfwYmWrLXwarm5zVT1dHMsJQtO7w==}
 
   '@manypkg/cli@0.25.1':
     resolution: {integrity: sha512-lag906FyiNxzZjsRErkUD5/to174I2JzPk5bZubuJp6loMKKJn73zrtqeU7nHlVkHBg3tgXDTJj22HxUDxLRXw==}
@@ -3249,6 +3280,8 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@keyhive/keyhive@0.8.3': {}
 
   '@manypkg/cli@0.25.1':
     dependencies:
