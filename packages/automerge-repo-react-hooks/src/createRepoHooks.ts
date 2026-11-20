@@ -18,6 +18,20 @@ import {
   type UseDocHandleSynchronousParams,
 } from "./useDocHandle.js"
 import { useDocHandlesIn, type UseDocHandlesParams } from "./useDocHandles.js"
+import {
+  useDocumentIn,
+  type useDocument as packageUseDocument,
+  type UseDocumentParams,
+  type UseDocumentReturn,
+} from "./useDocument.js"
+import {
+  useDocumentsIn,
+  type ChangeDocFn,
+  type DocMap,
+  type useDocuments as packageUseDocuments,
+  type UseDocumentsOptions,
+} from "./useDocuments.js"
+import { usePresence } from "./usePresence.js"
 import { RepoContext } from "./useRepo.js"
 
 /** The provider and hooks {@link createRepoHooks} makes for a Repo type `R`. */
@@ -41,23 +55,33 @@ export interface RepoHooks<R extends Repo> {
     ids: AutomergeUrl[],
     params?: UseDocHandlesParams
   ): Map<AutomergeUrl, HandleOf<R, T> | undefined>
+  /** As the package's `useDocument`, on this Repo. */
+  useDocument: typeof packageUseDocument
+  /** As the package's `useDocuments`, on this Repo. */
+  useDocuments: typeof packageUseDocuments
+  /** The package's `usePresence`, so all hooks come from one place. */
+  usePresence: typeof usePresence
 }
 
 /**
- * A provider and hooks typed for one Repo type, with the features its
- * backend adds to handles. Pass the Repo to infer its type, or give the type
- * if the Repo is made later:
+ * A provider and every hook, typed for one Repo type, with the features its
+ * backend adds to handles. The recommended way to use the hooks: make them
+ * once next to the Repo and import them all from there. Pass the Repo to
+ * infer its type, or give the type if the Repo is made later:
  *
  * ```ts
  * export const repo = new Repo({ backend })
- * export const { RepoProvider, useRepo, useDocHandle } = createRepoHooks(repo)
+ * export const { RepoProvider, useRepo, useDocHandle, useDocument } =
+ *   createRepoHooks(repo)
  * // or: createRepoHooks<Repo<SubductionExtensions>>()
  *
  * <RepoProvider value={repo}>…</RepoProvider>
  * ```
  *
  * The provider only accepts a Repo of that type, so these hooks cannot
- * disagree with it. The Repo passed here is only read for its type.
+ * disagree with it. Each call makes its own provider, so several Repos can
+ * be used at once. The hooks that use the Repo throw outside their provider.
+ * The Repo passed here is only read for its type.
  */
 export function createRepoHooks<R extends Repo = Repo>(
   _repo?: R
@@ -104,10 +128,27 @@ export function createRepoHooks<R extends Repo = Repo>(
     >
   }
 
+  function useDocument<T>(
+    id: AnyDocumentId | undefined,
+    params?: UseDocumentParams
+  ): UseDocumentReturn<T> | [undefined, () => Promise<void>] {
+    return useDocumentIn<T>(useRepo(), id, params)
+  }
+
+  function useDocuments<T>(
+    ids: AutomergeUrl[],
+    options?: UseDocumentsOptions
+  ): [DocMap<T>, ChangeDocFn<T>] {
+    return useDocumentsIn<T>(useRepo(), ids, options)
+  }
+
   return {
     RepoProvider,
     useRepo,
     useDocHandle: useDocHandle as RepoHooks<R>["useDocHandle"],
     useDocHandles,
+    useDocument: useDocument as RepoHooks<R>["useDocument"],
+    useDocuments,
+    usePresence,
   }
 }

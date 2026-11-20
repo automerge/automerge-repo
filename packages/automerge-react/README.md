@@ -5,22 +5,42 @@ Repo, React hooks, and the experimental Subduction backend in one package.
 ## React usage
 
 The default entrypoint initializes both Automerge and Subduction WASM. A Repo
-still has no backend unless one is explicitly supplied.
+still has no backend unless one is explicitly supplied. See the
+[Automerge Repo quick start](../automerge-repo/README.md#quick-start) for making
+a Repo and its backend, and for shutting them down.
+
+Make the hooks once, next to the Repo, with `createRepoHooks`, and import every
+hook from there:
 
 ```tsx
-import { Suspense } from "react"
-import {
-  Repo,
-  RepoContext,
-  useDocument,
-  type AutomergeUrl,
-} from "@automerge/react"
+// repo.ts
+import { Repo, createRepoHooks } from "@automerge/react"
 
-const repo = new Repo()
-const handle = await repo.create({ count: 0 })
+export const repo = new Repo({ backend })
+
+export const {
+  RepoProvider,
+  useRepo,
+  useDocument,
+  useDocuments,
+  useDocHandle,
+  useDocHandles,
+  usePresence,
+} = createRepoHooks(repo)
+// If the Repo is made later, give its type instead:
+// createRepoHooks<Repo<SubductionExtensions>>()
+```
+
+```tsx
+// App.tsx
+import { Suspense } from "react"
+import type { AutomergeUrl } from "@automerge/react"
+import { RepoProvider, repo, useDocument } from "./repo"
+
+type CounterDoc = { count: number }
 
 function Counter({ url }: { url: AutomergeUrl }) {
-  const [doc, change] = useDocument<{ count: number }>(url, { suspense: true })
+  const [doc, change] = useDocument<CounterDoc>(url, { suspense: true })
   return (
     <button
       onClick={() => {
@@ -29,18 +49,20 @@ function Counter({ url }: { url: AutomergeUrl }) {
         }).catch(console.error)
       }}
     >
-      {doc?.count}
+      {doc.count}
     </button>
   )
 }
 
+const handle = await repo.create<CounterDoc>({ count: 0 })
+
 export function App() {
   return (
-    <RepoContext.Provider value={repo}>
+    <RepoProvider value={repo}>
       <Suspense fallback="Loading...">
         <Counter url={handle.url} />
       </Suspense>
-    </RepoContext.Provider>
+    </RepoProvider>
   )
 }
 ```
@@ -48,88 +70,65 @@ export function App() {
 Changes apply locally immediately; await a hook updater to observe persistence
 failures.
 
-## Typed handles
-
-For handles with [the features a backend adds](../automerge-repo/README.md#extensions),
-such as `handle.broadcast`, the hooks need the Repo's type: `RepoContext` only knows a
-plain `Repo`. `createRepoHooks` makes hooks for your Repo: it infers the type from the
-Repo, and its provider only accepts a Repo of that type, so the two cannot disagree:
+The hooks are typed for that Repo, so their handles have
+[the features its backend adds](../automerge-repo/README.md#extensions):
 
 ```tsx
-// repo.ts
-export const repo = new Repo({ backend })
-export const { RepoProvider, useRepo, useDocHandle, useDocHandles } =
-  createRepoHooks(repo)
-// If the Repo is made later, give its type:
-// createRepoHooks<Repo<SubductionExtensions>>()
-
-// main.tsx
-<RepoProvider value={repo}>
-  <App />
-</RepoProvider>
-
-// App.tsx: import these hooks from "./repo"; the rest from "@automerge/react".
-const handle = useDocHandle<Todo>(url, { suspense: true }) // has broadcast
+const handle = useDocHandle<CounterDoc>(url, { suspense: true })
+handle.broadcast("hello") // if the backend has ephemeral messages
 ```
 
-The provider also sets `RepoContext`, so the package's other hooks keep working. Its
-hooks throw outside a `RepoProvider`.
+The provider only accepts a Repo of the type the hooks were made for, so the two
+cannot disagree, and the hooks that use the Repo throw outside it. Each
+`createRepoHooks` call makes its own provider, so an app can use several Repos,
+each with its own hooks.
 
-The package's own `useDocHandle` and `useDocHandles` give plain handles.
+Import `useDocument`, `useDocHandle` and the rest from your `repo.ts`, not from
+`@automerge/react`: the package exports hooks of the same names (see below), and an
+editor's auto-import may pick those. To catch this, a lint rule can forbid them in
+app code, e.g. with ESLint or oxlint:
+
+```json
+"no-restricted-imports": ["error", {
+  "paths": [{
+    "name": "@automerge/react",
+    "importNames": ["useRepo", "useDocument", "useDocuments", "useDocHandle",
+      "useDocHandles", "usePresence"],
+    "message": "Import hooks from ./repo (createRepoHooks)."
+  }]
+}]
+```
+
+### Without the factory
+
+The package also exports the hooks directly, for existing apps and for shared
+components that work with any Repo. They read the Repo from `RepoContext`, which
+the factory's provider also sets:
+
+```tsx
+import { RepoContext, useDocument } from "@automerge/react"
+
+export function App() {
+  return (
+    <RepoContext.Provider value={repo}>
+      <Counter url={url} />
+    </RepoContext.Provider>
+  )
+}
+```
+
+These give plain handles, without the features the backend adds.
 `useRepo<typeof repo>()` names the Repo's type without checking it.
 
-## Subduction and browser storage
+## Subduction
 
-```ts
-import {
-  Repo,
-  SubductionBackend,
-  IndexedDBSubductionStorageAdapter,
-  WebSocketSubductionNetworkAdapter,
-} from "@automerge/react"
-
-const storage = new IndexedDBSubductionStorageAdapter({ database: "my-app" })
-const backend = new SubductionBackend({
-  storage,
-  network: [new WebSocketSubductionNetworkAdapter("ws://127.0.0.1:8080")],
-})
-const repo = new Repo({ backend })
-const handle = await repo.create({ todos: [] })
-// Keep the Repo/backend/store alive while the app uses the handle.
-
-try {
-  await repo.flush()
-} finally {
-  try {
-    await repo.shutdown()
-  } finally {
-    try {
-      await backend.close()
-    } finally {
-      await storage.close()
-    }
-  }
-}
-```
-
-Use one live backend per IndexedDB database, including across tabs. The default
-signer is temporary; IndexedDB does not persist peer identity. See the
-[Subduction README](../automerge-repo-subduction/README.md) for connection,
-storage, initialization and authorization limitations. Browser applications need
-the matching native web initializer. For Vite, use
-`vite-plugin-wasm`, exclude the Automerge/Repo/Subduction packages from dependency
-optimization, and add this alias to the Vite configuration:
-
-```ts
-import { fileURLToPath } from "node:url"
-
-const alias = {
-  find: /^@automerge\/subduction$/,
-  replacement: fileURLToPath(
-    new URL("./web.js", import.meta.resolve("@automerge/subduction"))
-  ),
-}
-```
+The package re-exports the
+[Subduction backend](../automerge-repo-subduction/README.md), its
+[IndexedDB storage adapter](../automerge-repo-subduction-storage-indexeddb/README.md)
+and its
+[WebSocket network adapter](../automerge-repo-subduction-network-websocket/README.md).
+See their READMEs for setup, shutdown, browser bundler configuration and
+limitations.
 
 ## Slim entrypoint
 

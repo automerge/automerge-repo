@@ -12,7 +12,12 @@ import {
   type JSX,
   type Resource,
 } from "solid-js"
+import autoproduce from "./autoproduce.js"
 import { RepoContext } from "./context.js"
+import createDocSignal from "./createDocSignal.js"
+import createDocumentProjection from "./createDocumentProjection.js"
+import makeDocSignal from "./makeDocSignal.js"
+import makeDocumentProjection from "./makeDocumentProjection.js"
 import type { MaybeAccessor, UseDocHandleOptions } from "./types.js"
 import { useDocHandleIn } from "./useDocHandle.js"
 import { useDocSignalIn } from "./useDocSignal.js"
@@ -45,23 +50,33 @@ export interface RepoPrimitives<R extends Repo> {
     url: MaybeAccessor<AutomergeUrl | undefined>,
     options?: RepoPrimitiveOptions
   ): [Accessor<Doc<T> | undefined>, Resource<HandleOf<R, T> | undefined>]
+  // The package's primitives that take a handle, so all come from one place.
+  autoproduce: typeof autoproduce
+  createDocSignal: typeof createDocSignal
+  makeDocSignal: typeof makeDocSignal
+  createDocumentProjection: typeof createDocumentProjection
+  makeDocumentProjection: typeof makeDocumentProjection
 }
 
 /**
- * A provider and primitives typed for one Repo type, with the features its
- * backend adds to handles. Pass the Repo to infer its type, or give the type
- * if the Repo is made later:
+ * A provider and every primitive, typed for one Repo type, with the features
+ * its backend adds to handles. The recommended way to use the primitives:
+ * make them once next to the Repo and import them all from there. Pass the
+ * Repo to infer its type, or give the type if the Repo is made later:
  *
  * ```tsx
  * export const repo = new Repo({ backend })
- * export const { RepoProvider, useDocHandle } = createRepoPrimitives(repo)
+ * export const { RepoProvider, useDocHandle, useDocument } =
+ *   createRepoPrimitives(repo)
  * // or: createRepoPrimitives<Repo<SubductionExtensions>>()
  *
  * <RepoProvider value={repo}>…</RepoProvider>
  * ```
  *
  * The provider only accepts a Repo of that type, so these primitives cannot
- * disagree with it. The Repo passed here is only read for its type.
+ * disagree with it. Each call makes its own provider, so several Repos can
+ * be used at once. The primitives that find documents throw outside their
+ * provider. The Repo passed here is only read for its type.
  */
 export function createRepoPrimitives<R extends Repo = Repo>(
   _repo?: R
@@ -116,5 +131,10 @@ export function createRepoPrimitives<R extends Repo = Repo>(
         Accessor<Doc<T> | undefined>,
         Resource<HandleOf<R, T> | undefined>,
       ],
+    autoproduce,
+    createDocSignal,
+    makeDocSignal,
+    createDocumentProjection,
+    makeDocumentProjection,
   }
 }

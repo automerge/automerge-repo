@@ -50,6 +50,34 @@ describe("createRepoHooks", () => {
     )
   })
 
+  it("gives its document hooks its own Repo, under another provider", async () => {
+    const [a, b] = [repo(), repo()]
+    const { RepoProvider, useDocument, useDocuments } = createRepoHooks(a)
+    const handle = await a.create({ count: 2 })
+    const seen = vi.fn()
+    const Component = () => {
+      const [doc] = useDocument<{ count: number }>(handle.url)
+      const [docs] = useDocuments<{ count: number }>([handle.url], {
+        suspense: false,
+      })
+      seen({ doc, docs })
+      return null
+    }
+    render(
+      <RepoProvider value={a}>
+        <RepoContext.Provider value={b}>
+          <Component />
+        </RepoContext.Provider>
+      </RepoProvider>
+    )
+    await waitFor(() =>
+      expect(seen).toHaveBeenLastCalledWith({
+        doc: { count: 2 },
+        docs: new Map([[handle.url, { count: 2 }]]),
+      })
+    )
+  })
+
   it("takes any Repo of its type, e.g. one per test", () => {
     const { RepoProvider, useRepo } = createRepoHooks<Repo>()
     const [a, b] = [repo(), repo()]
@@ -73,9 +101,13 @@ describe("createRepoHooks", () => {
 
   it("throws without its provider, even inside the package's", () => {
     const r = repo()
-    const { useRepo } = createRepoHooks(r)
+    const { useRepo, useDocument } = createRepoHooks(r)
     const Component = () => {
       useRepo()
+      return null
+    }
+    const DocComponent = () => {
+      useDocument(undefined)
       return null
     }
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
@@ -89,6 +121,9 @@ describe("createRepoHooks", () => {
         </RepoContext.Provider>
       )
     ).toThrow(/Repo was not found on its RepoProvider/)
+    expect(() => render(<DocComponent />)).toThrow(
+      /Repo was not found on its RepoProvider/
+    )
     spy.mockRestore()
   })
 })

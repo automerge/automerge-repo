@@ -35,4 +35,13 @@ primitives.RepoProvider({ value: memoryRepo })
 primitives.useDocHandle<Todo>(url, { repo })
 createRepoPrimitives<typeof repo>().useDocHandle<Todo>(url)()?.ping()
 
+// The handle-taking primitives come from the factory too, and take its handles.
+const typedHandle = primitives.useDocHandle<Todo>(url)
+primitives.createDocSignal(typedHandle)()?.title satisfies string | undefined
+primitives.createDocumentProjection(typedHandle)()?.title
+const loaded = typedHandle()!
+primitives.makeDocSignal(loaded)()?.title
+primitives.makeDocumentProjection(loaded).title satisfies string
+loaded.on("change", payload => void primitives.autoproduce(payload))
+
 void plainRepo

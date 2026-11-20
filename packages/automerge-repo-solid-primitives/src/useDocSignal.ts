@@ -11,7 +11,9 @@ import type { Accessor, Resource } from "solid-js"
 
 /**
  * a light coarse-grained primitive when you care only _that_ a doc has changed,
- * and not _how_. returns [doc, handle] from a URL.
+ * and not _how_. returns [doc, handle] from a URL. The handle is a plain
+ * `DocHandle`; in app code, prefer the `useDocSignal` from
+ * {@link createRepoPrimitives}.
  * @param url a function that returns a url
  */
 export default function useDocSignal<T extends object>(

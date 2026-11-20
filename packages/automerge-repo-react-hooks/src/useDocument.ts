@@ -1,4 +1,4 @@
-import { AnyDocumentId } from "@automerge/automerge-repo/slim"
+import { AnyDocumentId, Repo } from "@automerge/automerge-repo/slim"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim"
 import { useCallback, useEffect, useState } from "react"
 import { useDocHandleIn } from "./useDocHandle.js"
@@ -33,7 +33,7 @@ export interface UseDocumentSynchronousParams {
   suspense: false
 }
 
-type UseDocumentParams =
+export type UseDocumentParams =
   | UseDocumentSuspendingParams
   | UseDocumentSynchronousParams
 
@@ -42,6 +42,11 @@ export type UseDocumentReturn<T> = [
   (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => Promise<void>,
 ]
 
+/**
+ * A document and a function to change it, from the Repo in
+ * {@link RepoContext}. In app code, prefer the `useDocument` from
+ * {@link createRepoHooks}, so all hooks come from one place.
+ */
 export function useDocument<T>(
   id: AnyDocumentId,
   params: UseDocumentSuspendingParams
@@ -52,9 +57,18 @@ export function useDocument<T>(
 ): UseDocumentReturn<T> | [undefined, () => Promise<void>]
 export function useDocument<T>(
   id: AnyDocumentId | undefined,
+  params?: UseDocumentParams
+): UseDocumentReturn<T> | [undefined, () => Promise<void>] {
+  return useDocumentIn<T>(useRepo(), id, params)
+}
+
+/** @internal {@link useDocument} on a given Repo. */
+export function useDocumentIn<T>(
+  repo: Repo,
+  id: AnyDocumentId | undefined,
   params: UseDocumentParams = { suspense: false }
 ): UseDocumentReturn<T> | [undefined, () => Promise<void>] {
-  const handle = useDocHandleIn<T>(useRepo(), id, params)
+  const handle = useDocHandleIn<T>(repo, id, params)
   // Initialize with current doc state
   const [doc, setDoc] = useState<Doc<T> | undefined>(() => handle?.doc())
   const [deleteError, setDeleteError] = useState<Error>()

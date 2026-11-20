@@ -1,4 +1,4 @@
-import { AutomergeUrl } from "@automerge/automerge-repo/slim"
+import { AutomergeUrl, Repo } from "@automerge/automerge-repo/slim"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim"
 import { useCallback, useEffect, useState } from "react"
 import { useDocHandlesIn } from "./useDocHandles.js"
@@ -15,11 +15,25 @@ export interface UseDocumentsOptions {
   suspense?: boolean
 }
 
+/**
+ * Several documents and a function to change them, from the Repo in
+ * {@link RepoContext}. In app code, prefer the `useDocuments` from
+ * {@link createRepoHooks}, so all hooks come from one place.
+ */
 export function useDocuments<T>(
+  ids: AutomergeUrl[],
+  options?: UseDocumentsOptions
+): [DocMap<T>, ChangeDocFn<T>] {
+  return useDocumentsIn<T>(useRepo(), ids, options)
+}
+
+/** @internal {@link useDocuments} on a given Repo. */
+export function useDocumentsIn<T>(
+  repo: Repo,
   ids: AutomergeUrl[],
   { suspense = true }: UseDocumentsOptions = {}
 ): [DocMap<T>, ChangeDocFn<T>] {
-  const handleMap = useDocHandlesIn<T>(useRepo(), ids, { suspense })
+  const handleMap = useDocHandlesIn<T>(repo, ids, { suspense })
   const [docMap, setDocMap] = useState<DocMap<T>>(() => {
     const docs: DocMap<T> = new Map()
     handleMap.forEach((handle, id) => {

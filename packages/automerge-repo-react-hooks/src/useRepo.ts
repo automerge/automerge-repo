@@ -7,7 +7,8 @@ export const RepoContext = createContext<Repo | null>(null)
 /**
  * A [React hook](https://reactjs.org/docs/hooks-intro.html) which returns the
  * Automerge repo from {@link RepoContext}, typed as `R` (a plain `Repo` by
- * default; not checked). {@link createRepoHooks} gives a checked one.
+ * default; not checked). In app code, prefer the `useRepo` from
+ * {@link createRepoHooks}, which is checked.
  */
 export function useRepo<R extends Repo = Repo>(): R {
   const repo = useContext(RepoContext)

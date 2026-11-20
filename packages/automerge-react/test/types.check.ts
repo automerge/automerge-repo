@@ -26,10 +26,23 @@ export function component(url: any) {
     RepoProvider,
     useDocHandle: useTyped,
     useDocHandles: useTypedMany,
+    useDocument: useTypedDoc,
+    useDocuments: useTypedDocs,
+    usePresence: useTypedPresence,
   } = createRepoHooks(repo)
   const typed = useTyped<Todo>(url, { suspense: true })
   typed.broadcast("a")
   usePresence({ handle: typed, initialState: {} })
+  useTypedPresence({ handle: typed, initialState: {} })
+  // @ts-expect-error plain handle not for presence
+  useTypedPresence({ handle: h, initialState: {} })
+  const [doc, change] = useTypedDoc<Todo>(url, { suspense: true })
+  doc.title satisfies string
+  void change(d => void (d.title = "x"))
+  const [maybeDoc] = useTypedDoc<Todo>(url)
+  // @ts-expect-error may be loading
+  maybeDoc.title
+  useTypedDocs<Todo>([url])[0].get(url)?.title satisfies string | undefined
   useTyped<Todo>(url)?.broadcast("a")
   useTypedMany<Todo>([url]).get(url)?.broadcast("a")
   const ok: ReactElement = RepoProvider({ value: repo })

@@ -19,8 +19,9 @@ import type { MaybeAccessor, UseDocHandleOptions } from "./types.js"
  * [AutomergeUrl](https://automerge.org/automerge-repo/types/_automerge_automerge_repo.AutomergeUrl.html)
  * as a
  * [Resource](https://docs.solidjs.com/reference/basic-reactivity/create-resource).
- * Waits for the handle to be ready. For handles typed with the features the
- * Repo's backend adds, use {@link createRepoPrimitives}.
+ * Waits for the handle to be ready. The handle is a plain `DocHandle`; in app
+ * code, prefer the `useDocHandle` from {@link createRepoPrimitives}, whose
+ * handles have the features the Repo's backend adds.
  */
 export default function useDocHandle<T>(
   url: MaybeAccessor<AutomergeUrl | undefined>,

@@ -7,6 +7,50 @@ href="https://automerge.org/docs/repositories/"> Automerge</a>.
 pnpm add solid-js @automerge/automerge-repo @automerge/automerge-repo-solid-primitives
 ```
 
+## Setup
+
+Make the primitives once, next to the Repo, with `createRepoPrimitives`, and import
+every primitive from there. They are typed for that Repo, so handles have
+[the features its backend adds](../automerge-repo/README.md#extensions), such as
+`handle.broadcast` from Subduction:
+
+```tsx
+// repo.ts
+export const repo = new Repo({ backend })
+export const {
+  RepoProvider,
+  useRepo,
+  useDocument,
+  useDocSignal,
+  useDocHandle,
+  createDocumentProjection,
+  makeDocumentProjection,
+  createDocSignal,
+  makeDocSignal,
+  autoproduce,
+} = createRepoPrimitives(repo)
+// If the Repo is made later, give its type instead:
+// createRepoPrimitives<Repo<SubductionExtensions>>()
+
+// main.tsx
+<RepoProvider value={repo}>
+  <App />
+</RepoProvider>
+
+// App.tsx: import from "./repo"
+const handle = useDocHandle<Todo>(url) // handle()?.broadcast
+```
+
+The provider only accepts a Repo of that type, so the two cannot disagree. It also
+sets [`RepoContext`](#repocontext). Primitives that find documents throw outside
+it, and take no `repo` option. Each `createRepoPrimitives` call makes its own
+provider, so an app can use several Repos.
+
+Import the primitives from your `repo.ts`, not from this package: the package
+exports primitives of the same names, documented below, and an editor's auto-import
+may pick those. They work without the factory, for existing apps and shared
+components, but give plain handles.
+
 ## useDocument ✨
 
 Get a fine-grained live view of an automerge document from its URL.
@@ -154,8 +198,8 @@ The `repo` option can be left out if you are using [RepoContext](#repocontext).
 
 ## context
 
-If you prefer the context pattern for some reason, you can pass the repo higher
-up in your app with `RepoContext`
+Without the factory, you can pass the repo higher up in your app with
+`RepoContext`
 
 ### `RepoContext`
 
@@ -181,32 +225,3 @@ useRepo(): Repo
 ```ts
 const repo = useRepo()
 ```
-
-## Typed handles
-
-For handles with [the features a backend adds](../automerge-repo/README.md#extensions),
-such as `handle.broadcast`, the primitives need the Repo's type: `RepoContext` only
-knows a plain `Repo`.
-
-`createRepoPrimitives` makes primitives for your Repo: it infers the type from the
-Repo, and its provider only accepts a Repo of that type:
-
-```tsx
-// repo.ts
-export const repo = new Repo({ backend })
-export const { RepoProvider, useRepo, useDocHandle, useDocument, useDocSignal } =
-  createRepoPrimitives(repo)
-// If the Repo is made later, give its type:
-// createRepoPrimitives<Repo<SubductionExtensions>>()
-
-<RepoProvider value={repo}>
-  <App />
-</RepoProvider>
-
-const handle = useDocHandle<Todo>(url) // handle()?.broadcast
-```
-
-The provider also sets `RepoContext`, so the package's other primitives keep working.
-Its primitives throw outside a `RepoProvider`, and take no `repo` option.
-
-The package's own primitives give plain handles.

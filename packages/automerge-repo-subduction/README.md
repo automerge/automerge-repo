@@ -47,6 +47,23 @@ Pass `backend` to `new Repo({ backend })`; see the
   persistent signer if peer identity must.
 - Shut down in order: `repo.shutdown()`, `backend.close()`, then `storage.close()`.
 
+## Browsers
+
+Browser applications need the matching native web initializer. For Vite, use
+`vite-plugin-wasm`, exclude the Automerge/Repo/Subduction packages from dependency
+optimization, and add this alias to the Vite configuration:
+
+```ts
+import { fileURLToPath } from "node:url"
+
+const alias = {
+  find: /^@automerge\/subduction$/,
+  replacement: fileURLToPath(
+    new URL("./web.js", import.meta.resolve("@automerge/subduction"))
+  ),
+}
+```
+
 ## Storage adapters
 
 - [automerge-repo-subduction-storage-indexeddb](../automerge-repo-subduction-storage-indexeddb/):

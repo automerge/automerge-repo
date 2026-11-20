@@ -16,9 +16,10 @@ export type UseDocHandleParams =
   | UseDocHandleSynchronousParams
 
 /**
- * The handle for a document, from the Repo in {@link RepoContext}. For
- * handles typed with the features the Repo's backend adds, use
- * {@link createRepoHooks}.
+ * The handle for a document, from the Repo in {@link RepoContext}, as a
+ * plain `DocHandle`. In app code, prefer the `useDocHandle` from
+ * {@link createRepoHooks}: its handles have the features the Repo's backend
+ * adds.
  */
 export function useDocHandle<T>(
   id: AnyDocumentId,

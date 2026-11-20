@@ -16,9 +16,10 @@ export interface UseDocHandlesParams {
 export type DocHandleMap<T> = Map<AutomergeUrl, DocHandle<T> | undefined>
 
 /**
- * Handles for several documents, from the Repo in {@link RepoContext}. For
- * handles typed with the features the Repo's backend adds, use
- * {@link createRepoHooks}.
+ * Handles for several documents, from the Repo in {@link RepoContext}, as
+ * plain `DocHandle`s. In app code, prefer the `useDocHandles` from
+ * {@link createRepoHooks}: its handles have the features the Repo's backend
+ * adds.
  */
 export function useDocHandles<T>(
   ids: AutomergeUrl[],

@@ -11,6 +11,8 @@ import type { Accessor, Resource } from "solid-js"
 
 /**
  * get a fine-grained live view of a document, and its handle, from a URL.
+ * The handle is a plain `DocHandle`; in app code, prefer the `useDocument`
+ * from {@link createRepoPrimitives}.
  * @param url a function that returns a url
  */
 export default function useDocument<T extends object>(

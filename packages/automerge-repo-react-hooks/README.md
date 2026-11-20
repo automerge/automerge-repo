@@ -2,6 +2,25 @@
 
 These hooks are provided as helpers for using Automerge in your React project.
 
+#### [createRepoHooks](./src/createRepoHooks.ts)
+
+The recommended way to use the hooks. It makes a provider and the hooks
+(`useRepo`, `useDocument`, `useDocuments`, `useDocHandle`, `useDocHandles`,
+`usePresence`), typed for one Repo, with the features its backend adds to handles.
+Make them once next to the Repo and import every hook from there:
+
+```ts
+export const repo = new Repo({ backend })
+export const { RepoProvider, useRepo, useDocument, useDocHandle } =
+  createRepoHooks(repo)
+```
+
+Each call makes its own provider, so several Repos can be used at once. See
+[React usage](../automerge-react/README.md#react-usage).
+
+The hooks are also exported directly, for existing apps and shared components; they
+read the Repo from `RepoContext` and give plain handles.
+
 #### [useLocalAwareness](./src/useLocalAwareness.ts) & [useRemoteAwareness](./src/useRemoteAwareness.ts)
 
 These hooks implement ephemeral awareness/presence, similar to [Yjs Awareness](https://docs.yjs.dev/getting-started/adding-awareness).
@@ -10,18 +29,14 @@ They allow temporary state to be shared, such as cursor positions or peer online
 Ephemeral messages are replicated between peers, but not saved to the Automerge doc, and are used for temporary updates that will be discarded.
 
 They need a handle with ephemeral messaging, which the Repo's backend provides (e.g. the Subduction backend).
+Deprecated in favour of `usePresence`, so `createRepoHooks` does not include them.
 
 #### [useRepo/RepoContext](./src/useRepo.ts)
 
-Use RepoContext to set up react context for an Automerge repo.
+Use RepoContext to set up react context for an Automerge repo, without the factory.
 Use useRepo to lookup the repo from context.
-Most hooks depend on RepoContext being available.
-
-#### [createRepoHooks](./src/createRepoHooks.ts)
-
-A provider and `useRepo`, `useDocHandle` and `useDocHandles` typed for one Repo, with
-the features its backend adds to handles. See
-[Typed handles](../automerge-react/README.md#typed-handles).
+The package-level hooks depend on RepoContext being available; the factory's
+provider sets it too.
 
 #### [useDocument](./src/useDocument.ts)
 
