@@ -1,6 +1,6 @@
 {
   "name": "@automerge/react",
-  "version": "3.0.0-experimental.4",
+  "version": "3.0.0-experimental.5",
   "description": "Repo and React hooks in one convenience package",
   "repository": {
     "type": "git",
