@@ -7,6 +7,7 @@ import type { HandleOf } from "../src/Repo.js"
 import type { DocHandleChangePayload } from "../src/DocHandleEvents.js"
 import type { DocumentQuery, QueryState } from "../src/DocumentQuery.js"
 import type { UrlHeads } from "../src/types.js"
+import type { AnyDocType } from "../src/DocType.js"
 import type {
   AnyHandleExtension,
   EventFor,
@@ -185,8 +186,15 @@ hA.on("change", ({ handle }) => {
 })
 // Listeners written against plain handles attach everywhere.
 const plainListener = ({ handle }: { handle: DocHandle<any> }) => handle.url
-repoA.on("document", plainListener)
 hA.on("delete", plainListener)
+// A Repo's documents may be of any doc type, so its `document` listeners take
+// any handle; one written against Automerge handles no longer attaches.
+// @ts-expect-error `document` handles are not assumed to be Automerge
+repoA.on("document", plainListener)
+repoA.on(
+  "document",
+  ({ handle }: { handle: DocHandle<any, {}, AnyDocType> }) => handle.url
+)
 hA.on("change", (payload: DocHandleChangePayload<Doc>) => payload.patches)
 
 void [ok, bad1, bad2, bad3, bad4, bad5, bad6, gap1, gap2, bad9, okBoth]

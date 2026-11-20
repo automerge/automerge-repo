@@ -4,7 +4,7 @@
 import { Handle, handleState } from "../Handle.js"
 import type { AutomergeHandle } from "../automerge/handle.js"
 import type { AutomergeDocType } from "../automerge/docType.js"
-import type { AnyDocType } from "../DocType.js"
+import type { AnyDocType, DocType } from "../DocType.js"
 import type {
   ExtensionMembers,
   HandleExtensionSpec,
@@ -19,11 +19,10 @@ export interface AnyDocHandle<
 }
 
 /** The handle a doc type's class makes, before backend extensions. */
-export type HandleOfType<D extends AnyDocType> = D extends {
-  handle: abstract new (...args: any) => infer H
-}
-  ? H
-  : Handle<unknown>
+export type HandleOfType<D extends AnyDocType> =
+  D extends DocType<any, any, any, any, any, infer C>
+    ? InstanceType<C>
+    : Handle<unknown>
 
 /**
  * A handle to one document: its doc type's handle class, and the members

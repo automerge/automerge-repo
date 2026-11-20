@@ -274,8 +274,8 @@ export class AutomergeHandle<
    * @param heads - The heads to view the document at. See history().
    * @returns DocHandle<T> at the time of `heads`
    */
-  view(heads: UrlHeads): Handle<T, X> {
-    return this.#createSubHandle([], { heads }) as Handle<T, X>
+  view(heads: UrlHeads): this {
+    return this.#createSubHandle([], { heads }) as this
   }
 
   /**

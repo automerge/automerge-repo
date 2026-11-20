@@ -37,12 +37,14 @@ export interface DocType<
   Change = unknown,
   Init = unknown,
   Scheme extends string = string,
+  H extends HandleClass = HandleClass,
 > {
   /** URL scheme and identity, e.g. `automerge`. */
   readonly scheme: Scheme
 
-  /** A new document's state, with at least one commit. */
-  create(init: Init, context: DocTypeContext): State
+  /** A new document's state, with at least one commit. Its ID is not
+   * known yet: the backend allocates it from the first records. */
+  create(init: Init, context: Pick<DocTypeContext, "repoId">): State
 
   /** What `handle.doc()` returns. */
   value(state: State): View
@@ -83,7 +85,7 @@ export interface DocType<
    * The class of this type's handles: {@link Handle}, or a subclass with
    * the type's reading and editing API. Defaults to `Handle`.
    */
-  readonly handle?: HandleClass
+  readonly handle?: H
 
   /** @internal Identity of a handle scope, for caching derived handles. */
   scopeKey?(scope: unknown): string
@@ -110,18 +112,23 @@ export interface StateChange<State> {
   initial: boolean
 }
 
-export type AnyDocType = DocType<any, any, any, any, string>
+export type AnyDocType = DocType<any, any, any, any, string, any>
 
-/** Infer a type's parameters from its definition. */
+/** What `create` takes for a doc type. */
+export type InitOf<D> =
+  D extends DocType<any, any, any, infer I, any> ? I : never
+
+/** Infer a type's parameters, and its handle class, from its definition. */
 export const defineDocType = <
   State,
   View,
   Change,
   Init,
   const Scheme extends string,
+  H extends HandleClass,
 >(
-  type: DocType<State, View, Change, Init, Scheme>
-): DocType<State, View, Change, Init, Scheme> => type
+  type: DocType<State, View, Change, Init, Scheme, H>
+): DocType<State, View, Change, Init, Scheme, H> => type
 
 /** `other`'s history added to `state`, with the type's `merge` if it has one. */
 export function mergeStates<State>(

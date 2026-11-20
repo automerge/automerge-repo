@@ -75,8 +75,11 @@ export function deriveHandle(
  * current or fixed heads, the type's `change`, views, merging, deletion, and
  * events. Document types add their own members to it.
  */
+// `S` and `X` are for subclasses and `DocHandle`, which read them.
 export class Handle<
+  // oxlint-disable-next-line no-unused-vars
   S = unknown,
+  // oxlint-disable-next-line no-unused-vars
   X extends HandleExtensionSpec = {},
   E extends object = CoreHandleEvents,
 > {
@@ -149,8 +152,8 @@ export class Handle<
   }
 
   /** A read-only handle to the document as of `heads`. */
-  view(heads: UrlHeads): Handle<S, X, E> {
-    return deriveHandle(this, this.#scope, heads) as Handle<S, X, E>
+  view(heads: UrlHeads): this {
+    return deriveHandle(this, this.#scope, heads) as this
   }
 
   /** Returns the heads and the timestamp of the last update from the given peer. */

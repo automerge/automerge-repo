@@ -1,5 +1,7 @@
 import type { DocHandle } from "./types/DocHandle.js"
 import type { HandleExtensionSpec } from "./sedimentree/extension.js"
+import type { AnyDocType } from "./DocType.js"
+import type { AutomergeDocType } from "./automerge/docType.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { Segment } from "./subdoc-handles/types.js"
 import { makeLogger } from "./Logger.js"
@@ -17,23 +19,31 @@ const log = makeLogger("automerge-repo:query")
  * - `deleted`: the document was deleted locally. Terminal.
  * - `failed`: observation stopped with an error. Terminal.
  */
-export type QueryState<T, X extends HandleExtensionSpec = {}> =
+export type QueryState<
+  T,
+  X extends HandleExtensionSpec = {},
+  D extends AnyDocType = AutomergeDocType,
+> =
   | { status: "loading" }
-  | { status: "ready"; handle: DocHandle<T, X> }
+  | { status: "ready"; handle: DocHandle<T, X, D> }
   | { status: "unavailable" }
   | { status: "deleted" }
   | { status: "failed"; error: Error }
 
 /** An observable view of a document's readiness, returned by {@link Repo.query}. */
-export interface DocumentQuery<T, X extends HandleExtensionSpec = {}> {
+export interface DocumentQuery<
+  T,
+  X extends HandleExtensionSpec = {},
+  D extends AnyDocType = AutomergeDocType,
+> {
   readonly documentId: DocumentId
   /** The current state. */
-  state(): QueryState<T, X>
+  state(): QueryState<T, X, D>
   /**
    * Called synchronously with the current state, before `subscribe` returns,
    * then on every change. Returns an unsubscribe function.
    */
-  subscribe(callback: (state: QueryState<T, X>) => void): () => void
+  subscribe(callback: (state: QueryState<T, X, D>) => void): () => void
 }
 
 /**
@@ -103,22 +113,27 @@ export class RootQuery<T> implements DocumentQuery<T> {
  * history, then yields a `view(heads)` handle. `onHeadsChanged` watches the
  * document's heads and returns an unsubscribe.
  */
-export function queryAtHeads<T, X extends HandleExtensionSpec = {}>(
-  query: DocumentQuery<T, X>,
+export function queryAtHeads<
+  T,
+  X extends HandleExtensionSpec = {},
+  D extends AnyDocType = AutomergeDocType,
+>(
+  query: DocumentQuery<T, X, D>,
   heads: UrlHeads,
   onHeadsChanged: (fn: () => void) => () => void
-): DocumentQuery<T, X> {
-  const state = (): QueryState<T, X> => {
+): DocumentQuery<T, X, D> {
+  const state = (): QueryState<T, X, D> => {
     const upstream = query.state()
     if (upstream.status !== "ready") return upstream
     if (!upstream.handle.hasHeads(heads)) return { status: "loading" }
-    return { status: "ready", handle: upstream.handle.view(heads) }
+    const handle = upstream.handle.view(heads) as DocHandle<T, X, D>
+    return { status: "ready", handle }
   }
   return {
     documentId: query.documentId,
     state,
     subscribe: callback => {
-      let last: QueryState<T, X> | undefined
+      let last: QueryState<T, X, D> | undefined
       const emit = () => {
         const next = state()
         if (last && statesEqual(last, next)) return
@@ -156,11 +171,15 @@ export function queryAtPath<T, X extends HandleExtensionSpec = {}>(
 }
 
 /** Resolve with the handle once `query` is ready; reject on any other settled state. */
-export function waitUntilReady<T, X extends HandleExtensionSpec = {}>(
-  query: DocumentQuery<T, X>,
+export function waitUntilReady<
+  T,
+  X extends HandleExtensionSpec = {},
+  D extends AnyDocType = AutomergeDocType,
+>(
+  query: DocumentQuery<T, X, D>,
   signal?: AbortSignal
-): Promise<DocHandle<T, X>> {
-  return new Promise<DocHandle<T, X>>((resolve, reject) => {
+): Promise<DocHandle<T, X, D>> {
+  return new Promise<DocHandle<T, X, D>>((resolve, reject) => {
     signal?.throwIfAborted()
     let unsubscribe: (() => void) | undefined
     let settled = false
@@ -173,7 +192,7 @@ export function waitUntilReady<T, X extends HandleExtensionSpec = {}>(
       cleanup()
       reject(signal!.reason)
     }
-    const check = (state: QueryState<T, X>) => {
+    const check = (state: QueryState<T, X, D>) => {
       if (settled || state.status === "loading") return
       cleanup()
       if (state.status === "ready") resolve(state.handle)
@@ -216,7 +235,10 @@ function deliver<S>(callback: (state: S) => void, state: S): void {
   }
 }
 
-function statesEqual(a: QueryState<any>, b: QueryState<any>): boolean {
+function statesEqual(
+  a: QueryState<any, any, any>,
+  b: QueryState<any, any, any>
+): boolean {
   if (a.status !== b.status) return false
   if (a.status === "ready" && b.status === "ready") return a.handle === b.handle
   if (a.status === "failed" && b.status === "failed") return a.error === b.error
