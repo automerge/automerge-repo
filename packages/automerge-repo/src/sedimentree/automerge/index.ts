@@ -135,3 +135,28 @@ export function satisfiesMarker(
   const target = canonicalIds(heads)
   return target.length > 0 && A.hasHeads(doc, target)
 }
+
+/**
+ * The hashes of the changes in `blob`, a single change or a bundle, and the
+ * changes outside it that they depend on. `undefined` if `blob` is
+ * neither.
+ */
+export function changesIn(
+  blob: Uint8Array
+): { hashes: CommitId[]; deps: CommitId[] } | undefined {
+  let bundle: { changes: { hash: string }[]; deps: readonly string[] }
+  try {
+    const change = A.decodeChange(blob)
+    bundle = { changes: [change], deps: change.deps }
+  } catch {
+    try {
+      bundle = A.readBundle(blob)
+    } catch {
+      return undefined
+    }
+  }
+  return {
+    hashes: bundle.changes.map(change => commitId(change.hash)),
+    deps: bundle.deps.map(commitId),
+  }
+}
