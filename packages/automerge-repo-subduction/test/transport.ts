@@ -108,7 +108,7 @@ export class PairedTransport implements N.Transport {
 export type TestSigner = ReturnType<typeof N.createMemorySigner>
 
 interface Endpoint {
-  backend: SubductionBackend
+  backend: Pick<SubductionBackend, "addConnection" | "acceptConnection">
   signer: TestSigner
 }
 
