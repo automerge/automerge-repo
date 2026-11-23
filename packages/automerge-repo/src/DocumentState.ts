@@ -283,10 +283,15 @@ export class DocumentState<T = unknown> {
       this.type.changeDispatcher?.(this, change) ??
       (() => this.#dispatchChange(change))
     this.#events.push(() => {
-      // Heads are document-level: the payload is the whole document.
+      // Heads are document-level: the payload is the whole document's value
+      // (for Automerge, the document itself).
+      let value: { doc: unknown } | undefined
       this.listeners.emitAll(
         "heads-changed",
-        handle => ({ handle, doc: after }),
+        handle => ({
+          handle,
+          doc: (value ??= { doc: this.type.value(after) }).doc,
+        }),
         { writableOnly: true }
       )
       for (const fn of [...this.#headsSubscribers]) {

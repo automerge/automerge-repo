@@ -18,7 +18,8 @@ export type AnyHandle = Handle<any, any, any>
 
 /** The events every handle emits. `V` is what `doc()` returns. */
 export interface CoreHandleEvents<V = unknown, H = AnyHandle> {
-  "heads-changed": (payload: { handle: H; doc: unknown }) => void
+  /** The heads moved. `doc` is the whole document's value. */
+  "heads-changed": (payload: { handle: H; doc: V }) => void
   change: (payload: { handle: H; doc: V | undefined }) => void
   delete: (payload: { handle: H }) => void
   /**

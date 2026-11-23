@@ -44,6 +44,14 @@ describe("a G-Counter doc type", () => {
     expect(seen).toEqual([3])
   })
 
+  it("sends its value in heads-changed events", async () => {
+    const counter = await repo().create(0, { type: gcounter })
+    const seen: number[] = []
+    counter.on("heads-changed", ({ doc }) => seen.push(doc))
+    await counter.increment(3)
+    expect(seen).toEqual([3])
+  })
+
   it("has backend extension members too", async () => {
     const backend = Object.assign(new MemoryBackend(), {
       handleExtensions: provides(describes),
