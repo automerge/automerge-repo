@@ -1,4 +1,5 @@
-import type { DocHandle } from "../types/DocHandle.js"
+import type { CoreHandle } from "../types/DocHandle.js"
+import type { AnyHandle } from "../Handle.js"
 import type { DocumentId, RepoId } from "../types.js"
 import type { SedimentreeSession } from "./backend.js"
 import type { SedimentreeId } from "./ids.js"
@@ -82,17 +83,23 @@ type ContextualMember<X extends HandleExtensionSpec, F> = F extends (
   ...args: infer A
 ) => infer R
   ? ((...args: A) => R) extends F
-    ? Contextual<X, A, R>
-    : H extends DocHandle<unknown>
-      ? Contextual<X, A, R>
+    ? Contextual<
+        X,
+        A,
+        R,
+        H extends AnyHandle ? H & ExtensionMembers<X> : CoreHandle<X>
+      >
+    : H extends AnyHandle
+      ? Contextual<X, A, R, H & ExtensionMembers<X>>
       : never
   : never
 
-type Contextual<X extends HandleExtensionSpec, A extends unknown[], R> = (
-  context: ExtensionContext<X>,
-  handle: DocHandle<unknown, X>,
-  ...args: A
-) => R
+type Contextual<
+  X extends HandleExtensionSpec,
+  A extends unknown[],
+  R,
+  H = CoreHandle<X>,
+> = (context: ExtensionContext<X>, handle: H, ...args: A) => R
 
 /** What `receive` must be when a spec's `receives` does not list its kinds
  * by name: an index signature (`Record<string, …>`) or a non-string key. No

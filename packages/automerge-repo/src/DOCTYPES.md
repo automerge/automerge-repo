@@ -46,23 +46,9 @@ A type is its storage rules plus, optionally, a handle class: a subclass of
 `Handle` with the type's reading and editing API.
 
 ```ts
-import {
-  defineDocType,
-  Handle,
-  type CoreHandleEvents,
-} from "@automerge/automerge-repo"
+import { defineDocType, Handle } from "@automerge/automerge-repo"
 
-export class CounterHandle<X extends HandleExtensionSpec = {}> extends Handle<
-  CounterState,
-  X,
-  CoreHandleEvents<number>
-> {
-  override doc(): number {
-    return super.doc() as number
-  }
-  override change(amount: number) {
-    return super.change(amount)
-  }
+export class CounterHandle extends Handle<number, number> {
   increment(amount = 1) {
     return this.change(amount)
   }
@@ -78,7 +64,7 @@ export const gcounter = defineDocType({
   hasHeads: (state, heads) => heads.every(h => isApplied(state, h)),
   recordsSince: (state, heads) => commitsOutside(state, heads),
   view: (state, heads) => stateAt(state, heads), // optional
-  handle: CounterHandle, // optional; defaults to Handle
+  handle: CounterHandle, // optional; defaults to Handle<View, Change>
 })
 ```
 

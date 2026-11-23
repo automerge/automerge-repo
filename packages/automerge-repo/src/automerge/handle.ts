@@ -110,7 +110,11 @@ export type HandleEvents<
 export class AutomergeHandle<
   T,
   X extends HandleExtensionSpec = {},
-> extends BaseHandle<A.Doc<T>, X, HandleEvents<T, X>> {
+> extends BaseHandle<
+  A.Doc<T> | undefined,
+  A.ChangeFn<T> | SubChangeFn<T> | T,
+  HandleEvents<T, X>
+> {
   /** Shared per-document state. Every handle into the same doc shares one;
    * a sub-handle's `T` is its scoped value's type, not the document's. */
   get #state(): DocumentState<any> {

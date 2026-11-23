@@ -403,11 +403,13 @@ export class Document<T> {
         }
         const unknown = this.#unknown(event.records)
         if (unknown.length) {
-          const next = this.type.apply(this.state.doc, unknown)
-          void this.state.applyMutation(() => next, {
-            incoming: true,
-            initial: this.query.pending,
-          })
+          void this.state.applyMutation(
+            current => this.type.apply(current, unknown),
+            {
+              incoming: true,
+              initial: this.query.pending,
+            }
+          )
         }
         // Every stored fragment, including echoes of our own and those in
         // this same batch, covers its head and checkpoints.
@@ -497,8 +499,7 @@ export class Document<T> {
       const next = this.type.apply(undefined, unknown)
       void this.state.applyLoaded(next, this.query.pending)
     } else {
-      const next = this.type.apply(current, unknown)
-      void this.state.applyMutation(() => next, {
+      void this.state.applyMutation(doc => this.type.apply(doc, unknown), {
         incoming: true,
         initial: this.query.pending,
       })

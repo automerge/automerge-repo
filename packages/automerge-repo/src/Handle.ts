@@ -5,7 +5,6 @@ import {
 } from "./AutomergeUrl.js"
 import type { DocumentState } from "./DocumentState.js"
 import { mergeStates } from "./DocType.js"
-import type { HandleExtensionSpec } from "./sedimentree/extension.js"
 import type {
   DocumentId,
   DocumentUrl,
@@ -14,8 +13,11 @@ import type {
   UrlHeads,
 } from "./types.js"
 
+/** A handle of any view, change and event types. */
+export type AnyHandle = Handle<any, any, any>
+
 /** The events every handle emits. `V` is what `doc()` returns. */
-export interface CoreHandleEvents<V = unknown, H = Handle<any, any, any>> {
+export interface CoreHandleEvents<V = unknown, H = AnyHandle> {
   "heads-changed": (payload: { handle: H; doc: unknown }) => void
   change: (payload: { handle: H; doc: V | undefined }) => void
   delete: (payload: { handle: H }) => void
@@ -31,6 +33,24 @@ export interface CoreHandleEvents<V = unknown, H = Handle<any, any, any>> {
   }) => void
 }
 
+/** Event subscription methods for an event map `E`. */
+export interface HandleEventApi<E extends object> {
+  on<K extends keyof E>(event: K, fn: E[K]): this
+  addListener<K extends keyof E>(event: K, fn: E[K]): this
+  once<K extends keyof E>(event: K, fn: E[K]): this
+  off<K extends keyof E>(event: K): this
+  off<K extends keyof E>(event: K, fn: E[K] | undefined): this
+  removeListener<K extends keyof E>(event: K): this
+  removeListener<K extends keyof E>(event: K, fn: E[K] | undefined): this
+  removeAllListeners<K extends keyof E>(event?: K): this
+  listenerCount<K extends keyof E>(event: K): number
+  listeners<K extends keyof E>(event: K): E[K][]
+  emit<K extends keyof E>(
+    event: K,
+    payload: E[K] extends (payload: infer P) => any ? P : never
+  ): boolean
+}
+
 /** @internal Construction options; only Repo and other handles build handles. */
 export type HandleOptions = {
   heads?: UrlHeads
@@ -38,27 +58,26 @@ export type HandleOptions = {
   scope?: unknown
 }
 
-let stateOf: (handle: Handle<any, any, any>) => DocumentState<any>
-let scopeOf: (handle: Handle<any, any, any>) => unknown
-let fixedHeadsOf: (handle: Handle<any, any, any>) => UrlHeads | undefined
+let stateOf: (handle: AnyHandle) => DocumentState<any>
+let scopeOf: (handle: AnyHandle) => unknown
+let fixedHeadsOf: (handle: AnyHandle) => UrlHeads | undefined
 
 /** @internal The document state behind a handle. */
-export const handleState = (handle: Handle<any, any, any>) => stateOf(handle)
+export const handleState = (handle: AnyHandle) => stateOf(handle)
 /** @internal A handle's scope; `undefined` for the whole document. */
-export const handleScope = (handle: Handle<any, any, any>) => scopeOf(handle)
+export const handleScope = (handle: AnyHandle) => scopeOf(handle)
 /** @internal A handle's fixed heads, if it is a view. */
-export const handleHeads = (handle: Handle<any, any, any>) =>
-  fixedHeadsOf(handle)
+export const handleHeads = (handle: AnyHandle) => fixedHeadsOf(handle)
 
 /**
  * @internal The handle for `scope` at `heads` on `handle`'s document: the
  * cached one, or a new one of the document's handle class.
  */
 export function deriveHandle(
-  handle: Handle<any, any, any>,
+  handle: AnyHandle,
   scope: unknown,
   heads: UrlHeads | undefined
-): Handle<any, any, any> {
+): AnyHandle {
   const state = stateOf(handle)
   if (scope === undefined && !heads) return state.handle
   const scopeKey = scope === undefined ? "" : state.type.scopeKey?.(scope)
@@ -73,16 +92,17 @@ export function deriveHandle(
 /**
  * The parts of a handle every document type has: identity, reading at the
  * current or fixed heads, the type's `change`, views, merging, deletion, and
- * events. Document types add their own members to it.
+ * events. Document types may subclass it to add their own API.
+ *
+ * `V` is what `doc()` returns, `C` what `change()` takes, and `E` the
+ * handle's own events. Backend extension members and events are added by the
+ * Repo; see {@link DocHandle}.
  */
-// `S` and `X` are for subclasses and `DocHandle`, which read them.
 export class Handle<
-  // oxlint-disable-next-line no-unused-vars
-  S = unknown,
-  // oxlint-disable-next-line no-unused-vars
-  X extends HandleExtensionSpec = {},
-  E extends object = CoreHandleEvents,
-> {
+  V = unknown,
+  C = unknown,
+  E extends object = CoreHandleEvents<V>,
+> implements HandleEventApi<E> {
   static {
     stateOf = handle => handle.#state
     scopeOf = handle => handle.#scope
@@ -126,8 +146,8 @@ export class Handle<
   isDeleted = () => this.#state.deleted
 
   /** The document's value at this handle's heads. */
-  doc(): unknown {
-    return this.#state.type.value(this.#state.viewAt(this.#heads))
+  doc(): V {
+    return this.#state.type.value(this.#state.viewAt(this.#heads)) as V
   }
 
   /**
@@ -166,7 +186,7 @@ export class Handle<
    * immediate. The returned promise resolves once this change and every
    * earlier local change are recoverable; it does not wait for peers.
    */
-  change(change: unknown): Promise<void> {
+  change(change: C): Promise<void> {
     this.#throwIfFixedHeads("change")
     const state = this.#state
     return state.applyMutation(doc =>
@@ -186,7 +206,7 @@ export class Handle<
    * Bring another document's history into this one; both must be of the same
    * type. Peers receive the result like any change.
    */
-  merge(other: Handle<any, any, any>): Promise<void> {
+  merge(other: AnyHandle): Promise<void> {
     this.#throwIfFixedHeads("merge")
     const { type } = this.#state
     const otherState = other.#state
@@ -210,7 +230,7 @@ export class Handle<
   }
 
   /** True if the other handle has the same URL as this one. */
-  equals(other: Handle<any, any, any>): boolean {
+  equals(other: AnyHandle): boolean {
     return this.url === other.url
   }
 

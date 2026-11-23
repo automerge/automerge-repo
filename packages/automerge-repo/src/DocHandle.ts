@@ -1,8 +1,5 @@
-import { Handle, handleState } from "./Handle.js"
-import type {
-  AnyHandleExtension,
-  HandleExtensionSpec,
-} from "./sedimentree/extension.js"
+import { Handle, handleState, type AnyHandle } from "./Handle.js"
+import type { AnyHandleExtension } from "./sedimentree/extension.js"
 
 export type { HandleEvents } from "./automerge/handle.js"
 
@@ -23,11 +20,11 @@ export function extendHandle<C extends typeof Handle<any, any, any>>(
   Base: C
 ): C {
   if (!extensions.length) return Base
-  class Extended<
-    S,
-    X extends HandleExtensionSpec = {},
-    E extends object = any,
-  > extends (Base as typeof Handle)<S, X, E> {}
+  class Extended<V, C, E extends object = any> extends (Base as typeof Handle)<
+    V,
+    C,
+    E
+  > {}
   const kinds = new Set<string>()
   for (const { members, receive = {} } of extensions) {
     // The keys Repo routes events by: own string keys.
@@ -46,7 +43,7 @@ export function extendHandle<C extends typeof Handle<any, any, any>>(
         throw new Error(`A handle extension redefines ${String(name)}`)
       const member = members[name]
       Object.defineProperty(Extended.prototype, name, {
-        value: function (this: Handle<any, any, any>, ...args: unknown[]) {
+        value: function (this: AnyHandle, ...args: unknown[]) {
           return member(handleState(this).extensionContext, this, ...args)
         },
         writable: true,

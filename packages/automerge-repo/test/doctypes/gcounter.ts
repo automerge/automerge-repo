@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto"
 import { defineDocType } from "../../src/DocType.js"
-import { Handle, type CoreHandleEvents } from "../../src/Handle.js"
-import type { HandleExtensionSpec } from "../../src/sedimentree/extension.js"
+import { Handle } from "../../src/Handle.js"
 import type {
   CommitId,
   LooseCommitRecord,
@@ -77,19 +76,7 @@ function ancestors(state: CounterState, heads: readonly string[]): Set<string> {
 }
 
 /** A G-Counter's handle: reads the total, and changes it by an amount. */
-export class CounterHandle<X extends HandleExtensionSpec = {}> extends Handle<
-  CounterState,
-  X,
-  CoreHandleEvents<number>
-> {
-  override doc(): number {
-    return super.doc() as number
-  }
-
-  override change(amount: number): Promise<void> {
-    return super.change(amount)
-  }
-
+export class CounterHandle extends Handle<number, number> {
   increment(amount = 1): Promise<void> {
     return this.change(amount)
   }

@@ -1,11 +1,12 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { Repo } from "../../src/Repo.js"
 import { automerge } from "../../src/automerge/docType.js"
 import { isHandleOf } from "../../src/types/DocHandle.js"
 import { stringifyDocumentUrl } from "../../src/AutomergeUrl.js"
+import { defineDocType } from "../../src/DocType.js"
 import { defineExtension, provides } from "../../src/sedimentree/index.js"
 import { MemoryBackend } from "../../src/sedimentree/memory/MemoryBackend.js"
-import { gcounter } from "./gcounter.js"
+import { gcounter, type CounterState } from "./gcounter.js"
 import type { AutomergeUrl } from "../../src/types.js"
 
 /** A member every handle of a Repo on its backend gets. */
@@ -104,6 +105,55 @@ describe("a G-Counter doc type", () => {
     await expect(r.clone(counter as any)).rejects.toThrow(/cloned/)
     const withPath = `${counter.url}/path` as AutomergeUrl
     expect(() => r.query(withPath, { type: gcounter })).toThrow(/no paths/)
+  })
+
+  it("fires change, heads-changed and resolves find(url#heads) when apply mutates state in place", async () => {
+    const copyInto = (
+      target: CounterState | undefined,
+      next: CounterState
+    ): CounterState => {
+      if (!target) return next
+      const applied = target.applied as Map<string, any>
+      const pending = target.pending as Map<string, any>
+      applied.clear()
+      for (const [k, v] of next.applied) applied.set(k, v)
+      pending.clear()
+      for (const [k, v] of next.pending) pending.set(k, v)
+      return target
+    }
+    const mutable = defineDocType({
+      ...gcounter,
+      scheme: "mutable-gcounter",
+      change: (state, amount: number, ctx) =>
+        copyInto(state, gcounter.change(state, amount, ctx)),
+      apply: (state, records) =>
+        copyInto(state, gcounter.apply(state, records)),
+    })
+    const backend = new MemoryBackend()
+    const a = repo(backend)
+    const b = repo(backend)
+    const writer = await a.create(1, { type: mutable })
+    const reader = await b.find(writer.url, { type: mutable })
+    const changes: unknown[] = []
+    let headsChanged = 0
+    reader.on("change", ({ doc }) => changes.push(doc))
+    reader.on("heads-changed", () => headsChanged++)
+    // Edit on writer: produces a future head we also ask `b.find(url#heads)` to wait for.
+    const isolated = repo()
+    const fork = await isolated.create(0, { type: mutable })
+    await fork.merge(writer)
+    await fork.increment(4)
+    const targetUrl = stringifyDocumentUrl({
+      scheme: "mutable-gcounter",
+      documentId: writer.documentId,
+      heads: fork.heads(),
+    })
+    const waiting = b.find(targetUrl, { type: mutable })
+    await writer.merge(fork)
+    await vi.waitFor(() => expect(reader.doc()).toBe(5))
+    expect(changes).toEqual([5])
+    expect(headsChanged).toBe(1)
+    expect((await waiting).doc()).toBe(5)
   })
 })
 

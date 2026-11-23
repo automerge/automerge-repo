@@ -1,6 +1,9 @@
 // Fullfat initializes the native runtime borrowed by the backend's slim import.
 import "@automerge/subduction"
 import { next as A } from "@automerge/automerge"
+import { describe, expect, it, vi } from "vitest"
+import { Repo } from "../../automerge-repo/src/Repo.js"
+import { Presence } from "../../automerge-repo/src/presence/Presence.js"
 import { automerge } from "../../automerge-repo/src/automerge/docType.js"
 // The acceptance suite and the G-Counter live in the core package's sources;
 // neither is exported.
@@ -47,3 +50,66 @@ runDocTypeTests("gcounter over Subduction", () => ({
   edit: handle => handle.increment(),
   backends,
 }))
+
+describe("gcounter with Subduction backend extensions", () => {
+  it("exchanges ephemeral messages and Presence over a G-Counter and its view", async () => {
+    const aBackend = new SubductionBackend({
+      storage: new DummySubductionStorageAdapter(),
+      syncTimeoutMilliseconds: 1000,
+    })
+    const bBackend = new SubductionBackend({
+      storage: new DummySubductionStorageAdapter(),
+      network: [new LinkedAdapter(aBackend)],
+      syncTimeoutMilliseconds: 1000,
+    })
+    const a = new Repo({ backend: aBackend as any })
+    const b = new Repo({ backend: bBackend as any })
+    try {
+      const counterA = await a.create(1, { type: gcounter })
+      await a.flush()
+      const counterB = await b.find(counterA.url, { type: gcounter })
+      const viewB = counterB.view(counterB.heads())
+
+      const received: unknown[] = []
+      const receivedOnView: unknown[] = []
+      ;(counterB as any).on("ephemeral-message", (p: any) =>
+        received.push(p.message)
+      )
+      ;(viewB as any).on("ephemeral-message", (p: any) =>
+        receivedOnView.push(p.message)
+      )
+      ;(counterA as any).broadcast({ ping: 42 })
+
+      await vi.waitFor(
+        () => {
+          expect(received).toContainEqual({ ping: 42 })
+          expect(receivedOnView).toContainEqual({ ping: 42 })
+        },
+        { timeout: 5000, interval: 10 }
+      )
+
+      const presenceA = new Presence({ handle: counterA as any })
+      const presenceB = new Presence({ handle: counterB as any })
+      presenceA.start({ initialState: { cursor: 7 } })
+      presenceB.start({ initialState: { cursor: 9 } })
+      try {
+        await vi.waitFor(
+          () => {
+            expect(presenceB.getPeerStates().value[a.id]?.value).toEqual({
+              cursor: 7,
+            })
+            expect(presenceA.getPeerStates().value[b.id]?.value).toEqual({
+              cursor: 9,
+            })
+          },
+          { timeout: 5000, interval: 10 }
+        )
+      } finally {
+        presenceA.stop()
+        presenceB.stop()
+      }
+    } finally {
+      await Promise.allSettled([a.shutdown(), b.shutdown()])
+    }
+  })
+})

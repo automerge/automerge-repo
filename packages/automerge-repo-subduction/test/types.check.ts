@@ -3,6 +3,9 @@ import {
   MemoryBackend,
   Repo,
   Presence,
+  Handle,
+  defineDocType,
+  isHandleOf,
   type DocHandle,
 } from "@automerge/automerge-repo/slim"
 import type { SedimentreeBackend } from "@automerge/automerge-repo/sedimentree"
@@ -135,3 +138,57 @@ type Names = ReturnType<typeof named.eventNames>[number]
 type Listed<N> = N extends string ? (string extends N ? never : N) : never
 const listed: Listed<Names>[] = ["ephemeral-message", "change"]
 void listed
+
+// A non-Automerge doc type on Subduction gets ephemeral members, events and Presence.
+class CounterHandle extends Handle<number, number> {
+  increment(by = 1): Promise<void> {
+    return this.change(by)
+  }
+}
+const counterType = defineDocType({
+  scheme: "counter",
+  create: (n: number) => ({ n }),
+  value: s => s.n,
+  change: (s, by: number) => ({ n: s.n + by }),
+  apply: () => ({ n: 0 }),
+  heads: () => [],
+  hasHeads: () => false,
+  recordsSince: () => [],
+  handle: CounterHandle,
+})
+
+async function counterWithSubduction() {
+  const repo = new Repo({ backend })
+  const counter = await repo.create(1, { type: counterType })
+  counter.doc() satisfies number
+  void counter.increment(2)
+  counter.broadcast("hi")
+  counter.on("ephemeral-message", ({ senderId, message, handle: h }) => {
+    senderId satisfies string
+    message satisfies unknown
+    h.broadcast("reply")
+    void h.increment(1)
+  })
+  new Presence({ handle: counter })
+
+  const view = counter.view(counter.heads())
+  view.broadcast("from-view")
+  view.on("ephemeral-message", ({ senderId }) => senderId satisfies string)
+  new Presence({ handle: view })
+
+  const listedHandle = repo.handles[counter.documentId]
+  if (isHandleOf(listedHandle, counterType)) {
+    listedHandle.doc() satisfies number
+    listedHandle.broadcast("from-handles")
+    new Presence({ handle: listedHandle })
+  }
+
+  const plainCounter = await new Repo().create(1, { type: counterType })
+  // @ts-expect-error plain backend has no broadcast
+  plainCounter.broadcast("hi")
+  // @ts-expect-error plain backend has no ephemeral-message
+  plainCounter.on("ephemeral-message", () => {})
+  // @ts-expect-error plain counter is not a PresenceHandle
+  new Presence({ handle: plainCounter })
+}
+void counterWithSubduction

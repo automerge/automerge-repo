@@ -37,7 +37,7 @@ export interface DocType<
   Change = unknown,
   Init = unknown,
   Scheme extends string = string,
-  H extends HandleClass = HandleClass,
+  H extends HandleClass | undefined = HandleClass | undefined,
 > {
   /** URL scheme and identity, e.g. `automerge`. */
   readonly scheme: Scheme
@@ -118,8 +118,8 @@ export type AnyDocType = DocType<any, any, any, any, string, any>
 export type InitOf<D> =
   D extends DocType<any, any, any, infer I, any> ? I : never
 
-/** Infer a type's parameters, and its handle class, from its definition. */
-export const defineDocType = <
+/** Infer a type's parameters, and its handle class if given, from its definition. */
+export function defineDocType<
   State,
   View,
   Change,
@@ -127,8 +127,22 @@ export const defineDocType = <
   const Scheme extends string,
   H extends HandleClass,
 >(
-  type: DocType<State, View, Change, Init, Scheme, H>
-): DocType<State, View, Change, Init, Scheme, H> => type
+  type: DocType<State, View, Change, Init, Scheme, H> & { readonly handle: H }
+): DocType<State, View, Change, Init, Scheme, H> & { readonly handle: H }
+export function defineDocType<
+  State,
+  View,
+  Change,
+  Init,
+  const Scheme extends string,
+>(
+  type: DocType<State, View, Change, Init, Scheme, undefined> & {
+    readonly handle?: undefined
+  }
+): DocType<State, View, Change, Init, Scheme, undefined>
+export function defineDocType(type: AnyDocType): AnyDocType {
+  return type
+}
 
 /** `other`'s history added to `state`, with the type's `merge` if it has one. */
 export function mergeStates<State>(
