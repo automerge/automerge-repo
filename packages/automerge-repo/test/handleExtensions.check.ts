@@ -190,6 +190,15 @@ hA.sub("title").on("change", ({ handle, doc }) => {
   return same
 })
 hA.once("delete", ({ handle }) => handle.a())
+const listed = hA.listeners("change")
+const listedFn: Equal<
+  Parameters<(typeof listed)[number]>[0]["handle"],
+  typeof hA
+> = true
+void listedFn
+hA.emit("delete", { handle: hA })
+// @ts-expect-error the payload's handle is the handle emitted on
+hA.emit("delete", { handle: hPlain })
 hPlain.on("change", ({ handle }) => {
   // @ts-expect-error a plain backend's handles have no `a`
   handle.a()

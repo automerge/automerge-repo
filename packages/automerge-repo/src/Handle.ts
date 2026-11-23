@@ -40,9 +40,17 @@ export interface CoreHandleEvents<V = unknown, H = AnyHandle> {
  */
 export type ListenerOn<F, This> = F extends (payload: infer P) => infer R
   ? P extends { handle: unknown }
-    ? (payload: { [Q in keyof P]: Q extends "handle" ? This : P[Q] }) => R
+    ? (payload: PayloadOn<F, This>) => R
     : F
   : F
+
+/** The payload of an event whose listeners are typed `F`, on handle `This`:
+ * its `handle` is `This`. */
+export type PayloadOn<F, This> = F extends (payload: infer P) => any
+  ? P extends { handle: unknown }
+    ? { [Q in keyof P]: Q extends "handle" ? This : P[Q] }
+    : P
+  : never
 
 /** Event subscription methods for an event map `E`. */
 export interface HandleEventApi<E extends object> {
@@ -58,11 +66,8 @@ export interface HandleEventApi<E extends object> {
   ): this
   removeAllListeners<K extends keyof E>(event?: K): this
   listenerCount<K extends keyof E>(event: K): number
-  listeners<K extends keyof E>(event: K): E[K][]
-  emit<K extends keyof E>(
-    event: K,
-    payload: E[K] extends (payload: infer P) => any ? P : never
-  ): boolean
+  listeners<K extends keyof E>(event: K): ListenerOn<E[K], this>[]
+  emit<K extends keyof E>(event: K, payload: PayloadOn<E[K], this>): boolean
 }
 
 /** @internal Construction options; only Repo and other handles build handles. */
@@ -327,8 +332,11 @@ export class Handle<
   }
 
   /** Snapshot of currently-registered listener functions for the given event. */
-  listeners<K extends keyof E>(event: K): E[K][] {
-    return this.#state.listeners.listeners(this, event as string) as E[K][]
+  listeners<K extends keyof E>(event: K): ListenerOn<E[K], this>[] {
+    return this.#state.listeners.listeners(this, event as string) as ListenerOn<
+      E[K],
+      this
+    >[]
   }
 
   /**
@@ -347,10 +355,7 @@ export class Handle<
    * @deprecated Events come from the document; emitting one by hand shows
    * every listener on this shared handle an event that didn't happen.
    */
-  emit<K extends keyof E>(
-    event: K,
-    payload: E[K] extends (payload: infer P) => any ? P : never
-  ): boolean {
+  emit<K extends keyof E>(event: K, payload: PayloadOn<E[K], this>): boolean {
     return this.#state.listeners.emit(this, event as string, payload)
   }
 }
