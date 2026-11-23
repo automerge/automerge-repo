@@ -33,15 +33,29 @@ export interface CoreHandleEvents<V = unknown, H = AnyHandle> {
   }) => void
 }
 
+/**
+ * The listener for an event whose listeners are typed `F`, on handle `This`:
+ * a payload `handle` is `This`, the handle listened on, with whatever members
+ * its type adds (a backend's, say).
+ */
+export type ListenerOn<F, This> = F extends (payload: infer P) => infer R
+  ? P extends { handle: unknown }
+    ? (payload: { [Q in keyof P]: Q extends "handle" ? This : P[Q] }) => R
+    : F
+  : F
+
 /** Event subscription methods for an event map `E`. */
 export interface HandleEventApi<E extends object> {
-  on<K extends keyof E>(event: K, fn: E[K]): this
-  addListener<K extends keyof E>(event: K, fn: E[K]): this
-  once<K extends keyof E>(event: K, fn: E[K]): this
+  on<K extends keyof E>(event: K, fn: ListenerOn<E[K], this>): this
+  addListener<K extends keyof E>(event: K, fn: ListenerOn<E[K], this>): this
+  once<K extends keyof E>(event: K, fn: ListenerOn<E[K], this>): this
   off<K extends keyof E>(event: K): this
-  off<K extends keyof E>(event: K, fn: E[K] | undefined): this
+  off<K extends keyof E>(event: K, fn: ListenerOn<E[K], this> | undefined): this
   removeListener<K extends keyof E>(event: K): this
-  removeListener<K extends keyof E>(event: K, fn: E[K] | undefined): this
+  removeListener<K extends keyof E>(
+    event: K,
+    fn: ListenerOn<E[K], this> | undefined
+  ): this
   removeAllListeners<K extends keyof E>(event?: K): this
   listenerCount<K extends keyof E>(event: K): number
   listeners<K extends keyof E>(event: K): E[K][]
@@ -253,16 +267,16 @@ export class Handle<
   // handle, which holds handles strongly, so any handle with a listener is
   // naturally retained.
 
-  on<K extends keyof E>(event: K, fn: E[K]): this {
+  on<K extends keyof E>(event: K, fn: ListenerOn<E[K], this>): this {
     this.#state.listeners.add(this, event as string, fn as any)
     return this
   }
 
-  addListener<K extends keyof E>(event: K, fn: E[K]): this {
+  addListener<K extends keyof E>(event: K, fn: ListenerOn<E[K], this>): this {
     return this.on(event, fn)
   }
 
-  once<K extends keyof E>(event: K, fn: E[K]): this {
+  once<K extends keyof E>(event: K, fn: ListenerOn<E[K], this>): this {
     this.#state.listeners.add(this, event as string, fn as any, true)
     return this
   }
@@ -272,8 +286,8 @@ export class Handle<
    * listeners other code added. Pass the listener to remove: `off(event, fn)`.
    */
   off<K extends keyof E>(event: K): this
-  off<K extends keyof E>(event: K, fn: E[K] | undefined): this
-  off<K extends keyof E>(event: K, fn?: E[K]): this {
+  off<K extends keyof E>(event: K, fn: ListenerOn<E[K], this> | undefined): this
+  off<K extends keyof E>(event: K, fn?: ListenerOn<E[K], this>): this {
     this.#state.listeners.remove(this, event as string, fn as any)
     return this
   }
@@ -284,8 +298,14 @@ export class Handle<
    * `removeListener(event, fn)`.
    */
   removeListener<K extends keyof E>(event: K): this
-  removeListener<K extends keyof E>(event: K, fn: E[K] | undefined): this
-  removeListener<K extends keyof E>(event: K, fn?: E[K]): this {
+  removeListener<K extends keyof E>(
+    event: K,
+    fn: ListenerOn<E[K], this> | undefined
+  ): this
+  removeListener<K extends keyof E>(
+    event: K,
+    fn?: ListenerOn<E[K], this>
+  ): this {
     return this.off(event, fn)
   }
 

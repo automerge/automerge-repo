@@ -87,7 +87,11 @@ export async function extensionTyping() {
   counter.doc() satisfies number
   void counter.increment(2)
   counter.broadcast("hi")
-  counter.on("change", ({ doc }) => doc satisfies number | undefined)
+  counter.on("change", ({ doc, handle: h }) => {
+    doc satisfies number | undefined
+    void h.increment(1)
+    h.broadcast("changed")
+  })
   counter.on("ephemeral-message", ({ senderId, message, handle: h }) => {
     senderId satisfies PeerId
     message satisfies unknown
@@ -118,6 +122,11 @@ export async function extensionTyping() {
   plain.broadcast("hi")
   // @ts-expect-error no ephemeral-message on plain backend
   plain.on("ephemeral-message", () => {})
+  plain.on("change", ({ handle: h }) => {
+    void h.increment(1)
+    // @ts-expect-error no broadcast on plain backend
+    h.broadcast("hi")
+  })
   // @ts-expect-error plain counter is not a PresenceHandle
   new Presence({ handle: plain })
 

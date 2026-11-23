@@ -91,7 +91,11 @@ export async function types() {
     senderId satisfies PeerId
     handle.get("title") satisfies string
   })
-  todo.on("change", ({ doc }) => doc?.title satisfies string | undefined)
+  todo.on("change", ({ doc, handle }) => {
+    doc?.title satisfies string | undefined
+    handle.get("title") satisfies string
+    handle.broadcast("changed")
+  })
   const view = todo.view(todo.heads())
   view.get("title") satisfies string
   view.broadcast("from a view")

@@ -4,8 +4,8 @@ import type { PeerId, UrlHeads } from "./types.js"
 
 /**
  * These are the events that this DocHandle emits to external listeners.
- * Payloads carry the handle with them, typed as a plain handle: a listener
- * that needs a backend extension's members uses the handle it attached to.
+ * Payloads carry the handle with them, typed as the handle the listener
+ * attached to, backend extension members included.
  */
 export interface DocHandleEvents<T> {
   "heads-changed": (payload: DocHandleHeadsChangedPayload<T>) => void

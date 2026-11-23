@@ -174,15 +174,25 @@ type Equal<A, B> =
 const ofRepo: Equal<HandleOf<typeof repoA, Doc>, DocHandle<Doc, ASpec>> = true
 void ofRepo
 
-// Repo-level event payloads carry the extended handle; handle-level
-// payloads carry a plain one (use the handle the listener attached to).
+// Event payloads carry the handle listened on, backend members included.
 repoA.on("document", ({ handle }) => handle.a())
 // @ts-expect-error
 plainRepo.on("document", ({ handle }) => handle.a())
 hA.on("change", ({ handle }) => {
-  // @ts-expect-error core payload handles are plain; hA itself has `a`
+  const same: Equal<typeof handle, typeof hA> = true
   handle.a()
-  hA.a()
+  return same
+})
+hA.sub("title").on("change", ({ handle, doc }) => {
+  const same: Equal<typeof handle, DocHandle<string, ASpec>> = true
+  handle.a()
+  doc satisfies string | undefined
+  return same
+})
+hA.once("delete", ({ handle }) => handle.a())
+hPlain.on("change", ({ handle }) => {
+  // @ts-expect-error a plain backend's handles have no `a`
+  handle.a()
 })
 // Listeners written against plain handles attach everywhere.
 const plainListener = ({ handle }: { handle: DocHandle<any> }) => handle.url

@@ -45,11 +45,11 @@ async function extended() {
   repo.handles["x" as any].broadcast("h")
   // Repo-level event payloads carry the extended handle.
   repo.on("document", ({ handle }) => handle.broadcast("d"))
-  // Handle-level payloads carry a plain handle: use the attached one.
-  handle.on("change", ({ handle: inner }) => {
-    // @ts-expect-error core payload handles are plain
+  // Handle-level payloads carry the handle listened on.
+  handle.on("change", ({ handle: inner }) => inner.broadcast("c"))
+  handle.sub("title").on("change", ({ handle: inner, doc }) => {
     inner.broadcast("c")
-    handle.broadcast("c")
+    doc satisfies string | undefined
   })
   // @ts-expect-error not an event of this handle
   handle.on("nope", () => {})
