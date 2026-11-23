@@ -115,12 +115,17 @@ type ValueOf<D> =
 type ChangeOf<D> =
   D extends DocType<any, any, infer C, any, any, any> ? C : unknown
 
-/** The handle a doc type makes for shape `T`, before backend extensions:
- * its class (applied to `T` if the type is {@link Shaped}), or the base
- * `Handle` typed from the doc type's `value` and `change`. */
-export type HandleOfType<D extends AnyDocType, T = unknown> =
+/** The handle a doc type makes for shape `T` on a backend with extensions
+ * `X`, before those extensions' members: its class (applied to `T` and `X`
+ * if the type is {@link Shaped}), or the base `Handle` typed from the doc
+ * type's `value` and `change`. */
+export type HandleOfType<
+  D extends AnyDocType,
+  T = unknown,
+  X extends HandleExtensionSpec = {},
+> =
   ShapedOf<D> extends infer K extends Shaped
-    ? ShapedHandle<K, T>
+    ? ShapedHandle<K, T, X>
     : D extends DocType<any, any, any, any, any, infer C>
       ? C extends HandleClass
         ? InstanceType<C>
@@ -144,9 +149,15 @@ export type DocHandle<
   T,
   X extends HandleExtensionSpec = {},
   D extends AnyDocType = AutomergeDocType,
-> = [AnyDocType] extends [D]
-  ? AnyDocHandle<X> & ExtensionMembers<X>
-  : WithBackend<HandleOfType<D, T>, X>
+> = ([AnyDocType] extends [D] ? AnyDocHandle<X> : HandleOfType<D, T, X>) & {
+  readonly "~ext": VisibleSpec<X>
+} & ExtensionMembers<X> &
+  // Written out rather than as `WithBackend<…>`, so TypeScript shows the type
+  // by this name.
+  ExtensionEventsApi<
+    VisibleSpec<X>,
+    [AnyDocType] extends [D] ? AnyDocHandle<X> : HandleOfType<D, T, X>
+  >
 
 /** The class of every handle, for `instanceof`. */
 export const DocHandle = Handle

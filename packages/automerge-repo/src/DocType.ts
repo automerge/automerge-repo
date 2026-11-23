@@ -1,6 +1,7 @@
 import type { DocumentId, RepoId } from "./types.js"
 import type { DocumentState } from "./DocumentState.js"
 import type { Handle, HandleOptions } from "./Handle.js"
+import type { HandleExtensionSpec } from "./sedimentree/extension.js"
 
 /** A class of handles: constructed by the Repo, never by apps. */
 export type HandleClass = new (
@@ -115,9 +116,9 @@ export interface StateChange<State> {
 export type AnyDocType = DocType<any, any, any, any, string, any>
 
 /**
- * How a doc type's handle class takes a document shape. A doc type whose
- * handles are generic in the shape says so with one interface, naming its
- * class with `this["T"]` as the shape:
+ * How a doc type's handle class takes a document shape (`this["T"]`), and,
+ * if it passes it on, the backend's extensions (`this["X"]`). A doc type
+ * whose handles are generic in the shape says so with one interface:
  *
  * ```ts
  * interface JsonShaped extends Shaped { readonly handle: JsonHandle<this["T"]> }
@@ -128,13 +129,25 @@ export type AnyDocType = DocType<any, any, any, any, string, any>
  */
 export interface Shaped {
   readonly T: unknown
+  // `{}` rather than `HandleExtensionSpec`: it intersects with the backend's
+  // spec when applied, and `{} & X` simplifies to `X`.
+  readonly X: {}
   readonly handle: Handle<any, any, any>
 }
 
-/** The handle a {@link Shaped} gives for documents of shape `T`. */
-export type ShapedHandle<K extends Shaped, T> = (K & {
+/** The handle a {@link Shaped} gives for documents of shape `T`, on a backend
+ * with extensions `X`. */
+export type ShapedHandle<
+  K extends Shaped,
+  T,
+  X extends HandleExtensionSpec,
+> = (K & {
   readonly T: T
+  readonly X: X
 })["handle"]
+
+/** A doc type `D`, for documents of shape `T`: what `of` gives. */
+export type Of<D, T> = D & { readonly "~shape"?: T }
 
 /** What {@link defineDocType} adds to a doc type. Both are type-level only:
  * at runtime they return the same doc type. */
@@ -142,7 +155,7 @@ export interface DocTypeHelpers {
   /** This doc type, with its handles generic in the shape as `K` says. */
   shaped<K extends Shaped>(): this & { readonly "~shaped"?: K }
   /** This doc type, for documents of shape `T`. */
-  of<T>(): this & { readonly "~shape"?: T }
+  of<T>(): Of<this, T>
 }
 
 /** The document shape a doc type was given with {@link DocTypeHelpers.of}. */
@@ -155,12 +168,12 @@ export type ShapedOf<D> = D extends { readonly "~shaped"?: infer K }
     : undefined
   : undefined
 
-/** What `create` takes for a doc type: what its {@link Shaped} says for the
- * shape given with `of`, if it says (`readonly init: this["T"]`), otherwise
- * what the type's `create` takes. */
-export type InitOf<D> =
+/** What `create` takes for a doc type and shape `T`: what its {@link Shaped}
+ * says, if it says (`readonly init: this["T"]`), otherwise what the type's
+ * `create` takes. */
+export type InitOf<D, T = ShapeOf<D>> =
   ShapedOf<D> extends infer K extends Shaped & { readonly init: unknown }
-    ? (K & { readonly T: ShapeOf<D> })["init"]
+    ? (K & { readonly T: T })["init"]
     : D extends DocType<any, any, any, infer I, any>
       ? I
       : never

@@ -32,7 +32,7 @@ interface RegisterShaped extends Shaped {
   readonly init: this["T"]
 }
 
-export const register = defineDocType({
+const definition = defineDocType({
   scheme: "register",
   create: (value: unknown): RegisterState => commit(emptyGraph(), { value }),
   value: valueOf,
@@ -40,3 +40,9 @@ export const register = defineDocType({
   ...graphRules<{ value: unknown }>("register"),
   handle: RegisterHandle,
 }).shaped<RegisterShaped>()
+
+// A named type, so handles show as `DocHandle<Todo, X, Register>`.
+type Definition = typeof definition
+/** The register doc type. */
+export interface Register extends Definition {}
+export const register: Register = definition

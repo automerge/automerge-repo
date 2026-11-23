@@ -180,3 +180,32 @@ export async function sameBackend() {
   // @ts-expect-error a plain backend's derived handles have no broadcast
   plainT.at("a").broadcast("hi")
 }
+
+// Every handle is exactly a `DocHandle<…>`: the types Repo gives are
+// identical to the ones apps would write.
+type Equal<A, B> =
+  (<G>() => G extends A ? 1 : 2) extends <G>() => G extends B ? 1 : 2
+    ? true
+    : false
+type Todo2 = { title: string; items: { done: boolean }[] }
+export async function exactly() {
+  const plainRepo = new Repo()
+  const extRepo = new Repo({ backend: new EphemeralBackend() })
+  const doc = await plainRepo.find<Todo2>("x" as AutomergeUrl)
+  const docExt = await extRepo.find<Todo2>("x" as AutomergeUrl)
+  const counter = await extRepo.create(1, { type: gcounter })
+  const checks: [
+    Equal<typeof doc, DocHandle<Todo2>>,
+    Equal<ReturnType<typeof doc.sub<["title"]>>, DocHandle<string>>,
+    Equal<typeof docExt, DocHandle<Todo2, EphemeralLikeSpec>>,
+    Equal<
+      ReturnType<typeof docExt.sub<["items", 0]>>,
+      DocHandle<{ done: boolean }, EphemeralLikeSpec>
+    >,
+    Equal<
+      typeof counter,
+      DocHandle<unknown, EphemeralLikeSpec, typeof gcounter>
+    >,
+  ] = [true, true, true, true, true]
+  return checks
+}

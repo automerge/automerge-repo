@@ -19,7 +19,7 @@ import {
 import type { DocHandleEvents } from "../DocHandleEvents.js"
 // The public type: this class's members and the backend's extension members.
 // Methods returning handles return it, so derived handles keep the extensions.
-import type { DocHandle as Handle, SameBackend } from "../types/DocHandle.js"
+import type { DocHandle as Handle } from "../types/DocHandle.js"
 import type { EventsOf, HandleExtensionSpec } from "../sedimentree/extension.js"
 import {
   isCursorMarker,
@@ -107,7 +107,10 @@ export type HandleEvents<
  * the `Repo` handles persisting to your local storage as well as propagating
  * changes to connected peers.
  */
-export class AutomergeHandle<T> extends BaseHandle<
+export class AutomergeHandle<
+  T,
+  X extends HandleExtensionSpec = {},
+> extends BaseHandle<
   A.Doc<T> | undefined,
   A.ChangeFn<T> | SubChangeFn<T> | T,
   DocHandleEvents<T>
@@ -457,11 +460,8 @@ export class AutomergeHandle<T> extends BaseHandle<
    */
   sub<TPath extends readonly PathInput[]>(
     ...segments: [...TPath]
-  ): SameBackend<this, AutomergeHandle<InferSubType<T, TPath>>> {
-    return this.#createSubHandle(segments) as SameBackend<
-      this,
-      AutomergeHandle<InferSubType<T, TPath>>
-    >
+  ): Handle<InferSubType<T, TPath>, X> {
+    return this.#createSubHandle(segments) as Handle<InferSubType<T, TPath>, X>
   }
 
   // Path / range introspection

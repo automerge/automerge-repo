@@ -21,7 +21,7 @@ export class CounterHandle extends Handle<number, number> {
   }
 }
 
-export const gcounter = defineDocType({
+const definition = defineDocType({
   scheme: "gcounter",
   create: (start: number | undefined) => newCounter(start),
   value: (state: CounterState) =>
@@ -30,3 +30,9 @@ export const gcounter = defineDocType({
   ...graphRules<{ amount: number }>("gcounter"),
   handle: CounterHandle,
 })
+
+// A named type, so handles show as `DocHandle<unknown, X, GCounter>`.
+type Definition = typeof definition
+/** The G-Counter doc type. */
+export interface GCounter extends Definition {}
+export const gcounter: GCounter = definition

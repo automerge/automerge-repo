@@ -112,7 +112,29 @@ export const register = defineDocType({ …, handle: RegisterHandle })
 
 A method that returns a different handle (a handle for part of the document,
 say) types it as `SameBackend<this, MyHandle<T[K]>>`, so the result keeps the
-backend's members and events. Automerge's `sub` does.
+backend's members and events. Or, like Automerge, the class takes the backend's
+spec as a second parameter, and `Shaped` passes it on as `this["X"]`:
+
+```ts
+interface AutomergeShaped extends Shaped {
+  readonly handle: AutomergeHandle<this["T"], this["X"]>
+}
+// in AutomergeHandle<T, X>:
+sub<K extends keyof T>(key: K): DocHandle<T[K], X>
+```
+
+### Naming the doc type
+
+Give a doc type a named type, so its handles show as
+`DocHandle<Todo, X, Register>` in editors and error messages rather than with
+the doc type's whole structure:
+
+```ts
+const definition = defineDocType({ … })
+type Definition = typeof definition
+export interface Register extends Definition {}
+export const register: Register = definition
+```
 
 Handles are built by the Repo, never by apps: don't add constructor
 parameters. Repo makes one subclass of the type's class per Repo, adding the

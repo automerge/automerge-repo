@@ -25,7 +25,7 @@ export interface AutomergeDocType extends DocType<
 
 /** Automerge's handles are generic in the document's shape. */
 export interface AutomergeShaped extends Shaped {
-  readonly handle: AutomergeHandle<this["T"]>
+  readonly handle: AutomergeHandle<this["T"], this["X"]>
 }
 
 /** The default document type: Automerge. */
