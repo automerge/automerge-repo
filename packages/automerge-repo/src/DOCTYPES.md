@@ -27,9 +27,15 @@ const same = await repo.find(counter.url, { type: gcounter })
 - `repo.handles` and the `document` event list every document, typed as a
   handle of any type (`DocHandle<any, X, AnyDocType>`). Narrow one with
   `isHandleOf(handle, gcounter)`.
-- `DocHandle<T>` is still the Automerge handle for documents shaped `T`. A
-  handle of another type is `DocHandle<unknown, X, typeof gcounter>`, or
-  `HandleOf<typeof repo, unknown, typeof gcounter>`.
+- Every handle is typed `DocHandle<T, X, D>`: document shape `T`, backend
+  extensions `X`, doc type `D` (Automerge by default). `DocHandle<T>` is the
+  Automerge handle for documents shaped `T`; a counter's is
+  `DocHandle<unknown, X, typeof gcounter>`. `HandleOf<typeof repo, T, D>`
+  names them from a Repo.
+- A type whose handles are generic in the shape takes it with `of`:
+  `repo.find(url, { type: register.of<Todo>() })` gives
+  `DocHandle<Todo, X, typeof register>`. `of` is type-level only; every shape
+  is the same doc type at runtime.
 - `clone`, `import`, `export` and URL paths (sub-handles) are Automerge only.
 
 ## What every handle has
@@ -81,6 +87,32 @@ The contract, checked by `runDocTypeTests` (`src/helpers/tests/doc-type-tests.ts
 - Without `fragments`, a type is never compacted; without `view`, it has no
   views and no `find(url#heads)`; without `merge`, merging applies the other
   document's records.
+
+### Handles generic in the document's shape
+
+TypeScript can't apply a shape to a class held in a value, so a type whose
+handle class is generic says how, with one interface naming the class with
+`this["T"]` as the shape. It may also say what `create` takes for a shape:
+
+```ts
+export class RegisterHandle<T> extends Handle<T, T> {
+  get<K extends keyof T>(key: K): T[K] {
+    return this.doc()[key]
+  }
+}
+
+interface RegisterShaped extends Shaped {
+  readonly handle: RegisterHandle<this["T"]>
+  readonly init: this["T"] // optional
+}
+
+export const register = defineDocType({ …, handle: RegisterHandle })
+  .shaped<RegisterShaped>()
+```
+
+A method that returns a different handle (a handle for part of the document,
+say) types it as `SameBackend<this, MyHandle<T[K]>>`, so the result keeps the
+backend's members and events. Automerge's `sub` does.
 
 Handles are built by the Repo, never by apps: don't add constructor
 parameters. Repo makes one subclass of the type's class per Repo, adding the

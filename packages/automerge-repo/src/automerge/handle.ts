@@ -19,7 +19,7 @@ import {
 import type { DocHandleEvents } from "../DocHandleEvents.js"
 // The public type: this class's members and the backend's extension members.
 // Methods returning handles return it, so derived handles keep the extensions.
-import type { DocHandle as Handle } from "../types/DocHandle.js"
+import type { DocHandle as Handle, SameBackend } from "../types/DocHandle.js"
 import type { EventsOf, HandleExtensionSpec } from "../sedimentree/extension.js"
 import {
   isCursorMarker,
@@ -107,13 +107,10 @@ export type HandleEvents<
  * the `Repo` handles persisting to your local storage as well as propagating
  * changes to connected peers.
  */
-export class AutomergeHandle<
-  T,
-  X extends HandleExtensionSpec = {},
-> extends BaseHandle<
+export class AutomergeHandle<T> extends BaseHandle<
   A.Doc<T> | undefined,
   A.ChangeFn<T> | SubChangeFn<T> | T,
-  HandleEvents<T, X>
+  DocHandleEvents<T>
 > {
   /** Shared per-document state. Every handle into the same doc shares one;
    * a sub-handle's `T` is its scoped value's type, not the document's. */
@@ -460,8 +457,11 @@ export class AutomergeHandle<
    */
   sub<TPath extends readonly PathInput[]>(
     ...segments: [...TPath]
-  ): Handle<InferSubType<T, TPath>, X> {
-    return this.#createSubHandle(segments) as Handle<InferSubType<T, TPath>, X>
+  ): SameBackend<this, AutomergeHandle<InferSubType<T, TPath>>> {
+    return this.#createSubHandle(segments) as SameBackend<
+      this,
+      AutomergeHandle<InferSubType<T, TPath>>
+    >
   }
 
   // Path / range introspection
@@ -504,7 +504,7 @@ export class AutomergeHandle<
    * True if this handle's path is a strict ancestor of `other`'s path,
    * within the same document and view (heads).
    */
-  contains(other: AutomergeHandle<any, any>): boolean {
+  contains(other: AutomergeHandle<any>): boolean {
     if (other === this) return false
     if (this.documentId !== other.documentId) return false
     if (!sameFixedHeads(this.#fixedHeads, other.#fixedHeads)) return false
@@ -519,7 +519,7 @@ export class AutomergeHandle<
   }
 
   /** True if this handle is a strict descendant of `other`. */
-  isChildOf(other: AutomergeHandle<any, any>): boolean {
+  isChildOf(other: AutomergeHandle<any>): boolean {
     return other.contains(this)
   }
 
@@ -527,7 +527,7 @@ export class AutomergeHandle<
    * True if this and `other` are both text-range handles on the same path
    * whose ranges overlap in the current document.
    */
-  overlaps(other: AutomergeHandle<any, any>): boolean {
+  overlaps(other: AutomergeHandle<any>): boolean {
     if (this.documentId !== other.documentId) return false
     if (!this.#range || !other.range) return false
     const thisPath = this.#path
@@ -549,7 +549,7 @@ export class AutomergeHandle<
   #createSubHandle(
     segments: readonly AnyPathInput[],
     options: { heads?: UrlHeads } = {}
-  ): AutomergeHandle<any, any> {
+  ): AutomergeHandle<any> {
     const heads = options.heads ?? this.#fixedHeads
 
     // `root.view(h)` must not short-circuit to the unpinned root.
@@ -574,7 +574,7 @@ export class AutomergeHandle<
       this,
       path.length || range ? { path, range } : undefined,
       heads
-    ) as AutomergeHandle<any, any>
+    ) as AutomergeHandle<any>
   }
 
   /**

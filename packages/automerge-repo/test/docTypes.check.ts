@@ -3,7 +3,9 @@
 import { Repo } from "../src/Repo.js"
 import { DocHandle, isHandleOf } from "../src/types/DocHandle.js"
 import { automerge } from "../src/automerge/docType.js"
-import { defineDocType, type AnyDocType } from "../src/DocType.js"
+import { defineDocType, type AnyDocType, type Shaped } from "../src/DocType.js"
+import { Handle } from "../src/Handle.js"
+import type { SameBackend } from "../src/types/DocHandle.js"
 import { Presence } from "../src/presence/Presence.js"
 import { defineExtension, provides } from "../src/sedimentree/index.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
@@ -138,3 +140,43 @@ defineExtension<{ members: { bad(): unknown } }>({
     bad: (_context, h) => h.sub("x"),
   },
 })
+
+// A shaped doc type whose method returns a handle for part of the document
+// keeps the backend's members on it, with `SameBackend`.
+class TreeHandle<T> extends Handle<T, T> {
+  at<K extends keyof T>(key: K): SameBackend<this, TreeHandle<T[K]>> {
+    return key as never
+  }
+}
+interface TreeShaped extends Shaped {
+  readonly handle: TreeHandle<this["T"]>
+}
+const tree = defineDocType({
+  scheme: "tree",
+  create: (init: unknown) => ({ init }),
+  value: s => s.init,
+  change: (s, init: unknown) => ({ init }),
+  apply: () => ({ init: undefined as unknown }),
+  heads: () => [],
+  hasHeads: () => false,
+  recordsSince: () => [],
+  handle: TreeHandle,
+}).shaped<TreeShaped>()
+type Nested = { a: { b: { c: number } } }
+export async function sameBackend() {
+  const extRepo = new Repo({ backend: new EphemeralBackend() })
+  const t = await extRepo.find("tree:x" as AutomergeUrl, {
+    type: tree.of<Nested>(),
+  })
+  t.at("a").at("b").doc().c satisfies number
+  t.at("a").at("b").broadcast("deep")
+  t.at("a").on("ephemeral-message", ({ handle }) => handle.at("b").broadcast(1))
+  new Presence({ handle: t.at("a") })
+  // @ts-expect-error not a key
+  t.at("nope")
+  const plainT = await new Repo().find("tree:x" as AutomergeUrl, {
+    type: tree.of<Nested>(),
+  })
+  // @ts-expect-error a plain backend's derived handles have no broadcast
+  plainT.at("a").broadcast("hi")
+}

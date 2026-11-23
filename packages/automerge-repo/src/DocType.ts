@@ -114,9 +114,56 @@ export interface StateChange<State> {
 
 export type AnyDocType = DocType<any, any, any, any, string, any>
 
-/** What `create` takes for a doc type. */
+/**
+ * How a doc type's handle class takes a document shape. A doc type whose
+ * handles are generic in the shape says so with one interface, naming its
+ * class with `this["T"]` as the shape:
+ *
+ * ```ts
+ * interface JsonShaped extends Shaped { readonly handle: JsonHandle<this["T"]> }
+ * const json = defineDocType({ …, handle: JsonHandle }).shaped<JsonShaped>()
+ * ```
+ *
+ * TypeScript can't apply a shape to a class held in a value; this tells it how.
+ */
+export interface Shaped {
+  readonly T: unknown
+  readonly handle: Handle<any, any, any>
+}
+
+/** The handle a {@link Shaped} gives for documents of shape `T`. */
+export type ShapedHandle<K extends Shaped, T> = (K & {
+  readonly T: T
+})["handle"]
+
+/** What {@link defineDocType} adds to a doc type. Both are type-level only:
+ * at runtime they return the same doc type. */
+export interface DocTypeHelpers {
+  /** This doc type, with its handles generic in the shape as `K` says. */
+  shaped<K extends Shaped>(): this & { readonly "~shaped"?: K }
+  /** This doc type, for documents of shape `T`. */
+  of<T>(): this & { readonly "~shape"?: T }
+}
+
+/** The document shape a doc type was given with {@link DocTypeHelpers.of}. */
+export type ShapeOf<D> = D extends { readonly "~shape"?: infer T } ? T : unknown
+
+/** How a doc type's handles take a shape, if they do. */
+export type ShapedOf<D> = D extends { readonly "~shaped"?: infer K }
+  ? [K] extends [Shaped]
+    ? K
+    : undefined
+  : undefined
+
+/** What `create` takes for a doc type: what its {@link Shaped} says for the
+ * shape given with `of`, if it says (`readonly init: this["T"]`), otherwise
+ * what the type's `create` takes. */
 export type InitOf<D> =
-  D extends DocType<any, any, any, infer I, any> ? I : never
+  ShapedOf<D> extends infer K extends Shaped & { readonly init: unknown }
+    ? (K & { readonly T: ShapeOf<D> })["init"]
+    : D extends DocType<any, any, any, infer I, any>
+      ? I
+      : never
 
 /** Infer a type's parameters, and its handle class if given, from its definition. */
 export function defineDocType<
@@ -128,7 +175,9 @@ export function defineDocType<
   H extends HandleClass,
 >(
   type: DocType<State, View, Change, Init, Scheme, H> & { readonly handle: H }
-): DocType<State, View, Change, Init, Scheme, H> & { readonly handle: H }
+): DocType<State, View, Change, Init, Scheme, H> & {
+  readonly handle: H
+} & DocTypeHelpers
 export function defineDocType<
   State,
   View,
@@ -139,9 +188,16 @@ export function defineDocType<
   type: DocType<State, View, Change, Init, Scheme, undefined> & {
     readonly handle?: undefined
   }
-): DocType<State, View, Change, Init, Scheme, undefined>
-export function defineDocType(type: AnyDocType): AnyDocType {
-  return type
+): DocType<State, View, Change, Init, Scheme, undefined> & DocTypeHelpers
+export function defineDocType(type: AnyDocType): AnyDocType & DocTypeHelpers {
+  const self = function (this: unknown) {
+    return this
+  }
+  // Type-level only: return the same object, so Repo sees one doc type.
+  return Object.defineProperties(type, {
+    shaped: { value: self, configurable: true },
+    of: { value: self, configurable: true },
+  }) as AnyDocType & DocTypeHelpers
 }
 
 /** `other`'s history added to `state`, with the type's `merge` if it has one. */

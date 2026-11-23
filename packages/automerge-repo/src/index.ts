@@ -124,10 +124,19 @@ export { isHandleOf } from "./types/DocHandle.js"
 export type { AnyDocHandle } from "./types/DocHandle.js"
 export { automerge } from "./automerge/docType.js"
 export type { AutomergeDocType } from "./automerge/docType.js"
-export { AutomergeHandle } from "./automerge/handle.js"
 export { Handle } from "./Handle.js"
 export { defineDocType } from "./DocType.js"
-export type { AnyDocType, DocType, DocTypeContext } from "./DocType.js"
+export type {
+  AnyDocType,
+  DocType,
+  DocTypeContext,
+  DocTypeHelpers,
+  InitOf,
+  ShapeOf,
+  Shaped,
+  ShapedHandle,
+} from "./DocType.js"
+export type { SameBackend, WithBackend } from "./types/DocHandle.js"
 
 export * from "./types.js"
 

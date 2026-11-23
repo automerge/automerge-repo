@@ -109,6 +109,13 @@ export class Handle<
     fixedHeadsOf = handle => handle.#heads
   }
 
+  /**
+   * Type only: the backend extensions this handle has; `DocHandle` sets it.
+   * A method returning another handle reads it, through `SameBackend<this,
+   * …>`, to give that handle the same extensions.
+   */
+  declare readonly "~ext": {}
+
   /** Shared per-document state. Every handle into the same doc shares one. */
   readonly #state: DocumentState<any>
   /** If set, this handle shows the document only at these heads. */

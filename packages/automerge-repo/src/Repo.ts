@@ -7,7 +7,12 @@ import {
   isValidDocumentUrl,
   parseDocumentUrl,
 } from "./AutomergeUrl.js"
-import { requireView, type AnyDocType, type InitOf } from "./DocType.js"
+import {
+  requireView,
+  type AnyDocType,
+  type InitOf,
+  type ShapeOf,
+} from "./DocType.js"
 import { extendHandle } from "./DocHandle.js"
 import { Handle } from "./Handle.js"
 import { isHandleOf, type DocHandle } from "./types/DocHandle.js"
@@ -89,7 +94,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   get handles(): Record<DocumentId, DocHandle<any, X, AnyDocType>> {
     return Object.fromEntries(
       [...this.#documents].map(([id, document]) => [id, document.handle])
-    ) as Record<DocumentId, DocHandle<any, X, AnyDocType>>
+    ) as unknown as Record<DocumentId, DocHandle<any, X, AnyDocType>>
   }
 
   /** A document of the doc type `type`. */
@@ -98,7 +103,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   create<_T = unknown, D extends AnyDocType = AnyDocType>(
     initialValue: InitOf<D>,
     options: { type: D }
-  ): Promise<DocHandle<unknown, X, D>>
+  ): Promise<DocHandle<ShapeOf<D>, X, D>>
   /** Resolve after initial history is locally recoverable, without waiting for peers. */
   create<T>(initialValue?: T): Promise<DocHandle<T, X>>
   async create(
@@ -124,7 +129,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   findWithProgress<_T = unknown, D extends AnyDocType = AnyDocType>(
     id: AnyDocumentId,
     options: AbortOptions & { type: D }
-  ): DocumentProgress<unknown, X, D>
+  ): DocumentProgress<ShapeOf<D>, X, D>
   findWithProgress<T>(
     id: AnyDocumentId,
     options?: AbortOptions
@@ -140,7 +145,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   find<_T = unknown, D extends AnyDocType = AnyDocType>(
     id: AnyDocumentId,
     options: RepoFindOptions & { type: D }
-  ): Promise<DocHandle<unknown, X, D>>
+  ): Promise<DocHandle<ShapeOf<D>, X, D>>
   /** Cancellation stops this wait, not the shared document's loading. */
   find<T>(
     id: AnyDocumentId,
@@ -166,7 +171,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   query<_T = unknown, D extends AnyDocType = AnyDocType>(
     id: AnyDocumentId,
     options: { type: D }
-  ): DocumentQuery<unknown, X, D>
+  ): DocumentQuery<ShapeOf<D>, X, D>
   query<T>(id: AnyDocumentId): DocumentQuery<T, X>
   query(
     id: AnyDocumentId,

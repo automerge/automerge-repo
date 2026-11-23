@@ -1,5 +1,5 @@
 import { next as A } from "@automerge/automerge/slim"
-import type { DocType } from "../DocType.js"
+import type { DocType, Shaped } from "../DocType.js"
 import { isPlainObject } from "../helpers/isPlainObject.js"
 import { concatBytes } from "../sedimentree/concatBytes.js"
 import {
@@ -20,6 +20,12 @@ export interface AutomergeDocType extends DocType<
   "automerge"
 > {
   readonly handle: typeof AutomergeHandle
+  readonly "~shaped"?: AutomergeShaped
+}
+
+/** Automerge's handles are generic in the document's shape. */
+export interface AutomergeShaped extends Shaped {
+  readonly handle: AutomergeHandle<this["T"]>
 }
 
 /** The default document type: Automerge. */

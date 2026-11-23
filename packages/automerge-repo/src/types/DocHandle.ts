@@ -1,47 +1,73 @@
 // The public `DocHandle`: the class, and the type of a handle of a given doc
 // type with the members its Repo's backend adds. Import `DocHandle` from
 // here, not from `../Handle.js`, whose class type lacks those members.
-import {
-  Handle,
-  handleState,
-  type AnyHandle,
-  type HandleEventApi,
-} from "../Handle.js"
-import type { AutomergeHandle } from "../automerge/handle.js"
+import { Handle, handleState, type AnyHandle } from "../Handle.js"
 import type { AutomergeDocType } from "../automerge/docType.js"
-import type { AnyDocType, DocType, HandleClass } from "../DocType.js"
+import type {
+  AnyDocType,
+  DocType,
+  HandleClass,
+  Shaped,
+  ShapedHandle,
+  ShapedOf,
+} from "../DocType.js"
 import type {
   EventsOf,
   ExtensionMembers,
   HandleExtensionSpec,
 } from "../sedimentree/extension.js"
 
-/** The handle-visible slice of an extension spec (drops session/receives). */
-type HandleVisibleSpec<X extends HandleExtensionSpec> = {
-  readonly members: ExtensionMembers<X>
-  readonly events: EventsOf<X>
-}
-
 /** A handle's own event names, read from its `Handle` base. */
 type EventNamesOf<H> =
   H extends Handle<any, any, infer E> ? keyof E & string : never
 
-/** Extension events `X` declares, with `handle` added to each payload. */
-type ExtensionEventMap<X extends HandleExtensionSpec, H> = {
-  [N in keyof EventsOf<X> & string]: (
-    payload: EventsOf<X>[N] & { handle: H }
-  ) => void
-}
+/** The payload of the backend event `K`, delivered on handle `H`. */
+type ExtensionPayload<
+  X extends HandleExtensionSpec,
+  K extends keyof EventsOf<X>,
+  H,
+> = EventsOf<X>[K] & { handle: H }
 
 /**
- * Listener methods for a backend extension spec `X`'s events, layered onto a
- * doc type's handle `H`. No conditional on `X`, so generic code over `X`
- * stays callable.
+ * Listener methods for a backend's events, on whatever handle they are part
+ * of: payloads carry that whole handle (`this`). `H` is the handle before the
+ * backend's members, for `eventNames` (through `this` it would be circular).
  */
-export type ExtensionEventsApi<
+export interface ExtensionEventsApi<
   X extends HandleExtensionSpec,
-  H,
-> = HandleEventApi<ExtensionEventMap<X, H>> & {
+  H = unknown,
+> {
+  on<K extends keyof EventsOf<X> & string>(
+    event: K,
+    fn: (payload: ExtensionPayload<X, K, this>) => void
+  ): this
+  addListener<K extends keyof EventsOf<X> & string>(
+    event: K,
+    fn: (payload: ExtensionPayload<X, K, this>) => void
+  ): this
+  once<K extends keyof EventsOf<X> & string>(
+    event: K,
+    fn: (payload: ExtensionPayload<X, K, this>) => void
+  ): this
+  off<K extends keyof EventsOf<X> & string>(event: K): this
+  off<K extends keyof EventsOf<X> & string>(
+    event: K,
+    fn: ((payload: ExtensionPayload<X, K, this>) => void) | undefined
+  ): this
+  removeListener<K extends keyof EventsOf<X> & string>(event: K): this
+  removeListener<K extends keyof EventsOf<X> & string>(
+    event: K,
+    fn: ((payload: ExtensionPayload<X, K, this>) => void) | undefined
+  ): this
+  removeAllListeners<K extends keyof EventsOf<X> & string>(event?: K): this
+  listenerCount<K extends keyof EventsOf<X> & string>(event: K): number
+  listeners<K extends keyof EventsOf<X> & string>(
+    event: K
+  ): ((payload: ExtensionPayload<X, K, this>) => void)[]
+  emit<K extends keyof EventsOf<X> & string>(
+    event: K,
+    payload: ExtensionPayload<X, K, this>
+  ): boolean
   eventNames(): (
     | EventNamesOf<H>
     | (keyof EventsOf<X> & string)
@@ -49,12 +75,37 @@ export type ExtensionEventsApi<
   )[]
 }
 
+/** What of a backend spec a handle can see: its members and events. A
+ * handle records only these, so two specs that differ elsewhere (`session`,
+ * `receives`) give the same handle type. */
+// Distributive, so it gives a fresh object type: two specs with the same
+// members and events then give identical handle types, rather than being
+// compared by their type arguments.
+export type VisibleSpec<X extends HandleExtensionSpec> = X extends unknown
+  ? { readonly members?: ExtensionMembers<X>; readonly events?: EventsOf<X> }
+  : never
+
+/** The handle `H` with the backend extensions `X`: their members and events. */
+export type WithBackend<H, X extends HandleExtensionSpec> = H & {
+  readonly "~ext": VisibleSpec<X>
+} & ExtensionMembers<X> &
+  ExtensionEventsApi<VisibleSpec<X>, H>
+
+/**
+ * Another handle, from the same backend as `This`. A handle class's method
+ * returning a different handle (a sub-handle, say) uses it, so the result
+ * keeps the backend's members: `sub(key): SameBackend<this, MyHandle<T[K]>>`.
+ */
+export type SameBackend<
+  This extends AnyHandle,
+  H extends AnyHandle,
+> = WithBackend<H, This["~ext"]>
+
 /** A handle of a document of any type: the core API, loosely typed. */
 export interface AnyDocHandle<
   X extends HandleExtensionSpec = {},
 > extends Handle<any, any, any> {
-  /** Type-only: preserves the handle-visible extension spec for `isHandleOf`. */
-  readonly "~ext"?: HandleVisibleSpec<X>
+  readonly "~ext": VisibleSpec<X>
   doc(): any
   change(change: any, options?: any): Promise<void>
 }
@@ -64,26 +115,30 @@ type ValueOf<D> =
 type ChangeOf<D> =
   D extends DocType<any, any, infer C, any, any, any> ? C : unknown
 
-/** The handle a doc type makes before backend extensions: its class, or
- * the base `Handle` typed from the doc type's `value` and `change`. */
-export type HandleOfType<D extends AnyDocType> =
-  D extends DocType<any, any, any, any, any, infer C>
-    ? C extends HandleClass
-      ? InstanceType<C>
+/** The handle a doc type makes for shape `T`, before backend extensions:
+ * its class (applied to `T` if the type is {@link Shaped}), or the base
+ * `Handle` typed from the doc type's `value` and `change`. */
+export type HandleOfType<D extends AnyDocType, T = unknown> =
+  ShapedOf<D> extends infer K extends Shaped
+    ? ShapedHandle<K, T>
+    : D extends DocType<any, any, any, any, any, infer C>
+      ? C extends HandleClass
+        ? InstanceType<C>
+        : Handle<ValueOf<D>, ChangeOf<D>>
       : Handle<ValueOf<D>, ChangeOf<D>>
-    : Handle<ValueOf<D>, ChangeOf<D>>
 
 /** The core handle with backend extensions `X` (no doc-type-only members). */
-export type CoreHandle<X extends HandleExtensionSpec = {}> = Handle &
-  ExtensionMembers<X> &
-  ExtensionEventsApi<X, Handle & ExtensionMembers<X>>
+export type CoreHandle<X extends HandleExtensionSpec = {}> = WithBackend<
+  Handle,
+  X
+>
 
 /**
- * A handle to one document: its doc type's handle class, and the members and
- * events its Repo's backend adds (see {@link HandleExtensionSpec}). `T` is an
- * Automerge document's shape, `X` the backend's spec and `D` the doc type,
- * Automerge by default. `DocHandle<any, X, AnyDocType>` is a handle of any
- * type.
+ * A handle to one document: its doc type's handle class, for documents of
+ * shape `T`, with the members and events its Repo's backend adds (see
+ * {@link HandleExtensionSpec}). `X` is the backend's spec and `D` the doc
+ * type, Automerge by default. `DocHandle<any, X, AnyDocType>` is a handle of
+ * any type.
  */
 export type DocHandle<
   T,
@@ -91,24 +146,16 @@ export type DocHandle<
   D extends AnyDocType = AutomergeDocType,
 > = [AnyDocType] extends [D]
   ? AnyDocHandle<X> & ExtensionMembers<X>
-  : D extends AutomergeDocType
-    ? AutomergeHandle<T, X> & ExtensionMembers<X>
-    : HandleOfType<D> &
-        ExtensionMembers<X> &
-        ExtensionEventsApi<X, HandleOfType<D> & ExtensionMembers<X>>
+  : WithBackend<HandleOfType<D, T>, X>
 
 /** The class of every handle, for `instanceof`. */
 export const DocHandle = Handle
 
-/** Whether `handle` is of the doc type `type` (compared by scheme). */
-export function isHandleOf<X extends HandleExtensionSpec, D extends AnyDocType>(
-  handle: AnyDocHandle<X>,
+/** Whether `handle` is of the doc type `type` (compared by scheme). Keeps
+ * the backend's extensions the handle was typed with. */
+export function isHandleOf<E extends HandleExtensionSpec, D extends AnyDocType>(
+  handle: { readonly "~ext": E },
   type: D
-): handle is DocHandle<unknown, X, D>
-export function isHandleOf<D extends AnyDocType>(
-  handle: AnyHandle,
-  type: D
-): handle is DocHandle<unknown, {}, D>
-export function isHandleOf(handle: AnyHandle, type: AnyDocType): boolean {
-  return handleState(handle).type.scheme === type.scheme
+): handle is { readonly "~ext": E } & DocHandle<unknown, E, D> {
+  return handleState(handle as unknown as AnyHandle).type.scheme === type.scheme
 }
