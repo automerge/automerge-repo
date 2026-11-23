@@ -1,5 +1,5 @@
 import { next as A } from "@automerge/automerge/slim"
-import type { DocType, Shaped } from "../DocType.js"
+import type { DocType, Of, Shaped } from "../DocType.js"
 import { isPlainObject } from "../helpers/isPlainObject.js"
 import { concatBytes } from "../sedimentree/concatBytes.js"
 import {
@@ -20,12 +20,17 @@ export interface AutomergeDocType extends DocType<
   "automerge"
 > {
   readonly handle: typeof AutomergeHandle
-  readonly "~shaped"?: AutomergeShaped
+  readonly "~kind"?: AutomergeKind
+  /** This doc type, for documents of shape `T`. Type-level only:
+   * `find(url, { type: automerge.of<T>() })` is `find<T>(url)`. */
+  of<T>(): Of<AutomergeDocType, T>
 }
 
-/** Automerge's handles are generic in the document's shape. */
-export interface AutomergeShaped extends Shaped {
+/** Automerge's handles: generic in the document's shape, and passing the
+ * backend's extensions on to sub-handles. */
+export interface AutomergeKind extends Shaped {
   readonly handle: AutomergeHandle<this["T"], this["X"]>
+  readonly init: this["T"] | undefined
 }
 
 /** The default document type: Automerge. */
@@ -82,5 +87,8 @@ export const automerge: AutomergeDocType = {
       range?: CursorRange
     }
     return serializePath(range ? [...path, range] : path)
+  },
+  of() {
+    return this
   },
 }

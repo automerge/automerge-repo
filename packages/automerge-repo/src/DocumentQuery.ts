@@ -1,7 +1,7 @@
 import type { DocHandle } from "./types/DocHandle.js"
 import type { HandleExtensionSpec } from "./sedimentree/extension.js"
-import type { AnyDocType } from "./DocType.js"
-import type { AutomergeDocType } from "./automerge/docType.js"
+import type { HandleKind } from "./DocType.js"
+import type { AutomergeKind } from "./automerge/docType.js"
 import type { DocumentId, UrlHeads } from "./types.js"
 import type { Segment } from "./subdoc-handles/types.js"
 import { makeLogger } from "./Logger.js"
@@ -22,10 +22,10 @@ const log = makeLogger("automerge-repo:query")
 export type QueryState<
   T,
   X extends HandleExtensionSpec = {},
-  D extends AnyDocType = AutomergeDocType,
+  K extends HandleKind = AutomergeKind,
 > =
   | { status: "loading" }
-  | { status: "ready"; handle: DocHandle<T, X, D> }
+  | { status: "ready"; handle: DocHandle<T, X, K> }
   | { status: "unavailable" }
   | { status: "deleted" }
   | { status: "failed"; error: Error }
@@ -34,16 +34,16 @@ export type QueryState<
 export interface DocumentQuery<
   T,
   X extends HandleExtensionSpec = {},
-  D extends AnyDocType = AutomergeDocType,
+  K extends HandleKind = AutomergeKind,
 > {
   readonly documentId: DocumentId
   /** The current state. */
-  state(): QueryState<T, X, D>
+  state(): QueryState<T, X, K>
   /**
    * Called synchronously with the current state, before `subscribe` returns,
    * then on every change. Returns an unsubscribe function.
    */
-  subscribe(callback: (state: QueryState<T, X, D>) => void): () => void
+  subscribe(callback: (state: QueryState<T, X, K>) => void): () => void
 }
 
 /**
@@ -116,24 +116,24 @@ export class RootQuery<T> implements DocumentQuery<T> {
 export function queryAtHeads<
   T,
   X extends HandleExtensionSpec = {},
-  D extends AnyDocType = AutomergeDocType,
+  K extends HandleKind = AutomergeKind,
 >(
-  query: DocumentQuery<T, X, D>,
+  query: DocumentQuery<T, X, K>,
   heads: UrlHeads,
   onHeadsChanged: (fn: () => void) => () => void
-): DocumentQuery<T, X, D> {
-  const state = (): QueryState<T, X, D> => {
+): DocumentQuery<T, X, K> {
+  const state = (): QueryState<T, X, K> => {
     const upstream = query.state()
     if (upstream.status !== "ready") return upstream
     if (!upstream.handle.hasHeads(heads)) return { status: "loading" }
-    const handle = upstream.handle.view(heads) as DocHandle<T, X, D>
+    const handle = upstream.handle.view(heads) as DocHandle<T, X, K>
     return { status: "ready", handle }
   }
   return {
     documentId: query.documentId,
     state,
     subscribe: callback => {
-      let last: QueryState<T, X, D> | undefined
+      let last: QueryState<T, X, K> | undefined
       const emit = () => {
         const next = state()
         if (last && statesEqual(last, next)) return
@@ -174,12 +174,12 @@ export function queryAtPath<T, X extends HandleExtensionSpec = {}>(
 export function waitUntilReady<
   T,
   X extends HandleExtensionSpec = {},
-  D extends AnyDocType = AutomergeDocType,
+  K extends HandleKind = AutomergeKind,
 >(
-  query: DocumentQuery<T, X, D>,
+  query: DocumentQuery<T, X, K>,
   signal?: AbortSignal
-): Promise<DocHandle<T, X, D>> {
-  return new Promise<DocHandle<T, X, D>>((resolve, reject) => {
+): Promise<DocHandle<T, X, K>> {
+  return new Promise<DocHandle<T, X, K>>((resolve, reject) => {
     signal?.throwIfAborted()
     let unsubscribe: (() => void) | undefined
     let settled = false
@@ -192,7 +192,7 @@ export function waitUntilReady<
       cleanup()
       reject(signal!.reason)
     }
-    const check = (state: QueryState<T, X, D>) => {
+    const check = (state: QueryState<T, X, K>) => {
       if (settled || state.status === "loading") return
       cleanup()
       if (state.status === "ready") resolve(state.handle)

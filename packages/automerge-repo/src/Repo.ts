@@ -10,12 +10,18 @@ import {
 import {
   requireView,
   type AnyDocType,
+  type HandleKind,
   type InitOf,
+  type KindOf,
   type Of,
 } from "./DocType.js"
 import { extendHandle } from "./DocHandle.js"
 import { Handle } from "./Handle.js"
-import { isHandleOf, type DocHandle } from "./types/DocHandle.js"
+import {
+  isHandleOf,
+  type AnyHandleKind,
+  type DocHandle,
+} from "./types/DocHandle.js"
 import { Document } from "./Document.js"
 import {
   queryAtHeads,
@@ -25,7 +31,7 @@ import {
 } from "./DocumentQuery.js"
 import { toProgress, type DocumentProgress } from "./DocumentProgress.js"
 import { makeLogger } from "./Logger.js"
-import { automerge, type AutomergeDocType } from "./automerge/docType.js"
+import { automerge, type AutomergeKind } from "./automerge/docType.js"
 import { MemoryBackend } from "./sedimentree/memory/MemoryBackend.js"
 import {
   BackendError,
@@ -91,10 +97,10 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   }
 
   /** Every open document's root handle, whatever its type. */
-  get handles(): Record<DocumentId, DocHandle<any, X, AnyDocType>> {
+  get handles(): Record<DocumentId, DocHandle<any, X, AnyHandleKind>> {
     return Object.fromEntries(
       [...this.#documents].map(([id, document]) => [id, document.handle])
-    ) as unknown as Record<DocumentId, DocHandle<any, X, AnyDocType>>
+    ) as unknown as Record<DocumentId, DocHandle<any, X, AnyHandleKind>>
   }
 
   /** A document of the doc type `type`. */
@@ -103,7 +109,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   create<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
     initialValue: InitOf<D, S>,
     options: { type: Of<D, S> }
-  ): Promise<DocHandle<S, X, D>>
+  ): Promise<DocHandle<S, X, KindOf<D>>>
   /** Resolve after initial history is locally recoverable, without waiting for peers. */
   create<T>(initialValue?: T): Promise<DocHandle<T, X>>
   async create(
@@ -133,7 +139,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   >(
     id: AnyDocumentId,
     options: AbortOptions & { type: Of<D, S> }
-  ): DocumentProgress<S, X, D>
+  ): DocumentProgress<S, X, KindOf<D>>
   findWithProgress<T>(
     id: AnyDocumentId,
     options?: AbortOptions
@@ -149,7 +155,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   find<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
     id: AnyDocumentId,
     options: RepoFindOptions & { type: Of<D, S> }
-  ): Promise<DocHandle<S, X, D>>
+  ): Promise<DocHandle<S, X, KindOf<D>>>
   /** Cancellation stops this wait, not the shared document's loading. */
   find<T>(
     id: AnyDocumentId,
@@ -175,7 +181,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   query<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
     id: AnyDocumentId,
     options: { type: Of<D, S> }
-  ): DocumentQuery<S, X, D>
+  ): DocumentQuery<S, X, KindOf<D>>
   query<T>(id: AnyDocumentId): DocumentQuery<T, X>
   query(
     id: AnyDocumentId,
@@ -510,11 +516,8 @@ function collectErrors(results: PromiseSettledResult<unknown>[]): unknown[] {
  * extensions of `R`'s backend. Lets an app name its handles from its Repo:
  * `type AppHandle<T> = HandleOf<typeof repo, T>`.
  */
-export type HandleOf<
-  R extends Repo,
-  T,
-  D extends AnyDocType = AutomergeDocType,
-> = R extends Repo<infer X> ? DocHandle<T, X, D> : DocHandle<T, {}, D>
+export type HandleOf<R extends Repo, T, K extends HandleKind = AutomergeKind> =
+  R extends Repo<infer X> ? DocHandle<T, X, K> : DocHandle<T, {}, K>
 
 export interface RepoConfig<X extends HandleExtensionSpec = {}> {
   /**
@@ -540,7 +543,7 @@ export type RepoFindOptions = AbortOptions
 export type DeleteDocumentPayload = { documentId: DocumentId }
 export type DocumentPayload<X extends HandleExtensionSpec = {}> = {
   /** The root handle of a document of any type. */
-  handle: DocHandle<any, X, AnyDocType>
+  handle: DocHandle<any, X, AnyHandleKind>
 }
 export interface RepoEvents<X extends HandleExtensionSpec = {}> {
   document: (payload: DocumentPayload<X>) => void

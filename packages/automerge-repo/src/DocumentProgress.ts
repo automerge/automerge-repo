@@ -1,7 +1,7 @@
 import type { DocHandle } from "./types/DocHandle.js"
 import type { HandleExtensionSpec } from "./sedimentree/extension.js"
-import type { AnyDocType } from "./DocType.js"
-import type { AutomergeDocType } from "./automerge/docType.js"
+import type { HandleKind } from "./DocType.js"
+import type { AutomergeKind } from "./automerge/docType.js"
 import {
   stateError,
   waitUntilReady,
@@ -22,12 +22,12 @@ export type SourceState = "pending" | "ready" | "unavailable"
 export type ProgressState<
   T,
   X extends HandleExtensionSpec = {},
-  D extends AnyDocType = AutomergeDocType,
+  K extends HandleKind = AutomergeKind,
 > =
   | { state: "loading"; sources: Record<string, SourceState> }
   | {
       state: "ready"
-      handle: DocHandle<T, X, D>
+      handle: DocHandle<T, X, K>
       sources: Record<string, SourceState>
     }
   | { state: "unavailable"; sources: Record<string, SourceState> }
@@ -41,21 +41,21 @@ export type ProgressState<
 export interface DocumentProgress<
   T,
   X extends HandleExtensionSpec = {},
-  D extends AnyDocType = AutomergeDocType,
+  K extends HandleKind = AutomergeKind,
 > {
   readonly documentId: DocumentId
-  peek(): ProgressState<T, X, D>
-  subscribe(callback: (state: ProgressState<T, X, D>) => void): () => void
-  whenReady(options?: { signal?: AbortSignal }): Promise<DocHandle<T, X, D>>
+  peek(): ProgressState<T, X, K>
+  subscribe(callback: (state: ProgressState<T, X, K>) => void): () => void
+  whenReady(options?: { signal?: AbortSignal }): Promise<DocHandle<T, X, K>>
 }
 
 /** Adapt a query to the deprecated {@link DocumentProgress} shape. */
 export function toProgress<
   T,
   X extends HandleExtensionSpec = {},
-  D extends AnyDocType = AutomergeDocType,
->(query: DocumentQuery<T, X, D>): DocumentProgress<T, X, D> {
-  const map = (state: QueryState<T, X, D>): ProgressState<T, X, D> => {
+  K extends HandleKind = AutomergeKind,
+>(query: DocumentQuery<T, X, K>): DocumentProgress<T, X, K> {
+  const map = (state: QueryState<T, X, K>): ProgressState<T, X, K> => {
     switch (state.status) {
       case "loading":
         return { state: "loading", sources: { backend: "pending" } }

@@ -1,7 +1,6 @@
 import type { DocumentId, RepoId } from "./types.js"
 import type { DocumentState } from "./DocumentState.js"
 import type { Handle, HandleOptions } from "./Handle.js"
-import type { HandleExtensionSpec } from "./sedimentree/extension.js"
 
 /** A class of handles: constructed by the Repo, never by apps. */
 export type HandleClass = new (
@@ -116,32 +115,62 @@ export interface StateChange<State> {
 export type AnyDocType = DocType<any, any, any, any, string, any>
 
 /**
- * How a doc type's handle class takes a document shape (`this["T"]`), and,
- * if it passes it on, the backend's extensions (`this["X"]`). A doc type
- * whose handles are generic in the shape says so with one interface:
+ * What handles a doc type gives, as one declaration: its `handle` names the
+ * handle class, with `this["T"]` for the document's shape and `this["X"]` for
+ * the backend's extensions if the class takes them. It also names the doc
+ * type: handles show as `DocHandle<Todo, X, Register>`.
  *
  * ```ts
- * interface JsonShaped extends Shaped { readonly handle: JsonHandle<this["T"]> }
- * const json = defineDocType({ …, handle: JsonHandle }).shaped<JsonShaped>()
+ * export interface GCounter extends HandleKind {
+ *   readonly handle: CounterHandle
+ * }
+ * export const gcounter = defineDocType({ …, handle: CounterHandle }).as<GCounter>()
  * ```
  *
- * TypeScript can't apply a shape to a class held in a value; this tells it how.
+ * A doc type whose handles are generic in the shape extends {@link Shaped}.
  */
-export interface Shaped {
+export interface HandleKind {
   readonly T: unknown
   // `{}` rather than `HandleExtensionSpec`: it intersects with the backend's
   // spec when applied, and `{} & X` simplifies to `X`.
   readonly X: {}
   readonly handle: Handle<any, any, any>
+  /** What `create` takes, if not what the doc type's `create` takes. */
+  readonly init?: unknown
 }
 
-/** The handle a {@link Shaped} gives for documents of shape `T`, on a backend
- * with extensions `X`. */
-export type ShapedHandle<
-  K extends Shaped,
-  T,
-  X extends HandleExtensionSpec,
-> = (K & {
+/**
+ * A {@link HandleKind} whose handles are generic in the document's shape.
+ * Its doc type gains `of<T>()`, which users pass to `find` and `create`:
+ *
+ * ```ts
+ * export interface Register extends Shaped {
+ *   readonly handle: RegisterHandle<this["T"]>
+ *   readonly init: this["T"] // optional: what `create` takes
+ * }
+ * export const register = defineDocType({ …, handle: RegisterHandle }).as<Register>()
+ * await repo.find(url, { type: register.of<Todo>() })
+ * ```
+ *
+ * TypeScript can't apply a shape to a class held in a value; this tells it how.
+ */
+export interface Shaped extends HandleKind {
+  readonly "~shaped": true
+}
+
+/** The handles of a doc type with this class, and no {@link HandleKind}. */
+export interface HandleOfClass<C extends HandleClass> extends HandleKind {
+  readonly handle: InstanceType<C>
+}
+
+/** The handles of a doc type with no class: the base `Handle`, typed from
+ * the doc type's `value` and `change`. */
+export interface PlainHandle<V, C> extends HandleKind {
+  readonly handle: Handle<V, C>
+}
+
+/** The handle `K` gives for shape `T` on a backend with extensions `X`. */
+export type HandleFor<K extends HandleKind, T, X> = (K & {
   readonly T: T
   readonly X: X
 })["handle"]
@@ -149,36 +178,56 @@ export type ShapedHandle<
 /** A doc type `D`, for documents of shape `T`: what `of` gives. */
 export type Of<D, T> = D & { readonly "~shape"?: T }
 
-/** What {@link defineDocType} adds to a doc type. Both are type-level only:
- * at runtime they return the same doc type. */
-export interface DocTypeHelpers {
-  /** This doc type, with its handles generic in the shape as `K` says. */
-  shaped<K extends Shaped>(): this & { readonly "~shaped"?: K }
-  /** This doc type, for documents of shape `T`. */
-  of<T>(): Of<this, T>
-}
-
-/** The document shape a doc type was given with {@link DocTypeHelpers.of}. */
+/** The document shape a doc type was given with `of`. */
 export type ShapeOf<D> = D extends { readonly "~shape"?: infer T } ? T : unknown
 
-/** How a doc type's handles take a shape, if they do. */
-export type ShapedOf<D> = D extends { readonly "~shaped"?: infer K }
-  ? [K] extends [Shaped]
-    ? K
-    : undefined
-  : undefined
+/** What a doc type says its handles are with `as`. */
+export type Kinded<D, K extends HandleKind> = D & {
+  readonly "~kind"?: K
+} & (K extends Shaped
+    ? {
+        /** This doc type, for documents of shape `T`. Type-level only. */
+        of<T>(): Of<D & { readonly "~kind"?: K }, T>
+      }
+    : {})
 
-/** What `create` takes for a doc type and shape `T`: what its {@link Shaped}
- * says, if it says (`readonly init: this["T"]`), otherwise what the type's
- * `create` takes. */
+/** The handles a doc type gives: what it says with `as`, or else its class,
+ * or else the base `Handle`. */
+export type KindOf<D> = D extends { readonly "~kind"?: infer K }
+  ? [K] extends [HandleKind]
+    ? K
+    : DefaultKind<D>
+  : DefaultKind<D>
+
+type DefaultKind<D> =
+  D extends DocType<any, infer V, infer C, any, any, infer H>
+    ? H extends HandleClass
+      ? HandleOfClass<H>
+      : PlainHandle<V, C>
+    : never
+
+/** What `create` takes for a doc type and shape `T`: what its
+ * {@link HandleKind} says, if it says (`readonly init: this["T"]`),
+ * otherwise what the type's `create` takes. */
 export type InitOf<D, T = ShapeOf<D>> =
-  ShapedOf<D> extends infer K extends Shaped & { readonly init: unknown }
+  KindOf<D> extends infer K extends HandleKind & { readonly init: unknown }
     ? (K & { readonly T: T })["init"]
     : D extends DocType<any, any, any, infer I, any>
       ? I
       : never
 
-/** Infer a type's parameters, and its handle class if given, from its definition. */
+/** What {@link defineDocType} adds to a doc type, for handles `H`. */
+export interface DocTypeHelpers<H> {
+  /** This doc type, with its handles described by `K` (and named by it).
+   * `K`'s handle must be the type's handle class. Type-level only. */
+  as<K extends HandleKind & { readonly handle: H }>(): Kinded<this, K>
+}
+
+/**
+ * Infer a type's parameters, and its handle class if given, from its
+ * definition. The class's `Handle<View, Change>` must match the type's
+ * `value` and `change`.
+ */
 export function defineDocType<
   State,
   View,
@@ -187,10 +236,12 @@ export function defineDocType<
   const Scheme extends string,
   H extends HandleClass,
 >(
-  type: DocType<State, View, Change, Init, Scheme, H> & { readonly handle: H }
+  type: DocType<State, View, Change, Init, Scheme, H> & {
+    readonly handle: H & (new (...args: any[]) => Handle<View, Change, any>)
+  }
 ): DocType<State, View, Change, Init, Scheme, H> & {
   readonly handle: H
-} & DocTypeHelpers
+} & DocTypeHelpers<InstanceType<H>>
 export function defineDocType<
   State,
   View,
@@ -201,16 +252,19 @@ export function defineDocType<
   type: DocType<State, View, Change, Init, Scheme, undefined> & {
     readonly handle?: undefined
   }
-): DocType<State, View, Change, Init, Scheme, undefined> & DocTypeHelpers
-export function defineDocType(type: AnyDocType): AnyDocType & DocTypeHelpers {
+): DocType<State, View, Change, Init, Scheme, undefined> &
+  DocTypeHelpers<Handle<View, Change>>
+export function defineDocType(
+  type: AnyDocType
+): AnyDocType & DocTypeHelpers<unknown> {
   const self = function (this: unknown) {
     return this
   }
   // Type-level only: return the same object, so Repo sees one doc type.
   return Object.defineProperties(type, {
-    shaped: { value: self, configurable: true },
+    as: { value: self, configurable: true },
     of: { value: self, configurable: true },
-  }) as AnyDocType & DocTypeHelpers
+  }) as AnyDocType & DocTypeHelpers<unknown>
 }
 
 /** `other`'s history added to `state`, with the type's `merge` if it has one. */

@@ -3,14 +3,14 @@
 import { Repo } from "../src/Repo.js"
 import { DocHandle, isHandleOf } from "../src/types/DocHandle.js"
 import { automerge } from "../src/automerge/docType.js"
-import { defineDocType, type AnyDocType, type Shaped } from "../src/DocType.js"
+import { defineDocType, type Shaped } from "../src/DocType.js"
 import { Handle } from "../src/Handle.js"
-import type { SameBackend } from "../src/types/DocHandle.js"
+import type { AnyHandleKind, SameBackend } from "../src/types/DocHandle.js"
 import { Presence } from "../src/presence/Presence.js"
 import { defineExtension, provides } from "../src/sedimentree/index.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import type { AutomergeUrl, PeerId, RepoId } from "../src/types.js"
-import { gcounter } from "./doctypes/gcounter.js"
+import { gcounter, type GCounter } from "./doctypes/gcounter.js"
 
 type Doc = { title: string; items: string[] }
 
@@ -35,7 +35,7 @@ export function generic<T extends { items: string[] }>(h: DocHandle<T>) {
 
 // A handle of any type has the core API, loosely typed, and no Automerge
 // members until narrowed.
-declare const any: DocHandle<any, {}, AnyDocType>
+declare const any: DocHandle<any, {}, AnyHandleKind>
 any.doc() satisfies any
 void any.change(5)
 // @ts-expect-error not every type has sub-handles
@@ -148,7 +148,7 @@ class TreeHandle<T> extends Handle<T, T> {
     return key as never
   }
 }
-interface TreeShaped extends Shaped {
+interface Tree extends Shaped {
   readonly handle: TreeHandle<this["T"]>
 }
 const tree = defineDocType({
@@ -161,7 +161,7 @@ const tree = defineDocType({
   hasHeads: () => false,
   recordsSince: () => [],
   handle: TreeHandle,
-}).shaped<TreeShaped>()
+}).as<Tree>()
 type Nested = { a: { b: { c: number } } }
 export async function sameBackend() {
   const extRepo = new Repo({ backend: new EphemeralBackend() })
@@ -202,10 +202,55 @@ export async function exactly() {
       ReturnType<typeof docExt.sub<["items", 0]>>,
       DocHandle<{ done: boolean }, EphemeralLikeSpec>
     >,
-    Equal<
-      typeof counter,
-      DocHandle<unknown, EphemeralLikeSpec, typeof gcounter>
-    >,
+    Equal<typeof counter, DocHandle<unknown, EphemeralLikeSpec, GCounter>>,
   ] = [true, true, true, true, true]
   return checks
 }
+
+// Automerge takes a shape the way other shaped types do.
+export async function automergeOf() {
+  const r = new Repo({ backend: new EphemeralBackend() })
+  const viaOf = await r.find("automerge:x" as AutomergeUrl, {
+    type: automerge.of<Todo2>(),
+  })
+  const same: Equal<typeof viaOf, DocHandle<Todo2, EphemeralLikeSpec>> = true
+  viaOf.sub("items", 0).broadcast("sub")
+  return same
+}
+
+// Mistakes the compiler catches.
+const storage = {
+  apply: () => ({ v: 0 as unknown }),
+  heads: () => [],
+  hasHeads: () => false,
+  recordsSince: () => [],
+}
+class OtherHandle<T> extends Handle<T, T> {
+  other(): T {
+    return this.doc()
+  }
+}
+interface WrongClass extends Shaped {
+  readonly handle: OtherHandle<this["T"]>
+}
+defineDocType({
+  scheme: "wrong-class",
+  create: (v: unknown) => ({ v }),
+  value: (s: { v: unknown }) => s.v,
+  change: (_s: { v: unknown }, v: unknown) => ({ v }),
+  ...storage,
+  handle: TreeHandle,
+  // @ts-expect-error the kind names a different class from `handle`
+}).as<WrongClass>()
+// @ts-expect-error a counter takes no shape
+gcounter.of<Todo2>()
+class StringHandle extends Handle<string, string> {}
+defineDocType({
+  scheme: "mismatch",
+  create: (n: number) => ({ v: n as unknown }),
+  value: (s: { v: unknown }) => s.v as number,
+  change: (_s: { v: unknown }, by: number) => ({ v: by as unknown }),
+  ...storage,
+  // @ts-expect-error the class's doc() and change() types disagree with the type
+  handle: StringHandle,
+})

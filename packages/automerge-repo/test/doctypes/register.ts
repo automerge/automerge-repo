@@ -26,23 +26,18 @@ export class RegisterHandle<T> extends Handle<T, T> {
   }
 }
 
-/** How a register's handles take a shape, and what `create` takes for it. */
-interface RegisterShaped extends Shaped {
+/** The register's handles, generic in the shape, and what `create` takes for
+ * it. Also the doc type's name: `DocHandle<Todo, X, Register>`. */
+export interface Register extends Shaped {
   readonly handle: RegisterHandle<this["T"]>
   readonly init: this["T"]
 }
 
-const definition = defineDocType({
+export const register = defineDocType({
   scheme: "register",
   create: (value: unknown): RegisterState => commit(emptyGraph(), { value }),
   value: valueOf,
   change: (state: RegisterState, value: unknown) => commit(state, { value }),
   ...graphRules<{ value: unknown }>("register"),
   handle: RegisterHandle,
-}).shaped<RegisterShaped>()
-
-// A named type, so handles show as `DocHandle<Todo, X, Register>`.
-type Definition = typeof definition
-/** The register doc type. */
-export interface Register extends Definition {}
-export const register: Register = definition
+}).as<Register>()

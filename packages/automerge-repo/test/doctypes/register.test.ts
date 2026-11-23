@@ -5,7 +5,7 @@ import { Presence } from "../../src/presence/Presence.js"
 import { defineExtension, provides } from "../../src/sedimentree/index.js"
 import { MemoryBackend } from "../../src/sedimentree/memory/MemoryBackend.js"
 import type { PeerId, RepoId } from "../../src/types.js"
-import { register, RegisterHandle } from "./register.js"
+import { register, RegisterHandle, type Register } from "./register.js"
 
 type Todo = { title: string; done: boolean }
 
@@ -74,7 +74,7 @@ export async function types() {
     { title: "a", done: false },
     { type: register.of<Todo>() }
   )
-  const named: DocHandle<Todo, EphemeralLike, typeof register> = todo
+  const named: DocHandle<Todo, EphemeralLike, Register> = todo
   todo.doc().title satisfies string
   todo.get("done") satisfies boolean
   void todo.set("done", true)
@@ -108,9 +108,9 @@ export async function types() {
   // @ts-expect-error a plain backend has no broadcast
   p.broadcast("hi")
   // @ts-expect-error a plain handle is not an extended one
-  const up: DocHandle<Todo, EphemeralLike, typeof register> = p
+  const up: DocHandle<Todo, EphemeralLike, Register> = p
   // @ts-expect-error another shape
-  const wrong: DocHandle<{ other: number }, {}, typeof register> = p
+  const wrong: DocHandle<{ other: number }, {}, Register> = p
   // @ts-expect-error a register handle is not an Automerge handle
   const cross: DocHandle<Todo> = p
   return [named, up, wrong, cross]
@@ -118,13 +118,13 @@ export async function types() {
 
 // Code generic over the shape and the backend.
 export function generic<T extends { title: string }, X extends EphemeralLike>(
-  h: DocHandle<T, X, typeof register>,
+  h: DocHandle<T, X, Register>,
   r: Repo<X>
 ) {
   h.get("title") satisfies T["title"]
   h.broadcast("hi")
   new Presence({ handle: h })
-  const back: Promise<DocHandle<T, X, typeof register>> = r.find(h.url, {
+  const back: Promise<DocHandle<T, X, Register>> = r.find(h.url, {
     type: register.of<T>(),
   })
   return back

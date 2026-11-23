@@ -121,9 +121,9 @@ export type {
 } from "./DocumentProgress.js"
 
 export { isHandleOf } from "./types/DocHandle.js"
-export type { AnyDocHandle } from "./types/DocHandle.js"
+export type { AnyDocHandle, AnyHandleKind } from "./types/DocHandle.js"
 export { automerge } from "./automerge/docType.js"
-export type { AutomergeDocType } from "./automerge/docType.js"
+export type { AutomergeDocType, AutomergeKind } from "./automerge/docType.js"
 export { Handle } from "./Handle.js"
 export { defineDocType } from "./DocType.js"
 export type {
@@ -131,10 +131,14 @@ export type {
   DocType,
   DocTypeContext,
   DocTypeHelpers,
+  HandleKind,
+  HandleOfClass,
   InitOf,
+  KindOf,
+  Of,
+  PlainHandle,
   ShapeOf,
   Shaped,
-  ShapedHandle,
 } from "./DocType.js"
 export type { SameBackend, WithBackend } from "./types/DocHandle.js"
 

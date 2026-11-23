@@ -25,17 +25,18 @@ const same = await repo.find(counter.url, { type: gcounter })
 - A type's `scheme` names it in URLs. `find` throws if a URL's scheme does not
   match the type, or if the document is already open as another type.
 - `repo.handles` and the `document` event list every document, typed as a
-  handle of any type (`DocHandle<any, X, AnyDocType>`). Narrow one with
+  handle of any type (`DocHandle<any, X, AnyHandleKind>`). Narrow one with
   `isHandleOf(handle, gcounter)`.
-- Every handle is typed `DocHandle<T, X, D>`: document shape `T`, backend
-  extensions `X`, doc type `D` (Automerge by default). `DocHandle<T>` is the
-  Automerge handle for documents shaped `T`; a counter's is
-  `DocHandle<unknown, X, typeof gcounter>`. `HandleOf<typeof repo, T, D>`
-  names them from a Repo.
+- Every handle is typed `DocHandle<T, X, K>`: document shape `T`, backend
+  extensions `X`, and the doc type's handles `K` (Automerge's by default).
+  `DocHandle<T>` is the Automerge handle for documents shaped `T`; a counter's
+  is `DocHandle<unknown, X, GCounter>`. `HandleOf<typeof repo, T, K>` names
+  them from a Repo.
 - A type whose handles are generic in the shape takes it with `of`:
   `repo.find(url, { type: register.of<Todo>() })` gives
-  `DocHandle<Todo, X, typeof register>`. `of` is type-level only; every shape
-  is the same doc type at runtime.
+  `DocHandle<Todo, X, Register>`. `of` is type-level only; every shape is the
+  same doc type at runtime. `automerge.of<Todo>()` is the same as
+  `find<Todo>(url)`.
 - `clone`, `import`, `export` and URL paths (sub-handles) are Automerge only.
 
 ## What every handle has
@@ -49,15 +50,24 @@ extensions add their members to every handle, whatever its type.
 ## Writing one
 
 A type is its storage rules plus, optionally, a handle class: a subclass of
-`Handle` with the type's reading and editing API.
+`Handle<View, Change>` with the type's reading and editing API, and one
+interface saying what its handles are, which also names the type.
 
 ```ts
-import { defineDocType, Handle } from "@automerge/automerge-repo"
+import {
+  defineDocType,
+  Handle,
+  type HandleKind,
+} from "@automerge/automerge-repo"
 
 export class CounterHandle extends Handle<number, number> {
   increment(amount = 1) {
     return this.change(amount)
   }
+}
+
+export interface GCounter extends HandleKind {
+  readonly handle: CounterHandle
 }
 
 export const gcounter = defineDocType({
@@ -71,8 +81,12 @@ export const gcounter = defineDocType({
   recordsSince: (state, heads) => commitsOutside(state, heads),
   view: (state, heads) => stateAt(state, heads), // optional
   handle: CounterHandle, // optional; defaults to Handle<View, Change>
-})
+}).as<GCounter>() // optional; without it, handles show the class's name
 ```
+
+`defineDocType` checks that the class's `Handle<View, Change>` matches the
+type's `value` and `change`, and `as` that the interface names the class
+given as `handle`.
 
 The contract, checked by `runDocTypeTests` (`src/helpers/tests/doc-type-tests.ts`):
 
@@ -91,8 +105,9 @@ The contract, checked by `runDocTypeTests` (`src/helpers/tests/doc-type-tests.ts
 ### Handles generic in the document's shape
 
 TypeScript can't apply a shape to a class held in a value, so a type whose
-handle class is generic says how, with one interface naming the class with
-`this["T"]` as the shape. It may also say what `create` takes for a shape:
+handle class is generic extends `Shaped` instead, naming the class with
+`this["T"]` as the shape. It may also say what `create` takes for a shape.
+Only shaped types have `of`:
 
 ```ts
 export class RegisterHandle<T> extends Handle<T, T> {
@@ -101,39 +116,25 @@ export class RegisterHandle<T> extends Handle<T, T> {
   }
 }
 
-interface RegisterShaped extends Shaped {
+export interface Register extends Shaped {
   readonly handle: RegisterHandle<this["T"]>
   readonly init: this["T"] // optional
 }
 
-export const register = defineDocType({ …, handle: RegisterHandle })
-  .shaped<RegisterShaped>()
+export const register = defineDocType({ …, handle: RegisterHandle }).as<Register>()
 ```
 
 A method that returns a different handle (a handle for part of the document,
 say) types it as `SameBackend<this, MyHandle<T[K]>>`, so the result keeps the
 backend's members and events. Or, like Automerge, the class takes the backend's
-spec as a second parameter, and `Shaped` passes it on as `this["X"]`:
+spec as a second parameter, and the interface passes it on as `this["X"]`:
 
 ```ts
-interface AutomergeShaped extends Shaped {
+interface AutomergeKind extends Shaped {
   readonly handle: AutomergeHandle<this["T"], this["X"]>
 }
 // in AutomergeHandle<T, X>:
 sub<K extends keyof T>(key: K): DocHandle<T[K], X>
-```
-
-### Naming the doc type
-
-Give a doc type a named type, so its handles show as
-`DocHandle<Todo, X, Register>` in editors and error messages rather than with
-the doc type's whole structure:
-
-```ts
-const definition = defineDocType({ … })
-type Definition = typeof definition
-export interface Register extends Definition {}
-export const register: Register = definition
 ```
 
 Handles are built by the Repo, never by apps: don't add constructor

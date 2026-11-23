@@ -1,4 +1,4 @@
-import { defineDocType } from "../../src/DocType.js"
+import { defineDocType, type HandleKind } from "../../src/DocType.js"
 import { Handle } from "../../src/Handle.js"
 import { commit, emptyGraph, graphRules, type Graph } from "./commitGraph.js"
 
@@ -21,7 +21,13 @@ export class CounterHandle extends Handle<number, number> {
   }
 }
 
-const definition = defineDocType({
+/** The G-Counter's handles; also the doc type's name:
+ * `DocHandle<unknown, X, GCounter>`. */
+export interface GCounter extends HandleKind {
+  readonly handle: CounterHandle
+}
+
+export const gcounter = defineDocType({
   scheme: "gcounter",
   create: (start: number | undefined) => newCounter(start),
   value: (state: CounterState) =>
@@ -29,10 +35,4 @@ const definition = defineDocType({
   change: (state: CounterState, amount: number) => add(state, amount),
   ...graphRules<{ amount: number }>("gcounter"),
   handle: CounterHandle,
-})
-
-// A named type, so handles show as `DocHandle<unknown, X, GCounter>`.
-type Definition = typeof definition
-/** The G-Counter doc type. */
-export interface GCounter extends Definition {}
-export const gcounter: GCounter = definition
+}).as<GCounter>()

@@ -7,7 +7,7 @@ import type { HandleOf } from "../src/Repo.js"
 import type { DocHandleChangePayload } from "../src/DocHandleEvents.js"
 import type { DocumentQuery, QueryState } from "../src/DocumentQuery.js"
 import type { UrlHeads } from "../src/types.js"
-import type { AnyDocType } from "../src/DocType.js"
+import type { AnyHandleKind } from "../src/types/DocHandle.js"
 import type {
   AnyHandleExtension,
   EventFor,
@@ -193,7 +193,7 @@ hA.on("delete", plainListener)
 repoA.on("document", plainListener)
 repoA.on(
   "document",
-  ({ handle }: { handle: DocHandle<any, {}, AnyDocType> }) => handle.url
+  ({ handle }: { handle: DocHandle<any, {}, AnyHandleKind> }) => handle.url
 )
 hA.on("change", (payload: DocHandleChangePayload<Doc>) => payload.patches)
 

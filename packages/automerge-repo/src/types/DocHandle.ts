@@ -2,15 +2,8 @@
 // type with the members its Repo's backend adds. Import `DocHandle` from
 // here, not from `../Handle.js`, whose class type lacks those members.
 import { Handle, handleState, type AnyHandle } from "../Handle.js"
-import type { AutomergeDocType } from "../automerge/docType.js"
-import type {
-  AnyDocType,
-  DocType,
-  HandleClass,
-  Shaped,
-  ShapedHandle,
-  ShapedOf,
-} from "../DocType.js"
+import type { AutomergeKind } from "../automerge/docType.js"
+import type { AnyDocType, HandleFor, HandleKind, KindOf } from "../DocType.js"
 import type {
   EventsOf,
   ExtensionMembers,
@@ -110,27 +103,11 @@ export interface AnyDocHandle<
   change(change: any, options?: any): Promise<void>
 }
 
-type ValueOf<D> =
-  D extends DocType<any, infer V, any, any, any, any> ? V : unknown
-type ChangeOf<D> =
-  D extends DocType<any, any, infer C, any, any, any> ? C : unknown
-
-/** The handle a doc type makes for shape `T` on a backend with extensions
- * `X`, before those extensions' members: its class (applied to `T` and `X`
- * if the type is {@link Shaped}), or the base `Handle` typed from the doc
- * type's `value` and `change`. */
-export type HandleOfType<
-  D extends AnyDocType,
-  T = unknown,
-  X extends HandleExtensionSpec = {},
-> =
-  ShapedOf<D> extends infer K extends Shaped
-    ? ShapedHandle<K, T, X>
-    : D extends DocType<any, any, any, any, any, infer C>
-      ? C extends HandleClass
-        ? InstanceType<C>
-        : Handle<ValueOf<D>, ChangeOf<D>>
-      : Handle<ValueOf<D>, ChangeOf<D>>
+/** The handles of a document of any type: the core API, loosely typed.
+ * `DocHandle<any, X, AnyHandleKind>` is what `repo.handles` lists. */
+export interface AnyHandleKind extends HandleKind {
+  readonly handle: AnyDocHandle<this["X"]>
+}
 
 /** The core handle with backend extensions `X` (no doc-type-only members). */
 export type CoreHandle<X extends HandleExtensionSpec = {}> = WithBackend<
@@ -139,25 +116,22 @@ export type CoreHandle<X extends HandleExtensionSpec = {}> = WithBackend<
 >
 
 /**
- * A handle to one document: its doc type's handle class, for documents of
- * shape `T`, with the members and events its Repo's backend adds (see
- * {@link HandleExtensionSpec}). `X` is the backend's spec and `D` the doc
- * type, Automerge by default. `DocHandle<any, X, AnyDocType>` is a handle of
+ * A handle to one document, of shape `T`, on a backend with extensions `X`
+ * (see {@link HandleExtensionSpec}): the doc type's handle as its
+ * {@link HandleKind} `K` says, with the backend's members and events. `K` is
+ * Automerge's by default; `DocHandle<any, X, AnyHandleKind>` is a handle of
  * any type.
  */
+// Written out rather than as `WithBackend<…>`, so TypeScript shows the type by
+// this name.
 export type DocHandle<
   T,
   X extends HandleExtensionSpec = {},
-  D extends AnyDocType = AutomergeDocType,
-> = ([AnyDocType] extends [D] ? AnyDocHandle<X> : HandleOfType<D, T, X>) & {
+  K extends HandleKind = AutomergeKind,
+> = HandleFor<K, T, X> & {
   readonly "~ext": VisibleSpec<X>
 } & ExtensionMembers<X> &
-  // Written out rather than as `WithBackend<…>`, so TypeScript shows the type
-  // by this name.
-  ExtensionEventsApi<
-    VisibleSpec<X>,
-    [AnyDocType] extends [D] ? AnyDocHandle<X> : HandleOfType<D, T, X>
-  >
+  ExtensionEventsApi<VisibleSpec<X>, HandleFor<K, T, X>>
 
 /** The class of every handle, for `instanceof`. */
 export const DocHandle = Handle
@@ -167,6 +141,6 @@ export const DocHandle = Handle
 export function isHandleOf<E extends HandleExtensionSpec, D extends AnyDocType>(
   handle: { readonly "~ext": E },
   type: D
-): handle is { readonly "~ext": E } & DocHandle<unknown, E, D> {
+): handle is { readonly "~ext": E } & DocHandle<unknown, E, KindOf<D>> {
   return handleState(handle as unknown as AnyHandle).type.scheme === type.scheme
 }
