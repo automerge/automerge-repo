@@ -3,7 +3,10 @@ import * as Automerge from "@automerge/automerge"
 import { Repo } from "../../src/Repo.js"
 import { DocHandle } from "../../src/types/DocHandle.js"
 import { createTestDocument } from "../helpers/testHandle.js"
-import type { HandleRegistry } from "../../src/subdoc-handles/handle-registry.js"
+import {
+  registryOf,
+  type HandleRegistry,
+} from "../../src/subdoc-handles/handle-registry.js"
 import type { Listeners } from "../../src/Listeners.js"
 import { encodeHeads } from "../../src/AutomergeUrl.js"
 import { splice } from "../../src/index.js"
@@ -674,7 +677,7 @@ describe("unified DocHandle / Ref", () => {
     beforeEach(() => {
       const created = createTestDocument<any>(handle.documentId)
       handle = created.handle
-      registry = created.state.registry
+      registry = registryOf(created.state)
       listeners = created.state.listeners
       baseline = listeners.retainedCount
     })

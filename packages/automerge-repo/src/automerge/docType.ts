@@ -7,6 +7,7 @@ import {
   extractFragments,
   extractRecords,
 } from "../sedimentree/automerge/index.js"
+import { registryOf } from "../subdoc-handles/handle-registry.js"
 import { serializePath } from "../subdoc-handles/parser.js"
 import { AutomergeHandle } from "./handle.js"
 import type { CursorRange, Segment } from "../subdoc-handles/types.js"
@@ -73,7 +74,7 @@ export const automerge: AutomergeDocType = {
       if (initial && !document.listeners.hasWritable("change")) return
       const changes = patches ?? A.diff(after, beforeHeads, afterHeads)
       if (changes.length > 0)
-        document.registry.dispatchChange(after, changes, {
+        registryOf(document).dispatchChange(after, changes, {
           before: before ?? A.view(after, []),
           after,
           source: "change",

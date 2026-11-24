@@ -16,8 +16,9 @@ import { matchesPattern } from "./utils.js"
 type ScopedChange = { patches: A.Patch[]; scopeReplaced: boolean }
 
 /**
- * Per-document trie that owns handle identity, pattern resolution caching,
- * and `change` dispatch scoped to each handle's path.
+ * Per-document trie of an Automerge document's live handles, for pattern
+ * resolution caching and `change` dispatch scoped to each handle's path.
+ * Handle identity is `deriveHandle`'s; this only tracks handles to notify.
  *
  * Each symbolic path is exactly one trie node, carrying a
  * `Map<variantKey, WeakRef<DocHandle>>` for all variants at that path
@@ -29,6 +30,15 @@ type ScopedChange = { patches: A.Patch[]; scopeReplaced: boolean }
  * Dispatch walks the trie once per patch and bulk-resolves crossed pattern
  * edges - N refs sharing a pattern at the same path cost the same as one.
  */
+const registries = new WeakMap<DocumentState<any>, HandleRegistry>()
+
+/** The registry of an Automerge document's handles, made on first use. */
+export function registryOf(state: DocumentState<any>): HandleRegistry {
+  let registry = registries.get(state)
+  if (!registry) registries.set(state, (registry = new HandleRegistry(state)))
+  return registry
+}
+
 export class HandleRegistry {
   /** Trie root - the document at path `[]`. */
   readonly root: TrieNode = emptyNode([])
@@ -54,7 +64,7 @@ export class HandleRegistry {
 
   constructor(readonly state: DocumentState<any>) {}
 
-  // Identity (trie-as-handle-cache)
+  // Tracking live handles
 
   /** Get-or-create the trie node for `symbolicPath`. O(depth). */
   getOrCreateNode(symbolicPath: readonly PathSegment[]): TrieNode {
@@ -63,15 +73,6 @@ export class HandleRegistry {
       node = descendCreating(node, seg)
     }
     return node
-  }
-
-  /** Canonical handle at `(node, range, fixedHeads)`, or `undefined` if GC'd. */
-  cachedHandle(
-    node: TrieNode,
-    range: CursorRange | undefined,
-    fixedHeads: UrlHeads | undefined
-  ): DocHandle<any> | undefined {
-    return node.handles.get(variantKey(range, fixedHeads))?.deref()
   }
 
   /** Cache `handle` at `(node, range, fixedHeads)`. */

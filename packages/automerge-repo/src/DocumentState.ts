@@ -2,7 +2,6 @@ import { next as A } from "@automerge/automerge/slim"
 import { makeLogger, Logger } from "./Logger.js"
 import { decodeHeads, encodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, PeerId, RepoId, SyncInfo, UrlHeads } from "./types.js"
-import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
 import { Listeners } from "./Listeners.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
 import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
@@ -25,9 +24,8 @@ type Owner = Pick<Document<any>, "commit"> &
 /**
  * Per-document shared state - one per `documentId`, referenced by every
  * `DocHandle` (root, sub, view) into that document. Owns the Automerge
- * snapshot, the root handle, its readiness query, the {@link Listeners} of
- * every handle, and the {@link HandleRegistry} (identity, pattern
- * resolution, `change` dispatch).
+ * snapshot, the root handle, its readiness query, and the {@link Listeners}
+ * of every handle.
  * Local edits go out through its owning {@link Document}. Not part of the
  * public API.
  *
@@ -41,7 +39,6 @@ export class DocumentState<T = unknown> {
   readonly context: DocTypeContext
   /** Derived handles (views, scoped handles), weakly held. */
   readonly handles = new WeakValueMap<string, Handle<any, any, any>>()
-  readonly registry: HandleRegistry
   readonly listeners: Listeners
   readonly log: Logger
   /** The class of every handle of this document. */
@@ -93,7 +90,6 @@ export class DocumentState<T = unknown> {
     }
     this.log = makeLogger(`automerge-repo:doc:${documentId.slice(0, 5)}`)
     this.listeners = new Listeners(this.log)
-    this.registry = new HandleRegistry(this)
     this.Handle =
       owner.Handle ??
       extendHandle([], (this.type.handle ?? BaseHandle) as typeof BaseHandle)

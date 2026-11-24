@@ -26,6 +26,7 @@ import {
   isPattern,
   isSegment,
 } from "../subdoc-handles/guards.js"
+import { registryOf } from "../subdoc-handles/handle-registry.js"
 import { matchesPattern } from "../subdoc-handles/utils.js"
 import {
   applyScopedChange,
@@ -98,7 +99,7 @@ export type HandleEvents<
  * - A **range** handle covers a span of text inside a string-valued
  *   sub-handle.
  *
- * Handle identity is canonicalised by the per-document registry, so any
+ * Handle identity is canonicalised per document, so any
  * two calls that name the same `(path, range, heads)` triple - even via
  * different traversals - return the same `DocHandle` instance.
  *
@@ -148,8 +149,13 @@ export class AutomergeHandle<
     })
 
     // Register in the per-document trie so dispatch can find us.
-    const node = this.#state.registry.getOrCreateNode(this.#path)
-    this.#state.registry.cacheHandle(node, this.#range, this.#fixedHeads, this)
+    const node = registryOf(this.#state).getOrCreateNode(this.#path)
+    registryOf(this.#state).cacheHandle(
+      node,
+      this.#range,
+      this.#fixedHeads,
+      this
+    )
   }
 
   /**
@@ -475,7 +481,7 @@ export class AutomergeHandle<
     if (this.#path.length === 0) return []
     // Routes through the registry's resolver so pattern caching is shared
     // with reads/writes. Unresolved trailing segments carry `prop: undefined`.
-    const resolved = this.#state.registry.resolvePropPath(
+    const resolved = registryOf(this.#state).resolvePropPath(
       this.#path,
       this.fullDoc(),
       this.#fixedHeads
@@ -543,7 +549,7 @@ export class AutomergeHandle<
 
   /**
    * Get-or-create a sub-/view-handle at `segments` relative to this handle.
-   * Identity is canonicalised by the registry trie - each `(path, range, heads)`
+   * Identity is canonicalised per document - each `(path, range, heads)`
    * triple returns the same DocHandle instance.
    */
   #createSubHandle(
@@ -685,7 +691,7 @@ export class AutomergeHandle<
     if (doc !== undefined) {
       return resolvePropPath(doc, this.#path)
     }
-    return this.#state.registry.resolvePropPath(
+    return registryOf(this.#state).resolvePropPath(
       this.#path,
       this.fullDoc(),
       this.#fixedHeads
