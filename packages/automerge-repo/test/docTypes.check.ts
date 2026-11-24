@@ -164,7 +164,7 @@ class TreeHandle<T> extends Handle<T, T> {
 }
 interface Tree extends Shaped {
   readonly name: "tree"
-  readonly handle: TreeHandle<this["T"]>
+  readonly handle: TreeHandle<this["Shape"]>
 }
 const tree = defineDocType({
   name: "tree",
@@ -247,7 +247,7 @@ class OtherHandle<T> extends Handle<T, T> {
 }
 interface WrongClass extends Shaped {
   readonly name: "wrong-class"
-  readonly handle: OtherHandle<this["T"]>
+  readonly handle: OtherHandle<this["Shape"]>
 }
 defineDocType({
   name: "wrong-class",

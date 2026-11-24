@@ -118,7 +118,7 @@ export type AnyDocType = DocType<any, any, any, any, string, any>
 
 /**
  * What handles a doc type gives, as one declaration: its `handle` names the
- * handle class, with `this["T"]` for the document's shape and `this["X"]` for
+ * handle class, with `this["Shape"]` for the document's shape and `this["Extensions"]` for
  * the backend's extensions if the class takes them. It also names the doc
  * type: handles show as `DocHandle<Todo, X, Register>`.
  *
@@ -136,10 +136,14 @@ export interface HandleKind {
   /** The doc type's name, as its definition gives it: handles' URLs are
    * typed with it (`AutomergeUrl<"gcounter">`). */
   readonly name: string
-  readonly T: unknown
+  /** Filled in by the library: the document's shape, as `of<Shape>()` gives
+   * it. Read it in `handle` as `this["Shape"]`. */
+  readonly Shape: unknown
+  /** Filled in by the library: the backend's extensions. Read it in
+   * `handle` as `this["Extensions"]`, if the class takes them. */
   // `{}` rather than `HandleExtensionSpec`: it intersects with the backend's
   // spec when applied, and `{} & X` simplifies to `X`.
-  readonly X: {}
+  readonly Extensions: {}
   readonly handle: Handle<any, any, any>
   /** What `create` takes, if not what the doc type's `create` takes. */
   readonly init?: unknown
@@ -152,8 +156,8 @@ export interface HandleKind {
  * ```ts
  * export interface Register extends Shaped {
  *   readonly name: "register"
- *   readonly handle: RegisterHandle<this["T"]>
- *   readonly init: this["T"] // optional: what `create` takes
+ *   readonly handle: RegisterHandle<this["Shape"]>
+ *   readonly init: this["Shape"] // optional: what `create` takes
  * }
  * export const register = defineDocType({ …, handle: RegisterHandle }).as<Register>()
  * await repo.find(url, { docType: register.of<Todo>() })
@@ -188,8 +192,8 @@ export interface PlainHandle<
 
 /** The handle `K` gives for shape `T` on a backend with extensions `X`. */
 export type HandleFor<K extends HandleKind, T, X> = (K & {
-  readonly T: T
-  readonly X: X
+  readonly Shape: T
+  readonly Extensions: X
 })["handle"]
 
 /** A doc type `D`, for documents of shape `T`: what `of` gives. */
@@ -229,11 +233,11 @@ export type NameOf<D> = D extends { readonly name: infer N extends string }
   : string
 
 /** What `create` takes for a doc type and shape `T`: what its
- * {@link HandleKind} says, if it says (`readonly init: this["T"]`),
+ * {@link HandleKind} says, if it says (`readonly init: this["Shape"]`),
  * otherwise what the type's `create` takes. */
 export type InitOf<D, T = ShapeOf<D>> =
   KindOf<D> extends infer K extends HandleKind & { readonly init: unknown }
-    ? (K & { readonly T: T })["init"]
+    ? (K & { readonly Shape: T })["init"]
     : D extends DocType<any, any, any, infer I, any>
       ? I
       : never

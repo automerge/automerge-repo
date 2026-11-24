@@ -35,8 +35,8 @@ export class RegisterHandle<T> extends Handle<T, T> {
  * it. Also the doc type's name: `DocHandle<Todo, X, Register>`. */
 export interface Register extends Shaped {
   readonly name: "register"
-  readonly handle: RegisterHandle<this["T"]>
-  readonly init: this["T"]
+  readonly handle: RegisterHandle<this["Shape"]>
+  readonly init: this["Shape"]
 }
 
 export const register = defineDocType({

@@ -106,7 +106,7 @@ export interface AnyDocHandle<
 /** The handles of a document of any type: the core API, loosely typed.
  * `DocHandle<any, X, AnyHandleKind>` is what `repo.handles` lists. */
 export interface AnyHandleKind extends HandleKind {
-  readonly handle: AnyDocHandle<this["X"]>
+  readonly handle: AnyDocHandle<this["Extensions"]>
 }
 
 /** The core handle with backend extensions `X` (no doc-type-only members). */

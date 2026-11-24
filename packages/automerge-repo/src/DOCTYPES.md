@@ -115,7 +115,7 @@ The contract, checked by `runDocTypeTests` (`src/helpers/tests/doc-type-tests.ts
 
 TypeScript can't apply a shape to a class held in a value, so a type whose
 handle class is generic extends `Shaped` instead, naming the class with
-`this["T"]` as the shape. It may also say what `create` takes for a shape.
+`this["Shape"]` as the shape. It may also say what `create` takes for a shape.
 Only shaped types have `of`:
 
 ```ts
@@ -127,8 +127,8 @@ export class RegisterHandle<T> extends Handle<T, T> {
 
 export interface Register extends Shaped {
   readonly name: "register"
-  readonly handle: RegisterHandle<this["T"]>
-  readonly init: this["T"] // optional
+  readonly handle: RegisterHandle<this["Shape"]>
+  readonly init: this["Shape"] // optional
 }
 
 export const register = defineDocType({ …, handle: RegisterHandle }).as<Register>()
@@ -137,12 +137,12 @@ export const register = defineDocType({ …, handle: RegisterHandle }).as<Regist
 A method that returns a different handle (a handle for part of the document,
 say) types it as `SameBackend<this, MyHandle<T[K]>>`, so the result keeps the
 backend's members and events. Or, like Automerge, the class takes the backend's
-spec as a second parameter, and the interface passes it on as `this["X"]`:
+spec as a second parameter, and the interface passes it on as `this["Extensions"]`:
 
 ```ts
 interface AutomergeKind extends Shaped {
   readonly name: "automerge"
-  readonly handle: AutomergeHandle<this["T"], this["X"]>
+  readonly handle: AutomergeHandle<this["Shape"], this["Extensions"]>
 }
 // in AutomergeHandle<T, X>:
 sub<K extends keyof T>(key: K): DocHandle<T[K], X>
