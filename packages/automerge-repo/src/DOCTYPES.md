@@ -97,6 +97,22 @@ name: `counter.url` is `AutomergeUrl<"gcounter">`. `find`, `query` and
 (`find(counter.url)` needs `{ docType: gcounter }`); a plain `AutomergeUrl`,
 such as a link read from a document, is only checked when opened.
 
+The name appears twice: as a string in the definition, used in URLs at
+runtime, and as a type in the interface, which TypeScript can't read from the
+definition without losing the interface's name. `as` rejects a mismatch. To
+write the string once, share a constant:
+
+```ts
+const name = "gcounter"
+
+export interface GCounter extends HandleKind {
+  readonly name: typeof name
+  readonly handle: CounterHandle
+}
+
+export const gcounter = defineDocType({ name, …, handle: CounterHandle }).as<GCounter>()
+```
+
 The contract, checked by `runDocTypeTests` (`src/helpers/tests/doc-type-tests.ts`):
 
 - Heads and commit IDs are 64 lowercase hex characters; every head is a commit.
