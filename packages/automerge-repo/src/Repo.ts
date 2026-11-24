@@ -14,6 +14,7 @@ import {
   type HandleKind,
   type InitOf,
   type KindOf,
+  type NameOf,
   type Of,
 } from "./DocType.js"
 import { extendHandle } from "./DocHandle.js"
@@ -142,11 +143,11 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     D extends AnyDocType = AnyDocType,
     S = unknown,
   >(
-    id: AnyDocumentId,
+    id: AnyDocumentId<NameOf<D>>,
     options: AbortOptions & { docType: Of<D, S> }
   ): DocumentProgress<S, X, KindOf<D>>
   findWithProgress<T>(
-    id: AnyDocumentId,
+    id: AnyDocumentId<"automerge">,
     options?: AbortOptions
   ): DocumentProgress<T, X>
   findWithProgress(
@@ -158,12 +159,12 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
 
   /** A document of the doc type `type`; its URL must name `type`. */
   find<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
-    id: AnyDocumentId,
+    id: AnyDocumentId<NameOf<D>>,
     options: RepoFindOptions & { docType: Of<D, S> }
   ): Promise<DocHandle<S, X, KindOf<D>>>
   /** Cancellation stops this wait, not the shared document's loading. */
   find<T>(
-    id: AnyDocumentId,
+    id: AnyDocumentId<"automerge">,
     options?: RepoFindOptions
   ): Promise<DocHandle<T, X>>
   async find(
@@ -184,10 +185,10 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
    */
   /** A document of the doc type `type`; its URL must name `type`. */
   query<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
-    id: AnyDocumentId,
+    id: AnyDocumentId<NameOf<D>>,
     options: { docType: Of<D, S> }
   ): DocumentQuery<S, X, KindOf<D>>
-  query<T>(id: AnyDocumentId): DocumentQuery<T, X>
+  query<T>(id: AnyDocumentId<"automerge">): DocumentQuery<T, X>
   query(
     id: AnyDocumentId,
     { docType = automerge }: { docType?: AnyDocType } = {}

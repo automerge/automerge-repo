@@ -128,6 +128,7 @@ export type {
   HandleOfClass,
   InitOf,
   KindOf,
+  NameOf,
   Of,
   PlainHandle,
   ShapeOf,

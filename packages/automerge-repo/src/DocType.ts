@@ -124,6 +124,7 @@ export type AnyDocType = DocType<any, any, any, any, string, any>
  *
  * ```ts
  * export interface GCounter extends HandleKind {
+ *   readonly name: "gcounter"
  *   readonly handle: CounterHandle
  * }
  * export const gcounter = defineDocType({ …, handle: CounterHandle }).as<GCounter>()
@@ -132,6 +133,9 @@ export type AnyDocType = DocType<any, any, any, any, string, any>
  * A doc type whose handles are generic in the shape extends {@link Shaped}.
  */
 export interface HandleKind {
+  /** The doc type's name, as its definition gives it: handles' URLs are
+   * typed with it (`AutomergeUrl<"gcounter">`). */
+  readonly name: string
   readonly T: unknown
   // `{}` rather than `HandleExtensionSpec`: it intersects with the backend's
   // spec when applied, and `{} & X` simplifies to `X`.
@@ -147,6 +151,7 @@ export interface HandleKind {
  *
  * ```ts
  * export interface Register extends Shaped {
+ *   readonly name: "register"
  *   readonly handle: RegisterHandle<this["T"]>
  *   readonly init: this["T"] // optional: what `create` takes
  * }
@@ -160,14 +165,24 @@ export interface Shaped extends HandleKind {
   readonly "~shaped": true
 }
 
-/** The handles of a doc type with this class, and no {@link HandleKind}. */
-export interface HandleOfClass<C extends HandleClass> extends HandleKind {
+/** The handles of a doc type named `Name` with this class, and no
+ * {@link HandleKind}. */
+export interface HandleOfClass<
+  C extends HandleClass,
+  Name extends string = string,
+> extends HandleKind {
+  readonly name: Name
   readonly handle: InstanceType<C>
 }
 
-/** The handles of a doc type with no class: the base `Handle`, typed from
- * the doc type's `value` and `change`. */
-export interface PlainHandle<V, C> extends HandleKind {
+/** The handles of a doc type named `Name` with no class: the base `Handle`,
+ * typed from the doc type's `value` and `change`. */
+export interface PlainHandle<
+  V,
+  C,
+  Name extends string = string,
+> extends HandleKind {
+  readonly name: Name
   readonly handle: Handle<V, C>
 }
 
@@ -202,11 +217,16 @@ export type KindOf<D> = D extends { readonly "~kind"?: infer K }
   : DefaultKind<D>
 
 type DefaultKind<D> =
-  D extends DocType<any, infer V, infer C, any, any, infer H>
+  D extends DocType<any, infer V, infer C, any, infer Name, infer H>
     ? H extends HandleClass
-      ? HandleOfClass<H>
-      : PlainHandle<V, C>
+      ? HandleOfClass<H, Name>
+      : PlainHandle<V, C, Name>
     : never
+
+/** A doc type's name, as a literal type when its definition gives one. */
+export type NameOf<D> = D extends { readonly name: infer N extends string }
+  ? N
+  : string
 
 /** What `create` takes for a doc type and shape `T`: what its
  * {@link HandleKind} says, if it says (`readonly init: this["T"]`),
@@ -218,11 +238,23 @@ export type InitOf<D, T = ShapeOf<D>> =
       ? I
       : never
 
-/** What {@link defineDocType} adds to a doc type, for handles `H`. */
-export interface DocTypeHelpers<H> {
+/** What {@link defineDocType} adds to a doc type named `Name`, for handles
+ * `H`. */
+export interface DocTypeHelpers<
+  H extends Handle<any, any, any>,
+  Name extends string = string,
+> {
   /** This doc type, with its handles described by `K` (and named by it).
-   * `K`'s handle must be the type's handle class. Type-level only. */
-  as<K extends HandleKind & { readonly handle: H }>(): Kinded<this, K>
+   * `K`'s handle must be the type's handle class, and its name the type's.
+   * Type-level only. */
+  // `HandleKind` without its `handle`: intersecting that (a `Handle`) with
+  // `H` goes too deep for TypeScript, as `url`'s type reads `this`.
+  as<
+    K extends Omit<HandleKind, "handle" | "name"> & {
+      readonly handle: H
+      readonly name: Name
+    },
+  >(): Kinded<this, K>
 }
 
 /**
@@ -243,7 +275,7 @@ export function defineDocType<
   }
 ): DocType<State, View, Change, Init, Name, H> & {
   readonly handle: H
-} & DocTypeHelpers<InstanceType<H>>
+} & DocTypeHelpers<InstanceType<H>, Name>
 export function defineDocType<
   State,
   View,
@@ -255,10 +287,10 @@ export function defineDocType<
     readonly handle?: undefined
   }
 ): DocType<State, View, Change, Init, Name, undefined> &
-  DocTypeHelpers<Handle<View, Change>>
+  DocTypeHelpers<Handle<View, Change>, Name>
 export function defineDocType(
   type: AnyDocType
-): AnyDocType & DocTypeHelpers<unknown> {
+): AnyDocType & DocTypeHelpers<Handle<any, any, any>> {
   const self = function (this: unknown) {
     return this
   }
@@ -266,7 +298,7 @@ export function defineDocType(
   return Object.defineProperties(type, {
     as: { value: self, configurable: true },
     of: { value: self, configurable: true },
-  }) as AnyDocType & DocTypeHelpers<unknown>
+  }) as AnyDocType & DocTypeHelpers<Handle<any, any, any>>
 }
 
 /** `other`'s history added to `state`, with the type's `merge` if it has one. */

@@ -3,14 +3,19 @@
 import { Repo } from "../src/Repo.js"
 import { DocHandle, isHandleOf } from "../src/types/DocHandle.js"
 import { automerge } from "../src/automerge/docType.js"
-import { defineDocType, type Shaped } from "../src/DocType.js"
+import { defineDocType, type HandleKind, type Shaped } from "../src/DocType.js"
 import { Handle } from "../src/Handle.js"
 import type { AnyHandleKind, SameBackend } from "../src/types/DocHandle.js"
 import { Presence } from "../src/presence/Presence.js"
 import { defineExtension, provides } from "../src/sedimentree/index.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
-import type { AutomergeUrl, PeerId, RepoId } from "../src/types.js"
-import { gcounter, type GCounter } from "./doctypes/gcounter/gcounter.js"
+import type { AutomergeUrl, DocumentId, PeerId, RepoId } from "../src/types.js"
+import {
+  CounterHandle,
+  gcounter,
+  type GCounter,
+} from "./doctypes/gcounter/gcounter.js"
+import { register } from "./doctypes/register/register.js"
 
 type Doc = { title: string; items: string[] }
 
@@ -158,6 +163,7 @@ class TreeHandle<T> extends Handle<T, T> {
   }
 }
 interface Tree extends Shaped {
+  readonly name: "tree"
   readonly handle: TreeHandle<this["T"]>
 }
 const tree = defineDocType({
@@ -240,6 +246,7 @@ class OtherHandle<T> extends Handle<T, T> {
   }
 }
 interface WrongClass extends Shaped {
+  readonly name: "wrong-class"
   readonly handle: OtherHandle<this["T"]>
 }
 defineDocType({
@@ -263,3 +270,59 @@ defineDocType({
   // @ts-expect-error the class's doc() and change() types disagree with the type
   handle: StringHandle,
 })
+interface WrongName extends HandleKind {
+  readonly name: "not-gcounter"
+  readonly handle: CounterHandle
+}
+defineDocType({
+  ...gcounter,
+  name: "gcounter-copy",
+  handle: CounterHandle,
+  // @ts-expect-error the kind's name differs from the definition's
+}).as<WrongName>()
+
+// Handles' URLs name their doc type.
+export async function urls() {
+  const r = new Repo({ backend: new EphemeralBackend() })
+  const counter = await r.create(1, { docType: gcounter })
+  const doc = await r.find<Todo2>("automerge:x" as AutomergeUrl)
+  const bare = await r.create(1, { docType: plainCounter })
+  const listed = r.handles["x" as DocumentId]
+  const checks: [
+    Equal<typeof counter.url, AutomergeUrl<"gcounter">>,
+    Equal<typeof doc.url, AutomergeUrl<"automerge">>,
+    Equal<typeof bare.url, AutomergeUrl<"plain-counter">>,
+  ] = [true, true, true]
+  const fromView: AutomergeUrl<"gcounter"> = counter.view(counter.heads()).url
+  const fromSub: AutomergeUrl<"automerge"> = doc.sub("items", 0).url
+  const any: AutomergeUrl = counter.url
+  const fromListed: AutomergeUrl = listed.url
+  // @ts-expect-error a counter's URL is not an Automerge document's
+  const wrong: AutomergeUrl<"automerge"> = counter.url
+  return [checks, fromView, fromSub, any, fromListed, wrong]
+}
+
+// `find`, `query` and `findWithProgress` check a typed URL's doc type.
+export async function findChecks() {
+  const r = new Repo()
+  const counter = await r.create(1, { docType: gcounter })
+  const doc = await r.find<Todo2>("automerge:x" as AutomergeUrl)
+  const link = "automerge:x" as AutomergeUrl
+  await r.find(counter.url, { docType: gcounter })
+  await r.find(doc.url)
+  await r.find<Todo2>(doc.sub("items", 0).url)
+  await r.find(counter.documentId, { docType: gcounter })
+  // Plain links, e.g. read from a document, open as any doc type.
+  await r.find(link)
+  await r.find(link, { docType: gcounter })
+  // @ts-expect-error a counter's URL needs its doc type
+  await r.find(counter.url)
+  // @ts-expect-error even with a shape
+  await r.find<Todo2>(counter.url)
+  // @ts-expect-error a counter's URL is not a register's
+  await r.find(counter.url, { docType: register.of<Todo2>() })
+  // @ts-expect-error an Automerge document's URL is not a counter's
+  r.query(doc.url, { docType: gcounter })
+  // @ts-expect-error nor through findWithProgress
+  r.findWithProgress(counter.url)
+}

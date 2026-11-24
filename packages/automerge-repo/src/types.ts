@@ -6,7 +6,9 @@
  */
 export type AutomergeUrl<DocTypeName extends string = string> = string & {
   __documentUrl: true
-  readonly __docTypeName?: DocTypeName
+  // A method, so checked loosely both ways: a URL of any doc type (`string`)
+  // fits one with a name, and back, but two different names don't.
+  __docTypeName?(name: DocTypeName): void
 } // for opening / linking
 
 /**
@@ -24,7 +26,12 @@ export type DocumentId = string & { __documentId: true } // for logging
  */
 export type BinaryDocumentId = Uint8Array & { __binaryDocumentId: true } // for storing / syncing
 
-export type AnyDocumentId = AutomergeUrl | DocumentId | BinaryDocumentId
+/** Any way of naming a document; with `DocTypeName`, URLs must be of a
+ * document of that doc type, or of any. */
+export type AnyDocumentId<DocTypeName extends string = string> =
+  | AutomergeUrl<DocTypeName>
+  | DocumentId
+  | BinaryDocumentId
 
 // We need to define our own version of heads because the AutomergeHeads type is not bs58check encoded
 export type UrlHeads = string[] & { __automergeUrlHeads: unknown }

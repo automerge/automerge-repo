@@ -130,6 +130,7 @@ export type DocHandle<
   K extends HandleKind = AutomergeKind,
 > = HandleFor<K, T, X> & {
   readonly "~ext": VisibleSpec<X>
+  readonly "~name": K["name"]
 } & ExtensionMembers<X> &
   ExtensionEventsApi<VisibleSpec<X>, HandleFor<K, T, X>>
 

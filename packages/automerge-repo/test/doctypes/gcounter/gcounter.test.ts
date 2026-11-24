@@ -76,6 +76,8 @@ describe("a G-Counter doc type", () => {
     const counter = await repo(backend).create(1, { docType: gcounter })
     expect(counter.url).toMatch(/^automerge:gcounter:/)
     const other = repo(backend)
+    // Typed URLs are checked at compile time too; plain strings only here.
+    // @ts-expect-error a counter's URL needs its doc type
     await expect(other.find(counter.url)).rejects.toThrow(
       /of doc type gcounter/
     )
@@ -84,6 +86,7 @@ describe("a G-Counter doc type", () => {
       documentId: counter.documentId,
     })
     await expect(
+      // @ts-expect-error an Automerge document's URL is not a counter's
       other.find(asAutomerge, { docType: gcounter })
     ).rejects.toThrow(/of doc type automerge/)
   })

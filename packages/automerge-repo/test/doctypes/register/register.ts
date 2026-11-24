@@ -34,6 +34,7 @@ export class RegisterHandle<T> extends Handle<T, T> {
 /** The register's handles, generic in the shape, and what `create` takes for
  * it. Also the doc type's name: `DocHandle<Todo, X, Register>`. */
 export interface Register extends Shaped {
+  readonly name: "register"
   readonly handle: RegisterHandle<this["T"]>
   readonly init: this["T"]
 }

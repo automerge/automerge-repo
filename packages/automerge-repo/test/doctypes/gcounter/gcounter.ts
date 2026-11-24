@@ -29,6 +29,7 @@ export class CounterHandle extends Handle<number, number> {
 /** The G-Counter's handles; also the doc type's name:
  * `DocHandle<unknown, X, GCounter>`. */
 export interface GCounter extends HandleKind {
+  readonly name: "gcounter"
   readonly handle: CounterHandle
 }
 

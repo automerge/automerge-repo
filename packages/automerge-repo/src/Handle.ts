@@ -136,6 +136,10 @@ export class Handle<
    */
   declare readonly "~ext": {}
 
+  /** Type only: the name of this handle's doc type, which its URL is typed
+   * with; `DocHandle` sets it. */
+  declare readonly "~name": string
+
   /** Shared per-document state. Every handle into the same doc shares one. */
   readonly #state: DocumentState<any>
   /** If set, this handle shows the document only at these heads. */
@@ -154,12 +158,12 @@ export class Handle<
   }
 
   /** `automerge:<doc type name>:<documentId>[#heads]` */
-  get url(): AutomergeUrl {
+  get url(): AutomergeUrl<this["~name"]> {
     return stringifyAutomergeUrl({
       docType: this.#state.docType,
       documentId: this.documentId,
       heads: this.#heads,
-    })
+    }) as AutomergeUrl<this["~name"]>
   }
 
   /**

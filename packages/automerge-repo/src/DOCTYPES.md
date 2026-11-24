@@ -71,6 +71,7 @@ export class CounterHandle extends Handle<number, number> {
 }
 
 export interface GCounter extends HandleKind {
+  readonly name: "gcounter"
   readonly handle: CounterHandle
 }
 
@@ -90,7 +91,11 @@ export const gcounter = defineDocType({
 
 `defineDocType` checks that the class's `Handle<View, Change>` matches the
 type's `value` and `change`, and `as` that the interface names the class
-given as `handle`.
+given as `handle` and the type's `name`. Handles' URLs are typed with the
+name: `counter.url` is `AutomergeUrl<"gcounter">`. `find`, `query` and
+`findWithProgress` reject a typed URL of another doc type at compile time
+(`find(counter.url)` needs `{ docType: gcounter }`); a plain `AutomergeUrl`,
+such as a link read from a document, is only checked when opened.
 
 The contract, checked by `runDocTypeTests` (`src/helpers/tests/doc-type-tests.ts`):
 
@@ -121,6 +126,7 @@ export class RegisterHandle<T> extends Handle<T, T> {
 }
 
 export interface Register extends Shaped {
+  readonly name: "register"
   readonly handle: RegisterHandle<this["T"]>
   readonly init: this["T"] // optional
 }
@@ -135,6 +141,7 @@ spec as a second parameter, and the interface passes it on as `this["X"]`:
 
 ```ts
 interface AutomergeKind extends Shaped {
+  readonly name: "automerge"
   readonly handle: AutomergeHandle<this["T"], this["X"]>
 }
 // in AutomergeHandle<T, X>:
