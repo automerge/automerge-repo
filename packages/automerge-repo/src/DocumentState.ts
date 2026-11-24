@@ -1,11 +1,10 @@
-import { next as A } from "@automerge/automerge/slim"
 import { makeLogger, Logger } from "./Logger.js"
 import { decodeHeads, encodeHeads } from "./AutomergeUrl.js"
 import type { DocumentId, PeerId, RepoId, SyncInfo, UrlHeads } from "./types.js"
 import { Listeners } from "./Listeners.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
 import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
-import type { DocHandle } from "./types/DocHandle.js"
+import type { AnyHandleKind, DocHandle } from "./types/DocHandle.js"
 import { Handle as BaseHandle } from "./Handle.js"
 import { extendHandle } from "./DocHandle.js"
 import { RootQuery } from "./DocumentQuery.js"
@@ -16,22 +15,21 @@ import type { Handle } from "./Handle.js"
 import { automerge } from "./automerge/docType.js"
 
 /** What a {@link DocumentState} asks of the {@link Document} that owns it. */
-type Owner = Pick<Document<any>, "commit"> &
-  Partial<
-    Pick<Document<any>, "Handle" | "extensionContext" | "docType" | "repoId">
-  >
+type Owner = Pick<Document, "commit"> &
+  Partial<Pick<Document, "Handle" | "extensionContext" | "docType" | "repoId">>
 
 /**
  * Per-document shared state - one per `documentId`, referenced by every
- * `DocHandle` (root, sub, view) into that document. Owns the Automerge
- * snapshot, the root handle, its readiness query, and the {@link Listeners}
- * of every handle.
+ * `DocHandle` (root, sub, view) into that document. Owns the doc type's
+ * current state, the root handle, its readiness query, and the
+ * {@link Listeners} of every handle. The state is opaque here: only the doc
+ * type's functions read or change it.
  * Local edits go out through its owning {@link Document}. Not part of the
  * public API.
  *
  * @internal
  */
-export class DocumentState<T = unknown> {
+export class DocumentState {
   readonly documentId: DocumentId
   /** How the state is stored, read and changed. */
   readonly docType: AnyDocType
@@ -44,13 +42,14 @@ export class DocumentState<T = unknown> {
   /** The class of every handle of this document. */
   readonly Handle: typeof BaseHandle
   /** The root handle Repo hands out. */
-  readonly handle: DocHandle<T>
+  readonly handle: DocHandle<any, {}, AnyHandleKind>
   /** Owns readiness. */
-  readonly query: RootQuery<T>
+  readonly query: RootQuery<any>
   readonly #owner: Owner
 
-  /** No WASM document until storage, peer history, or a caller needs one. */
-  #doc?: A.Doc<T>
+  /** No state (`undefined`) until storage, peer history, or a caller needs
+   * one. Any other value, even `null` or `0`, is a state. */
+  #current?: unknown
 
   /** Set by {@link DocumentState.delete}. */
   deleted = false
@@ -68,21 +67,22 @@ export class DocumentState<T = unknown> {
   #headsSubscribers = new Set<() => void>()
 
   /**
-   * Materialized `A.view`s, keyed by heads. Heads precisely specify an
+   * The doc type's views, keyed by heads. Heads precisely specify an
    * immutable state, so a view never changes once computed and the cache
-   * never needs invalidating - the live doc only ever grows past these
-   * heads, and `A.view` at a historical point is identical regardless.
+   * never needs invalidating - the live state only ever grows past these
+   * heads, and a view at a historical point is identical regardless.
    *
    * Held weakly: heads keys are unbounded over a document's life. A view
-   * stays cached while held and is recomputed on a cold read.
+   * stays cached while held and is recomputed on a cold read. Only objects
+   * can be held weakly: other views are recomputed on every read.
    */
-  #viewCache = new WeakValueMap<string, A.Doc<T>>()
+  #viewCache = new WeakValueMap<string, object>()
 
   /** The owner is only stored here, not called, so it may still be constructing. */
-  constructor(documentId: DocumentId, owner: Owner, initialDoc?: A.Doc<T>) {
+  constructor(documentId: DocumentId, owner: Owner, initial?: unknown) {
     this.documentId = documentId
     this.#owner = owner
-    this.#doc = initialDoc
+    this.#current = initial
     this.docType = owner.docType ?? automerge
     this.context = {
       documentId,
@@ -93,8 +93,8 @@ export class DocumentState<T = unknown> {
     this.Handle =
       owner.Handle ??
       extendHandle([], (this.docType.handle ?? BaseHandle) as typeof BaseHandle)
-    this.handle = new this.Handle(this) as DocHandle<T>
-    this.query = new RootQuery(this.handle)
+    this.handle = new this.Handle(this) as DocHandle<any, {}, AnyHandleKind>
+    this.query = new RootQuery(this.handle as DocHandle<any>)
   }
 
   /** What handle extensions can do with this document. */
@@ -104,8 +104,11 @@ export class DocumentState<T = unknown> {
     return context
   }
 
-  get doc(): A.Doc<T> {
-    return (this.#doc ??= this.docType.apply(undefined, []))
+  /** The doc type's current state, made empty on first need. */
+  get current(): unknown {
+    if (this.#current === undefined)
+      this.#current = this.docType.apply(undefined, [])
+    return this.#current
   }
 
   /** Set by {@link DocumentState.close}; edits and inbound data are then rejected. */
@@ -131,13 +134,13 @@ export class DocumentState<T = unknown> {
     this.listeners.emitAll("delete", handle => ({ handle }))
   }
 
-  /** Inspect without materializing an empty Automerge document. */
-  peekDoc(): A.Doc<T> | undefined {
-    return this.#doc
+  /** The current state, without making an empty one. */
+  peek(): unknown {
+    return this.#current
   }
 
   heads(): string[] {
-    return this.#doc ? this.docType.heads(this.#doc) : []
+    return this.#current === undefined ? [] : this.docType.heads(this.#current)
   }
 
   /** Call `fn` after each heads change, after handle listeners. Returns an unsubscribe. */
@@ -200,19 +203,22 @@ export class DocumentState<T = unknown> {
   }
 
   /**
-   * The whole document at `heads` (the live snapshot when `heads` is
-   * undefined). Views are memoized per snapshot so repeated reads from
-   * view-pinned handles don't re-run `A.view`.
+   * The state as of `heads` (the current state when `heads` is undefined).
+   * Views are memoized per heads so repeated reads from view-pinned handles
+   * don't recompute them.
    */
-  viewAt(heads: UrlHeads | undefined): A.Doc<T> {
-    if (!heads) return this.doc
+  viewAt(heads: UrlHeads | undefined): unknown {
+    if (!heads) return this.current
     const docType = this.docType
     if (!docType.view)
       throw new Error(`${docType.name} documents have no views`)
     const key = [...heads].sort().join(",")
-    return this.#viewCache.getOrCompute(key, () =>
-      docType.view!(this.doc, decodeHeads(heads))
-    )
+    const cached = this.#viewCache.get(key)
+    if (cached !== undefined) return cached
+    const view: unknown = docType.view(this.current, decodeHeads(heads))
+    if (typeof view === "object" && view !== null)
+      this.#viewCache.set(key, view)
+    return view
   }
 
   /**
@@ -221,7 +227,7 @@ export class DocumentState<T = unknown> {
    * mutation and dispatch here means callers can't forget the dispatch.
    */
   applyMutation(
-    mutator: (doc: A.Doc<any>) => A.Doc<any>,
+    mutator: (state: any) => unknown,
     options: { incoming?: boolean; initial?: boolean; compact?: boolean } = {}
   ): Promise<void> {
     if (this.deleted) throw new Error("Document is deleted")
@@ -230,24 +236,24 @@ export class DocumentState<T = unknown> {
       throw new Error("Document is not ready")
     if (!options.incoming && this.writeFailure)
       return Promise.reject(this.writeFailure.error)
-    const before = this.doc
+    const before = this.current
     // Read first: a type may change its state in place.
     const beforeHeads = this.docType.heads(before)
     const after = mutator(before)
     return this.#adopt(before, beforeHeads, after, options)
   }
 
-  /** Adopt the first storage snapshot without allocating an empty WASM document. */
-  applyLoaded(after: A.Doc<T>, initial: boolean): Promise<void> {
+  /** Adopt the first loaded state without making an empty one first. */
+  applyLoaded(after: unknown, initial: boolean): Promise<void> {
     if (this.deleted) throw new Error("Document is deleted")
     if (this.closed) throw new Error("Document is closed")
-    const before = this.#doc
-    const beforeHeads = before ? this.docType.heads(before) : []
+    const before = this.#current
+    const beforeHeads = before === undefined ? [] : this.docType.heads(before)
     return this.#adopt(before, beforeHeads, after, { incoming: true, initial })
   }
 
   /** Every writable listening handle gets the document's new value. */
-  #dispatchChange({ after, initial }: StateChange<A.Doc<T>>): void {
+  #dispatchChange({ after, initial }: StateChange<unknown>): void {
     // A heads listener can attach a change listener during dispatch.
     if (initial && !this.listeners.hasWritable("change")) return
     const doc = this.docType.value(after)
@@ -257,18 +263,18 @@ export class DocumentState<T = unknown> {
   }
 
   #adopt(
-    before: A.Doc<T> | undefined,
+    before: unknown,
     beforeHeads: string[],
-    after: A.Doc<T>,
+    after: unknown,
     options: { incoming?: boolean; initial?: boolean; compact?: boolean }
   ): Promise<void> {
-    // Always adopt the new snapshot even when heads are unchanged -
-    // `A.change` can hand back a fresh snapshot whose `before` is now
-    // "outdated" for subsequent mutations.
-    this.#doc = after
+    // Always adopt the new state even when heads are unchanged: a type with
+    // immutable states can hand back a fresh one that `before` no longer
+    // matches for subsequent mutations.
+    this.#current = after
     const afterHeads = this.docType.heads(after)
     const stored =
-      options.incoming || !before
+      options.incoming || before === undefined
         ? Promise.resolve()
         : this.#owner.commit(beforeHeads, after, { compact: options.compact })
     void stored.catch(() => {})
@@ -280,8 +286,7 @@ export class DocumentState<T = unknown> {
       this.docType.changeDispatcher?.(this, change) ??
       (() => this.#dispatchChange(change))
     this.#events.push(() => {
-      // Heads are document-level: the payload is the whole document's value
-      // (for Automerge, the document itself).
+      // Heads are document-level: the payload is the whole document's value.
       let value: { doc: unknown } | undefined
       this.listeners.emitAll(
         "heads-changed",

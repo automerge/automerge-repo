@@ -30,10 +30,10 @@ type ScopedChange = { patches: A.Patch[]; scopeReplaced: boolean }
  * Dispatch walks the trie once per patch and bulk-resolves crossed pattern
  * edges - N refs sharing a pattern at the same path cost the same as one.
  */
-const registries = new WeakMap<DocumentState<any>, HandleRegistry>()
+const registries = new WeakMap<DocumentState, HandleRegistry>()
 
 /** The registry of an Automerge document's handles, made on first use. */
-export function registryOf(state: DocumentState<any>): HandleRegistry {
+export function registryOf(state: DocumentState): HandleRegistry {
   let registry = registries.get(state)
   if (!registry) registries.set(state, (registry = new HandleRegistry(state)))
   return registry
@@ -62,7 +62,7 @@ export class HandleRegistry {
     { path: readonly PathSegment[]; range: CursorRange | undefined }
   >()
 
-  constructor(readonly state: DocumentState<any>) {}
+  constructor(readonly state: DocumentState) {}
 
   // Tracking live handles
 

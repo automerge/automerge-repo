@@ -4,7 +4,7 @@ import { DocumentState } from "../../src/DocumentState.js"
 import type { RootQuery } from "../../src/DocumentQuery.js"
 import type { DocumentId } from "../../src/types.js"
 
-const states = new WeakMap<DocHandle<any>, DocumentState<any>>()
+const states = new WeakMap<DocHandle<any>, DocumentState>()
 
 /** Stands in for the owning Document: edits are accepted and stored nowhere. */
 export const noopOwner = {
@@ -19,9 +19,10 @@ export function createTestDocument<T>(
   documentId: DocumentId,
   doc: A.Doc<T> = A.init<T>(),
   { ready = true }: { ready?: boolean } = {}
-): { state: DocumentState<T>; handle: DocHandle<T>; query: RootQuery<T> } {
-  const state = new DocumentState<T>(documentId, noopOwner, doc)
-  const { handle, query } = state
+): { state: DocumentState; handle: DocHandle<T>; query: RootQuery<T> } {
+  const state = new DocumentState(documentId, noopOwner, doc)
+  const handle = state.handle as unknown as DocHandle<T>
+  const query = state.query as RootQuery<T>
   if (ready) query.ready()
   states.set(handle, state)
   return { state, handle, query }
@@ -36,7 +37,7 @@ export function createTestHandle<T>(documentId: DocumentId): DocHandle<T> {
 export function createTestQuery<T>(documentId: DocumentId): {
   query: RootQuery<T>
   handle: DocHandle<T>
-  state: DocumentState<T>
+  state: DocumentState
 } {
   return createTestDocument<T>(documentId, undefined, { ready: false })
 }

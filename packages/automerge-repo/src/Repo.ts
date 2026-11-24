@@ -59,7 +59,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   RepoEvents<X>
 > {
   #log = makeLogger("automerge-repo:repo")
-  #documents = new Map<DocumentId, Document<any>>()
+  #documents = new Map<DocumentId, Document>()
   #backend: SedimentreeBackend
   #operations = new Set<Promise<unknown>>()
   #closed = false
@@ -302,12 +302,12 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
       existing.adopt(doc)
       return this.#handle(existing)
     }
-    return this.#handle(this.#register<T>(id, doc, docType))
+    return this.#handle(this.#register(id, doc, docType))
   }
 
   /** The root handle, typed with the backend's extensions. */
-  #handle<T>(document: Document<T>): DocHandle<T, X> {
-    return document.handle as DocHandle<T, X>
+  #handle<T>(document: Document): DocHandle<T, X> {
+    return document.handle as unknown as DocHandle<T, X>
   }
 
   #backendId(id: DocumentId): SedimentreeId {
@@ -316,12 +316,12 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     return sedimentreeId(bytes)
   }
 
-  #register<T>(
+  #register(
     id: DocumentId,
-    initial?: A.Doc<T>,
+    initial?: unknown,
     docType: AnyDocType = automerge
-  ): Document<T> {
-    const document = new Document<T>(
+  ): Document {
+    const document = new Document(
       this.#backendId(id),
       id,
       this.#backend,
@@ -488,11 +488,11 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     documents: Record<string, { numOps: number; numChanges: number }>
   } {
     return {
+      // Automerge's: other doc types have no such metrics.
       documents: Object.fromEntries(
-        [...this.#documents].map(([id, document]) => [
-          id,
-          document.handle.metrics(),
-        ])
+        [...this.#documents].flatMap(([id, { handle }]) =>
+          isHandleOf(handle, automerge) ? [[id, handle.metrics()]] : []
+        )
       ),
     }
   }

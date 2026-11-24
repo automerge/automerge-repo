@@ -16,7 +16,7 @@ import { TestDoc } from "./types.js"
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
-  const states = new WeakMap<DocHandle<any>, DocumentState<any>>()
+  const states = new WeakMap<DocHandle<any>, DocumentState>()
   const setup = (options?: any) => {
     const { quick, documentId, doc, ...rest } = options ?? {}
     const { state, handle: root } = createTestDocument<TestDoc>(
@@ -667,7 +667,9 @@ describe("DocHandle", () => {
     it("view handles share DocumentState sync info", () => {
       const { state, handle } = createTestDocument<TestDoc>(TEST_ID)
       state.recordRemoteHeads("peer-1" as PeerId, ["abcd"])
-      state.applyMutation(d => A.change(d, x => (x.foo = "bar")))
+      state.applyMutation((d: A.Doc<TestDoc>) =>
+        A.change(d, x => (x.foo = "bar"))
+      )
       const view = handle.view(handle.heads())
       assert.deepEqual(
         view.getSyncInfo("peer-1" as PeerId),

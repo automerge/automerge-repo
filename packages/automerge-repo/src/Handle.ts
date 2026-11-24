@@ -78,7 +78,7 @@ export type HandleOptions = {
   scope?: unknown
 }
 
-let stateOf: (handle: AnyHandle) => DocumentState<any>
+let stateOf: (handle: AnyHandle) => DocumentState
 let scopeOf: (handle: AnyHandle) => unknown
 let fixedHeadsOf: (handle: AnyHandle) => UrlHeads | undefined
 
@@ -141,13 +141,13 @@ export class Handle<
   declare readonly "~spec"?: {}
 
   /** Shared per-document state. Every handle into the same doc shares one. */
-  readonly #state: DocumentState<any>
+  readonly #state: DocumentState
   /** If set, this handle shows the document only at these heads. */
   readonly #heads?: UrlHeads
   readonly #scope: unknown
 
   /** @internal Handles are obtained from a {@link Repo} or another handle. */
-  constructor(state: DocumentState<any>, options: HandleOptions = {}) {
+  constructor(state: DocumentState, options: HandleOptions = {}) {
     this.#state = state
     this.#heads = options.heads
     this.#scope = options.scope

@@ -103,6 +103,13 @@ describe("a G-Counter doc type", () => {
       if (isHandleOf(h, automerge)) expect(h.fullDoc()).toEqual({ title: "x" })
   })
 
+  it("is left out of Automerge's metrics", async () => {
+    const r = repo()
+    await r.create(1, { docType: gcounter })
+    const doc = await r.create({ title: "x" })
+    expect(Object.keys(r.metrics().documents)).toEqual([doc.documentId])
+  })
+
   it("is not of any doc type unless it is a handle", () => {
     expect(isHandleOf({}, gcounter)).toBe(false)
     expect(isHandleOf({ "~spec": {} } as object, automerge)).toBe(false)

@@ -1,5 +1,4 @@
-import { next as A } from "@automerge/automerge/slim"
-import type { DocHandle } from "./types/DocHandle.js"
+import type { AnyHandleKind, DocHandle } from "./types/DocHandle.js"
 import type { Handle as BaseHandle } from "./Handle.js"
 import { DocumentState } from "./DocumentState.js"
 import type { RootQuery } from "./DocumentQuery.js"
@@ -68,7 +67,7 @@ function whenIdle(run: () => void): () => void {
  * moment, then the fragments are bundled and stored like any write. Flush
  * compacts at once.
  */
-export class Document<T> {
+export class Document {
   #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
   /** Initial-cut records, applied together at local-load-complete. */
   #initial: SedimentreeRecord[] = []
@@ -85,7 +84,7 @@ export class Document<T> {
   #running = false
   /** Created locally with initial history: ready as soon as it starts. */
   #created: boolean
-  readonly state: DocumentState<T>
+  readonly state: DocumentState
   /** What the backend's handle extensions can do with this document. */
   readonly extensionContext: ExtensionContext
 
@@ -94,13 +93,13 @@ export class Document<T> {
     documentId: DocumentId,
     private backend: SedimentreeBackend,
     readonly repoId: RepoId,
-    initial?: A.Doc<T>,
+    initial?: unknown,
     /** The handle class built for the type and the backend's extensions. */
     readonly Handle?: typeof BaseHandle,
     /** How the document is stored, read and changed. */
     readonly docType: AnyDocType = automerge
   ) {
-    this.#created = !!initial
+    this.#created = initial !== undefined
     this.state = new DocumentState(documentId, this, initial)
     const session = () => (this.state.closed ? undefined : this.#session)
     this.extensionContext = {
@@ -128,11 +127,11 @@ export class Document<T> {
   }
 
   /** The root handle. */
-  get handle(): DocHandle<T> {
+  get handle(): DocHandle<any, {}, AnyHandleKind> {
     return this.state.handle
   }
 
-  get query(): RootQuery<T> {
+  get query(): RootQuery<any> {
     return this.state.query
   }
 
@@ -192,7 +191,7 @@ export class Document<T> {
    * with `compact` (merges and imports) bundled into this batch. */
   commit(
     beforeHeads: readonly string[],
-    after: A.Doc<T>,
+    after: unknown,
     options: { compact?: boolean } = {}
   ): Promise<void> {
     const failure = this.state.writeFailure
@@ -261,8 +260,8 @@ export class Document<T> {
 
   async #compact(): Promise<void> {
     if (!this.#due.size || this.#stopped) return
-    const doc = this.state.peekDoc()
-    if (!doc) return
+    const doc = this.state.peek()
+    if (doc === undefined) return
     let fragments: FragmentRecord[] = []
     await this.#store(() => {
       const found = this.#fragments(doc, this.#due)
@@ -280,7 +279,7 @@ export class Document<T> {
     for (const record of fragments) this.#due.delete(record.head)
   }
 
-  #fragments(state: A.Doc<T>, heads: Iterable<CommitId>) {
+  #fragments(state: unknown, heads: Iterable<CommitId>) {
     return this.docType.fragments?.(state, heads)
   }
 
@@ -332,9 +331,9 @@ export class Document<T> {
   // -- Lifecycle --
 
   /** Creation finished while a lookup was already observing this document. */
-  adopt(doc: A.Doc<T>): void {
+  adopt(state: unknown): void {
     void this.state.applyMutation(
-      current => mergeStates(this.docType, current, doc),
+      current => mergeStates(this.docType, current, state),
       {
         incoming: true,
         initial: this.query.pending,
@@ -474,8 +473,8 @@ export class Document<T> {
    * materialization shortcut, not a persistence receipt.
    */
   #unknown(records: RecordBatch): RecordBatch {
-    const current = this.state.peekDoc()
-    if (!current) return records
+    const current = this.state.peek()
+    if (current === undefined) return records
     return records.filter(
       record => !this.docType.hasHeads(current, [recordHead(record)])
     )
@@ -493,8 +492,8 @@ export class Document<T> {
     this.#schedule()
     const unknown = this.#unknown(records)
     if (!unknown.length) return
-    const current = this.state.peekDoc()
-    if (!current) {
+    const current = this.state.peek()
+    if (current === undefined) {
       // The first scan can become the document directly.
       const next = this.docType.apply(undefined, unknown)
       void this.state.applyLoaded(next, this.query.pending)
@@ -514,8 +513,8 @@ export class Document<T> {
 
   #checkTargets(): void {
     if (!this.query.pending) return
-    const doc = this.state.peekDoc()
-    if (!doc) return
+    const doc = this.state.peek()
+    if (doc === undefined) return
     for (const target of this.#targets.values()) {
       // History inclusion, not head equality. Empty targets are never
       // evidence that a document is ready.

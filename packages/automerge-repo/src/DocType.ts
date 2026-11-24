@@ -4,7 +4,7 @@ import type { Handle, HandleOptions } from "./Handle.js"
 
 /** A class of handles: constructed by the Repo, never by apps. */
 export type HandleClass = new (
-  state: DocumentState<any>,
+  state: DocumentState,
   options?: HandleOptions
 ) => Handle<any, any, any>
 import type {
@@ -98,7 +98,7 @@ export interface DocType<
    * the change is adopted; the returned function runs in event order.
    */
   changeDispatcher?(
-    document: DocumentState<any>,
+    document: DocumentState,
     change: StateChange<State>
   ): () => void
 }

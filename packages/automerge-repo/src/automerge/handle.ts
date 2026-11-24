@@ -64,6 +64,10 @@ type DocHandleOptions = HandleOptions & {
   range?: CursorRange
 }
 
+/** The Automerge document a document's state is: the core keeps it opaque. */
+const automergeDoc = (state: DocumentState): A.Doc<any> =>
+  state.current as A.Doc<any>
+
 /** Where an Automerge handle points: a symbolic path, and a text range. */
 type AutomergeScope = { path: PathSegment[]; range?: CursorRange }
 
@@ -118,7 +122,7 @@ export class AutomergeHandle<T> extends BaseHandle<
 
   /** Shared per-document state. Every handle into the same doc shares one;
    * a sub-handle's `T` is its scoped value's type, not the document's. */
-  get #state(): DocumentState<any> {
+  get #state(): DocumentState {
     return handleState(this)
   }
 
@@ -138,7 +142,7 @@ export class AutomergeHandle<T> extends BaseHandle<
   }
 
   /** @internal Handles are obtained from a {@link Repo} or another handle. */
-  constructor(state: DocumentState<any>, options: DocHandleOptions = {}) {
+  constructor(state: DocumentState, options: DocHandleOptions = {}) {
     // An Automerge scope, as `deriveHandle` passes it.
     const scope = options.scope as AutomergeScope | undefined
     const path = scope?.path ?? options.pathSegments ?? []
@@ -184,9 +188,9 @@ export class AutomergeHandle<T> extends BaseHandle<
    * @remarks In past releases, this was asynchronous and could be undefined.
    */
   doc(): A.Doc<T> | undefined {
-    return this.#scopedValue(this.#state.viewAt(this.#fixedHeads)) as
-      | A.Doc<T>
-      | undefined
+    return this.#scopedValue(
+      this.#state.viewAt(this.#fixedHeads) as A.Doc<any>
+    ) as A.Doc<T> | undefined
   }
 
   /**
@@ -203,7 +207,7 @@ export class AutomergeHandle<T> extends BaseHandle<
    */
   hasHeads(heads: UrlHeads): boolean {
     const decoded = decodeHeads(heads)
-    const doc = this.#state.doc
+    const doc = automergeDoc(this.#state)
     if (!A.hasHeads(doc, decoded)) return false
     if (!this.#fixedHeads) return true
     // A.hasHeads ignores a view's heads, so check ancestry of the fixed heads:
@@ -229,13 +233,13 @@ export class AutomergeHandle<T> extends BaseHandle<
    * @remarks This API is currently unusably slow for subdocuments with long history. We plan to fix this during alpha.
    */
   history(): UrlHeads[] {
-    const topo = A.topoHistoryTraversal(this.#state.doc)
+    const topo = A.topoHistoryTraversal(automergeDoc(this.#state))
 
     if (this.#path.length === 0 && !this.#range) {
       return topo.map(h => encodeHeads([h])) as UrlHeads[]
     }
 
-    const doc = this.#state.doc
+    const doc = automergeDoc(this.#state)
     const out: UrlHeads[] = []
     for (let i = 0; i < topo.length; i++) {
       const after = [topo[i]]
@@ -313,15 +317,15 @@ export class AutomergeHandle<T> extends BaseHandle<
       toHeads = otherHeads
       if (this.documentId === first.documentId) {
         // Same document - share the doc, no clone needed.
-        diffDoc = this.#state.doc
+        diffDoc = automergeDoc(this.#state)
       } else {
         // Different documents: merge so both handles' heads are in one doc.
-        diffDoc = A.merge(A.clone(this.#state.doc), first.fullDoc())
+        diffDoc = A.merge(A.clone(automergeDoc(this.#state)), first.fullDoc())
       }
     } else {
       fromHeads = second ? first : this.heads()
       toHeads = second ? second : first
-      diffDoc = this.#state.doc
+      diffDoc = automergeDoc(this.#state)
     }
 
     const allPatches = A.diff(
@@ -431,7 +435,7 @@ export class AutomergeHandle<T> extends BaseHandle<
   }
 
   metrics(): { numOps: number; numChanges: number } {
-    return A.stats(this.#state.doc)
+    return A.stats(automergeDoc(this.#state))
   }
 
   /** Remove the value at this sub-handle's path from the underlying document. */
