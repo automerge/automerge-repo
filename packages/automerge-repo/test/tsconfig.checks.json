@@ -9,8 +9,8 @@
   "files": [
     "./handleExtensions.check.ts",
     "./docTypes.check.ts",
-    "./doctypes/gcounter.test.ts",
-    "./doctypes/register.test.ts",
+    "./doctypes/gcounter/gcounter.test.ts",
+    "./doctypes/register/register.test.ts",
     "./handleExtensions.test.ts",
     "./helpers/ephemeralHub.ts",
     "./Listeners.test.ts"

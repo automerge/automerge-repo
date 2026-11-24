@@ -1,6 +1,11 @@
-import { defineDocType, type HandleKind } from "../../src/DocType.js"
-import { Handle } from "../../src/Handle.js"
-import { commit, emptyGraph, graphRules, type Graph } from "./commitGraph.js"
+import { defineDocType, type HandleKind } from "../../../src/DocType.js"
+import { Handle } from "../../../src/Handle.js"
+import {
+  commit,
+  emptyGraph,
+  graphRules,
+  type Graph,
+} from "../common/commitGraph.js"
 
 /**
  * A grow-only counter: each commit adds an amount, and the value is their

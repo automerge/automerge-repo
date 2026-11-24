@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { Repo } from "../../src/Repo.js"
-import { automerge } from "../../src/automerge/docType.js"
-import { isHandleOf } from "../../src/types/DocHandle.js"
-import { stringifyDocumentUrl } from "../../src/AutomergeUrl.js"
-import { defineDocType } from "../../src/DocType.js"
-import { defineExtension, provides } from "../../src/sedimentree/index.js"
-import { MemoryBackend } from "../../src/sedimentree/memory/MemoryBackend.js"
+import { Repo } from "../../../src/Repo.js"
+import { automerge } from "../../../src/automerge/docType.js"
+import { isHandleOf } from "../../../src/types/DocHandle.js"
+import { stringifyDocumentUrl } from "../../../src/AutomergeUrl.js"
+import { defineDocType } from "../../../src/DocType.js"
+import { defineExtension, provides } from "../../../src/sedimentree/index.js"
+import { MemoryBackend } from "../../../src/sedimentree/memory/MemoryBackend.js"
 import { gcounter, type CounterState } from "./gcounter.js"
-import type { AutomergeUrl } from "../../src/types.js"
+import type { AutomergeUrl } from "../../../src/types.js"
 
 /** A member every handle of a Repo on its backend gets. */
 const describes = defineExtension<{ members: { describe(): string } }>({

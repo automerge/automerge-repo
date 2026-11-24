@@ -10,7 +10,7 @@ import { Presence } from "../src/presence/Presence.js"
 import { defineExtension, provides } from "../src/sedimentree/index.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import type { AutomergeUrl, PeerId, RepoId } from "../src/types.js"
-import { gcounter, type GCounter } from "./doctypes/gcounter.js"
+import { gcounter, type GCounter } from "./doctypes/gcounter/gcounter.js"
 
 type Doc = { title: string; items: string[] }
 

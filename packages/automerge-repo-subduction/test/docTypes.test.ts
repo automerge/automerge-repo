@@ -12,7 +12,7 @@ import {
   add,
   gcounter,
   newCounter,
-} from "../../automerge-repo/test/doctypes/gcounter.js"
+} from "../../automerge-repo/test/doctypes/gcounter/gcounter.js"
 import { SubductionBackend } from "../src/index.js"
 import { DummySubductionStorageAdapter } from "../src/helpers/DummySubductionStorageAdapter.js"
 import { LinkedAdapter } from "./linkedAdapter.js"

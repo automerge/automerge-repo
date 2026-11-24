@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest"
-import { Repo } from "../../src/Repo.js"
-import { DocHandle, isHandleOf } from "../../src/types/DocHandle.js"
-import { Presence } from "../../src/presence/Presence.js"
-import { defineExtension, provides } from "../../src/sedimentree/index.js"
-import { MemoryBackend } from "../../src/sedimentree/memory/MemoryBackend.js"
-import type { PeerId, RepoId } from "../../src/types.js"
+import { Repo } from "../../../src/Repo.js"
+import { DocHandle, isHandleOf } from "../../../src/types/DocHandle.js"
+import { Presence } from "../../../src/presence/Presence.js"
+import { defineExtension, provides } from "../../../src/sedimentree/index.js"
+import { MemoryBackend } from "../../../src/sedimentree/memory/MemoryBackend.js"
+import type { PeerId, RepoId } from "../../../src/types.js"
 import { register, RegisterHandle, type Register } from "./register.js"
 
 type Todo = { title: string; done: boolean }

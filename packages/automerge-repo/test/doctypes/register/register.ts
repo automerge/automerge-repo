@@ -1,6 +1,11 @@
-import { defineDocType, type Shaped } from "../../src/DocType.js"
-import { Handle } from "../../src/Handle.js"
-import { commit, emptyGraph, graphRules, type Graph } from "./commitGraph.js"
+import { defineDocType, type Shaped } from "../../../src/DocType.js"
+import { Handle } from "../../../src/Handle.js"
+import {
+  commit,
+  emptyGraph,
+  graphRules,
+  type Graph,
+} from "../common/commitGraph.js"
 
 /**
  * A last-writer-wins register holding a whole value of any shape: each

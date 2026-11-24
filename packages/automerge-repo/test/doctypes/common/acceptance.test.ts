@@ -1,8 +1,8 @@
 import { next as A } from "@automerge/automerge"
-import { automerge } from "../../src/automerge/docType.js"
-import { runDocTypeTests } from "../../src/helpers/tests/doc-type-tests.js"
-import { add, gcounter, newCounter } from "./gcounter.js"
-import { register } from "./register.js"
+import { automerge } from "../../../src/automerge/docType.js"
+import { runDocTypeTests } from "../../../src/helpers/tests/doc-type-tests.js"
+import { add, gcounter, newCounter } from "../gcounter/gcounter.js"
+import { register } from "../register/register.js"
 import { commit, emptyGraph } from "./commitGraph.js"
 
 type Doc = { n: number }

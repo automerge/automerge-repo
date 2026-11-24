@@ -3,7 +3,7 @@ import type {
   CommitId,
   LooseCommitRecord,
   RecordBatch,
-} from "../../src/sedimentree/index.js"
+} from "../../../src/sedimentree/index.js"
 
 /**
  * A commit graph in plain JS, shared by the test doc types: each commit
