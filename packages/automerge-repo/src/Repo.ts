@@ -4,8 +4,9 @@ import {
   binaryToDocumentId,
   documentIdToBinary,
   interpretAsDocumentId,
-  isValidDocumentUrl,
-  parseDocumentUrl,
+  isValidAutomergeUrl,
+  isValidDocTypeName,
+  parseAutomergeUrl,
 } from "./AutomergeUrl.js"
 import {
   requireView,
@@ -82,6 +83,8 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   #classFor(type: AnyDocType): typeof Handle {
     let Class = this.#classes.get(type)
     if (!Class) {
+      if (!isValidDocTypeName(type.name))
+        throw new Error(`Invalid doc type name: ${JSON.stringify(type.name)}`)
       Class = extendHandle(
         this.#backend.handleExtensions ?? [],
         (type.handle ?? Handle) as typeof Handle
@@ -151,7 +154,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     return toProgress(this.query(id, options as { type: AnyDocType }))
   }
 
-  /** A document of the doc type `type`; its URL must have `type`'s scheme. */
+  /** A document of the doc type `type`; its URL must name `type`. */
   find<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
     id: AnyDocumentId,
     options: RepoFindOptions & { type: Of<D, S> }
@@ -177,7 +180,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
    * Accepts everything {@link Repo.find} does; heads and paths in a URL
    * yield the matching view or sub-handle once ready.
    */
-  /** A document of the doc type `type`; its URL must have `type`'s scheme. */
+  /** A document of the doc type `type`; its URL must name `type`. */
   query<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
     id: AnyDocumentId,
     options: { type: Of<D, S> }
@@ -188,25 +191,25 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     { type = automerge }: { type?: AnyDocType } = {}
   ): DocumentQuery<any, X, any> {
     this.#checkOpen()
-    const parsed = isValidDocumentUrl(id)
-      ? parseDocumentUrl(id)
+    const parsed = isValidAutomergeUrl(id)
+      ? parseAutomergeUrl(id)
       : {
           documentId: interpretAsDocumentId(id),
           heads: undefined,
           segments: undefined,
-          scheme: undefined,
+          docTypeName: undefined,
         }
-    const { documentId, heads, segments, scheme } = parsed
-    if (scheme !== undefined && scheme !== type.scheme)
+    const { documentId, heads, segments, docTypeName } = parsed
+    if (docTypeName !== undefined && docTypeName !== type.name)
       throw new Error(
         type === automerge
-          ? `Cannot open ${id}: its URL scheme requires a matching document type`
-          : `Cannot open ${id} as ${type.scheme}: its URL scheme is ${scheme}`
+          ? `Cannot open ${id}: it is of doc type ${docTypeName}; pass that type`
+          : `Cannot open ${id} as ${type.name}: it is of doc type ${docTypeName}`
       )
     const existing = this.#documents.get(documentId)
-    if (existing && existing.type.scheme !== type.scheme)
+    if (existing && existing.type.name !== type.name)
       throw new Error(
-        `Document ${documentId} is already open as ${existing.type.scheme}, not ${type.scheme}`
+        `Document ${documentId} is already open as ${existing.type.name}, not ${type.name}`
       )
     const document = existing ?? this.#register(documentId, undefined, type)
     let query = document.query as DocumentQuery<any, X, any>
@@ -218,7 +221,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     }
     if (segments?.length) {
       if (type !== automerge)
-        throw new Error(`${type.scheme} URLs have no paths: ${id}`)
+        throw new Error(`${type.name} URLs have no paths: ${id}`)
       query = queryAtPath(query, segments)
     }
     return query
@@ -275,7 +278,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   ): Promise<DocHandle<T, X>> {
     if (!type.heads(doc).length) {
       if (type !== automerge)
-        throw new Error(`A new ${type.scheme} document needs a commit`)
+        throw new Error(`A new ${type.name} document needs a commit`)
       doc = A.emptyChange(doc)
     }
     const allocated = await this.#backend.create(
@@ -289,9 +292,9 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
       // Loading can begin while backend creation is pending. Adopt that shared entry.
       if (existing.state.deleted || existing.state.closed)
         throw new Error("Document is no longer open")
-      if (existing.type.scheme !== type.scheme)
+      if (existing.type.name !== type.name)
         throw new Error(
-          `Document ${id} is already open as ${existing.type.scheme}, not ${type.scheme}`
+          `Document ${id} is already open as ${existing.type.name}, not ${type.name}`
         )
       existing.adopt(doc)
       return this.#handle(existing)

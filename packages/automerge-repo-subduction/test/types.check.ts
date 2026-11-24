@@ -146,7 +146,7 @@ class CounterHandle extends Handle<number, number> {
   }
 }
 const counterType = defineDocType({
-  scheme: "counter",
+  name: "counter",
   create: (n: number) => ({ n }),
   value: s => s.n,
   change: (s, by: number) => ({ n: s.n + by }),

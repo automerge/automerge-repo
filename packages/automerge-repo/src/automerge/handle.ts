@@ -163,7 +163,7 @@ export class AutomergeHandle<
    * The URL might include a path, or heads, both optionally.
    * like this: `automerge:<docId>[/path][#heads]`;
    */
-  get url(): AutomergeUrl {
+  get url(): AutomergeUrl<"automerge"> {
     const segments: Segment[] | undefined =
       this.#path.length > 0 || this.#range
         ? this.#range

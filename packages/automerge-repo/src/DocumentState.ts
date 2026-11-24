@@ -207,7 +207,7 @@ export class DocumentState<T = unknown> {
   viewAt(heads: UrlHeads | undefined): A.Doc<T> {
     if (!heads) return this.doc
     const type = this.type
-    if (!type.view) throw new Error(`${type.scheme} documents have no views`)
+    if (!type.view) throw new Error(`${type.name} documents have no views`)
     const key = [...heads].sort().join(",")
     return this.#viewCache.getOrCompute(key, () =>
       type.view!(this.doc, decodeHeads(heads))

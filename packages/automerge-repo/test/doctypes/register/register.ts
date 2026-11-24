@@ -39,7 +39,7 @@ export interface Register extends Shaped {
 }
 
 export const register = defineDocType({
-  scheme: "register",
+  name: "register",
   create: (value: unknown): RegisterState => commit(emptyGraph(), { value }),
   value: valueOf,
   change: (state: RegisterState, value: unknown) => commit(state, { value }),

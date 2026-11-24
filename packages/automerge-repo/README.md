@@ -153,10 +153,10 @@ To add features to handles from your own backend, see
 ### Document types
 
 Automerge is the default document type. Other types (anything whose history is a graph of
-commits) are chosen per call, and their URLs carry their own scheme:
+commits) are chosen per call, and their URLs name the type:
 
 ```ts
-const counter = await repo.create(5, { type: gcounter }) // gcounter:…
+const counter = await repo.create(5, { type: gcounter }) // automerge:gcounter:…
 await counter.increment()
 await repo.find(counter.url, { type: gcounter })
 ```

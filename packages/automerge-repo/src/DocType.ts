@@ -36,11 +36,13 @@ export interface DocType<
   View = State,
   Change = unknown,
   Init = unknown,
-  Scheme extends string = string,
+  Name extends string = string,
   H extends HandleClass | undefined = HandleClass | undefined,
 > {
-  /** URL scheme and identity, e.g. `automerge`. */
-  readonly scheme: Scheme
+  /** The type's name and identity, e.g. `gcounter`: written in its
+   * documents' URLs (`automerge:gcounter:<id>`). Lowercase letters, digits
+   * and `-`, starting with a letter; `automerge` is Automerge's. */
+  readonly name: Name
 
   /** A new document's state, with at least one commit. Its ID is not
    * known yet: the backend allocates it from the first records. */
@@ -233,13 +235,13 @@ export function defineDocType<
   View,
   Change,
   Init,
-  const Scheme extends string,
+  const Name extends string,
   H extends HandleClass,
 >(
-  type: DocType<State, View, Change, Init, Scheme, H> & {
+  type: DocType<State, View, Change, Init, Name, H> & {
     readonly handle: H & (new (...args: any[]) => Handle<View, Change, any>)
   }
-): DocType<State, View, Change, Init, Scheme, H> & {
+): DocType<State, View, Change, Init, Name, H> & {
   readonly handle: H
 } & DocTypeHelpers<InstanceType<H>>
 export function defineDocType<
@@ -247,12 +249,12 @@ export function defineDocType<
   View,
   Change,
   Init,
-  const Scheme extends string,
+  const Name extends string,
 >(
-  type: DocType<State, View, Change, Init, Scheme, undefined> & {
+  type: DocType<State, View, Change, Init, Name, undefined> & {
     readonly handle?: undefined
   }
-): DocType<State, View, Change, Init, Scheme, undefined> &
+): DocType<State, View, Change, Init, Name, undefined> &
   DocTypeHelpers<Handle<View, Change>>
 export function defineDocType(
   type: AnyDocType
@@ -280,5 +282,5 @@ export function mergeStates<State>(
 
 /** Throws unless the type has views. */
 export function requireView(type: AnyDocType): void {
-  if (!type.view) throw new Error(`${type.scheme} documents have no views`)
+  if (!type.view) throw new Error(`${type.name} documents have no views`)
 }

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AnyDocType } from "../../DocType.js"
+import { parseAutomergeUrl } from "../../AutomergeUrl.js"
 import { Repo } from "../../Repo.js"
 import { DocHandle } from "../../types/DocHandle.js"
 import { MemoryBackend } from "../../sedimentree/memory/MemoryBackend.js"
@@ -204,10 +205,10 @@ export function runDocTypeTests<S>(
           interval: 5,
         })
 
-      it("creates a DocHandle with its scheme", async () => {
+      it("creates a DocHandle whose URL names its doc type", async () => {
         const handle = await create(a)
         expect(handle).toBeInstanceOf(DocHandle)
-        expect(handle.url.startsWith(`${type.scheme}:`)).toBe(true)
+        expect(parseAutomergeUrl(handle.url).docTypeName).toBe(type.name)
         expect(handle.isReady()).toBe(true)
         expect(a.handles[handle.documentId]).toBe(handle)
       })
@@ -266,17 +267,19 @@ export function runDocTypeTests<S>(
         expect(sorted(pinned)).toEqual([...(heads as string[])].sort())
       })
 
-      it("accepts an equal type: same scheme", async () => {
+      it("accepts an equal type: same name", async () => {
         const handle = await create(a)
         expect(await a.find(handle.url as any, { type: { ...type } })).toBe(
           handle
         )
       })
 
-      it("rejects another scheme or another type for the same document", async () => {
+      it("rejects another doc type for the same document", async () => {
         const handle = await create(a)
-        const other = { ...type, scheme: `${type.scheme}-x` }
-        expect(() => a.query(handle.url as any, { type: other })).toThrow(/URL/)
+        const other = { ...type, name: `${type.name}-x` }
+        expect(() => a.query(handle.url as any, { type: other })).toThrow(
+          /of doc type .*/
+        )
         expect(() => a.query(handle.documentId, { type: other })).toThrow(
           /open as/
         )

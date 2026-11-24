@@ -15,15 +15,19 @@ const repo = new Repo()
 const counter = await repo.create(5, { type: gcounter })
 await counter.increment() // a member of the type
 counter.doc() // 6
-counter.url // "gcounter:…"
+counter.url // "automerge:gcounter:…"
 
 const same = await repo.find(counter.url, { type: gcounter })
 ```
 
 - The type is chosen per call, with `{ type }` on `create`, `find`, `query`
   and `findWithProgress`. Without it you get Automerge.
-- A type's `scheme` names it in URLs. `find` throws if a URL's scheme does not
-  match the type, or if the document is already open as another type.
+- A type's `name` (lowercase letters, digits and `-`) is written in its URLs:
+  `automerge:gcounter:<id>[#heads]`. Automerge's URLs stay
+  `automerge:<id>[/path][#heads]`. `parseAutomergeUrl(url).docTypeName` reads
+  the name; `isValidAutomergeUrl` checks the format only, for any type. `find`
+  throws if a URL names another type, or if the document is already open as
+  another type.
 - `repo.handles` and the `document` event list every document, typed as a
   handle of any type (`DocHandle<any, X, AnyHandleKind>`). Narrow one with
   `isHandleOf(handle, gcounter)`.
@@ -71,7 +75,7 @@ export interface GCounter extends HandleKind {
 }
 
 export const gcounter = defineDocType({
-  scheme: "gcounter",
+  name: "gcounter",
   create: (start: number | undefined) => newCounter(start), // ≥ 1 commit
   value: (state: CounterState) => sum(state), // what doc() returns
   change: (state: CounterState, amount: number) => add(state, amount),

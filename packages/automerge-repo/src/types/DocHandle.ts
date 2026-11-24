@@ -136,11 +136,11 @@ export type DocHandle<
 /** The class of every handle, for `instanceof`. */
 export const DocHandle = Handle
 
-/** Whether `handle` is of the doc type `type` (compared by scheme). Keeps
+/** Whether `handle` is of the doc type `type` (compared by name). Keeps
  * the backend's extensions the handle was typed with. */
 export function isHandleOf<E extends HandleExtensionSpec, D extends AnyDocType>(
   handle: { readonly "~ext": E },
   type: D
 ): handle is { readonly "~ext": E } & DocHandle<unknown, E, KindOf<D>> {
-  return handleState(handle as unknown as AnyHandle).type.scheme === type.scheme
+  return handleState(handle as unknown as AnyHandle).type.name === type.name
 }

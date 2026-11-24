@@ -33,7 +33,7 @@ export interface GCounter extends HandleKind {
 }
 
 export const gcounter = defineDocType({
-  scheme: "gcounter",
+  name: "gcounter",
   create: (start: number | undefined) => newCounter(start),
   value: (state: CounterState) =>
     [...state.applied.values()].reduce((n, c) => n + c.amount, 0),

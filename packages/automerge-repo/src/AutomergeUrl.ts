@@ -2,7 +2,6 @@ import type {
   AutomergeUrl,
   BinaryDocumentId,
   DocumentId,
-  DocumentUrl,
   AnyDocumentId,
   UrlHeads,
 } from "./types.js"
@@ -16,16 +15,17 @@ import { parsePath, serializePath } from "./subdoc-handles/parser.js"
 import type { Segment } from "./subdoc-handles/types.js"
 import { idBytes, mintDocumentId } from "./sedimentree/ids.js"
 
-import type { Heads as AutomergeHeads } from "@automerge/automerge/slim"
-
 export const urlPrefix = "automerge:"
 
-const SCHEME = /^[a-z][a-z0-9+.-]*$/
-const URL = /^([a-z][a-z0-9+.-]*):([^/]+)(?:\/(.*))?$/
+/** The doc type every URL without a doc type name is for. */
+const AUTOMERGE = "automerge"
+const NAME = /^[a-z][a-z0-9-]*$/
+const URL = /^automerge:(?:([a-z][a-z0-9-]*):)?([^/:]+)(?:\/(.*))?$/
 
-/** Lowercase URL schemes, as in RFC 3986: a letter, then letters, digits, `+`, `.` or `-`. */
-export const isValidUrlScheme = (scheme: unknown): scheme is string =>
-  typeof scheme === "string" && SCHEME.test(scheme)
+/** Doc type names: a lowercase letter, then lowercase letters, digits or `-`.
+ * `automerge` is Automerge's, and is never written in URLs. */
+export const isValidDocTypeName = (name: unknown): name is string =>
+  typeof name === "string" && NAME.test(name)
 
 /**
  * Document IDs are 32 bytes. A 16-byte ID is the short form of one whose
@@ -45,7 +45,10 @@ const padDocumentId = (
 const isZeroSuffixed = (id: Uint8Array): boolean =>
   id.length === 32 && id.subarray(16).every(byte => byte === 0)
 
-export interface ParsedAutomergeUrl {
+export interface ParsedAutomergeUrl<DocTypeName extends string = string> {
+  /** The name of the document's doc type: `automerge` unless the URL names
+   * another, as in `automerge:<name>:<docId>`. */
+  docTypeName: DocTypeName
   /** unencoded DocumentId */
   binaryDocumentId: BinaryDocumentId
   /** bs58 encoded DocumentId */
@@ -62,36 +65,31 @@ export interface ParsedAutomergeUrl {
   segments?: Segment[]
 }
 
-export interface ParsedDocumentUrl<
-  Scheme extends string = string,
-> extends ParsedAutomergeUrl {
-  scheme: Scheme
-}
-
 /**
- * Parse a document URL with any valid scheme.
+ * Parse a document URL.
  *
  * Supported shapes:
- *   - `<scheme>:<docId>`
- *   - `<scheme>:<docId>#<heads>`              (heads `|`-joined)
- *   - `<scheme>:<docId>/<path>`               (path `/`-joined segments)
- *   - `<scheme>:<docId>/<path>#<heads>`
+ *   - `automerge:<docId>`                      (an Automerge document)
+ *   - `automerge:<name>:<docId>`               (a document of doc type `name`)
+ *   - either, then `/<path>` (`/`-joined segments) and/or `#<heads>`
+ *     (`|`-joined)
  *
  * `segments` is undefined when no path is present; otherwise it's the
  * parsed `Segment[]`.
  */
-export function parseDocumentUrl<Scheme extends string>(
-  url: DocumentUrl<Scheme>
-): ParsedDocumentUrl<Scheme>
-export function parseDocumentUrl(url: string): ParsedDocumentUrl
-export function parseDocumentUrl(url: string): ParsedDocumentUrl {
+export function parseAutomergeUrl<DocTypeName extends string>(
+  url: AutomergeUrl<DocTypeName>
+): ParsedAutomergeUrl<DocTypeName>
+export function parseAutomergeUrl(url: AutomergeUrl): ParsedAutomergeUrl {
   const [baseUrl, headsSection, ...rest] = url.split("#")
   if (rest.length > 0) {
     throw new Error("Invalid URL: contains multiple heads sections")
   }
   const match = baseUrl.match(URL)
-  if (!match) throw new Error("Invalid document URL: " + url)
-  const [, scheme, docMatch, pathStr] = match
+  // Automerge's name is never written, so each document has one URL.
+  if (!match || match[1] === AUTOMERGE)
+    throw new Error("Invalid document URL: " + url)
+  const [, docTypeName = AUTOMERGE, docMatch, pathStr] = match
   const binaryDocumentId = documentIdToBinary(docMatch as DocumentId)
 
   if (!binaryDocumentId) throw new Error("Invalid document URL: " + url)
@@ -102,8 +100,8 @@ export function parseDocumentUrl(url: string): ParsedDocumentUrl {
 
   if (headsSection === undefined) {
     return segments
-      ? { scheme, binaryDocumentId, documentId, segments }
-      : { scheme, binaryDocumentId, documentId }
+      ? { docTypeName, binaryDocumentId, documentId, segments }
+      : { docTypeName, binaryDocumentId, documentId }
   }
 
   const heads = (headsSection === "" ? [] : headsSection.split("|")) as UrlHeads
@@ -115,37 +113,40 @@ export function parseDocumentUrl(url: string): ParsedDocumentUrl {
     }
   })
   return segments
-    ? { scheme, binaryDocumentId, hexHeads, documentId, heads, segments }
-    : { scheme, binaryDocumentId, hexHeads, documentId, heads }
-}
-
-/** Parse an Automerge URL; throws for any other scheme. */
-export const parseAutomergeUrl = (url: AutomergeUrl): ParsedAutomergeUrl => {
-  const { scheme, ...parsed } = parseDocumentUrl(url)
-  if (scheme !== "automerge") throw new Error("Invalid Automerge URL: " + url)
-  return parsed
+    ? { docTypeName, binaryDocumentId, hexHeads, documentId, heads, segments }
+    : { docTypeName, binaryDocumentId, hexHeads, documentId, heads }
 }
 
 /**
- * A document URL with the given scheme (`automerge` by default). Optionally
- * accepts `segments` for a sub-tree URL (`<scheme>:<docId>/seg/seg/...`) and
- * `heads` to pin it to a point in time. Throws on invalid input.
+ * Given a documentId in either binary or base58check-encoded form, returns
+ * its URL: an Automerge document's, or with `docType`, one of that type
+ * (`automerge:<name>:<docId>`). Optionally accepts `segments` to construct a
+ * sub-tree URL (`automerge:<docId>/seg/seg/...`) and `heads` to pin the URL
+ * to a point in time. Throws on invalid input.
  */
-export function stringifyDocumentUrl<Scheme extends string>(
-  options: UrlOptions & { scheme: Scheme }
-): DocumentUrl<Scheme>
-export function stringifyDocumentUrl(
-  options: UrlOptions & { scheme?: undefined }
+export function stringifyAutomergeUrl<const DocTypeName extends string>(
+  arg: UrlOptions & { docType: { readonly name: DocTypeName } }
+): AutomergeUrl<DocTypeName>
+export function stringifyAutomergeUrl(
+  arg: (UrlOptions & { docType?: undefined }) | DocumentId | BinaryDocumentId
+): AutomergeUrl<"automerge">
+export function stringifyAutomergeUrl(
+  arg: UrlOptions | DocumentId | BinaryDocumentId
 ): AutomergeUrl
-export function stringifyDocumentUrl(options: UrlOptions): DocumentUrl
-export function stringifyDocumentUrl({
-  documentId,
-  heads = undefined,
-  segments = undefined,
-  scheme = "automerge",
-}: UrlOptions): DocumentUrl {
-  if (!isValidUrlScheme(scheme))
-    throw new Error(`Invalid URL scheme: ${JSON.stringify(scheme)}`)
+export function stringifyAutomergeUrl(
+  arg: UrlOptions | DocumentId | BinaryDocumentId
+): AutomergeUrl {
+  const {
+    documentId,
+    heads = undefined,
+    segments = undefined,
+    docType = undefined,
+  } = arg instanceof Uint8Array || typeof arg === "string"
+    ? { documentId: arg }
+    : arg
+  const name = docType?.name ?? AUTOMERGE
+  if (!isValidDocTypeName(name))
+    throw new Error(`Invalid doc type name: ${JSON.stringify(name)}`)
 
   const binary =
     documentId instanceof Uint8Array
@@ -156,7 +157,10 @@ export function stringifyDocumentUrl({
   if (!binary) throw new Error("Invalid documentId: " + documentId)
   const encodedDocumentId = binaryToDocumentId(binary)
 
-  let url = `${scheme}:${encodedDocumentId}`
+  let url =
+    name === AUTOMERGE
+      ? `${urlPrefix}${encodedDocumentId}`
+      : `${urlPrefix}${name}:${encodedDocumentId}`
 
   if (segments !== undefined && segments.length > 0) {
     url += "/" + serializePath(segments)
@@ -175,50 +179,26 @@ export function stringifyDocumentUrl({
     url += "#" + [...heads].sort().join("|")
   }
 
-  return url as DocumentUrl
+  return url as AutomergeUrl
 }
 
-/**
- * Given a documentId in either binary or base58check-encoded form, returns
- * an Automerge URL. Optionally accepts `segments` to construct a sub-tree
- * URL (`automerge:<docId>/seg/seg/...`) and `heads` to pin the URL to a
- * point in time. Throws on invalid input.
- */
-export const stringifyAutomergeUrl = (
-  arg: UrlOptions | DocumentId | BinaryDocumentId
-): AutomergeUrl =>
-  stringifyDocumentUrl({
-    ...(arg instanceof Uint8Array || typeof arg === "string"
-      ? { documentId: arg }
-      : arg),
-    scheme: "automerge",
-  })
-
 /** Helper to extract just the heads from a URL if they exist */
-export const getHeadsFromUrl = (url: DocumentUrl): string[] | undefined => {
-  const { heads } = parseDocumentUrl(url)
+export const getHeadsFromUrl = (url: AutomergeUrl): string[] | undefined => {
+  const { heads } = parseAutomergeUrl(url)
   return heads
 }
 
 /**
- * Given a string, returns true if it is a valid Automerge URL. This function also acts as a type
+ * Given a string, returns true if it is a valid document URL, of any doc
+ * type: this checks the URL's format only. This function also acts as a type
  * discriminator in Typescript.
  */
-export const isValidAutomergeUrl = (str: unknown): str is AutomergeUrl =>
-  isValidDocumentUrl(str, "automerge")
-
-/** Whether `str` is a valid document URL, optionally with the given scheme. */
-export function isValidDocumentUrl(str: unknown): str is DocumentUrl
-export function isValidDocumentUrl<Scheme extends string>(
-  str: unknown,
-  scheme: Scheme
-): str is DocumentUrl<Scheme>
-export function isValidDocumentUrl(str: unknown, scheme?: string): boolean {
+export const isValidAutomergeUrl = (str: unknown): str is AutomergeUrl => {
   if (typeof str !== "string" || !str) return false
   try {
     // Parsing validates the ID and heads.
-    const parsed = parseDocumentUrl(str)
-    return scheme === undefined || parsed.scheme === scheme
+    parseAutomergeUrl(str as AutomergeUrl)
+    return true
   } catch {
     return false
   }
@@ -249,11 +229,11 @@ export const binaryToDocumentId = (docId: BinaryDocumentId) =>
     isZeroSuffixed(docId) ? docId.subarray(0, 16) : docId
   ) as DocumentId
 
-export const encodeHeads = (heads: AutomergeHeads): UrlHeads =>
+export const encodeHeads = (heads: readonly string[]): UrlHeads =>
   heads.map(h => bs58check.encode(uint8ArrayFromHexString(h))) as UrlHeads
 
-export const decodeHeads = (heads: UrlHeads): AutomergeHeads =>
-  heads.map(h => uint8ArrayToHexString(bs58check.decode(h))) as AutomergeHeads
+export const decodeHeads = (heads: UrlHeads): string[] =>
+  heads.map(h => uint8ArrayToHexString(bs58check.decode(h)))
 
 /**
  * Given any valid expression of a document ID, returns its DocumentId: the
@@ -276,7 +256,7 @@ export const interpretAsDocumentId = (id: AnyDocumentId): DocumentId => {
   }
 
   // url
-  if (isValidDocumentUrl(id)) return parseDocumentUrl(id).documentId
+  if (isValidAutomergeUrl(id)) return parseAutomergeUrl(id).documentId
 
   // base58check
   const binary = documentIdToBinary(id as DocumentId)
@@ -292,6 +272,7 @@ export type UrlOptions = {
   documentId: DocumentId | BinaryDocumentId
   heads?: UrlHeads
   segments?: Segment[]
-  /** Defaults to `automerge`. */
-  scheme?: string
+  /** The document's doc type; its name is written in the URL unless it is
+   * Automerge. Defaults to Automerge. */
+  docType?: { readonly name: string }
 }

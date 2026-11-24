@@ -49,7 +49,7 @@ if (isHandleOf(any, automerge))
 // A doc type with no custom handle class still derives doc(), change() and
 // change-event types from its definition.
 const plainCounter = defineDocType({
-  scheme: "plain-counter",
+  name: "plain-counter",
   create: (n: number) => ({ n }),
   value: s => s.n,
   change: (s, by: number) => ({ n: s.n + by }),
@@ -161,7 +161,7 @@ interface Tree extends Shaped {
   readonly handle: TreeHandle<this["T"]>
 }
 const tree = defineDocType({
-  scheme: "tree",
+  name: "tree",
   create: (init: unknown) => ({ init }),
   value: s => s.init,
   change: (s, init: unknown) => ({ init }),
@@ -243,7 +243,7 @@ interface WrongClass extends Shaped {
   readonly handle: OtherHandle<this["T"]>
 }
 defineDocType({
-  scheme: "wrong-class",
+  name: "wrong-class",
   create: (v: unknown) => ({ v }),
   value: (s: { v: unknown }) => s.v,
   change: (_s: { v: unknown }, v: unknown) => ({ v }),
@@ -255,7 +255,7 @@ defineDocType({
 gcounter.of<Todo2>()
 class StringHandle extends Handle<string, string> {}
 defineDocType({
-  scheme: "mismatch",
+  name: "mismatch",
   create: (n: number) => ({ v: n as unknown }),
   value: (s: { v: unknown }) => s.v as number,
   change: (_s: { v: unknown }, by: number) => ({ v: by as unknown }),

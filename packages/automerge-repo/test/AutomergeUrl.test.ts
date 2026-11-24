@@ -7,12 +7,10 @@ import {
   generateAutomergeUrl,
   getHeadsFromUrl,
   isValidAutomergeUrl,
+  isValidDocTypeName,
   isValidDocumentId,
-  isValidDocumentUrl,
   parseAutomergeUrl,
-  parseDocumentUrl,
   stringifyAutomergeUrl,
-  stringifyDocumentUrl,
   type UrlOptions,
 } from "../src/AutomergeUrl.js"
 import type {
@@ -361,58 +359,93 @@ describe("empty heads section", () => {
   })
 })
 
-describe("DocumentUrl", () => {
-  const customUrl = `notes:${goodDocumentId}`
+describe("doc type names in URLs", () => {
+  const notes = { name: "notes" } as const
+  const notesUrl = `automerge:notes:${goodDocumentId}` as AutomergeUrl
+  const heads = [bs58check.encode(new Uint8Array(32).fill(1))] as UrlHeads
 
-  it("parses and stringifies a custom scheme", () => {
-    const parsed = parseDocumentUrl(customUrl)
-    assert.equal(parsed.scheme, "notes")
-    assert.equal(parsed.documentId, goodDocumentId)
-    assert.equal(
-      stringifyDocumentUrl({ documentId: parsed.documentId, scheme: "notes" }),
-      customUrl
-    )
+  it("writes no name for Automerge, and parses it as automerge", () => {
+    assert.equal(stringifyAutomergeUrl({ documentId: goodDocumentId }), goodUrl)
+    assert.equal(parseAutomergeUrl(goodUrl).docTypeName, "automerge")
   })
 
-  it("keeps heads and paths with a custom scheme", () => {
-    const heads = [bs58check.encode(new Uint8Array(32).fill(1))] as UrlHeads
-    const url = stringifyDocumentUrl({
+  it("writes and parses another doc type's name", () => {
+    const url = stringifyAutomergeUrl({
+      documentId: goodDocumentId,
+      docType: notes,
+    })
+    assert.equal(url, notesUrl)
+    const parsed = parseAutomergeUrl(url)
+    assert.equal(parsed.docTypeName, "notes")
+    assert.equal(parsed.documentId, goodDocumentId)
+  })
+
+  it("keeps heads with a doc type's name", () => {
+    const url = stringifyAutomergeUrl({
       documentId: goodDocumentId,
       heads,
-      scheme: "notes",
+      docType: notes,
     })
-    assert.deepEqual(parseDocumentUrl(url).heads, heads)
+    assert.equal(url, `${notesUrl}#${heads[0]}`)
+    assert.deepEqual(parseAutomergeUrl(url).heads, heads)
+    assert.equal(parseAutomergeUrl(url).docTypeName, "notes")
     assert.deepEqual(getHeadsFromUrl(url), heads)
   })
 
-  it("validates a specific scheme", () => {
-    assert(isValidDocumentUrl(customUrl))
-    assert(isValidDocumentUrl(customUrl, "notes"))
-    assert(!isValidDocumentUrl(customUrl, "automerge"))
-    assert(!isValidAutomergeUrl(customUrl))
+  it("validates the format only, for any doc type", () => {
+    assert(isValidAutomergeUrl(goodUrl))
+    assert(isValidAutomergeUrl(notesUrl))
+    assert(isValidAutomergeUrl(`${notesUrl}#${heads[0]}`))
   })
 
-  it("rejects another scheme as an Automerge URL", () => {
-    assert.throws(() => parseAutomergeUrl(customUrl as AutomergeUrl))
-    assert(!("scheme" in parseAutomergeUrl(goodUrl)))
-  })
-
-  it("rejects malformed schemes", () => {
-    assert(!isValidDocumentUrl(`Notes:${goodDocumentId}`))
-    assert(!isValidDocumentUrl(`https://${goodDocumentId}`))
+  it("rejects invalid names, and Automerge's written out", () => {
+    assert(!isValidAutomergeUrl(`automerge:automerge:${goodDocumentId}`))
+    assert(!isValidAutomergeUrl(`automerge:Notes:${goodDocumentId}`))
+    assert(!isValidAutomergeUrl(`automerge:a:b:${goodDocumentId}`))
+    assert(!isValidAutomergeUrl(`notes:${goodDocumentId}`))
+    assert(!isValidDocTypeName("Notes"))
+    assert(!isValidDocTypeName("9lives"))
+    assert(isValidDocTypeName("g-counter2"))
     assert.throws(() =>
-      stringifyDocumentUrl({ documentId: goodDocumentId, scheme: "notes:" })
+      stringifyAutomergeUrl({
+        documentId: goodDocumentId,
+        docType: { name: "notes:" },
+      })
     )
   })
 
-  it("interprets a custom URL as its document ID", () => {
-    assert.equal(interpretAsDocumentId(customUrl as any), goodDocumentId)
+  it("fails the document ID check of URLs without doc type names", () => {
+    // Before doc types, everything after `automerge:` up to any `/` was the
+    // ID: a named URL's is not valid base58check, so it is rejected.
+    assert.equal(
+      documentIdToBinary(`notes:${goodDocumentId}` as any),
+      undefined
+    )
+  })
+
+  it("interprets a doc type's URL as its document ID", () => {
+    assert.equal(interpretAsDocumentId(notesUrl), goodDocumentId)
   })
 
   it("accepts dynamically built UrlOptions", () => {
     const options: UrlOptions = { documentId: goodDocumentId }
-    assert.equal(stringifyDocumentUrl(options), goodUrl)
-    options.scheme = "notes"
-    assert.equal(stringifyDocumentUrl(options), customUrl)
+    assert.equal(stringifyAutomergeUrl(options), goodUrl)
+    options.docType = notes
+    assert.equal(stringifyAutomergeUrl(options), notesUrl)
+  })
+
+  it("types URLs with their doc type's name", () => {
+    const named: AutomergeUrl<"notes"> = stringifyAutomergeUrl({
+      documentId: goodDocumentId,
+      docType: notes,
+    })
+    const automergeUrl: AutomergeUrl<"automerge"> = stringifyAutomergeUrl({
+      documentId: goodDocumentId,
+    })
+    const any: AutomergeUrl = named
+    // @ts-expect-error a notes URL is not an Automerge document's
+    const wrong: AutomergeUrl<"automerge"> = named
+    const name: "notes" = parseAutomergeUrl(named).docTypeName
+    void [automergeUrl, any, wrong, name]
   })
 })

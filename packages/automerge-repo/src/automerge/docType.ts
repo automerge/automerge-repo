@@ -36,7 +36,7 @@ export interface AutomergeKind extends Shaped {
 
 /** The default document type: Automerge. */
 export const automerge: AutomergeDocType = {
-  scheme: "automerge",
+  name: "automerge",
   // Only non-empty plain objects seed a document; anything else starts it
   // empty, with one empty change so it has a head.
   create: (init: unknown): A.Doc<any> =>

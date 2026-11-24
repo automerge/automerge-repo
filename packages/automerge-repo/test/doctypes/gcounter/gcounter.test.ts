@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { Repo } from "../../../src/Repo.js"
 import { automerge } from "../../../src/automerge/docType.js"
 import { isHandleOf } from "../../../src/types/DocHandle.js"
-import { stringifyDocumentUrl } from "../../../src/AutomergeUrl.js"
+import { stringifyAutomergeUrl } from "../../../src/AutomergeUrl.js"
 import { defineDocType } from "../../../src/DocType.js"
 import { defineExtension, provides } from "../../../src/sedimentree/index.js"
 import { MemoryBackend } from "../../../src/sedimentree/memory/MemoryBackend.js"
@@ -44,14 +44,6 @@ describe("a G-Counter doc type", () => {
     expect(seen).toEqual([3])
   })
 
-  it("sends its value in heads-changed events", async () => {
-    const counter = await repo().create(0, { type: gcounter })
-    const seen: number[] = []
-    counter.on("heads-changed", ({ doc }) => seen.push(doc))
-    await counter.increment(3)
-    expect(seen).toEqual([3])
-  })
-
   it("has backend extension members too", async () => {
     const backend = Object.assign(new MemoryBackend(), {
       handleExtensions: provides(describes),
@@ -79,18 +71,20 @@ describe("a G-Counter doc type", () => {
     )
   })
 
-  it("keeps its scheme in URLs and requires its type to open them", async () => {
+  it("names its doc type in URLs and requires its type to open them", async () => {
     const backend = new MemoryBackend()
     const counter = await repo(backend).create(1, { type: gcounter })
-    expect(counter.url).toMatch(/^gcounter:/)
+    expect(counter.url).toMatch(/^automerge:gcounter:/)
     const other = repo(backend)
-    await expect(other.find(counter.url)).rejects.toThrow(/URL scheme/)
+    await expect(other.find(counter.url)).rejects.toThrow(
+      /of doc type gcounter/
+    )
     expect((await other.find(counter.url, { type: gcounter })).doc()).toBe(1)
-    const asAutomerge = stringifyDocumentUrl({
+    const asAutomerge = stringifyAutomergeUrl({
       documentId: counter.documentId,
     })
     await expect(other.find(asAutomerge, { type: gcounter })).rejects.toThrow(
-      /URL scheme is automerge/
+      /of doc type automerge/
     )
   })
 
@@ -109,7 +103,7 @@ describe("a G-Counter doc type", () => {
   it("rejects Automerge-only operations", async () => {
     const r = repo()
     const counter = await r.create(1, { type: gcounter })
-    await expect(r.export(counter.url)).rejects.toThrow(/URL scheme/)
+    await expect(r.export(counter.url)).rejects.toThrow(/of doc type gcounter/)
     await expect(r.clone(counter as any)).rejects.toThrow(/cloned/)
     const withPath = `${counter.url}/path` as AutomergeUrl
     expect(() => r.query(withPath, { type: gcounter })).toThrow(/no paths/)
@@ -131,7 +125,7 @@ describe("a G-Counter doc type", () => {
     }
     const mutable = defineDocType({
       ...gcounter,
-      scheme: "mutable-gcounter",
+      name: "mutable-gcounter",
       change: (state, amount: number, ctx) =>
         copyInto(state, gcounter.change(state, amount, ctx)),
       apply: (state, records) =>
@@ -151,8 +145,8 @@ describe("a G-Counter doc type", () => {
     const fork = await isolated.create(0, { type: mutable })
     await fork.merge(writer)
     await fork.increment(4)
-    const targetUrl = stringifyDocumentUrl({
-      scheme: "mutable-gcounter",
+    const targetUrl = stringifyAutomergeUrl({
+      docType: mutable,
       documentId: writer.documentId,
       heads: fork.heads(),
     })

@@ -1,13 +1,13 @@
 import {
   decodeHeads,
   encodeHeads,
-  stringifyDocumentUrl,
+  stringifyAutomergeUrl,
 } from "./AutomergeUrl.js"
 import type { DocumentState } from "./DocumentState.js"
 import { mergeStates } from "./DocType.js"
 import type {
   DocumentId,
-  DocumentUrl,
+  AutomergeUrl,
   PeerId,
   SyncInfo,
   UrlHeads,
@@ -153,10 +153,10 @@ export class Handle<
     return this.#state.documentId
   }
 
-  /** `<scheme>:<documentId>[#heads]` */
-  get url(): DocumentUrl {
-    return stringifyDocumentUrl({
-      scheme: this.#state.type.scheme,
+  /** `automerge:<doc type name>:<documentId>[#heads]` */
+  get url(): AutomergeUrl {
+    return stringifyAutomergeUrl({
+      docType: this.#state.type,
       documentId: this.documentId,
       heads: this.#heads,
     })
@@ -237,9 +237,9 @@ export class Handle<
     this.#throwIfFixedHeads("merge")
     const { type } = this.#state
     const otherState = other.#state
-    if (otherState.type.scheme !== type.scheme)
+    if (otherState.type.name !== type.name)
       throw new Error(
-        `Cannot merge a ${otherState.type.scheme} document into a ${type.scheme} document`
+        `Cannot merge a ${otherState.type.name} document into a ${type.name} document`
       )
     const incoming = otherState.viewAt(other.#heads)
     // A merge can bring many boundaries at once; store their fragments with it.
