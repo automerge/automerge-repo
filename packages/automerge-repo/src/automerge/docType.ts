@@ -23,7 +23,7 @@ export interface AutomergeDocType extends DocType<
   readonly handle: typeof AutomergeHandle
   readonly "~kind"?: AutomergeKind
   /** This doc type, for documents of shape `T`. Type-level only:
-   * `find(url, { type: automerge.of<T>() })` is `find<T>(url)`. */
+   * `find(url, { docType: automerge.of<T>() })` is `find<T>(url)`. */
   of<T>(): Of<AutomergeDocType, T>
 }
 

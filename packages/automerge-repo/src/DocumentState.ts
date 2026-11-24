@@ -18,7 +18,7 @@ import { automerge } from "./automerge/docType.js"
 /** What a {@link DocumentState} asks of the {@link Document} that owns it. */
 type Owner = Pick<Document<any>, "commit"> &
   Partial<
-    Pick<Document<any>, "Handle" | "extensionContext" | "type" | "repoId">
+    Pick<Document<any>, "Handle" | "extensionContext" | "docType" | "repoId">
   >
 
 /**
@@ -34,7 +34,7 @@ type Owner = Pick<Document<any>, "commit"> &
 export class DocumentState<T = unknown> {
   readonly documentId: DocumentId
   /** How the state is stored, read and changed. */
-  readonly type: AnyDocType
+  readonly docType: AnyDocType
   /** What the type is told about this document. */
   readonly context: DocTypeContext
   /** Derived handles (views, scoped handles), weakly held. */
@@ -83,7 +83,7 @@ export class DocumentState<T = unknown> {
     this.documentId = documentId
     this.#owner = owner
     this.#doc = initialDoc
-    this.type = owner.type ?? automerge
+    this.docType = owner.docType ?? automerge
     this.context = {
       documentId,
       repoId: owner.repoId ?? ("" as RepoId),
@@ -92,7 +92,7 @@ export class DocumentState<T = unknown> {
     this.listeners = new Listeners(this.log)
     this.Handle =
       owner.Handle ??
-      extendHandle([], (this.type.handle ?? BaseHandle) as typeof BaseHandle)
+      extendHandle([], (this.docType.handle ?? BaseHandle) as typeof BaseHandle)
     this.handle = new this.Handle(this) as DocHandle<T>
     this.query = new RootQuery(this.handle)
   }
@@ -105,7 +105,7 @@ export class DocumentState<T = unknown> {
   }
 
   get doc(): A.Doc<T> {
-    return (this.#doc ??= this.type.apply(undefined, []))
+    return (this.#doc ??= this.docType.apply(undefined, []))
   }
 
   /** Set by {@link DocumentState.close}; edits and inbound data are then rejected. */
@@ -137,7 +137,7 @@ export class DocumentState<T = unknown> {
   }
 
   heads(): string[] {
-    return this.#doc ? this.type.heads(this.#doc) : []
+    return this.#doc ? this.docType.heads(this.#doc) : []
   }
 
   /** Call `fn` after each heads change, after handle listeners. Returns an unsubscribe. */
@@ -206,11 +206,12 @@ export class DocumentState<T = unknown> {
    */
   viewAt(heads: UrlHeads | undefined): A.Doc<T> {
     if (!heads) return this.doc
-    const type = this.type
-    if (!type.view) throw new Error(`${type.name} documents have no views`)
+    const docType = this.docType
+    if (!docType.view)
+      throw new Error(`${docType.name} documents have no views`)
     const key = [...heads].sort().join(",")
     return this.#viewCache.getOrCompute(key, () =>
-      type.view!(this.doc, decodeHeads(heads))
+      docType.view!(this.doc, decodeHeads(heads))
     )
   }
 
@@ -231,7 +232,7 @@ export class DocumentState<T = unknown> {
       return Promise.reject(this.writeFailure.error)
     const before = this.doc
     // Read first: a type may change its state in place.
-    const beforeHeads = this.type.heads(before)
+    const beforeHeads = this.docType.heads(before)
     const after = mutator(before)
     return this.#adopt(before, beforeHeads, after, options)
   }
@@ -241,7 +242,7 @@ export class DocumentState<T = unknown> {
     if (this.deleted) throw new Error("Document is deleted")
     if (this.closed) throw new Error("Document is closed")
     const before = this.#doc
-    const beforeHeads = before ? this.type.heads(before) : []
+    const beforeHeads = before ? this.docType.heads(before) : []
     return this.#adopt(before, beforeHeads, after, { incoming: true, initial })
   }
 
@@ -249,7 +250,7 @@ export class DocumentState<T = unknown> {
   #dispatchChange({ after, initial }: StateChange<A.Doc<T>>): void {
     // A heads listener can attach a change listener during dispatch.
     if (initial && !this.listeners.hasWritable("change")) return
-    const doc = this.type.value(after)
+    const doc = this.docType.value(after)
     this.listeners.emitAll("change", handle => ({ handle, doc }), {
       writableOnly: true,
     })
@@ -265,7 +266,7 @@ export class DocumentState<T = unknown> {
     // `A.change` can hand back a fresh snapshot whose `before` is now
     // "outdated" for subsequent mutations.
     this.#doc = after
-    const afterHeads = this.type.heads(after)
+    const afterHeads = this.docType.heads(after)
     const stored =
       options.incoming || !before
         ? Promise.resolve()
@@ -276,7 +277,7 @@ export class DocumentState<T = unknown> {
       !!options.incoming && !!options.initial && beforeHeads.length === 0
     const change = { before, beforeHeads, after, afterHeads, initial }
     const dispatchChange =
-      this.type.changeDispatcher?.(this, change) ??
+      this.docType.changeDispatcher?.(this, change) ??
       (() => this.#dispatchChange(change))
     this.#events.push(() => {
       // Heads are document-level: the payload is the whole document's value
@@ -286,7 +287,7 @@ export class DocumentState<T = unknown> {
         "heads-changed",
         handle => ({
           handle,
-          doc: (value ??= { doc: this.type.value(after) }).doc,
+          doc: (value ??= { doc: this.docType.value(after) }).doc,
         }),
         { writableOnly: true }
       )

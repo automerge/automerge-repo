@@ -140,7 +140,9 @@ export const DocHandle = Handle
  * the backend's extensions the handle was typed with. */
 export function isHandleOf<E extends HandleExtensionSpec, D extends AnyDocType>(
   handle: { readonly "~ext": E },
-  type: D
+  docType: D
 ): handle is { readonly "~ext": E } & DocHandle<unknown, E, KindOf<D>> {
-  return handleState(handle as unknown as AnyHandle).type.name === type.name
+  return (
+    handleState(handle as unknown as AnyHandle).docType.name === docType.name
+  )
 }

@@ -34,7 +34,7 @@ const backends = () => {
 type Doc = { n: number }
 
 runDocTypeTests("automerge over Subduction", () => ({
-  type: automerge,
+  docType: automerge,
   create: () => A.from<Doc>({ n: 0 }),
   change: doc => A.change(doc, (d: Doc) => void d.n++),
   init: { n: 0 },
@@ -43,7 +43,7 @@ runDocTypeTests("automerge over Subduction", () => ({
 }))
 
 runDocTypeTests("gcounter over Subduction", () => ({
-  type: gcounter,
+  docType: gcounter,
   create: () => newCounter(1),
   change: state => add(state, 1),
   init: 1,
@@ -65,9 +65,9 @@ describe("gcounter with Subduction backend extensions", () => {
     const a = new Repo({ backend: aBackend as any })
     const b = new Repo({ backend: bBackend as any })
     try {
-      const counterA = await a.create(1, { type: gcounter })
+      const counterA = await a.create(1, { docType: gcounter })
       await a.flush()
-      const counterB = await b.find(counterA.url, { type: gcounter })
+      const counterB = await b.find(counterA.url, { docType: gcounter })
       const viewB = counterB.view(counterB.heads())
 
       const received: unknown[] = []

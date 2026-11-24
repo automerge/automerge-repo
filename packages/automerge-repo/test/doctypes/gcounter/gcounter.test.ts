@@ -26,7 +26,7 @@ describe("a G-Counter doc type", () => {
   }
 
   it("reads, changes and adds its members", async () => {
-    const counter = await repo().create(5, { type: gcounter })
+    const counter = await repo().create(5, { docType: gcounter })
     expect(counter.doc()).toBe(5)
     await counter.increment()
     await counter.increment(2)
@@ -37,7 +37,7 @@ describe("a G-Counter doc type", () => {
   })
 
   it("sends its value in change events", async () => {
-    const counter = await repo().create(0, { type: gcounter })
+    const counter = await repo().create(0, { docType: gcounter })
     const seen: unknown[] = []
     counter.on("change", ({ doc }) => seen.push(doc))
     await counter.increment(3)
@@ -50,7 +50,7 @@ describe("a G-Counter doc type", () => {
     })
     const r = new Repo({ backend })
     repos.push(r)
-    const counter = await r.create(1, { type: gcounter })
+    const counter = await r.create(1, { docType: gcounter })
     expect(counter.describe()).toBe(`handle ${counter.url}`)
     await counter.increment()
     const view = counter.view(counter.heads())
@@ -66,31 +66,31 @@ describe("a G-Counter doc type", () => {
     })
     const r = new Repo({ backend })
     repos.push(r)
-    await expect(r.create(1, { type: gcounter })).rejects.toThrow(
+    await expect(r.create(1, { docType: gcounter })).rejects.toThrow(
       /redefines increment/
     )
   })
 
   it("names its doc type in URLs and requires its type to open them", async () => {
     const backend = new MemoryBackend()
-    const counter = await repo(backend).create(1, { type: gcounter })
+    const counter = await repo(backend).create(1, { docType: gcounter })
     expect(counter.url).toMatch(/^automerge:gcounter:/)
     const other = repo(backend)
     await expect(other.find(counter.url)).rejects.toThrow(
       /of doc type gcounter/
     )
-    expect((await other.find(counter.url, { type: gcounter })).doc()).toBe(1)
+    expect((await other.find(counter.url, { docType: gcounter })).doc()).toBe(1)
     const asAutomerge = stringifyAutomergeUrl({
       documentId: counter.documentId,
     })
-    await expect(other.find(asAutomerge, { type: gcounter })).rejects.toThrow(
-      /of doc type automerge/
-    )
+    await expect(
+      other.find(asAutomerge, { docType: gcounter })
+    ).rejects.toThrow(/of doc type automerge/)
   })
 
   it("is listed with every other document, and narrows by type", async () => {
     const r = repo()
-    const counter = await r.create(1, { type: gcounter })
+    const counter = await r.create(1, { docType: gcounter })
     const doc = await r.create({ title: "x" })
     const handles = Object.values(r.handles)
     expect(handles).toEqual(expect.arrayContaining([counter, doc]))
@@ -102,11 +102,11 @@ describe("a G-Counter doc type", () => {
 
   it("rejects Automerge-only operations", async () => {
     const r = repo()
-    const counter = await r.create(1, { type: gcounter })
+    const counter = await r.create(1, { docType: gcounter })
     await expect(r.export(counter.url)).rejects.toThrow(/of doc type gcounter/)
     await expect(r.clone(counter as any)).rejects.toThrow(/cloned/)
     const withPath = `${counter.url}/path` as AutomergeUrl
-    expect(() => r.query(withPath, { type: gcounter })).toThrow(/no paths/)
+    expect(() => r.query(withPath, { docType: gcounter })).toThrow(/no paths/)
   })
 
   it("fires change, heads-changed and resolves find(url#heads) when apply mutates state in place", async () => {
@@ -134,15 +134,15 @@ describe("a G-Counter doc type", () => {
     const backend = new MemoryBackend()
     const a = repo(backend)
     const b = repo(backend)
-    const writer = await a.create(1, { type: mutable })
-    const reader = await b.find(writer.url, { type: mutable })
+    const writer = await a.create(1, { docType: mutable })
+    const reader = await b.find(writer.url, { docType: mutable })
     const changes: unknown[] = []
     let headsChanged = 0
     reader.on("change", ({ doc }) => changes.push(doc))
     reader.on("heads-changed", () => headsChanged++)
     // Edit on writer: produces a future head we also ask `b.find(url#heads)` to wait for.
     const isolated = repo()
-    const fork = await isolated.create(0, { type: mutable })
+    const fork = await isolated.create(0, { docType: mutable })
     await fork.merge(writer)
     await fork.increment(4)
     const targetUrl = stringifyAutomergeUrl({
@@ -150,7 +150,7 @@ describe("a G-Counter doc type", () => {
       documentId: writer.documentId,
       heads: fork.heads(),
     })
-    const waiting = b.find(targetUrl, { type: mutable })
+    const waiting = b.find(targetUrl, { docType: mutable })
     await writer.merge(fork)
     await vi.waitFor(() => expect(reader.doc()).toBe(5))
     expect(changes).toEqual([5])
@@ -161,7 +161,7 @@ describe("a G-Counter doc type", () => {
 
 // Types, checked by `pnpm lint`.
 export async function types(r: Repo) {
-  const counter = await r.create(1, { type: gcounter })
+  const counter = await r.create(1, { docType: gcounter })
   counter.doc() satisfies number
   counter.increment(2) satisfies Promise<void>
   // @ts-expect-error a G-Counter changes by a number
@@ -170,6 +170,6 @@ export async function types(r: Repo) {
   void counter.increment("x")
   counter.view(counter.heads()).doc() satisfies number
   counter.on("change", ({ doc }) => doc satisfies number | undefined)
-  const found = await r.find(counter.url, { type: gcounter })
+  const found = await r.find(counter.url, { docType: gcounter })
   found.doc() satisfies number
 }

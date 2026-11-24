@@ -100,7 +100,7 @@ export function deriveHandle(
 ): AnyHandle {
   const state = stateOf(handle)
   if (scope === undefined && !heads) return state.handle
-  const scopeKey = scope === undefined ? "" : state.type.scopeKey?.(scope)
+  const scopeKey = scope === undefined ? "" : state.docType.scopeKey?.(scope)
   const headsKey = heads ? [...heads].sort().join(",") : ""
   const key = `${scopeKey ?? ""}#${headsKey}`
   return state.handles.getOrCompute(
@@ -156,7 +156,7 @@ export class Handle<
   /** `automerge:<doc type name>:<documentId>[#heads]` */
   get url(): AutomergeUrl {
     return stringifyAutomergeUrl({
-      docType: this.#state.type,
+      docType: this.#state.docType,
       documentId: this.documentId,
       heads: this.#heads,
     })
@@ -174,7 +174,7 @@ export class Handle<
 
   /** The document's value at this handle's heads. */
   doc(): V {
-    return this.#state.type.value(this.#state.viewAt(this.#heads)) as V
+    return this.#state.docType.value(this.#state.viewAt(this.#heads)) as V
   }
 
   /**
@@ -192,7 +192,7 @@ export class Handle<
    * view, only history up to its fixed heads counts.
    */
   hasHeads(heads: UrlHeads): boolean {
-    return this.#state.type.hasHeads(
+    return this.#state.docType.hasHeads(
       this.#state.viewAt(this.#heads),
       decodeHeads(heads)
     )
@@ -217,7 +217,7 @@ export class Handle<
     this.#throwIfFixedHeads("change")
     const state = this.#state
     return state.applyMutation(doc =>
-      state.type.change(doc, change, state.context)
+      state.docType.change(doc, change, state.context)
     )
   }
 
@@ -235,17 +235,20 @@ export class Handle<
    */
   merge(other: AnyHandle): Promise<void> {
     this.#throwIfFixedHeads("merge")
-    const { type } = this.#state
+    const { docType } = this.#state
     const otherState = other.#state
-    if (otherState.type.name !== type.name)
+    if (otherState.docType.name !== docType.name)
       throw new Error(
-        `Cannot merge a ${otherState.type.name} document into a ${type.name} document`
+        `Cannot merge a ${otherState.docType.name} document into a ${docType.name} document`
       )
     const incoming = otherState.viewAt(other.#heads)
     // A merge can bring many boundaries at once; store their fragments with it.
-    return this.#state.applyMutation(doc => mergeStates(type, doc, incoming), {
-      compact: true,
-    })
+    return this.#state.applyMutation(
+      doc => mergeStates(docType, doc, incoming),
+      {
+        compact: true,
+      }
+    )
   }
 
   /**

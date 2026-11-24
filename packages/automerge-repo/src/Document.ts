@@ -98,7 +98,7 @@ export class Document<T> {
     /** The handle class built for the type and the backend's extensions. */
     readonly Handle?: typeof BaseHandle,
     /** How the document is stored, read and changed. */
-    readonly type: AnyDocType = automerge
+    readonly docType: AnyDocType = automerge
   ) {
     this.#created = !!initial
     this.state = new DocumentState(documentId, this, initial)
@@ -201,10 +201,10 @@ export class Document<T> {
     // The document has already adopted `after`: a failure to prepare its
     // records is a failed write, so it fail-stops like one.
     return this.#store(() => {
-      const records = this.type.recordsSince(after, beforeHeads)
+      const records = this.docType.recordsSince(after, beforeHeads)
       if (!records.length) return []
       // Without fragments, a type's boundaries are never compacted.
-      const boundaries = this.type.fragments
+      const boundaries = this.docType.fragments
         ? records.flatMap(r =>
             r.kind === "commit" && isBoundary(r.id) ? [r.id] : []
           )
@@ -273,7 +273,7 @@ export class Document<T> {
       const { records, absent } = found
       // Absorbed into a higher fragment, unless the head is still pending.
       for (const head of absent)
-        if (this.type.hasHeads(doc, [head])) this.#due.delete(head)
+        if (this.docType.hasHeads(doc, [head])) this.#due.delete(head)
       fragments = records
       return records
     })
@@ -281,7 +281,7 @@ export class Document<T> {
   }
 
   #fragments(state: A.Doc<T>, heads: Iterable<CommitId>) {
-    return this.type.fragments?.(state, heads)
+    return this.docType.fragments?.(state, heads)
   }
 
   /** Deleted (through Repo or a handle) or fail-stopped: no more stores. */
@@ -334,7 +334,7 @@ export class Document<T> {
   /** Creation finished while a lookup was already observing this document. */
   adopt(doc: A.Doc<T>): void {
     void this.state.applyMutation(
-      current => mergeStates(this.type, current, doc),
+      current => mergeStates(this.docType, current, doc),
       {
         incoming: true,
         initial: this.query.pending,
@@ -404,7 +404,7 @@ export class Document<T> {
         const unknown = this.#unknown(event.records)
         if (unknown.length) {
           void this.state.applyMutation(
-            current => this.type.apply(current, unknown),
+            current => this.docType.apply(current, unknown),
             {
               incoming: true,
               initial: this.query.pending,
@@ -477,7 +477,7 @@ export class Document<T> {
     const current = this.state.peekDoc()
     if (!current) return records
     return records.filter(
-      record => !this.type.hasHeads(current, [recordHead(record)])
+      record => !this.docType.hasHeads(current, [recordHead(record)])
     )
   }
 
@@ -486,7 +486,7 @@ export class Document<T> {
   #applyInitial(): void {
     const records = this.#initial
     this.#initial = []
-    if (this.type.fragments)
+    if (this.docType.fragments)
       for (const head of fragmentRequests(records)) this.#due.add(head)
     for (const record of records)
       if (record.kind === "fragment") this.#covered(record)
@@ -496,10 +496,10 @@ export class Document<T> {
     const current = this.state.peekDoc()
     if (!current) {
       // The first scan can become the document directly.
-      const next = this.type.apply(undefined, unknown)
+      const next = this.docType.apply(undefined, unknown)
       void this.state.applyLoaded(next, this.query.pending)
     } else {
-      void this.state.applyMutation(doc => this.type.apply(doc, unknown), {
+      void this.state.applyMutation(doc => this.docType.apply(doc, unknown), {
         incoming: true,
         initial: this.query.pending,
       })
@@ -519,7 +519,7 @@ export class Document<T> {
     for (const target of this.#targets.values()) {
       // History inclusion, not head equality. Empty targets are never
       // evidence that a document is ready.
-      if (target.heads.length && this.type.hasHeads(doc, target.heads)) {
+      if (target.heads.length && this.docType.hasHeads(doc, target.heads)) {
         this.#complete()
         return
       }

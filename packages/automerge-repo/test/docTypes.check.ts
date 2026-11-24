@@ -83,7 +83,7 @@ export async function extensionTyping() {
 
   // Counter with custom handle class on an extended backend: members, events,
   // Presence, and pinned views all type-check without casts.
-  const counter = await extRepo.create(1, { type: gcounter })
+  const counter = await extRepo.create(1, { docType: gcounter })
   counter.doc() satisfies number
   void counter.increment(2)
   counter.broadcast("hi")
@@ -117,7 +117,7 @@ export async function extensionTyping() {
   }
 
   // Plain backend counter rejects extension members, events and Presence.
-  const plain = await plainRepo.create(1, { type: gcounter })
+  const plain = await plainRepo.create(1, { docType: gcounter })
   // @ts-expect-error no broadcast on plain backend
   plain.broadcast("hi")
   // @ts-expect-error no ephemeral-message on plain backend
@@ -131,7 +131,7 @@ export async function extensionTyping() {
   new Presence({ handle: plain })
 
   // Doc type with no custom handle class still types doc(), change() and extensions.
-  const bare = await extRepo.create(1, { type: plainCounter })
+  const bare = await extRepo.create(1, { docType: plainCounter })
   bare.doc() satisfies number
   void bare.change(2)
   // @ts-expect-error change takes a number
@@ -175,7 +175,7 @@ type Nested = { a: { b: { c: number } } }
 export async function sameBackend() {
   const extRepo = new Repo({ backend: new EphemeralBackend() })
   const t = await extRepo.find("tree:x" as AutomergeUrl, {
-    type: tree.of<Nested>(),
+    docType: tree.of<Nested>(),
   })
   t.at("a").at("b").doc().c satisfies number
   t.at("a").at("b").broadcast("deep")
@@ -184,7 +184,7 @@ export async function sameBackend() {
   // @ts-expect-error not a key
   t.at("nope")
   const plainT = await new Repo().find("tree:x" as AutomergeUrl, {
-    type: tree.of<Nested>(),
+    docType: tree.of<Nested>(),
   })
   // @ts-expect-error a plain backend's derived handles have no broadcast
   plainT.at("a").broadcast("hi")
@@ -202,7 +202,7 @@ export async function exactly() {
   const extRepo = new Repo({ backend: new EphemeralBackend() })
   const doc = await plainRepo.find<Todo2>("x" as AutomergeUrl)
   const docExt = await extRepo.find<Todo2>("x" as AutomergeUrl)
-  const counter = await extRepo.create(1, { type: gcounter })
+  const counter = await extRepo.create(1, { docType: gcounter })
   const checks: [
     Equal<typeof doc, DocHandle<Todo2>>,
     Equal<ReturnType<typeof doc.sub<["title"]>>, DocHandle<string>>,
@@ -220,7 +220,7 @@ export async function exactly() {
 export async function automergeOf() {
   const r = new Repo({ backend: new EphemeralBackend() })
   const viaOf = await r.find("automerge:x" as AutomergeUrl, {
-    type: automerge.of<Todo2>(),
+    docType: automerge.of<Todo2>(),
   })
   const same: Equal<typeof viaOf, DocHandle<Todo2, EphemeralLikeSpec>> = true
   viaOf.sub("items", 0).broadcast("sub")

@@ -92,7 +92,7 @@ In v2, `peerId` identified both the Repo and its network peer. v3 splits them:
 - `repo.flush()` rejects if any write has failed, and keeps rejecting for that document.
 - `repo.find(id, { signal })` can be aborted.
 - `handle.hasHeads(heads)` checks whether the document contains the given heads.
-- Document types other than Automerge: `repo.create(init, { type })`. See
+- Document types other than Automerge: `repo.create(init, { docType })`. See
   [Document types](#document-types).
 
 ## Repo
@@ -156,9 +156,9 @@ Automerge is the default document type. Other types (anything whose history is a
 commits) are chosen per call, and their URLs name the type:
 
 ```ts
-const counter = await repo.create(5, { type: gcounter }) // automerge:gcounter:…
+const counter = await repo.create(5, { docType: gcounter }) // automerge:gcounter:…
 await counter.increment()
-await repo.find(counter.url, { type: gcounter })
+await repo.find(counter.url, { docType: gcounter })
 ```
 
 Every handle is a `DocHandle`; `repo.handles` and the `document` event list every type, so

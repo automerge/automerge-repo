@@ -159,7 +159,7 @@ const counterType = defineDocType({
 
 async function counterWithSubduction() {
   const repo = new Repo({ backend })
-  const counter = await repo.create(1, { type: counterType })
+  const counter = await repo.create(1, { docType: counterType })
   counter.doc() satisfies number
   void counter.increment(2)
   counter.broadcast("hi")
@@ -183,7 +183,7 @@ async function counterWithSubduction() {
     new Presence({ handle: listedHandle })
   }
 
-  const plainCounter = await new Repo().create(1, { type: counterType })
+  const plainCounter = await new Repo().create(1, { docType: counterType })
   // @ts-expect-error plain backend has no broadcast
   plainCounter.broadcast("hi")
   // @ts-expect-error plain backend has no ephemeral-message

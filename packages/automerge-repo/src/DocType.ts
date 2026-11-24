@@ -151,7 +151,7 @@ export interface HandleKind {
  *   readonly init: this["T"] // optional: what `create` takes
  * }
  * export const register = defineDocType({ …, handle: RegisterHandle }).as<Register>()
- * await repo.find(url, { type: register.of<Todo>() })
+ * await repo.find(url, { docType: register.of<Todo>() })
  * ```
  *
  * TypeScript can't apply a shape to a class held in a value; this tells it how.

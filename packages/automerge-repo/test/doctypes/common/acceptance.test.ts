@@ -8,7 +8,7 @@ import { commit, emptyGraph } from "./commitGraph.js"
 type Doc = { n: number }
 
 runDocTypeTests("automerge", () => ({
-  type: automerge,
+  docType: automerge,
   create: () => A.from<Doc>({ n: 0 }),
   change: doc => A.change(doc, (d: Doc) => void d.n++),
   init: { n: 0 },
@@ -16,7 +16,7 @@ runDocTypeTests("automerge", () => ({
 }))
 
 runDocTypeTests("gcounter", () => ({
-  type: gcounter,
+  docType: gcounter,
   create: () => newCounter(1),
   change: state => add(state, 1),
   init: 1,
@@ -24,7 +24,7 @@ runDocTypeTests("gcounter", () => ({
 }))
 
 runDocTypeTests("register", () => ({
-  type: register,
+  docType: register,
   create: () => commit(emptyGraph<{ value: unknown }>(), { value: { n: 0 } }),
   change: state => commit(state, { value: { n: Math.random() } }),
   init: { n: 0 },

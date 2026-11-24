@@ -12,15 +12,15 @@ import { Repo } from "@automerge/automerge-repo"
 import { gcounter } from "./gcounter.js"
 
 const repo = new Repo()
-const counter = await repo.create(5, { type: gcounter })
+const counter = await repo.create(5, { docType: gcounter })
 await counter.increment() // a member of the type
 counter.doc() // 6
 counter.url // "automerge:gcounter:…"
 
-const same = await repo.find(counter.url, { type: gcounter })
+const same = await repo.find(counter.url, { docType: gcounter })
 ```
 
-- The type is chosen per call, with `{ type }` on `create`, `find`, `query`
+- The type is chosen per call, with `{ docType }` on `create`, `find`, `query`
   and `findWithProgress`. Without it you get Automerge.
 - A type's `name` (lowercase letters, digits and `-`) is written in its URLs:
   `automerge:gcounter:<id>[#heads]`. Automerge's URLs stay
@@ -37,7 +37,7 @@ const same = await repo.find(counter.url, { type: gcounter })
   is `DocHandle<unknown, X, GCounter>`. `HandleOf<typeof repo, T, K>` names
   them from a Repo.
 - A type whose handles are generic in the shape takes it with `of`:
-  `repo.find(url, { type: register.of<Todo>() })` gives
+  `repo.find(url, { docType: register.of<Todo>() })` gives
   `DocHandle<Todo, X, Register>`. `of` is type-level only; every shape is the
   same doc type at runtime. `automerge.of<Todo>()` is the same as
   `find<Todo>(url)`.

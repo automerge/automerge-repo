@@ -80,16 +80,18 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     this.#classFor(automerge)
   }
 
-  #classFor(type: AnyDocType): typeof Handle {
-    let Class = this.#classes.get(type)
+  #classFor(docType: AnyDocType): typeof Handle {
+    let Class = this.#classes.get(docType)
     if (!Class) {
-      if (!isValidDocTypeName(type.name))
-        throw new Error(`Invalid doc type name: ${JSON.stringify(type.name)}`)
+      if (!isValidDocTypeName(docType.name))
+        throw new Error(
+          `Invalid doc type name: ${JSON.stringify(docType.name)}`
+        )
       Class = extendHandle(
         this.#backend.handleExtensions ?? [],
-        (type.handle ?? Handle) as typeof Handle
+        (docType.handle ?? Handle) as typeof Handle
       )
-      this.#classes.set(type, Class)
+      this.#classes.set(docType, Class)
     }
     return Class
   }
@@ -111,17 +113,17 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   // Automerge's, is what `ReturnType` reads.
   create<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
     initialValue: InitOf<D, S>,
-    options: { type: Of<D, S> }
+    options: { docType: Of<D, S> }
   ): Promise<DocHandle<S, X, KindOf<D>>>
   /** Resolve after initial history is locally recoverable, without waiting for peers. */
   create<T>(initialValue?: T): Promise<DocHandle<T, X>>
   async create(
     initialValue?: unknown,
-    { type = automerge }: { type?: AnyDocType } = {}
+    { docType = automerge }: { docType?: AnyDocType } = {}
   ): Promise<DocHandle<any, X, any>> {
     this.#checkOpen()
-    const state = type.create(initialValue, { repoId: this.#id })
-    return this.#track(this.#createDocument(state, undefined, type))
+    const state = docType.create(initialValue, { repoId: this.#id })
+    return this.#track(this.#createDocument(state, undefined, docType))
   }
 
   async clone<T>(handle: DocHandle<T>): Promise<DocHandle<T, X>> {
@@ -141,7 +143,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     S = unknown,
   >(
     id: AnyDocumentId,
-    options: AbortOptions & { type: Of<D, S> }
+    options: AbortOptions & { docType: Of<D, S> }
   ): DocumentProgress<S, X, KindOf<D>>
   findWithProgress<T>(
     id: AnyDocumentId,
@@ -149,15 +151,15 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   ): DocumentProgress<T, X>
   findWithProgress(
     id: AnyDocumentId,
-    options: AbortOptions & { type?: AnyDocType } = {}
+    options: AbortOptions & { docType?: AnyDocType } = {}
   ): DocumentProgress<any, X, any> {
-    return toProgress(this.query(id, options as { type: AnyDocType }))
+    return toProgress(this.query(id, options as { docType: AnyDocType }))
   }
 
   /** A document of the doc type `type`; its URL must name `type`. */
   find<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
     id: AnyDocumentId,
-    options: RepoFindOptions & { type: Of<D, S> }
+    options: RepoFindOptions & { docType: Of<D, S> }
   ): Promise<DocHandle<S, X, KindOf<D>>>
   /** Cancellation stops this wait, not the shared document's loading. */
   find<T>(
@@ -166,11 +168,11 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   ): Promise<DocHandle<T, X>>
   async find(
     id: AnyDocumentId,
-    options: RepoFindOptions & { type?: AnyDocType } = {}
+    options: RepoFindOptions & { docType?: AnyDocType } = {}
   ): Promise<DocHandle<any, X, any>> {
     options.signal?.throwIfAborted()
     return waitUntilReady(
-      this.query(id, options as { type: AnyDocType }),
+      this.query(id, options as { docType: AnyDocType }),
       options.signal
     )
   }
@@ -183,12 +185,12 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   /** A document of the doc type `type`; its URL must name `type`. */
   query<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
     id: AnyDocumentId,
-    options: { type: Of<D, S> }
+    options: { docType: Of<D, S> }
   ): DocumentQuery<S, X, KindOf<D>>
   query<T>(id: AnyDocumentId): DocumentQuery<T, X>
   query(
     id: AnyDocumentId,
-    { type = automerge }: { type?: AnyDocType } = {}
+    { docType = automerge }: { docType?: AnyDocType } = {}
   ): DocumentQuery<any, X, any> {
     this.#checkOpen()
     const parsed = isValidAutomergeUrl(id)
@@ -200,28 +202,28 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
           docTypeName: undefined,
         }
     const { documentId, heads, segments, docTypeName } = parsed
-    if (docTypeName !== undefined && docTypeName !== type.name)
+    if (docTypeName !== undefined && docTypeName !== docType.name)
       throw new Error(
-        type === automerge
+        docType === automerge
           ? `Cannot open ${id}: it is of doc type ${docTypeName}; pass that type`
-          : `Cannot open ${id} as ${type.name}: it is of doc type ${docTypeName}`
+          : `Cannot open ${id} as ${docType.name}: it is of doc type ${docTypeName}`
       )
     const existing = this.#documents.get(documentId)
-    if (existing && existing.type.name !== type.name)
+    if (existing && existing.docType.name !== docType.name)
       throw new Error(
-        `Document ${documentId} is already open as ${existing.type.name}, not ${type.name}`
+        `Document ${documentId} is already open as ${existing.docType.name}, not ${docType.name}`
       )
-    const document = existing ?? this.#register(documentId, undefined, type)
+    const document = existing ?? this.#register(documentId, undefined, docType)
     let query = document.query as DocumentQuery<any, X, any>
     if (heads) {
-      requireView(type)
+      requireView(docType)
       query = queryAtHeads(query, heads, fn =>
         document.state.onHeadsChanged(fn)
       )
     }
     if (segments?.length) {
-      if (type !== automerge)
-        throw new Error(`${type.name} URLs have no paths: ${id}`)
+      if (docType !== automerge)
+        throw new Error(`${docType.name} URLs have no paths: ${id}`)
       query = queryAtPath(query, segments)
     }
     return query
@@ -244,7 +246,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   ): Promise<DocHandle<T, X>> {
     if (!id) return this.#createDocument(doc)
     const existing = this.#documents.get(id)
-    if (existing && existing.type !== automerge)
+    if (existing && existing.docType !== automerge)
       throw new Error(`Document ${id} is not an Automerge document`)
     if (existing?.query.state().status === "ready") {
       await existing.state.applyMutation(
@@ -274,15 +276,15 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   async #createDocument<T>(
     doc: A.Doc<T>,
     requested?: DocumentId,
-    type: AnyDocType = automerge
+    docType: AnyDocType = automerge
   ): Promise<DocHandle<T, X>> {
-    if (!type.heads(doc).length) {
-      if (type !== automerge)
-        throw new Error(`A new ${type.name} document needs a commit`)
+    if (!docType.heads(doc).length) {
+      if (docType !== automerge)
+        throw new Error(`A new ${docType.name} document needs a commit`)
       doc = A.emptyChange(doc)
     }
     const allocated = await this.#backend.create(
-      type.recordsSince(doc, []),
+      docType.recordsSince(doc, []),
       requested ? { documentId: this.#backendId(requested) } : undefined
     )
     const id = binaryToDocumentId(idBytes(allocated) as BinaryDocumentId)
@@ -292,14 +294,14 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
       // Loading can begin while backend creation is pending. Adopt that shared entry.
       if (existing.state.deleted || existing.state.closed)
         throw new Error("Document is no longer open")
-      if (existing.type.name !== type.name)
+      if (existing.docType.name !== docType.name)
         throw new Error(
-          `Document ${id} is already open as ${existing.type.name}, not ${type.name}`
+          `Document ${id} is already open as ${existing.docType.name}, not ${docType.name}`
         )
       existing.adopt(doc)
       return this.#handle(existing)
     }
-    return this.#handle(this.#register<T>(id, doc, type))
+    return this.#handle(this.#register<T>(id, doc, docType))
   }
 
   /** The root handle, typed with the backend's extensions. */
@@ -316,7 +318,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   #register<T>(
     id: DocumentId,
     initial?: A.Doc<T>,
-    type: AnyDocType = automerge
+    docType: AnyDocType = automerge
   ): Document<T> {
     const document = new Document<T>(
       this.#backendId(id),
@@ -324,8 +326,8 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
       this.#backend,
       this.#id,
       initial,
-      this.#classFor(type),
-      type
+      this.#classFor(docType),
+      docType
     )
     const handle = this.#handle(document)
     this.#documents.set(id, document)

@@ -41,7 +41,7 @@ describe("a register: a doc type generic in its document's shape", () => {
   it("reads and changes a document of the shape it was given", async () => {
     const todo = await repo().create(
       { title: "a", done: false },
-      { type: register.of<Todo>() }
+      { docType: register.of<Todo>() }
     )
     expect(todo).toBeInstanceOf(DocHandle)
     expect(todo).toBeInstanceOf(RegisterHandle)
@@ -54,10 +54,10 @@ describe("a register: a doc type generic in its document's shape", () => {
     const backend = new MemoryBackend()
     const todo = await repo(backend).create(
       { title: "a", done: false },
-      { type: register.of<Todo>() }
+      { docType: register.of<Todo>() }
     )
     const found = await repo(backend).find(todo.url, {
-      type: register.of<Todo>(),
+      docType: register.of<Todo>(),
     })
     expect(found.get("title")).toBe("a")
     // `of` is type-level: every shape is the same doc type object.
@@ -72,7 +72,7 @@ export async function types() {
 
   const todo = await ext.create(
     { title: "a", done: false },
-    { type: register.of<Todo>() }
+    { docType: register.of<Todo>() }
   )
   const named: DocHandle<Todo, EphemeralLike, Register> = todo
   todo.doc().title satisfies string
@@ -83,7 +83,7 @@ export async function types() {
   // @ts-expect-error the wrong type for `done`
   void todo.set("done", "yes")
   // @ts-expect-error `create` takes a Todo for this shape
-  await ext.create({ other: 1 }, { type: register.of<Todo>() })
+  await ext.create({ other: 1 }, { docType: register.of<Todo>() })
 
   // The backend's members and events, on the handle and its views.
   todo.broadcast("hi")
@@ -101,13 +101,13 @@ export async function types() {
   view.broadcast("from a view")
   new Presence({ handle: view })
 
-  const found = await ext.find(todo.url, { type: register.of<Todo>() })
+  const found = await ext.find(todo.url, { docType: register.of<Todo>() })
   found.get("done") satisfies boolean
   const listed = ext.handles[todo.documentId]
   if (isHandleOf(listed, register)) listed.broadcast("listed")
 
   // A plain backend has none of the backend's members.
-  const p = await plain.find(todo.url, { type: register.of<Todo>() })
+  const p = await plain.find(todo.url, { docType: register.of<Todo>() })
   p.get("title") satisfies string
   // @ts-expect-error a plain backend has no broadcast
   p.broadcast("hi")
@@ -129,7 +129,7 @@ export function generic<T extends { title: string }, X extends EphemeralLike>(
   h.broadcast("hi")
   new Presence({ handle: h })
   const back: Promise<DocHandle<T, X, Register>> = r.find(h.url, {
-    type: register.of<T>(),
+    docType: register.of<T>(),
   })
   return back
 }
