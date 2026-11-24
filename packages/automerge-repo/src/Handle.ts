@@ -129,16 +129,16 @@ export class Handle<
     fixedHeadsOf = handle => handle.#heads
   }
 
-  /**
-   * Type only: the backend extensions this handle has; `DocHandle` sets it.
-   * A method returning another handle reads it, through `SameBackend<this,
-   * …>`, to give that handle the same extensions.
-   */
-  declare readonly "~ext": {}
-
   /** Type only: the name of this handle's doc type, which its URL is typed
    * with; `DocHandle` sets it. */
   declare readonly "~name": string
+
+  /**
+   * Type only, never set: the backend's extension spec; `DocHandle` sets
+   * its type. A method returning another handle reads it with
+   * `BackendOf<this>`, to give that handle the same extensions.
+   */
+  declare readonly "~spec"?: {}
 
   /** Shared per-document state. Every handle into the same doc shares one. */
   readonly #state: DocumentState<any>

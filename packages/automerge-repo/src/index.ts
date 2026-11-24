@@ -134,7 +134,7 @@ export type {
   ShapeOf,
   Shaped,
 } from "./DocType.js"
-export type { SameBackend, WithBackend } from "./types/DocHandle.js"
+export type { BackendOf, SameBackend, WithBackend } from "./types/DocHandle.js"
 
 export * from "./types.js"
 

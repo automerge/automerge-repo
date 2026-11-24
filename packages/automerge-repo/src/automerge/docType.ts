@@ -31,7 +31,7 @@ export interface AutomergeDocType extends DocType<
  * backend's extensions on to sub-handles. */
 export interface AutomergeKind extends Shaped {
   readonly name: "automerge"
-  readonly handle: AutomergeHandle<this["Shape"], this["Extensions"]>
+  readonly handle: AutomergeHandle<this["Shape"]>
   readonly init: this["Shape"] | undefined
 }
 

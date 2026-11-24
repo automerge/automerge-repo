@@ -171,8 +171,20 @@ type Equal<A, B> =
     ? true
     : false
 // HandleOf names a Repo's handle type.
-const ofRepo: Equal<HandleOf<typeof repoA, Doc>, DocHandle<Doc, ASpec>> = true
-void ofRepo
+const ofRepo: Equal<
+  HandleOf<typeof repoA, Doc>,
+  DocHandle<Doc, ASpecFull>
+> = true
+// A handle typed with only the spec's members and events accepts it, but not
+// the other way round: it lacks the spec's session.
+declare const ofRepoHandle: HandleOf<typeof repoA, Doc>
+const visibleOnly: DocHandle<Doc, ASpec> = ofRepoHandle
+// @ts-expect-error the handle's spec lacks `session` and `receives`
+const fullFromVisible: HandleOf<typeof repoA, Doc> = visibleOnly
+void [ofRepo, fullFromVisible]
+// The spec is type-only: reading it as if set is an error.
+// @ts-expect-error possibly undefined; it is never set
+void ofRepoHandle["~spec"].session
 
 // Event payloads carry the handle listened on, backend members included.
 repoA.on("document", ({ handle }) => handle.a())

@@ -134,18 +134,15 @@ export interface Register extends Shaped {
 export const register = defineDocType({ …, handle: RegisterHandle }).as<Register>()
 ```
 
-A method that returns a different handle (a handle for part of the document,
-say) types it as `SameBackend<this, MyHandle<T[K]>>`, so the result keeps the
-backend's members and events. Or, like Automerge, the class takes the backend's
-spec as a second parameter, and the interface passes it on as `this["Extensions"]`:
+Every handle gets the backend's members and events; a doc type never
+mentions them. A method that returns a different handle (a handle for part of
+the document, say) passes them on with `BackendOf<this>`:
 
 ```ts
-interface AutomergeKind extends Shaped {
-  readonly name: "automerge"
-  readonly handle: AutomergeHandle<this["Shape"], this["Extensions"]>
-}
-// in AutomergeHandle<T, X>:
-sub<K extends keyof T>(key: K): DocHandle<T[K], X>
+// in AutomergeHandle<T>:
+sub<K extends keyof T>(key: K): DocHandle<T[K], BackendOf<this>>
+// in a handle class of your own, shown as DocHandle<…, X, MyKind>:
+part<K extends keyof T>(key: K): DocHandle<T[K], BackendOf<this>, MyKind>
 ```
 
 Handles are built by the Repo, never by apps: don't add constructor

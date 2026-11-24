@@ -118,9 +118,10 @@ export type AnyDocType = DocType<any, any, any, any, string, any>
 
 /**
  * What handles a doc type gives, as one declaration: its `handle` names the
- * handle class, with `this["Shape"]` for the document's shape and `this["Extensions"]` for
- * the backend's extensions if the class takes them. It also names the doc
- * type: handles show as `DocHandle<Todo, X, Register>`.
+ * handle class, with `this["Shape"]` for the document's shape if the class
+ * takes one. It also names the doc type: handles show as
+ * `DocHandle<Todo, X, Register>`. The backend's extensions are added to every
+ * handle; see {@link DocHandle}.
  *
  * ```ts
  * export interface GCounter extends HandleKind {
@@ -139,11 +140,6 @@ export interface HandleKind {
   /** Filled in by the library: the document's shape, as `of<Shape>()` gives
    * it. Read it in `handle` as `this["Shape"]`. */
   readonly Shape: unknown
-  /** Filled in by the library: the backend's extensions. Read it in
-   * `handle` as `this["Extensions"]`, if the class takes them. */
-  // `{}` rather than `HandleExtensionSpec`: it intersects with the backend's
-  // spec when applied, and `{} & X` simplifies to `X`.
-  readonly Extensions: {}
   readonly handle: Handle<any, any, any>
   /** What `create` takes, if not what the doc type's `create` takes. */
   readonly init?: unknown
@@ -190,10 +186,9 @@ export interface PlainHandle<
   readonly handle: Handle<V, C>
 }
 
-/** The handle `K` gives for shape `T` on a backend with extensions `X`. */
-export type HandleFor<K extends HandleKind, T, X> = (K & {
+/** The handle `K` gives for shape `T`. */
+export type HandleFor<K extends HandleKind, T> = (K & {
   readonly Shape: T
-  readonly Extensions: X
 })["handle"]
 
 /** A doc type `D`, for documents of shape `T`: what `of` gives. */

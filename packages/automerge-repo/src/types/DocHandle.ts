@@ -68,11 +68,9 @@ export interface ExtensionEventsApi<
   )[]
 }
 
-/** What of a backend spec a handle can see: its members and events. A
- * handle records only these, so two specs that differ elsewhere (`session`,
- * `receives`) give the same handle type. */
+/** What of a backend spec a handle's events see: its members and events. */
 // Distributive, so it gives a fresh object type: two specs with the same
-// members and events then give identical handle types, rather than being
+// members and events then give identical event methods, rather than being
 // compared by their type arguments.
 export type VisibleSpec<X extends HandleExtensionSpec> = X extends unknown
   ? { readonly members?: ExtensionMembers<X>; readonly events?: EventsOf<X> }
@@ -80,25 +78,29 @@ export type VisibleSpec<X extends HandleExtensionSpec> = X extends unknown
 
 /** The handle `H` with the backend extensions `X`: their members and events. */
 export type WithBackend<H, X extends HandleExtensionSpec> = H & {
-  readonly "~ext": VisibleSpec<X>
+  readonly "~spec"?: X
 } & ExtensionMembers<X> &
   ExtensionEventsApi<VisibleSpec<X>, H>
 
 /**
- * Another handle, from the same backend as `This`. A handle class's method
- * returning a different handle (a sub-handle, say) uses it, so the result
- * keeps the backend's members: `sub(key): SameBackend<this, MyHandle<T[K]>>`.
+ * The backend extension spec of the handle `H`. A handle class's method
+ * returning a different handle passes it on, so the result keeps the
+ * backend's members and events: `DocHandle<T[K], BackendOf<this>, MyKind>`.
+ */
+export type BackendOf<H extends AnyHandle> = NonNullable<H["~spec"]>
+
+/**
+ * Another handle, from the same backend as `This`, without naming its doc
+ * type: `part(key): SameBackend<this, MyHandle<T[K]>>`. Prefer
+ * `DocHandle<…, BackendOf<this>, MyKind>`, which shows by name.
  */
 export type SameBackend<
   This extends AnyHandle,
   H extends AnyHandle,
-> = WithBackend<H, This["~ext"]>
+> = WithBackend<H, BackendOf<This>>
 
 /** A handle of a document of any type: the core API, loosely typed. */
-export interface AnyDocHandle<
-  X extends HandleExtensionSpec = {},
-> extends Handle<any, any, any> {
-  readonly "~ext": VisibleSpec<X>
+export interface AnyDocHandle extends Handle<any, any, any> {
   doc(): any
   change(change: any, options?: any): Promise<void>
 }
@@ -106,7 +108,7 @@ export interface AnyDocHandle<
 /** The handles of a document of any type: the core API, loosely typed.
  * `DocHandle<any, X, AnyHandleKind>` is what `repo.handles` lists. */
 export interface AnyHandleKind extends HandleKind {
-  readonly handle: AnyDocHandle<this["Extensions"]>
+  readonly handle: AnyDocHandle
 }
 
 /** The core handle with backend extensions `X` (no doc-type-only members). */
@@ -128,22 +130,23 @@ export type DocHandle<
   T,
   X extends HandleExtensionSpec = {},
   K extends HandleKind = AutomergeKind,
-> = HandleFor<K, T, X> & {
-  readonly "~ext": VisibleSpec<X>
+> = HandleFor<K, T> & {
   readonly "~name": K["name"]
+  readonly "~spec"?: X
 } & ExtensionMembers<X> &
-  ExtensionEventsApi<VisibleSpec<X>, HandleFor<K, T, X>>
+  ExtensionEventsApi<VisibleSpec<X>, HandleFor<K, T>>
 
 /** The class of every handle, for `instanceof`. */
 export const DocHandle = Handle
 
 /** Whether `handle` is of the doc type `type` (compared by name). Keeps
  * the backend's extensions the handle was typed with. */
-export function isHandleOf<E extends HandleExtensionSpec, D extends AnyDocType>(
-  handle: { readonly "~ext": E },
+export function isHandleOf<S extends HandleExtensionSpec, D extends AnyDocType>(
+  handle: { readonly "~spec"?: S },
   docType: D
-): handle is { readonly "~ext": E } & DocHandle<unknown, E, KindOf<D>> {
+): handle is { readonly "~spec"?: S } & DocHandle<unknown, S, KindOf<D>> {
   return (
-    handleState(handle as unknown as AnyHandle).docType.name === docType.name
+    handle instanceof Handle &&
+    handleState(handle).docType.name === docType.name
   )
 }
