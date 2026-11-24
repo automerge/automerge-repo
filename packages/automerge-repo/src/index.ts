@@ -34,6 +34,7 @@ export {
   stringifyAutomergeUrl,
   interpretAsDocumentId,
   documentIdToBinary,
+  canonicalBinaryDocumentId,
   generateAutomergeUrl,
   encodeHeads,
   decodeHeads,

@@ -110,6 +110,55 @@ describe("AutomergeUrl", () => {
   })
 })
 
+describe("AutomergeUrl with repo 3's 32-byte ids", () => {
+  // repo 3 writes a 16-byte id as those bytes followed by 16 zero bytes
+  const padded = new Uint8Array(32) as BinaryDocumentId
+  padded.set(goodBinaryDocumentId)
+  const paddedUrl = ("automerge:" + bs58check.encode(padded)) as AutomergeUrl
+
+  it("parses a padded url as the 16-byte id", () => {
+    const { binaryDocumentId, documentId } = parseAutomergeUrl(paddedUrl)
+    assert.deepStrictEqual(binaryDocumentId, goodBinaryDocumentId)
+    assert.equal(documentId, goodDocumentId)
+  })
+
+  it("keeps the path and heads of a padded url", () => {
+    const heads = [bs58check.encode(new Uint8Array(32).fill(7))] as UrlHeads
+    const url = `${paddedUrl}/a/b#${heads[0]}` as AutomergeUrl
+    const parsed = parseAutomergeUrl(url)
+    assert.equal(parsed.documentId, goodDocumentId)
+    assert.deepStrictEqual(parsed.heads, heads)
+    assert.equal(parsed.segments?.length, 2)
+  })
+
+  it("interprets a padded url, id or binary as the 16-byte id", () => {
+    assert.equal(interpretAsDocumentId(paddedUrl), goodDocumentId)
+    assert.equal(
+      interpretAsDocumentId(bs58check.encode(padded) as DocumentId),
+      goodDocumentId
+    )
+    assert.equal(interpretAsDocumentId(padded), goodDocumentId)
+  })
+
+  it("stringifies a padded id as the 16-byte url", () => {
+    assert.equal(stringifyAutomergeUrl(padded), goodUrl)
+    assert.equal(stringifyAutomergeUrl({ documentId: padded }), goodUrl)
+    assert.equal(
+      stringifyAutomergeUrl({
+        documentId: bs58check.encode(padded) as DocumentId,
+      }),
+      goodUrl
+    )
+  })
+
+  it("leaves a 32-byte id whose second half isn't zero alone", () => {
+    const full = new Uint8Array(32).fill(9) as BinaryDocumentId
+    const url = ("automerge:" + bs58check.encode(full)) as AutomergeUrl
+    assert.deepStrictEqual(parseAutomergeUrl(url).binaryDocumentId, full)
+    assert.equal(stringifyAutomergeUrl(full), url)
+  })
+})
+
 describe("AutomergeUrl with heads", () => {
   // Create some sample encoded heads for testing
   const head1 = bs58check.encode(new Uint8Array([1, 2, 3, 4])) as string

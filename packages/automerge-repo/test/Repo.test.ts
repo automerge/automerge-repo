@@ -1,6 +1,7 @@
 import { next as A, Heads } from "@automerge/automerge"
 import { MessageChannelNetworkAdapter } from "../../automerge-repo-network-messagechannel/src/index.js"
 import assert from "assert"
+import bs58check from "bs58check"
 import * as Uuid from "uuid"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
@@ -18,6 +19,7 @@ import {
   AnyDocumentId,
   UrlHeads,
   AutomergeUrl,
+  BinaryDocumentId,
   DocHandle,
   DocumentId,
   LegacyDocumentId,
@@ -120,6 +122,25 @@ describe("Repo", () => {
       const handle2 = await repo.find(handle.url)
       assert.equal(handle, handle2)
       assert.deepEqual(handle2.doc(), { foo: "bar" })
+    })
+
+    it("finds a document by the 32-byte url repo 3 writes for it", async () => {
+      const { repo } = setup()
+      const handle = repo.create<TestDoc>()
+      handle.change((d: TestDoc) => {
+        d.foo = "bar"
+      })
+
+      const padded = new Uint8Array(32)
+      padded.set(parseAutomergeUrl(handle.url).binaryDocumentId)
+      const repo3Url = stringifyAutomergeUrl(padded as BinaryDocumentId)
+      // stringify gives back the 16-byte form, so build the 32-byte one raw
+      const raw = `automerge:${bs58check.encode(padded)}` as AutomergeUrl
+      assert.equal(repo3Url, handle.url)
+
+      const handle2 = await repo.find(raw)
+      assert.equal(handle, handle2)
+      assert.equal(handle2.url, handle.url)
     })
 
     it("can find a document by its unprefixed document ID", async () => {

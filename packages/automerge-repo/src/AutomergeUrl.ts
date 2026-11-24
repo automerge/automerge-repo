@@ -60,10 +60,15 @@ export const parseAutomergeUrl = (url: AutomergeUrl): ParsedAutomergeUrl => {
   const match = baseUrl.match(new RegExp(`^${urlPrefix}([^/]+)(?:\\/(.*))?$`))
   if (!match) throw new Error("Invalid document URL: " + url)
   const [, docMatch, pathStr] = match
-  const documentId = docMatch as DocumentId
-  const binaryDocumentId = documentIdToBinary(documentId)
+  const decoded = documentIdToBinary(docMatch as DocumentId)
 
-  if (!binaryDocumentId) throw new Error("Invalid document URL: " + url)
+  if (!decoded) throw new Error("Invalid document URL: " + url)
+
+  const binaryDocumentId = canonicalBinaryDocumentId(decoded)
+  const documentId =
+    binaryDocumentId === decoded
+      ? (docMatch as DocumentId)
+      : binaryToDocumentId(binaryDocumentId)
 
   const segments =
     pathStr !== undefined && pathStr.length > 0 ? parsePath(pathStr) : undefined
@@ -99,8 +104,8 @@ export const stringifyAutomergeUrl = (
   if (arg instanceof Uint8Array || typeof arg === "string") {
     return (urlPrefix +
       (arg instanceof Uint8Array
-        ? binaryToDocumentId(arg)
-        : arg)) as AutomergeUrl
+        ? binaryToDocumentId(canonicalBinaryDocumentId(arg))
+        : canonicalDocumentId(arg))) as AutomergeUrl
   }
 
   const { documentId, heads = undefined, segments = undefined } = arg
@@ -110,8 +115,8 @@ export const stringifyAutomergeUrl = (
 
   const encodedDocumentId =
     documentId instanceof Uint8Array
-      ? binaryToDocumentId(documentId)
-      : documentId
+      ? binaryToDocumentId(canonicalBinaryDocumentId(documentId))
+      : canonicalDocumentId(documentId)
 
   let url = `${urlPrefix}${encodedDocumentId}`
 
@@ -199,6 +204,27 @@ export const generateAutomergeUrl = (): AutomergeUrl => {
 export const documentIdToBinary = (docId: DocumentId) =>
   bs58check.decodeUnsafe(docId) as BinaryDocumentId | undefined
 
+/**
+ * automerge-repo 3 ids are 32 bytes, and it writes ours as the 16-byte id
+ * followed by 16 zero bytes. Read that form as the 16-byte id it came from,
+ * so a url written by repo 3 finds the same document here. Any other id is
+ * returned as it is.
+ */
+export const canonicalBinaryDocumentId = (
+  id: BinaryDocumentId
+): BinaryDocumentId =>
+  id.length === 32 && id.subarray(16).every(byte => byte === 0)
+    ? (id.slice(0, 16) as BinaryDocumentId)
+    : id
+
+/** {@link canonicalBinaryDocumentId}, for a base58check-encoded id. */
+const canonicalDocumentId = (id: DocumentId): DocumentId => {
+  const binary = documentIdToBinary(id)
+  if (!binary) return id
+  const canonical = canonicalBinaryDocumentId(binary)
+  return canonical === binary ? id : binaryToDocumentId(canonical)
+}
+
 export const binaryToDocumentId = (docId: BinaryDocumentId) =>
   bs58check.encode(docId) as DocumentId
 
@@ -227,13 +253,14 @@ export const parseLegacyUUID = (str: string) => {
  */
 export const interpretAsDocumentId = (id: AnyDocumentId) => {
   // binary
-  if (id instanceof Uint8Array) return binaryToDocumentId(id)
+  if (id instanceof Uint8Array)
+    return binaryToDocumentId(canonicalBinaryDocumentId(id))
 
   // url
   if (isValidAutomergeUrl(id)) return parseAutomergeUrl(id).documentId
 
   // base58check
-  if (isValidDocumentId(id)) return id
+  if (isValidDocumentId(id)) return canonicalDocumentId(id)
 
   // legacy UUID
   if (isValidUuid(id)) {
