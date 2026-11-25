@@ -7,10 +7,12 @@ import {
   defineDocType,
   isHandleOf,
   type DocHandle,
+  type KindOf,
 } from "@automerge/automerge-repo/slim"
 import type { SedimentreeBackend } from "@automerge/automerge-repo/sedimentree"
 import {
   SubductionBackend,
+  type EphemeralMessagePayload,
   type SubductionEvent,
   type SubductionExtensions,
 } from "../src/index.js"
@@ -182,6 +184,20 @@ async function counterWithSubduction() {
     listedHandle.broadcast("from-handles")
     new Presence({ handle: listedHandle })
   }
+
+  // A listener can be written against the payload type, for any doc type.
+  const onCounterMessage = ({
+    handle: h,
+  }: EphemeralMessagePayload<unknown, KindOf<typeof counterType>>) => {
+    void h.increment(1)
+  }
+  counter.on("ephemeral-message", onCounterMessage)
+  const doc = await repo.find<Todo>("automerge:abc" as any)
+  const onTodoMessage = ({ handle: h }: EphemeralMessagePayload<Todo>) =>
+    h.sub("title").doc() satisfies string | undefined
+  doc.on("ephemeral-message", onTodoMessage)
+  // @ts-expect-error a counter's messages carry a counter, not an Automerge handle
+  counter.on("ephemeral-message", onTodoMessage)
 
   const plainCounter = await new Repo().create(1, { docType: counterType })
   // @ts-expect-error plain backend has no broadcast

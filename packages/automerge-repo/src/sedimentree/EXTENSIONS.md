@@ -61,7 +61,11 @@ extended handle.
 `defineExtension` checks plain functions against the spec. Each method
 takes the document's context, then the handle it was called on, then the
 caller's arguments. `receive` has one function for each kind in `receives`.
-Both `members` and `receive` should be plain objects.
+Both `members` and `receive` should be plain objects; both are optional.
+
+The `handle` passed to a method can be of any document type, so only the core
+handle API (excluding `change()`) and this extension's own members and events
+are available on it.
 
 ```ts
 import { decode, encode } from "cbor-x"
@@ -257,3 +261,5 @@ handle is then a type error.
   handle member, and a doc type's handle class can't clash with an extension
   member name.
 - **Unique kinds** A Repo throws if two extensions receive the same kind.
+- **Own event names** An extension's events can't reuse a core handle event's
+  name (`change`, `heads-changed`, `delete`, `remote-heads`).

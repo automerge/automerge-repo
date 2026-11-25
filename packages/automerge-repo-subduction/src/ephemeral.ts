@@ -6,7 +6,9 @@ import {
   type SedimentreeSession,
 } from "@automerge/automerge-repo/sedimentree"
 import type {
+  AutomergeKind,
   DocHandle,
+  HandleKind,
   PeerId,
   RepoId,
   PresenceHandle,
@@ -37,9 +39,13 @@ export interface EphemeralSession extends SedimentreeSession {
 /**
  * Emitted when an ephemeral message is received for the document. `senderId`
  * is the peer Subduction authenticated; `originId` is the sending Repo's `id`.
+ * `K` is the document's doc type's handles; Automerge's by default.
  */
-export interface EphemeralMessagePayload<T> extends PresenceInbound {
-  handle: DocHandle<T, EphemeralSpec>
+export interface EphemeralMessagePayload<
+  T = unknown,
+  K extends HandleKind = AutomergeKind,
+> extends PresenceInbound {
+  handle: DocHandle<T, EphemeralSpec, K>
 }
 
 /** What the `ephemeral` extension adds to a handle. */

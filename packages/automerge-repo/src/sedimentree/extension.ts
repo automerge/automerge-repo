@@ -1,5 +1,5 @@
-import type { CoreHandle } from "../types/DocHandle.js"
-import type { AnyHandle } from "../Handle.js"
+import type { CoreHandle, WithBackend } from "../types/DocHandle.js"
+import type { AnyHandle, CoreHandleEvents } from "../Handle.js"
 import type { DocumentId, RepoId } from "../types.js"
 import type { SedimentreeSession } from "./backend.js"
 import type { SedimentreeId } from "./ids.js"
@@ -63,71 +63,66 @@ export type ExtensionMembers<X extends HandleExtensionSpec> = NonNullable<
  * Repo adds on delivery. What {@link ExtensionContext.emit} takes. */
 export type EventsOf<X extends HandleExtensionSpec> = NonNullable<X["events"]>
 
-/** The spec's members as an extension writes them: the document's
+/** One spec method `F` as an extension writes it: the document's
  * {@link ExtensionContext} and the calling handle first, then the caller's
- * arguments. A generic method must declare a `this` handle, as in
- * `first<T>(this: DocHandle<T>): T`; its implementation is checked with the
- * document type as `unknown`. Any other generic or overloaded method is
- * `never`: it can't be reduced to one argument list and return type. A spec
- * without members takes `members: {}`. */
-type ContextualMembers<
-  X extends HandleExtensionSpec,
-  M = ExtensionMembers<X>,
-> = [keyof M] extends [never]
-  ? { readonly [name: PropertyKey]: never }
-  : { readonly [N in keyof M]: ContextualMember<X, M[N]> }
-
-/** One spec method `F` as an extension writes it; `never` if it can't be. */
+ * arguments. A method declaring a `this` handle gets that handle; a generic
+ * one must declare it, as in `first<T>(this: DocHandle<T>): T`, and its
+ * implementation sees the document type as `unknown`. Any other generic or
+ * overloaded method is `never`: it can't be reduced to one argument list and
+ * return type. */
 type ContextualMember<X extends HandleExtensionSpec, F> = F extends (
   this: infer H,
   ...args: infer A
 ) => infer R
-  ? ((...args: A) => R) extends F
-    ? Contextual<
-        X,
-        A,
-        R,
-        H extends AnyHandle ? H & ExtensionMembers<X> : CoreHandle<X>
-      >
-    : H extends AnyHandle
-      ? Contextual<X, A, R, H & ExtensionMembers<X>>
+  ? H extends AnyHandle
+    ? (context: ExtensionContext<X>, handle: WithBackend<H, X>, ...args: A) => R
+    : ((...args: A) => R) extends F
+      ? (context: ExtensionContext<X>, handle: CoreHandle<X>, ...args: A) => R
       : never
   : never
 
-type Contextual<
-  X extends HandleExtensionSpec,
-  A extends unknown[],
-  R,
-  H = CoreHandle<X>,
-> = (context: ExtensionContext<X>, handle: H, ...args: A) => R
-
-/** What `receive` must be when a spec's `receives` does not list its kinds
- * by name: an index signature (`Record<string, …>`) or a non-string key. No
- * value fits it, so the extension does not compile. */
-export interface ReceivesMustNameItsKinds {
-  readonly "~error": "list each kind in receives as a string key"
-}
+/** The spec's methods, by string or symbol name; optional if it has none, so
+ * a method it does not list (which would be on handles but not in their
+ * type) is rejected. Getters are not supported. */
+type Members<X extends HandleExtensionSpec, M = ExtensionMembers<X>> = [
+  keyof M,
+] extends [never]
+  ? { readonly members?: { readonly [name: PropertyKey]: never } }
+  : { readonly members: { readonly [N in keyof M]: ContextualMember<X, M[N]> } }
 
 /** A receiver for each kind the spec receives, optional ones included: the
  * backend sent `payload` in a session event `{ type: "extension", kind }`.
  * Synchronous: Repo does not wait for it. Absent if the spec receives
- * nothing. */
+ * nothing. Kinds must be named string keys: an index signature
+ * (`Record<string, …>`) or a non-string key does not compile. */
 type Receivers<X extends HandleExtensionSpec, R = ReceivesOf<X>> = [
   keyof R,
 ] extends [never]
   ? { readonly receive?: never }
-  : string extends keyof R
-    ? { readonly receive: ReceivesMustNameItsKinds }
-    : [Exclude<keyof R, string>] extends [never]
-      ? {
-          readonly receive: {
-            readonly [K in keyof R]-?: (
-              context: ExtensionContext<X>,
-              payload: Required<R>[K]
-            ) => void
-          }
+  : [string extends keyof R ? 0 : Exclude<keyof R, string>] extends [never]
+    ? {
+        readonly receive: {
+          readonly [K in keyof R]-?: (
+            context: ExtensionContext<X>,
+            payload: Required<R>[K]
+          ) => void
         }
-      : { readonly receive: ReceivesMustNameItsKinds }
+      }
+    : {
+        readonly receive: {
+          readonly "~error": "list each kind in receives as a string key"
+        }
+      }
+
+/** Rejects a spec whose events reuse a core handle event's name: their
+ * listeners expect the core payload. */
+type CoreEventNames<X extends HandleExtensionSpec> = [
+  keyof EventsOf<X> & keyof CoreHandleEvents,
+] extends [never]
+  ? {}
+  : {
+      readonly "~error": "an extension event may not reuse a core handle event name"
+    }
 
 /**
  * Adds a backend feature to every handle of a Repo using that backend; see
@@ -144,16 +139,14 @@ type Receivers<X extends HandleExtensionSpec, R = ReceivesOf<X>> = [
 export type HandleExtension<X extends HandleExtensionSpec = {}> = {
   /** Type only: never set. */
   readonly "~spec"?: X
-  /** The spec's methods, by string or symbol name. Each takes the document's
-   * context and the handle it was called on first; callers pass neither.
-   * Getters are not supported. */
-  readonly members: ContextualMembers<X>
-} & Receivers<X>
+} & Members<X> &
+  Receivers<X> &
+  CoreEventNames<X>
 
 /** A handle extension of any spec, as Repo uses them: how lists of
  * heterogeneous extensions are typed. */
 export interface AnyHandleExtension {
-  readonly members: {
+  readonly members?: {
     readonly [name: PropertyKey]: (
       context: any,
       handle: any,

@@ -99,10 +99,7 @@ string and type cannot drift), declare an interface extending `HandleKind` and
 pass it to `.as<...>()`:
 
 ```ts
-import {
-  defineDocType,
-  type HandleKind,
-} from "@automerge/automerge-repo"
+import { defineDocType, type HandleKind } from "@automerge/automerge-repo"
 
 const scheme = "gcounter"
 
@@ -158,11 +155,7 @@ type-level only (the same doc type at runtime). See
 example.
 
 ```ts
-import {
-  defineDocType,
-  Handle,
-  type Shaped,
-} from "@automerge/automerge-repo"
+import { defineDocType, Handle, type Shaped } from "@automerge/automerge-repo"
 
 export class RegisterHandle<T> extends Handle<T, T> {
   get<K extends keyof T>(key: K): T[K] {
@@ -260,6 +253,8 @@ openUrl(url) {
   heads before each change and never retains an old state.
 - **Handle classes.** Handles are built by Repo, never by apps: do not add
   constructor parameters. A handle method whose name clashes with a backend
-  extension throws when the Repo first uses the type.
+  extension throws when the Repo first uses the type. Use methods, getters and
+  `#private` fields, not public class fields: those are set on each instance,
+  where the clash check cannot see them.
 - **Automerge only.** `clone`, `import`, `export` and sub-handles (`sub()`) are
   Automerge only.

@@ -20,7 +20,6 @@ import type { DocHandleEvents } from "./events.js"
 // The public type: this class's members and the backend's extension members.
 // Methods returning handles return it, so derived handles keep the extensions.
 import type { BackendOf, DocHandle as Handle } from "../types/DocHandle.js"
-import type { EventsOf, HandleExtensionSpec } from "../sedimentree/extension.js"
 import {
   isCursorMarker,
   isPattern,
@@ -67,17 +66,6 @@ type DocHandleOptions = HandleOptions & {
 /** The Automerge document a document's state is: the core keeps it opaque. */
 const automergeDoc = (state: DocumentState): A.Doc<any> =>
   state.current as A.Doc<any>
-
-/** The events of a handle whose backend's extensions declare the spec `X`:
- * the core ones, and the spec's, each carrying the handle it is emitted on. */
-export type HandleEvents<
-  T,
-  X extends HandleExtensionSpec = {},
-> = DocHandleEvents<T> & {
-  [N in keyof EventsOf<X> & string]: (
-    payload: EventsOf<X>[N] & { handle: Handle<T, X> }
-  ) => void
-}
 
 /**
  * A DocHandle is a wrapper around an Automerge document. It allows you

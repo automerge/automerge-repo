@@ -1,8 +1,6 @@
 import { Handle, handleState, type AnyHandle } from "./Handle.js"
 import type { AnyHandleExtension } from "./sedimentree/extension.js"
 
-export type { HandleEvents } from "./automerge/handle.js"
-
 /**
  * @internal The members a handle defines on each instance, not its
  * prototype. Extensions may not redefine these either.
@@ -26,7 +24,7 @@ export function extendHandle<C extends typeof Handle<any, any, any>>(
     E
   > {}
   const kinds = new Set<string>()
-  for (const { members, receive = {} } of extensions) {
+  for (const { members = {}, receive = {} } of extensions) {
     // The keys Repo routes events by: own string keys.
     for (const kind of Object.getOwnPropertyNames(receive)) {
       if (kinds.has(kind))

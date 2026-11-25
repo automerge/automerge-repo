@@ -133,6 +133,29 @@ describe("backend handle extensions", () => {
       expect(() => repo(ping, defining("ping"))).toThrow("redefines ping")
     })
 
+    it("accepts an extension without members", async () => {
+      const received = vi.fn()
+      const notes = defineExtension<{ receives: { note: number } }>({
+        receive: { note: (_context, payload) => received(payload) },
+      })
+      const scripted = scriptedBackend()
+      const repo = new Repo({
+        backend: Object.assign(scripted.backend, {
+          handleExtensions: provides(notes),
+        }),
+      })
+      repos.push(repo)
+      await repo.import(A.save(A.from({ count: 0 })))
+      const session = await scripted.session()
+      await session.push({
+        type: "extension",
+        sequence: 1,
+        kind: "note",
+        payload: 3,
+      })
+      expect(received).toHaveBeenCalledWith(3)
+    })
+
     it("knows every member DocHandle defines per instance", async () => {
       const repo = new Repo()
       repos.push(repo)

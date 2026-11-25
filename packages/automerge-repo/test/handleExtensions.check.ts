@@ -546,13 +546,47 @@ defineExtension<{ receives: { 7: number } }>({
   // @ts-expect-error a kind is not a string
   receive: { 7: () => {} },
 })
-// A spec without members takes `members: {}`: a method it does not list
-// would be on handles but not in their type.
+// A spec without methods may leave `members` out, or give `{}`; a method it
+// does not list would be on handles but not in their type.
+defineExtension<{}>({})
 defineExtension<{}>({ members: {} })
+defineExtension<{ receives: { r: number } }>({ receive: { r: () => {} } })
 // @ts-expect-error not in the spec
 defineExtension<{}>({ members: { helper: () => 1 } })
 // @ts-expect-error not a record
 const notMembers: HandleExtension = { members: false }
+// A spec with methods still needs them.
+// @ts-expect-error `members` is missing
+defineExtension<ASpec>({})
+
+// An extension sees the calling handle as every doc type's handle: what a
+// change is depends on the document's type, so it cannot make one.
+defineExtension<{ members: { bump(): Promise<void> } }>({
+  members: {
+    // @ts-expect-error `change` takes nothing on a handle of any doc type
+    bump: (_context, handle) => handle.change({ n: 1 }),
+  },
+})
+defineExtension<{ members: { describe(): string } }>({
+  members: {
+    describe: (_context, handle) =>
+      `${handle.url} ${String(handle.doc())} ${handle.heads().join()}`,
+  },
+})
+// A member typed with `this` keeps the extension's events on that handle.
+defineExtension<{
+  members: { watch<T>(this: DocHandle<T>): void }
+  events: { pinged: { n: number } }
+}>({
+  members: {
+    watch: (_context, handle) => {
+      handle.on("pinged", ({ n }) => n.toFixed())
+    },
+  },
+})
+// An extension's events may not reuse a core handle event's name.
+// @ts-expect-error `change` is a core event
+defineExtension<{ events: { change: { n: number } } }>({})
 
 // A session union is one of its members, not just what they share.
 interface Live extends SedimentreeSession {

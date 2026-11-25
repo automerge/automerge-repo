@@ -68,19 +68,11 @@ export interface ExtensionEventsApi<
   )[]
 }
 
-/** What of a backend spec a handle's events see: its members and events. */
-// Distributive, so it gives a fresh object type: two specs with the same
-// members and events then give identical event methods, rather than being
-// compared by their type arguments.
-export type VisibleSpec<X extends HandleExtensionSpec> = X extends unknown
-  ? { readonly members?: ExtensionMembers<X>; readonly events?: EventsOf<X> }
-  : never
-
 /** The handle `H` with the backend extensions `X`: their members and events. */
 export type WithBackend<H, X extends HandleExtensionSpec> = H & {
   readonly "~spec"?: X
 } & ExtensionMembers<X> &
-  ExtensionEventsApi<VisibleSpec<X>, H>
+  ExtensionEventsApi<X, H>
 
 /**
  * The backend extension spec of the handle `H`. A handle class's method
@@ -111,9 +103,11 @@ export interface AnyHandleKind extends HandleKind {
   readonly handle: AnyDocHandle
 }
 
-/** The core handle with backend extensions `X` (no doc-type-only members). */
+/** The core handle with backend extensions `X` (no doc-type-only members),
+ * as an extension sees the handle it is called on. Its `change` takes
+ * nothing: what a change is depends on the document's type. */
 export type CoreHandle<X extends HandleExtensionSpec = {}> = WithBackend<
-  Handle,
+  Handle<unknown, never>,
   X
 >
 
@@ -134,7 +128,7 @@ export type DocHandle<
   readonly "~scheme": K["scheme"]
   readonly "~spec"?: X
 } & ExtensionMembers<X> &
-  ExtensionEventsApi<VisibleSpec<X>, HandleFor<K, T>>
+  ExtensionEventsApi<X, HandleFor<K, T>>
 
 /** The class of every handle, for `instanceof`. */
 export const DocHandle = Handle
