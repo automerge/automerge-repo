@@ -1,11 +1,12 @@
 # Handle extensions
 
 A handle extension lets a backend add its own methods and events to every
-`DocHandle` of a Repo that uses it. For example, the Subduction backend uses one to give
-handles ephemeral messaging: `handle.broadcast()` and the `ephemeral-message`
-event. A backend with no extensions gives plain handles.
+`DocHandle` of a Repo that uses it, regardless of its [document type](../DOCTYPES.md).
+For example, the Subduction backend uses one to give handles ephemeral
+messaging: `handle.broadcast()` and the `ephemeral-message` event. A backend
+with no extensions gives plain handles.
 
-> **Experimental.** Names and types may change.
+> **Beta.** Names and types may change.
 
 ## How it Works
 
@@ -168,8 +169,9 @@ handle.broadcast({ cursor: 3 })
 handle.on("ephemeral-message", ({ handle, senderId, message }) => {})
 ```
 
-`repo` is a `Repo<MyExtensions>`, so `find()`, `create()`, `sub()`, `view()`
-and Repo events all give handles with `broadcast` and `ephemeral-message`.
+`repo` is a `Repo<MyExtensions>`, so `find()`, `create()`, `view()`, `sub()`
+(for Automerge) and Repo events all give handles with `broadcast` and
+`ephemeral-message`, for every document type.
 
 ## Reaching the backend
 
@@ -205,12 +207,15 @@ handle.peers() // peers the backend knows have this document
 
 `context.sedimentreeId` tells the backend which document the call is for.
 
-## Using the document type
+## Typing against the calling handle
 
-A method whose types depend on the document takes them from the handle it is
-called on. Declare that handle as `this` in the spec:
+A method whose return type depends on the handle it is called on takes that
+type from `this` in the spec. Using `H extends AnyDocHandle` works across every
+document type and keeps the handle's extensions:
 
 ```ts
+import type { AnyDocHandle, UrlHeads } from "@automerge/automerge-repo"
+
 interface BookmarkSession extends SedimentreeSession {
   findBookmark(label: string): Promise<UrlHeads | undefined>
 }
@@ -219,11 +224,11 @@ interface BookmarkSpec {
   session: BookmarkSession
   members: {
     /** A view of the document where the backend bookmarked `label`. */
-    openBookmark<T>(
-      // `this` is typescript only, and is erased at runtime
-      this: DocHandle<T>,
+    openBookmark<H extends AnyDocHandle>(
+      // `this` is TypeScript-only, and is erased at runtime
+      this: H,
       label: string
-    ): Promise<DocHandle<T> | undefined>
+    ): Promise<H | undefined>
   }
 }
 
@@ -237,11 +242,18 @@ const bookmarks = defineExtension<BookmarkSpec>({
   },
 })
 
-await handle.openBookmark("v1") // DocHandle<Doc> | undefined
-await handle.sub("title").openBookmark("v1") // DocHandle<string> | undefined
+await handle.openBookmark("v1") // keeps the Automerge handle type and extensions
+await handle.sub("title").openBookmark("v1") // keeps the sub-handle type
+await counter.openBookmark("v1") // works on non-Automerge doc types too
 ```
+
+If a method only applies to Automerge handles and needs the document's shape
+`T`, declare `this: DocHandle<T>` instead; calling it on a non-Automerge
+handle is then a type error.
 
 ## Rules and Restrictions
 
-- For now, at least, **add, don't replace.** An extension can't redefine a handle member
+- For now, at least, **add, don't replace.** An extension can't redefine a
+  handle member, and a doc type's handle class can't clash with an extension
+  member name.
 - **Unique kinds** A Repo throws if two extensions receive the same kind.

@@ -57,7 +57,8 @@ Get a fine-grained live view of an automerge document from its URL.
 
 When the handle receives changes, it converts the incoming automerge patch ops
 to precise solid store updates, giving you fine-grained reactivity that's
-consistent across space and time.
+consistent across space and time. Fine-grained updates are for Automerge only;
+other doc types update coarse-grained, like `useDocSignal`.
 
 Returns `[doc, handle]`.
 

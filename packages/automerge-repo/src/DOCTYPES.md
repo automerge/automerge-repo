@@ -2,93 +2,66 @@
 
 A document type tells a Repo how to store, read and change one kind of
 document. Automerge is the default type (`automerge`); anything whose history
-is a graph of commits can be another. Every handle is a `DocHandle`, whatever
-its type.
+is a graph of commits can be another. For example, a grow-only counter
+(`gcounter`) can be stored and synced by the same Repo and backend without
+using Automerge. Every handle is a `DocHandle`, whatever its type.
 
-## Using one
+> **Beta.** Names and types may change.
 
-```ts
-import { Repo } from "@automerge/automerge-repo"
-import { gcounter } from "./gcounter.js"
+## How it works
 
-const repo = new Repo()
-const counter = await repo.create(5, { docType: gcounter })
-await counter.increment() // a member of the type
-counter.doc() // 6
-counter.url // "gcounter:…"
+1. You define the doc type with `defineDocType` and give it a URL `scheme`.
+2. Callers pass `{ docType }` to `repo.create`, `repo.find` or `repo.query`
+   (without it they get Automerge).
+3. Each document's URL starts with that scheme (`gcounter:<id>`).
+4. Repo converts the document's history into sedimentree records and stores and
+   syncs them through the backend, which stays ignorant of the doc type.
 
-const same = await repo.find(counter.url, { docType: gcounter })
-```
+## Writing a doc type
 
-- The type is chosen per call, with `{ docType }` on `create`, `find`, `query`
-  and `findWithProgress`. Without it you get Automerge.
-- A type's `scheme` (lowercase RFC 3986 URL scheme) is the URL prefix
-  (`<scheme>:...`). By default, URLs are `<scheme>:<base58DocumentId>`, and
-  Automerge's are `automerge:<id>[/<path>][#<heads>]`. Everything after
-  `<scheme>:` belongs to the doc type: a type may define any URL syntax via
-  `openUrl` and `formatUrl`. `parseUrlScheme` reads the scheme of any URL;
-  `parseDocumentUrl`, `stringifyDocumentUrl`, and `isValidDocumentUrl` handle
-  the default format (and custom formats when given `docType`);
-  `parseAutomergeUrl`, `stringifyAutomergeUrl`, and `isValidAutomergeUrl`
-  handle Automerge's `/path` and `#heads`. `find` throws if a URL uses another
-  scheme, or if the document is already open as another type.
-- `repo.handles` and the `document` event list every document, typed as a
-  handle of any type (`DocHandle<any, X, AnyHandleKind>`). Narrow one with
-  `isHandleOf(handle, gcounter)`.
-- Every handle is typed `DocHandle<T, X, K>`: document shape `T`, backend
-  extensions `X`, and the doc type's handles `K` (Automerge's by default).
-  `DocHandle<T>` is the Automerge handle for documents shaped `T`; a counter's
-  is `DocHandle<unknown, X, GCounter>`. `HandleOf<typeof repo, T, K>` names
-  them from a Repo.
-- A type whose handles are generic in the shape takes it with `of`:
-  `repo.find(url, { docType: register.of<Todo>() })` gives
-  `DocHandle<Todo, X, Register>`. `of` is type-level only; every shape is the
-  same doc type at runtime. `automerge.of<Todo>()` is the same as
-  `find<Todo>(url)`.
-- `clone`, `import`, `export` and sub-handles (`sub()`) are Automerge only.
-  Custom URL formats use `openUrl` and `formatUrl` on the doc type (Automerge
-  implements `openUrl` for `/path` and `#heads`).
-- The React hooks, Svelte stores and Solid primitives take `{ docType }` as
-  `find` does, and default to Automerge: `useDocument(url, { docType: gcounter })`
-  gives the counter's value and a function changing it as its handle's
-  `change` does. Solid's `useDocument` is fine-grained for Automerge only;
-  other types' values are coarse-grained, as `useDocSignal`'s.
+This example is a grow-only counter (`gcounter`). The full implementation,
+including the plain-JS commit graph it builds on, is in
+`packages/automerge-repo/test/doctypes/gcounter/` and
+`packages/automerge-repo/test/doctypes/common/commitGraph.ts`.
 
-## What every handle has
+### 1. Define the storage functions
 
-`documentId`, `url`, `isReady`, `isDeleted`, `isReadOnly`, `doc`, `heads`,
-`hasHeads`, `view` (if the type has views), `change`, `merge`, `delete`,
-`getSyncInfo`, `equals`, the listener methods, and the events `change`
-(`{ handle, doc }`), `heads-changed`, `delete` and `remote-heads`. Backend
-extensions add their members to every handle, whatever its type.
+A doc type turns its own state into sedimentree records (`RecordBatch`,
+`CommitId`, `FragmentRecord` from `@automerge/automerge-repo/sedimentree`) and
+rebuilds state from them.
 
-## Writing one
+Required fields:
 
-A type is its storage rules plus, optionally, a handle class: a subclass of
-`Handle<View, Change>` with the type's reading and editing API, and one
-interface saying what its handles are, which also names the type.
+- `scheme`: lowercase RFC 3986 URL scheme, e.g. `"gcounter"`.
+- `create(init, { repoId })`: returns a new document's state, with at least one
+  commit.
+- `value(state)`: what `handle.doc()` returns.
+- `change(state, input, { documentId, repoId })`: applies a local change and
+  returns the next state.
+- `apply(state, records)`: applies records from storage or peers. `state` is
+  `undefined` on the first load; `apply(undefined, [])` returns an empty state.
+- `heads(state)`: the state's current heads.
+- `hasHeads(state, heads)`: whether every head is applied (excluding pending
+  commits waiting on parents).
+- `recordsSince(state, heads)`: commits outside `heads`, or the whole history
+  when `heads` is empty.
+
+Optional fields:
+
+- `view(state, heads)`: state as of `heads`, for read-only views. Without it,
+  the type has no views.
+- `merge(state, other)`: merges another document's state into `state`. Defaults
+  to applying all of `other`'s records.
+- `fragments(state, heads)`: given boundary commits, returns compacted
+  fragments covering the history below them so the backend can compact storage.
+  Without it, history stays as single commits and is never compacted.
 
 ```ts
-import {
-  defineDocType,
-  Handle,
-  type HandleKind,
-} from "@automerge/automerge-repo"
-
-export class CounterHandle extends Handle<number, number> {
-  increment(amount = 1) {
-    return this.change(amount)
-  }
-}
-
-export interface GCounter extends HandleKind {
-  readonly scheme: "gcounter"
-  readonly handle: CounterHandle
-}
+import { defineDocType } from "@automerge/automerge-repo"
 
 export const gcounter = defineDocType({
   scheme: "gcounter",
-  create: (start: number | undefined) => newCounter(start), // ≥ 1 commit
+  create: (start: number | undefined) => newCounter(start), // >= 1 commit
   value: (state: CounterState) => sum(state), // what doc() returns
   change: (state: CounterState, amount: number) => add(state, amount),
   apply: (state, records) => applyCommits(state, records),
@@ -96,24 +69,41 @@ export const gcounter = defineDocType({
   hasHeads: (state, heads) => heads.every(h => isApplied(state, h)),
   recordsSince: (state, heads) => commitsOutside(state, heads),
   view: (state, heads) => stateAt(state, heads), // optional
-  handle: CounterHandle, // optional; defaults to Handle<View, Change>
-}).as<GCounter>() // optional; without it, handles show the class's name
+})
 ```
 
-`defineDocType` checks that the class's `Handle<View, Change>` matches the
-type's `value` and `change`, and `as` that the interface names the class
-given as `handle` and the type's `scheme`. Handles' URLs are typed with the
-scheme: `counter.url` is `DocumentUrl<"gcounter">`. `find`, `query` and
-`findWithProgress` reject a typed URL of another doc type at compile time
-(`find(counter.url)` needs `{ docType: gcounter }`); a plain `DocumentUrl`,
-such as a link read from a document, is only checked when opened.
+### 2. Optional: add a handle class
 
-The scheme appears twice: as a string in the definition, used in URLs at
-runtime, and as a type in the interface, which TypeScript can't read from the
-definition without losing the interface's name. `as` rejects a mismatch. To
-write the string once, share a constant:
+Without a handle class, callers use `handle.doc()` and `handle.change(...)`. To
+add type-specific methods, subclass `Handle<View, Change>` and pass it as
+`handle`:
 
 ```ts
+import { Handle } from "@automerge/automerge-repo"
+
+export class CounterHandle extends Handle<number, number> {
+  increment(amount = 1) {
+    return this.change(amount)
+  }
+}
+```
+
+`defineDocType` checks that `Handle<View, Change>` matches `value` and
+`change`.
+
+### 3. Optional: name the handles
+
+Without a `HandleKind`, TypeScript displays handles using the class's name. To
+give them a clean name (and share the scheme constant once so the runtime
+string and type cannot drift), declare an interface extending `HandleKind` and
+pass it to `.as<...>()`:
+
+```ts
+import {
+  defineDocType,
+  type HandleKind,
+} from "@automerge/automerge-repo"
+
 const scheme = "gcounter"
 
 export interface GCounter extends HandleKind {
@@ -121,30 +111,59 @@ export interface GCounter extends HandleKind {
   readonly handle: CounterHandle
 }
 
-export const gcounter = defineDocType({ scheme, …, handle: CounterHandle }).as<GCounter>()
+export const gcounter = defineDocType({
+  scheme,
+  // create, value, change, apply, heads, hasHeads, recordsSince, view …
+  handle: CounterHandle,
+}).as<GCounter>() // rejects a scheme or handle class mismatch
 ```
 
-The contract, checked by `runDocTypeTests` (`src/helpers/tests/doc-type-tests.ts`):
+### 4. Test it
 
-- Heads and commit IDs are 64 lowercase hex characters; every head is a commit.
-- `apply` keeps commits whose parents are missing and applies them once the
-  parents arrive; `hasHeads` does not count those pending commits.
-- Applying the same records twice, or in another order, gives the same state.
-- `recordsSince(state, [])` is the whole history; with heads, only the commits
-  outside them. `apply(undefined, [])` is an empty state.
-- State may be changed in place: Repo reads heads before each change and never
-  keeps an old state.
-- Without `fragments`, a type is never compacted; without `view`, it has no
-  views; without `merge`, merging applies the other document's records.
+Run `runDocTypeTests` (`src/helpers/tests/doc-type-tests.ts`) against your doc
+type to check the storage, ordering, replay and sync contract.
 
-### Handles generic in the document's shape
-
-TypeScript can't apply a shape to a class held in a value, so a type whose
-handle class is generic extends `Shaped` instead, naming the class with
-`this["Shape"]` as the shape. It may also say what `create` takes for a shape.
-Only shaped types have `of`:
+### The result
 
 ```ts
+import { isHandleOf, Repo } from "@automerge/automerge-repo"
+import { gcounter } from "./gcounter.js"
+
+const repo = new Repo()
+const counter = await repo.create(5, { docType: gcounter })
+await counter.increment()
+counter.doc() // 6
+counter.url // "gcounter:…" (typed as DocumentUrl<"gcounter">)
+
+const same = await repo.find(counter.url, { docType: gcounter })
+
+// repo.handles and the "document" event list every type; narrow with isHandleOf
+repo.on("document", ({ handle }) => {
+  if (isHandleOf(handle, gcounter)) {
+    handle.doc() // number
+  }
+})
+```
+
+The React hooks, Svelte stores and Solid primitives take `{ docType }` as
+`find` does, and default to Automerge.
+
+## Handles generic in the document's shape
+
+TypeScript cannot apply a shape type argument to a class held in a value. If
+your handle class is generic, extend `Shaped` instead of `HandleKind` and refer
+to the shape as `this["Shape"]`. Only shaped types gain `.of<T>()`, which is
+type-level only (the same doc type at runtime). See
+`packages/automerge-repo/test/doctypes/register/register.ts` for the full
+example.
+
+```ts
+import {
+  defineDocType,
+  Handle,
+  type Shaped,
+} from "@automerge/automerge-repo"
+
 export class RegisterHandle<T> extends Handle<T, T> {
   get<K extends keyof T>(key: K): T[K] {
     return this.doc()[key]
@@ -154,53 +173,57 @@ export class RegisterHandle<T> extends Handle<T, T> {
 export interface Register extends Shaped {
   readonly scheme: "register"
   readonly handle: RegisterHandle<this["Shape"]>
-  readonly init: this["Shape"] // optional
+  readonly init: this["Shape"] // optional: what create() takes
 }
 
-export const register = defineDocType({ …, handle: RegisterHandle }).as<Register>()
+export const register = defineDocType({
+  scheme: "register",
+  // …
+  handle: RegisterHandle,
+}).as<Register>()
+
+const handle = await repo.find(url, { docType: register.of<Todo>() })
 ```
 
-Every handle gets the backend's members and events; a doc type never
-mentions them. A method that returns a different handle (a handle for part of
-the document, say) passes them on with `BackendOf<this>`:
+## Returning other handles
+
+Every handle automatically gets the Repo backend's extension members and
+events; a doc type never mentions them. If a handle method returns another
+handle, pass the backend's spec on with `BackendOf<this>` so the returned
+handle keeps those extensions:
 
 ```ts
-// in AutomergeHandle<T>:
-sub<K extends keyof T>(key: K): DocHandle<T[K], BackendOf<this>>
-// in a handle class of your own, shown as DocHandle<…, X, MyKind>:
 part<K extends keyof T>(key: K): DocHandle<T[K], BackendOf<this>, MyKind>
 ```
 
-Handles are built by the Repo, never by apps: don't add constructor
-parameters. Repo makes one subclass of the type's class per Repo, adding the
-backend's extension members; a method of the same name as one of those
-throws when the Repo first uses the type. `view()` returns `this`, so views
-keep the class and the extensions.
+`view()` returns `this`, so views keep the handle class and backend extensions.
 
-### Custom `change` event payloads
+## Custom `change` event payloads
 
-By default, every writable listening handle receives `{ handle, doc }` on a
-`change` event. A handle subclass can override `protected changeEventPayload(change)`
-to attach extra fields (as Automerge does with `patches` and `patchInfo`) or
-return `undefined` to emit no event. It runs at delivery time only when the
-handle is writable and has at least one `change` listener; `change` is a
-`StateChange<State>` (`before`, `beforeHeads`, `after`, `afterHeads`), where
-`before` may be `undefined` on first load or identical to `after` for types
-that mutate their state in place.
+By default, every writable handle with a `change` listener receives
+`{ handle, doc }`. A handle subclass can override
+`protected changeEventPayload(change)` to add fields (as Automerge does with
+`patches` and `patchInfo`) or return `undefined` to skip emitting an event.
 
-### Custom URL formats
+It runs only when the handle is writable and has a `change` listener. `change`
+is a `StateChange<State>` (`before`, `beforeHeads`, `after`, `afterHeads`),
+where `before` is `undefined` on first load and may equal `after` if the type
+mutates state in place.
 
-Only `<scheme>:` is fixed across doc types; everything after `:` belongs to
-the doc type. By default, URLs have the form `<scheme>:<base58DocumentId>`. A
-doc type can define its own URL format with `openUrl(url)` and
-`formatUrl(handle)`:
+## Custom URL formats
+
+Only `<scheme>:` is fixed across doc types. By default, URLs are
+`<scheme>:<base58DocumentId>`. To define your own URL format (for versions,
+paths or query parameters), implement `openUrl(url)` and `formatUrl(handle)`:
 
 ```ts
 formatUrl(handle) {
+  // Append the pinned heads when formatting a read-only view handle
   const query = handle.isReadOnly() ? `?at=${handle.heads().join(",")}` : ""
   return `notes://v1/${handle.documentId}${query}`
 },
 openUrl(url) {
+  // Parse the custom format and return the document ID (plus optional view heads)
   const m = url.match(/^notes:\/\/v1\/([^?]+)(?:\?(.*))?$/)
   if (!m) throw new Error(`Invalid notes URL: ${url}`)
   const at = new URLSearchParams(m[2] ?? "").get("at")
@@ -208,26 +231,35 @@ openUrl(url) {
     documentId: m[1] as DocumentId,
     heads: at ? (at.split(",") as UrlHeads) : undefined,
   }
-}
+},
 ```
 
-Sub-document handles (`sub()`) are Automerge-only: Automerge implements
-`openUrl` via `parseAutomergeUrl`, returning `{ documentId, heads, open }`
-where `open` calls `handle.sub(...)`.
+- `openUrl(url)` returns `{ documentId, heads?, open? }`. Returning `heads`
+  waits for those heads and opens a view; returning `open(handle)` derives a
+  handle once ready (the returned handle must belong to the same document and
+  stay read-only when `handle` is a view).
+- `openUrl` runs synchronously in `repo.query` before the document is opened,
+  so invalid URLs fail immediately without opening a backend session.
+- `formatUrl(handle)` must return a URL starting with `<scheme>:`.
+- When using a custom URL format, pass `{ docType }` to
+  `repo.delete(url, { docType })`, `parseDocumentUrl(url, docType)`,
+  `isValidDocumentUrl(url, docType)` and `interpretAsDocumentId(url, docType)`.
 
-- `openUrl` receives the full URL (after `Repo` checks its scheme matches
-  `docType.scheme`) and runs synchronously in `repo.query` before the document
-  is registered, so malformed URLs fail immediately without opening a session.
-- `openUrl` must return a valid `documentId` (32-byte `BinaryDocumentId` or
-  base58check `DocumentId`).
-- If `openUrl` returns `{ heads }`, `repo.query` checks `view` support and
-  validates the heads synchronously, then waits until they arrive and opens a
-  view handle.
-- If `openUrl` returns `{ open }`, `open(handle)` runs once the root (or view)
-  handle is ready. Throwing fails that query (`repo.find` rejects) while
-  leaving the root document ready. The returned handle must be a `DocHandle`
-  for the same document and stay read-only when `handle` is a view.
-- `formatUrl(handle)` must return a URL beginning with `<scheme>:`.
-- Pass `{ docType }` to `repo.delete(url, { docType })`,
-  `parseDocumentUrl(url, docType)`, `isValidDocumentUrl(url, docType)`, or
-  `interpretAsDocumentId(url, docType)` when working with a custom URL format.
+## Rules and restrictions
+
+- **Schemes and URL checks.** A scheme must be a lowercase RFC 3986 URL scheme.
+  `find` and `query` reject typed URLs of another scheme at compile time and
+  throw at runtime if a URL's scheme or an already-open document disagrees with
+  `docType`.
+- **Hex heads.** Heads and commit IDs are 64 lowercase hex characters; every
+  head is a commit.
+- **`apply` contract.** `apply` must hold commits whose parents are missing and
+  apply them once their parents arrive, and must produce the same state if
+  records arrive twice or out of order.
+- **In-place mutation is allowed.** State may be mutated in place: Repo reads
+  heads before each change and never retains an old state.
+- **Handle classes.** Handles are built by Repo, never by apps: do not add
+  constructor parameters. A handle method whose name clashes with a backend
+  extension throws when the Repo first uses the type.
+- **Automerge only.** `clone`, `import`, `export` and sub-handles (`sub()`) are
+  Automerge only.
