@@ -21,6 +21,8 @@ it("opens and creates documents of other doc types", async () => {
     const viaDocument = await document(store.url, { docType: counter, repo })
     expect(viaDocument?.handle).toBe(store.handle)
     await expect(document(store.url as any, repo)).rejects.toThrow()
+    const todo = await stores.create({ title: "x" })
+    expect((await document(todo.url, { repo }))?.handle).toBe(todo.handle)
   } finally {
     await repo.shutdown()
   }

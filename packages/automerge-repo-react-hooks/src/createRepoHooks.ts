@@ -1,6 +1,7 @@
 import type {
   AnyDocType,
   AnyDocumentId,
+  AutomergeDocType,
   AutomergeUrl,
   HandleOf,
   KindOf,
@@ -17,9 +18,8 @@ import {
 import {
   useDocHandleIn,
   type AnyHookParams,
-  type DocTypeParams,
+  type DocTypeOption,
   type UseDocHandleSuspendingParams,
-  type UseDocHandleSynchronousParams,
 } from "./useDocHandle.js"
 import { useDocHandlesIn, type UseDocHandlesParams } from "./useDocHandles.js"
 import {
@@ -41,31 +41,19 @@ export interface RepoHooks<R extends Repo> {
   /** The provided Repo; throws outside a {@link RepoHooks.RepoProvider}. */
   useRepo(): R
   /** As the package's `useDocHandle`, typed for this Repo. */
-  useDocHandle<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
+  useDocHandle<T = unknown, D extends AnyDocType = AutomergeDocType, S = T>(
     id: AnyDocumentId<NameOf<D>>,
-    params: UseDocHandleSuspendingParams & DocTypeParams<D, S>
+    params: UseDocHandleSuspendingParams & DocTypeOption<D, S>
   ): HandleOf<R, S, KindOf<D>>
-  useDocHandle<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
+  useDocHandle<T = unknown, D extends AnyDocType = AutomergeDocType, S = T>(
     id: AnyDocumentId<NameOf<D>> | undefined,
-    params: { suspense?: false } & DocTypeParams<D, S>
+    params?: { suspense?: false } & DocTypeOption<D, S>
   ): HandleOf<R, S, KindOf<D>> | undefined
-  useDocHandle<T>(
-    id: AnyDocumentId<"automerge">,
-    params: UseDocHandleSuspendingParams
-  ): HandleOf<R, T>
-  useDocHandle<T>(
-    id: AnyDocumentId<"automerge"> | undefined,
-    params?: UseDocHandleSynchronousParams
-  ): HandleOf<R, T> | undefined
   /** As the package's `useDocHandles`, typed for this Repo. */
-  useDocHandles<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
+  useDocHandles<T = unknown, D extends AnyDocType = AutomergeDocType, S = T>(
     ids: AutomergeUrl<NameOf<D>>[],
-    params: UseDocHandlesParams & DocTypeParams<D, S>
+    params?: UseDocHandlesParams & DocTypeOption<D, S>
   ): Map<AutomergeUrl, HandleOf<R, S, KindOf<D>> | undefined>
-  useDocHandles<T>(
-    ids: AutomergeUrl<"automerge">[],
-    params?: UseDocHandlesParams
-  ): Map<AutomergeUrl, HandleOf<R, T> | undefined>
   /** As the package's `useDocument`, on this Repo. */
   useDocument: typeof packageUseDocument
   /** As the package's `useDocuments`, on this Repo. */

@@ -1,7 +1,7 @@
 import type {
   AnyDocType,
+  AutomergeDocType,
   AutomergeUrl,
-  Doc,
   DocHandle,
   KindOf,
   NameOf,
@@ -12,10 +12,10 @@ import createDocSignal from "./createDocSignal.js"
 import type {
   AnyHandle,
   AnyOptions,
-  DocTypeOptions,
+  DocTypeOption,
   MaybeAccessor,
   UseDocHandleOptions,
-  ValueOf,
+  DocAndHandle,
 } from "./types.js"
 import type { Accessor, Resource } from "solid-js"
 
@@ -30,25 +30,16 @@ import type { Accessor, Resource } from "solid-js"
  * @param url a function that returns a url
  */
 export default function useDocSignal<
-  _T = unknown,
-  D extends AnyDocType = AnyDocType,
-  S = unknown,
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
 >(
   url: MaybeAccessor<AutomergeUrl<NameOf<D>> | undefined>,
-  options: UseDocHandleOptions & DocTypeOptions<D, S>
-): [
-  Accessor<ValueOf<DocHandle<S, {}, KindOf<D>>> | undefined>,
-  Resource<DocHandle<S, {}, KindOf<D>> | undefined>,
-]
-export default function useDocSignal<T extends object>(
-  url: MaybeAccessor<AutomergeUrl<"automerge"> | undefined>,
-  options?: UseDocHandleOptions
-): [Accessor<Doc<T> | undefined>, Resource<DocHandle<T> | undefined>]
-export default function useDocSignal(
-  url: MaybeAccessor<AutomergeUrl | undefined>,
-  options?: AnyOptions
-): [Accessor<unknown>, Resource<AnyHandle | undefined>] {
-  return useDocSignalIn(repoFor(options), url, options)
+  options?: UseDocHandleOptions & DocTypeOption<D, S>
+): DocAndHandle<DocHandle<S, {}, KindOf<D>>> {
+  return useDocSignalIn(repoFor(options), url, options) as DocAndHandle<
+    DocHandle<S, {}, KindOf<D>>
+  >
 }
 
 /** @internal {@link useDocSignal} on a given Repo. */

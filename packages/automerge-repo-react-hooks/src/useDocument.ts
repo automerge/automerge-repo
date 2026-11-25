@@ -1,6 +1,7 @@
 import type {
   AnyDocType,
   AnyDocumentId,
+  AutomergeDocType,
   AutomergeKind,
   DocHandle,
   HandleKind,
@@ -13,7 +14,7 @@ import { useCallback, useEffect, useState } from "react"
 import {
   useDocHandleIn,
   type AnyHookParams,
-  type DocTypeParams,
+  type DocTypeOption,
 } from "./useDocHandle.js"
 import { useRepo } from "./useRepo.js"
 
@@ -77,32 +78,22 @@ export type UseDocumentReturnOf<S, K extends HandleKind> = [K] extends [
  * Opens an Automerge document unless `docType` names another doc type, as
  * `repo.find` does; the function changes it as its handle's `change` does.
  */
-// `_T` lets `useDocument<T>` instantiate every overload; the last one,
-// Automerge's, is what `ReturnType` reads.
 export function useDocument<
-  _T = unknown,
-  D extends AnyDocType = AnyDocType,
-  S = unknown,
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
 >(
   id: AnyDocumentId<NameOf<D>>,
-  params: UseDocumentSuspendingParams & DocTypeParams<D, S>
+  params: UseDocumentSuspendingParams & DocTypeOption<D, S>
 ): UseDocumentReturnOf<S, KindOf<D>>
 export function useDocument<
-  _T = unknown,
-  D extends AnyDocType = AnyDocType,
-  S = unknown,
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
 >(
   id: AnyDocumentId<NameOf<D>> | undefined,
-  params: { suspense?: false } & DocTypeParams<D, S>
+  params?: { suspense?: false } & DocTypeOption<D, S>
 ): UseDocumentReturnOf<S, KindOf<D>> | [undefined, () => Promise<void>]
-export function useDocument<T>(
-  id: AnyDocumentId<"automerge">,
-  params: UseDocumentSuspendingParams
-): UseDocumentReturn<T>
-export function useDocument<T>(
-  id: AnyDocumentId<"automerge"> | undefined,
-  params?: UseDocumentSynchronousParams
-): UseDocumentReturn<T> | [undefined, () => Promise<void>]
 export function useDocument(
   id: AnyDocumentId | undefined,
   params?: AnyHookParams

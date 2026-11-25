@@ -9,6 +9,7 @@ import {
   type DocType,
   type DocTypeHelpers,
   type HandleKind,
+  type Shaped,
 } from "@automerge/automerge-repo"
 import {
   createRepoPrimitives,
@@ -98,3 +99,32 @@ primitives.createDocSignal(counterHandle)() satisfies number | undefined
 primitives.makeDocSignal(counterHandle()!)() satisfies number | undefined
 // @ts-expect-error a projection is of an Automerge document
 primitives.createDocumentProjection(counterHandle)
+
+// A doc type whose handles are generic in the shape, given with `of`.
+declare class RegisterHandle<T> extends Handle<T, T> {
+  get<K extends keyof T>(key: K): T[K]
+}
+interface Register extends Shaped {
+  readonly name: "register"
+  readonly handle: RegisterHandle<this["Shape"]>
+}
+declare const registerType: DocType<
+  unknown,
+  unknown,
+  unknown,
+  unknown,
+  "register",
+  typeof RegisterHandle
+> &
+  DocTypeHelpers<RegisterHandle<unknown>, "register">
+const register = registerType.as<Register>()
+declare const registerUrl: AutomergeUrl<"register">
+
+const [todo, registerHandle] = primitives.useDocument(registerUrl, {
+  docType: register.of<Todo>(),
+})
+todo()?.title satisfies string | undefined
+registerHandle()?.get("title") satisfies string | undefined
+registerHandle()?.ping()
+// @ts-expect-error not a key
+useDocHandle(registerUrl, { docType: register.of<Todo>() })()?.get("nope")

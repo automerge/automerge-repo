@@ -1,5 +1,6 @@
 import type {
   AnyDocType,
+  AutomergeDocType,
   AutomergeUrl,
   DocHandle,
   KindOf,
@@ -16,7 +17,7 @@ import { RepoContext } from "./context.js"
 import type {
   AnyHandle,
   AnyOptions,
-  DocTypeOptions,
+  DocTypeOption,
   MaybeAccessor,
   UseDocHandleOptions,
 } from "./types.js"
@@ -35,25 +36,17 @@ import type {
  * Opens an Automerge document unless `docType` names another doc type, as
  * `repo.find` does.
  */
-// `_T` lets `useDocHandle<T>` instantiate every overload; the last one,
-// Automerge's, is what `ReturnType` reads.
 export default function useDocHandle<
-  _T = unknown,
-  D extends AnyDocType = AnyDocType,
-  S = unknown,
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
 >(
   url: MaybeAccessor<AutomergeUrl<NameOf<D>> | undefined>,
-  options: UseDocHandleOptions & DocTypeOptions<D, S>
-): Resource<DocHandle<S, {}, KindOf<D>> | undefined>
-export default function useDocHandle<T>(
-  url: MaybeAccessor<AutomergeUrl<"automerge"> | undefined>,
-  options?: UseDocHandleOptions
-): Resource<DocHandle<T> | undefined>
-export default function useDocHandle(
-  url: MaybeAccessor<AutomergeUrl | undefined>,
-  options?: AnyOptions
-): Resource<AnyHandle | undefined> {
-  return useDocHandleIn(repoFor(options), url, options)
+  options?: UseDocHandleOptions & DocTypeOption<D, S>
+): Resource<DocHandle<S, {}, KindOf<D>> | undefined> {
+  return useDocHandleIn(repoFor(options), url, options) as Resource<
+    DocHandle<S, {}, KindOf<D>> | undefined
+  >
 }
 
 /** @internal `options.repo`, else the one in {@link RepoContext}. */

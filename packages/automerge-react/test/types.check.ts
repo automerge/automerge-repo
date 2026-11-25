@@ -17,6 +17,7 @@ import {
   type DocType,
   type DocTypeHelpers,
   type HandleKind,
+  type Shaped,
   type PresenceInbound,
 } from "@automerge/react"
 import {
@@ -164,4 +165,42 @@ export function docTypes(url: AutomergeUrl) {
     docType: counterType,
   })
   typedValue satisfies number
+}
+
+// A doc type whose handles are generic in the shape, given with `of`.
+declare class RegisterHandle<T> extends Handle<T, T> {
+  get<K extends keyof T>(key: K): T[K]
+}
+interface Register extends Shaped {
+  readonly name: "register"
+  readonly handle: RegisterHandle<this["Shape"]>
+}
+declare const registerType: DocType<
+  unknown,
+  unknown,
+  unknown,
+  unknown,
+  "register",
+  typeof RegisterHandle
+> &
+  DocTypeHelpers<RegisterHandle<unknown>, "register">
+const register = registerType.as<Register>()
+declare const registerUrl: AutomergeUrl<"register">
+
+export function shaped() {
+  const handle = useDocHandle(registerUrl, {
+    suspense: true,
+    docType: register.of<Todo>(),
+  })
+  handle.get("title") satisfies string
+  // @ts-expect-error not a key
+  handle.get("nope")
+  const [todo, change] = useDocument(registerUrl, {
+    suspense: true,
+    docType: register.of<Todo>(),
+  })
+  todo.title satisfies string
+  void change({ title: "x" })
+  // @ts-expect-error a register's URL is not a counter's
+  useDocHandle(registerUrl, { docType: counterType })
 }

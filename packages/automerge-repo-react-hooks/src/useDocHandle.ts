@@ -2,6 +2,7 @@ import type {
   AnyDocType,
   AnyDocumentId,
   AnyHandleKind,
+  AutomergeDocType,
   DocHandle,
   KindOf,
   NameOf,
@@ -24,9 +25,10 @@ export type UseDocHandleParams =
   | UseDocHandleSuspendingParams
   | UseDocHandleSynchronousParams
 
-/** The params of a hook opening a document of the doc type `D`, for
- * documents of shape `S`: as `repo.find`'s `{ docType }`. */
-export type DocTypeParams<D, S> = { docType: Of<D, S> }
+/** The option of a hook opening a document of the doc type `D`, for
+ * documents of shape `S`: as `repo.find`'s `{ docType }`. Without it, an
+ * Automerge document. */
+export type DocTypeOption<D, S> = { docType?: Of<D, S> }
 
 /** @internal A handle of a document of any type. */
 export type AnyHandle = DocHandle<any, {}, AnyHandleKind>
@@ -46,32 +48,22 @@ export type AnyHookParams = {
  * Opens an Automerge document unless `docType` names another doc type, as
  * `repo.find` does.
  */
-// `_T` lets `useDocHandle<T>` instantiate every overload; the last one,
-// Automerge's, is what `ReturnType` reads.
 export function useDocHandle<
-  _T = unknown,
-  D extends AnyDocType = AnyDocType,
-  S = unknown,
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
 >(
   id: AnyDocumentId<NameOf<D>>,
-  params: UseDocHandleSuspendingParams & DocTypeParams<D, S>
+  params: UseDocHandleSuspendingParams & DocTypeOption<D, S>
 ): DocHandle<S, {}, KindOf<D>>
 export function useDocHandle<
-  _T = unknown,
-  D extends AnyDocType = AnyDocType,
-  S = unknown,
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
 >(
   id: AnyDocumentId<NameOf<D>> | undefined,
-  params: { suspense?: false } & DocTypeParams<D, S>
+  params?: { suspense?: false } & DocTypeOption<D, S>
 ): DocHandle<S, {}, KindOf<D>> | undefined
-export function useDocHandle<T>(
-  id: AnyDocumentId<"automerge">,
-  params: UseDocHandleSuspendingParams
-): DocHandle<T>
-export function useDocHandle<T>(
-  id: AnyDocumentId<"automerge"> | undefined,
-  params?: UseDocHandleSynchronousParams
-): DocHandle<T> | undefined
 export function useDocHandle(
   id: AnyDocumentId | undefined,
   params?: AnyHookParams

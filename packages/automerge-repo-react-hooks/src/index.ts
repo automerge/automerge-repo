@@ -39,7 +39,7 @@ export type {
 } from "./useDocuments.js"
 export { useDocHandle } from "./useDocHandle.js"
 export type {
-  DocTypeParams,
+  DocTypeOption,
   UseDocHandleSuspendingParams,
   UseDocHandleSynchronousParams,
 } from "./useDocHandle.js"

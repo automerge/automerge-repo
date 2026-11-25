@@ -9,6 +9,7 @@ import {
   type DocType,
   type DocTypeHelpers,
   type HandleKind,
+  type Shaped,
 } from "@automerge/automerge-repo"
 import {
   createAutomergeStore,
@@ -92,3 +93,37 @@ declare const counterType: DocType<
   DocTypeHelpers<CounterHandle, "counter">
 const counter = counterType.as<Counter>()
 declare const counterUrl: AutomergeUrl<"counter">
+
+// A doc type whose handles are generic in the shape, given with `of`.
+declare class RegisterHandle<T> extends Handle<T, T> {
+  get<K extends keyof T>(key: K): T[K]
+}
+interface Register extends Shaped {
+  readonly name: "register"
+  readonly handle: RegisterHandle<this["Shape"]>
+}
+declare const registerType: DocType<
+  unknown,
+  unknown,
+  unknown,
+  unknown,
+  "register",
+  typeof RegisterHandle
+> &
+  DocTypeHelpers<RegisterHandle<unknown>, "register">
+const register = registerType.as<Register>()
+declare const registerUrl: AutomergeUrl<"register">
+
+export async function shaped() {
+  const stores = createAutomergeStore(repo)
+  const store = await stores.find(registerUrl, {
+    docType: register.of<Todo>(),
+  })
+  store?.handle.get("title") satisfies string | undefined
+  store?.handle.ping()
+  store?.url satisfies AutomergeUrl<"register"> | undefined
+  store?.subscribe(value => value?.title satisfies string | undefined)
+  void store?.change({ title: "x" })
+  // @ts-expect-error a register holds a Todo
+  void store?.change({ title: 1 })
+}

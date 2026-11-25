@@ -1,5 +1,6 @@
 import type {
   AnyDocType,
+  AutomergeDocType,
   AutomergeKind,
   AutomergeUrl,
   DocHandle,
@@ -11,7 +12,7 @@ import type {
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim"
 import { useCallback, useEffect, useState } from "react"
 import { useDocHandlesIn } from "./useDocHandles.js"
-import type { AnyHookParams, DocTypeParams } from "./useDocHandle.js"
+import type { AnyHookParams, DocTypeOption } from "./useDocHandle.js"
 import { useRepo } from "./useRepo.js"
 
 export type DocMap<T> = Map<AutomergeUrl, Doc<T>>
@@ -54,25 +55,17 @@ export type UseDocumentsReturnOf<S, K extends HandleKind> = [K] extends [
  * `repo.find` does.
  */
 export function useDocuments<
-  _T = unknown,
-  D extends AnyDocType = AnyDocType,
-  S = unknown,
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
 >(
   ids: AutomergeUrl<NameOf<D>>[],
-  options: UseDocumentsOptions & DocTypeParams<D, S>
-): UseDocumentsReturnOf<S, KindOf<D>>
-export function useDocuments<T>(
-  ids: AutomergeUrl<"automerge">[],
-  options?: UseDocumentsOptions
-): [DocMap<T>, ChangeDocFn<T>]
-export function useDocuments(
-  ids: AutomergeUrl[],
-  options?: AnyHookParams
-): [
-  Map<AutomergeUrl, unknown>,
-  (id: AutomergeUrl, ...args: any[]) => Promise<void>,
-] {
-  return useDocumentsIn(useRepo(), ids, options)
+  options?: UseDocumentsOptions & DocTypeOption<D, S>
+): UseDocumentsReturnOf<S, KindOf<D>> {
+  return useDocumentsIn(useRepo(), ids, options) as UseDocumentsReturnOf<
+    S,
+    KindOf<D>
+  >
 }
 
 /** @internal {@link useDocuments} on a given Repo. */

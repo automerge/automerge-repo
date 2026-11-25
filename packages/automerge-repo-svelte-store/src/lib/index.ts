@@ -1,5 +1,6 @@
 import type {
   AnyDocType,
+  AutomergeDocType,
   AutomergeUrl,
   ChangeFn,
   Doc,
@@ -54,7 +55,7 @@ type IsOtherDocType<H> = H extends { readonly "~name": infer N }
 export type StoreValue<T, H> =
   IsOtherDocType<H> extends true
     ? H extends { doc(): infer V }
-      ? V
+      ? Exclude<V, undefined>
       : Doc<T>
     : Doc<T>
 
@@ -83,9 +84,9 @@ export interface AutomergeDocumentStore<
   change(...args: StoreChangeArgs<T, H>): Promise<void>
 
   /**
-   * The URL of the document
+   * The URL of the document, typed with its doc type's name
    */
-  readonly url: AutomergeUrl
+  readonly url: H extends { readonly url: infer U } ? U : AutomergeUrl
 
   /**
    * The ID of the document
@@ -100,24 +101,27 @@ export interface AutomergeDocumentStore<
 
 /** The store for a document of the doc type `D`, of shape `S`, in a Repo of
  * type `R`. */
-type DocTypeStore<R extends Repo, D, S> = AutomergeDocumentStore<
+export type DocTypeStore<R extends Repo, D, S> = AutomergeDocumentStore<
   S,
   HandleOf<R, S, KindOf<D>>
 >
+
+/** The option of a store opening a document of the doc type `D`, for
+ * documents of shape `S`: as `repo.find`'s `{ docType }`. Without it, an
+ * Automerge document. */
+export type DocTypeOption<D, S> = { docType?: Of<D, S> }
 
 /** What {@link createAutomergeStore} returns for a Repo of type `R`. Opens
  * Automerge documents unless `docType` names another doc type, as
  * `repo.find` does. */
 export interface AutomergeStores<R extends Repo> {
   /** Find a document by URL and create a reactive wrapper */
-  find<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
+  find<T = unknown, D extends AnyDocType = AutomergeDocType, S = T>(
     automergeUrl: AutomergeUrl<NameOf<D>>,
-    options: { docType: Of<D, S> }
+    options?: DocTypeOption<D, S>
   ): Promise<DocTypeStore<R, D, S> | null>
-  find<T>(
-    automergeUrl: AutomergeUrl<"automerge">
-  ): Promise<AutomergeDocumentStore<T, HandleOf<R, T>> | null>
-  /** Create a new document and wrap it with reactive state */
+  /** Create a new document and wrap it with reactive state. Its initial
+   * content is inferred for Automerge, so a doc type is a second signature. */
   create<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
     initialContent: InitOf<D, S>,
     options: { docType: Of<D, S> }
@@ -139,8 +143,6 @@ type AnyHandle = {
   on(event: "change", fn: (payload: { doc: unknown }) => void): unknown
 }
 
-type DocTypeOptions = { docType?: AnyDocType }
-
 /**
  * Creates an Automerge-repo store using standard Svelte stores. Its stores'
  * handles are typed with the features `repo`'s backend adds to them.
@@ -155,17 +157,29 @@ export function createAutomergeStore<R extends Repo>(
   }
   // Typed as Automerge's: `repo.find` and `repo.create` default to it.
   const anyRepo = repo as unknown as {
-    find(url: AutomergeUrl, options?: DocTypeOptions): Promise<AnyHandle>
-    create(init?: unknown, options?: DocTypeOptions): Promise<AnyHandle>
+    find(
+      url: AutomergeUrl,
+      options?: { docType?: AnyDocType }
+    ): Promise<AnyHandle>
+    create(
+      init?: unknown,
+      options?: { docType?: AnyDocType }
+    ): Promise<AnyHandle>
   }
 
-  const find = async (automergeUrl: AutomergeUrl, options?: DocTypeOptions) => {
+  const find = async (
+    automergeUrl: AutomergeUrl,
+    options?: { docType?: AnyDocType }
+  ) => {
     const handle = await anyRepo.find(automergeUrl, options)
     if (!handle) return null
     return createDocumentStore(handle)
   }
 
-  const create = async (initialContent?: unknown, options?: DocTypeOptions) => {
+  const create = async (
+    initialContent?: unknown,
+    options?: { docType?: AnyDocType }
+  ) => {
     const handle = await anyRepo.create(initialContent, options)
     return createDocumentStore(handle)
   }
@@ -245,28 +259,19 @@ export function createAutomergeStore<R extends Repo>(
  * @returns A promise resolving to the document store
  */
 export function document<
-  _T = unknown,
-  D extends AnyDocType = AnyDocType,
-  S = unknown,
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
 >(
   docIdOrUrl: DocumentId | AutomergeUrl<NameOf<D>>,
-  options: { docType: Of<D, S>; repo?: Repo }
-): Promise<DocTypeStore<Repo, D, S> | null>
-export function document<T>(
-  docIdOrUrl: DocumentId | AutomergeUrl<"automerge">,
-  repoInstance?: Repo
-): Promise<AutomergeDocumentStore<T> | null>
-export function document(
-  docIdOrUrl: DocumentId | AutomergeUrl,
-  repoOrOptions?: Repo | { docType: AnyDocType; repo?: Repo }
-): Promise<AutomergeDocumentStore<unknown> | null> {
-  const options =
-    repoOrOptions && "docType" in repoOrOptions ? repoOrOptions : undefined
-  const repo =
-    (options ? options.repo : (repoOrOptions as Repo | undefined)) ||
-    getContextRepo()
-  const store = createAutomergeStore(repo)
-  return options
-    ? store.find(docIdOrUrl as AutomergeUrl, { docType: options.docType })
-    : store.find(docIdOrUrl as AutomergeUrl)
+  repoOrOptions?: Repo | (DocTypeOption<D, S> & { repo?: Repo })
+): Promise<DocTypeStore<Repo, D, S> | null> {
+  const options: (DocTypeOption<D, S> & { repo?: Repo }) | undefined =
+    repoOrOptions && typeof (repoOrOptions as Repo).find === "function"
+      ? { repo: repoOrOptions as Repo }
+      : (repoOrOptions as DocTypeOption<D, S> & { repo?: Repo })
+  const store = createAutomergeStore(options?.repo || getContextRepo())
+  return store.find(docIdOrUrl as AutomergeUrl<NameOf<D>>, {
+    docType: options?.docType,
+  })
 }

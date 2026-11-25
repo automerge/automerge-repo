@@ -1,5 +1,6 @@
 import type {
   AnyDocType,
+  AutomergeDocType,
   AutomergeUrl,
   DocHandle,
   KindOf,
@@ -11,7 +12,7 @@ import { useRepo } from "./useRepo.js"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
 import { cacheKey, handleCache } from "./handleCache.js"
 import { useSet } from "./helpers/useSet.js"
-import type { AnyHandle, AnyHookParams, DocTypeParams } from "./useDocHandle.js"
+import type { AnyHandle, AnyHookParams, DocTypeOption } from "./useDocHandle.js"
 
 export interface UseDocHandlesParams {
   suspense?: boolean
@@ -29,22 +30,17 @@ export type DocHandleMap<T> = Map<AutomergeUrl, DocHandle<T> | undefined>
  * `repo.find` does.
  */
 export function useDocHandles<
-  _T = unknown,
-  D extends AnyDocType = AnyDocType,
-  S = unknown,
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
 >(
   ids: AutomergeUrl<NameOf<D>>[],
-  params: UseDocHandlesParams & DocTypeParams<D, S>
-): Map<AutomergeUrl, DocHandle<S, {}, KindOf<D>> | undefined>
-export function useDocHandles<T>(
-  ids: AutomergeUrl<"automerge">[],
-  params?: UseDocHandlesParams
-): DocHandleMap<T>
-export function useDocHandles(
-  ids: AutomergeUrl[],
-  params: AnyHookParams = {}
-): Map<AutomergeUrl, AnyHandle | undefined> {
-  return useDocHandlesIn(useRepo(), ids, params)
+  params?: UseDocHandlesParams & DocTypeOption<D, S>
+): Map<AutomergeUrl, DocHandle<S, {}, KindOf<D>> | undefined> {
+  return useDocHandlesIn(useRepo(), ids, params) as Map<
+    AutomergeUrl,
+    DocHandle<S, {}, KindOf<D>> | undefined
+  >
 }
 
 /** The handles of `ids` that `repo` already has ready. */
