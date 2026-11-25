@@ -169,8 +169,8 @@ handle.broadcast({ cursor: 3 })
 handle.on("ephemeral-message", ({ handle, senderId, message }) => {})
 ```
 
-`repo` is a `Repo<MyExtensions>`, so `find()`, `create()`, `view()`, `sub()`
-(for Automerge) and Repo events all give handles with `broadcast` and
+`repo` is a `Repo<MyExtensions>`, so `find()`, `create()`, `view()` etc.
+and Repo events all give handles with `broadcast` and
 `ephemeral-message`, for every document type.
 
 ## Reaching the backend
