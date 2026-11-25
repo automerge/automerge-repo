@@ -22,15 +22,16 @@ const same = await repo.find(counter.url, { docType: gcounter })
 
 - The type is chosen per call, with `{ docType }` on `create`, `find`, `query`
   and `findWithProgress`. Without it you get Automerge.
-- A type's `scheme` (lowercase RFC 3986 URL scheme) is the URL prefix:
-  `gcounter:<id>[<suffix>]`, and Automerge's stay
-  `automerge:<id>[/<path>][#<heads>]`. Everything after the document ID
-  (starting at `/`, `?`, or `#`) is specific to the doc type.
-  `parseDocumentUrl`, `stringifyDocumentUrl`, and `isValidDocumentUrl` work on
-  every scheme (including `automerge:`); `parseAutomergeUrl`,
-  `stringifyAutomergeUrl`, and `isValidAutomergeUrl` additionally parse and
-  validate Automerge's `/path` and `#heads`. `find` throws if a URL uses
-  another scheme, or if the document is already open as another type.
+- A type's `scheme` (lowercase RFC 3986 URL scheme) is the URL prefix
+  (`<scheme>:...`). By default, URLs are `<scheme>:<base58DocumentId>`, and
+  Automerge's are `automerge:<id>[/<path>][#<heads>]`. Everything after
+  `<scheme>:` belongs to the doc type: a type may define any URL syntax via
+  `openUrl` and `formatUrl`. `parseUrlScheme` reads the scheme of any URL;
+  `parseDocumentUrl`, `stringifyDocumentUrl`, and `isValidDocumentUrl` handle
+  the default format (and custom formats when given `docType`);
+  `parseAutomergeUrl`, `stringifyAutomergeUrl`, and `isValidAutomergeUrl`
+  handle Automerge's `/path` and `#heads`. `find` throws if a URL uses another
+  scheme, or if the document is already open as another type.
 - `repo.handles` and the `document` event list every document, typed as a
   handle of any type (`DocHandle<any, X, AnyHandleKind>`). Narrow one with
   `isHandleOf(handle, gcounter)`.
@@ -45,8 +46,8 @@ const same = await repo.find(counter.url, { docType: gcounter })
   same doc type at runtime. `automerge.of<Todo>()` is the same as
   `find<Todo>(url)`.
 - `clone`, `import`, `export` and sub-handles (`sub()`) are Automerge only.
-  URL suffixes require an `openUrl` hook on the doc type (Automerge implements
-  it for `/path` and `#heads`).
+  Custom URL formats use `openUrl` and `formatUrl` on the doc type (Automerge
+  implements `openUrl` for `/path` and `#heads`).
 - The React hooks, Svelte stores and Solid primitives take `{ docType }` as
   `find` does, and default to Automerge: `useDocument(url, { docType: gcounter })`
   gives the counter's value and a function changing it as its handle's
@@ -187,37 +188,46 @@ handle is writable and has at least one `change` listener; `change` is a
 `before` may be `undefined` on first load or identical to `after` for types
 that mutate their state in place.
 
-### URL suffixes
+### Custom URL formats
 
-Everything after `<scheme>:<id>` (starting with `/`, `?`, or `#`) is specific
-to the doc type. A doc type opts in by implementing `openUrl(suffix)` (and
-optionally `urlSuffix(handle)` so `handle.url` emits matching suffixes):
+Only `<scheme>:` is fixed across doc types; everything after `:` belongs to
+the doc type. By default, URLs have the form `<scheme>:<base58DocumentId>`. A
+doc type can define its own URL format with `openUrl(url)` and
+`formatUrl(handle)`:
 
 ```ts
-urlSuffix(handle) {
-  return handle.isReadOnly() ? `?at=${handle.heads().join(",")}` : undefined
+formatUrl(handle) {
+  const query = handle.isReadOnly() ? `?at=${handle.heads().join(",")}` : ""
+  return `notes://v1/${handle.documentId}${query}`
 },
-openUrl(suffix) {
-  const at = new URLSearchParams(suffix.slice(1)).get("at")
-  if (!at) throw new Error(`Invalid suffix: ${suffix}`)
-  return { heads: at.split(",") as UrlHeads }
+openUrl(url) {
+  const m = url.match(/^notes:\/\/v1\/([^?]+)(?:\?(.*))?$/)
+  if (!m) throw new Error(`Invalid notes URL: ${url}`)
+  const at = new URLSearchParams(m[2] ?? "").get("at")
+  return {
+    documentId: m[1] as DocumentId,
+    heads: at ? (at.split(",") as UrlHeads) : undefined,
+  }
 }
 ```
 
 Sub-document handles (`sub()`) are Automerge-only: Automerge implements
-`openUrl` to parse `/<path>` and `#<heads>`, returning `{ heads, open }` where
-`open` calls `handle.sub(...)`.
+`openUrl` via `parseAutomergeUrl`, returning `{ documentId, heads, open }`
+where `open` calls `handle.sub(...)`.
 
-- `suffix` is the raw string starting at `/`, `?`, or `#`.
-  `parseDocumentUrl(url).suffix` reads it and
-  `stringifyDocumentUrl({ documentId, scheme, suffix })` writes it.
-- `openUrl` runs synchronously in `repo.query` before the document is
-  registered, so syntax errors fail immediately without opening a session.
+- `openUrl` receives the full URL (after `Repo` checks its scheme matches
+  `docType.scheme`) and runs synchronously in `repo.query` before the document
+  is registered, so malformed URLs fail immediately without opening a session.
+- `openUrl` must return a valid `documentId` (32-byte `BinaryDocumentId` or
+  base58check `DocumentId`).
 - If `openUrl` returns `{ heads }`, `repo.query` checks `view` support and
-  waits until those heads arrive, then opens a view handle.
+  validates the heads synchronously, then waits until they arrive and opens a
+  view handle.
 - If `openUrl` returns `{ open }`, `open(handle)` runs once the root (or view)
   handle is ready. Throwing fails that query (`repo.find` rejects) while
   leaving the root document ready. The returned handle must be a `DocHandle`
   for the same document and stay read-only when `handle` is a view.
-- Without `openUrl`, `repo.query` throws on any URL with a suffix before
-  registering the document.
+- `formatUrl(handle)` must return a URL beginning with `<scheme>:`.
+- Pass `{ docType }` to `repo.delete(url, { docType })`,
+  `parseDocumentUrl(url, docType)`, `isValidDocumentUrl(url, docType)`, or
+  `interpretAsDocumentId(url, docType)` when working with a custom URL format.

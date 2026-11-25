@@ -1,4 +1,4 @@
-import type { DocumentId, RepoId, UrlHeads } from "./types.js"
+import type { BinaryDocumentId, DocumentId, RepoId, UrlHeads } from "./types.js"
 import type { DocumentState } from "./DocumentState.js"
 import type { AnyHandle, Handle, HandleOptions } from "./Handle.js"
 
@@ -20,8 +20,10 @@ export interface DocTypeContext {
   readonly repoId: RepoId
 }
 
-/** What {@link DocType.openUrl} asks the Repo to do for a URL's suffix. */
+/** What {@link DocType.openUrl} asks the Repo to open for a URL. */
 export interface UrlTarget {
+  /** The document's ID (32-byte binary or base58check-encoded string). */
+  documentId: DocumentId | BinaryDocumentId
   /** Wait until these heads are in the document's history, then open a view. */
   heads?: UrlHeads
   /** Derive a handle from the ready root (or view) handle. */
@@ -98,19 +100,18 @@ export interface DocType<
   readonly handle?: H
 
   /**
-   * Interpret the part of a URL after `<scheme>:<documentId>` (starting with
-   * `/`, `?`, or `#`). Called synchronously before opening the document, so
-   * invalid suffixes fail immediately. Without this, URLs of this type take
-   * nothing after the document ID.
+   * Parse and open a URL of this type's scheme (`<scheme>:...`). Called
+   * synchronously before opening the document, so malformed URLs fail
+   * immediately. Defaults to `<scheme>:<base58DocumentId>`.
    */
-  openUrl?(suffix: string): UrlTarget
+  openUrl?(url: string): UrlTarget
 
   /**
-   * Format the suffix appended to `<scheme>:<documentId>` by
-   * {@link Handle.url} (must start with `/`, `?`, or `#` if non-empty).
-   * Paired with `openUrl`.
+   * Format the URL returned by {@link Handle.url} (must start with
+   * `<scheme>:`). Paired with `openUrl`. Defaults to
+   * `<scheme>:<base58DocumentId>`.
    */
-  urlSuffix?(handle: AnyHandle): string | undefined
+  formatUrl?(handle: AnyHandle): string
 }
 
 export type AnyDocType = DocType<any, any, any, any, string, any>

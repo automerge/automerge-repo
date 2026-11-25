@@ -20,12 +20,20 @@ export const urlPrefix = "automerge:"
 
 const AUTOMERGE = "automerge"
 const SCHEME = /^[a-z][a-z0-9+.-]*$/
-const URL = /^([a-z][a-z0-9+.-]*):([^/?#]+)([/?#].*)?$/
-const SUFFIX_START = /^[/?#]/
+const SCHEME_PREFIX = /^([a-z][a-z0-9+.-]*):(.+)$/
+const AUTOMERGE_URL = /^automerge:([^/?#]+)(?:\/(.*))?$/
 
 /** Lowercase URL schemes, as in RFC 3986: a letter, then letters, digits, `+`, `.` or `-`. */
 export const isValidUrlScheme = (scheme: unknown): scheme is string =>
   typeof scheme === "string" && SCHEME.test(scheme)
+
+/**
+ * Extract the URL scheme from any `<scheme>:<nonempty>` string, or
+ * `undefined` if it does not begin with a valid lowercase RFC 3986 scheme.
+ * Works regardless of the doc type's URL format after `<scheme>:`.
+ */
+export const parseUrlScheme = (url: unknown): string | undefined =>
+  typeof url === "string" ? url.match(SCHEME_PREFIX)?.[1] : undefined
 
 /**
  * Document IDs are 32 bytes. A 16-byte ID is the short form of one whose
@@ -41,9 +49,28 @@ const padDocumentId = (
   return padded as BinaryDocumentId
 }
 
+/** @internal Decode a binary or base58check document ID to its 32 bytes. */
+export const toBinaryDocumentId = (
+  documentId: unknown
+): BinaryDocumentId | undefined =>
+  documentId instanceof Uint8Array
+    ? padDocumentId(documentId)
+    : typeof documentId === "string"
+      ? documentIdToBinary(documentId as DocumentId)
+      : undefined
+
 /** Whether an ID's second half is zero. */
 const isZeroSuffixed = (id: Uint8Array): boolean =>
   id.length === 32 && id.subarray(16).every(byte => byte === 0)
+
+/** The subset of a doc type needed to parse or validate its URLs. */
+export type UrlDocType<Scheme extends string = string> = {
+  readonly scheme: Scheme
+  openUrl?(url: string): {
+    readonly documentId: DocumentId | BinaryDocumentId
+    readonly heads?: UrlHeads
+  }
+}
 
 export interface ParsedDocumentUrl<Scheme extends string = string> {
   /** The URL scheme, naming the document's doc type (e.g. `automerge`). */
@@ -52,11 +79,6 @@ export interface ParsedDocumentUrl<Scheme extends string = string> {
   binaryDocumentId: BinaryDocumentId
   /** bs58 encoded DocumentId */
   documentId: DocumentId
-  /**
-   * Optional doc-type-specific suffix after `<scheme>:<documentId>`, starting
-   * with `/`, `?`, or `#`. Undefined for plain document URLs.
-   */
-  suffix?: string
 }
 
 export interface ParsedAutomergeUrl {
@@ -82,53 +104,82 @@ export interface ParsedAutomergeUrl {
 }
 
 /**
- * Parse a document URL of any scheme: `<scheme>:<documentId>[<suffix>]`.
- * Everything after `<documentId>` (starting at `/`, `?`, or `#`) is returned
- * raw in `suffix` for the doc type to interpret.
+ * Parse a document URL. Without `docType`, parses the default
+ * `<scheme>:<base58DocumentId>` format. With `docType`, verifies the scheme
+ * matches and delegates to `docType.openUrl` if defined (or the default
+ * format otherwise).
  */
+export function parseDocumentUrl<const Scheme extends string>(
+  url: string,
+  docType: UrlDocType<Scheme>
+): ParsedDocumentUrl<Scheme>
 export function parseDocumentUrl<Scheme extends string>(
   url: DocumentUrl<Scheme>
 ): ParsedDocumentUrl<Scheme>
 export function parseDocumentUrl(url: string): ParsedDocumentUrl
-export function parseDocumentUrl(url: string): ParsedDocumentUrl {
-  const match = url.match(URL)
+export function parseDocumentUrl(
+  url: string,
+  docType?: UrlDocType
+): ParsedDocumentUrl {
+  const match = url.match(SCHEME_PREFIX)
   if (!match) throw new Error("Invalid document URL: " + url)
-  const [, scheme, docMatch, suffix] = match
-  const binaryDocumentId = documentIdToBinary(docMatch as DocumentId)
+  const [, scheme, body] = match
+  if (docType !== undefined) {
+    if (scheme !== docType.scheme)
+      throw new Error(`Invalid ${docType.scheme} URL: ${url}`)
+    if (docType.openUrl) {
+      const target = docType.openUrl(url)
+      const binaryDocumentId = toBinaryDocumentId(target.documentId)
+      if (!binaryDocumentId)
+        throw new Error(`Invalid ${docType.scheme} URL: ${url}`)
+      if (target.heads !== undefined) decodeHeads(target.heads)
+      return {
+        scheme,
+        binaryDocumentId,
+        documentId: binaryToDocumentId(binaryDocumentId),
+      }
+    }
+  }
+  const binaryDocumentId = documentIdToBinary(body as DocumentId)
   if (!binaryDocumentId) throw new Error("Invalid document URL: " + url)
-  const documentId = binaryToDocumentId(binaryDocumentId)
-  return suffix !== undefined
-    ? { scheme, binaryDocumentId, documentId, suffix }
-    : { scheme, binaryDocumentId, documentId }
+  return {
+    scheme,
+    binaryDocumentId,
+    documentId: binaryToDocumentId(binaryDocumentId),
+  }
 }
 
-/** @internal Parse the Automerge-specific suffix (`[/<path>][#<heads>]`) of an `automerge:` URL. */
-export function parseAutomergeSuffix(suffix: string): {
-  path?: string
-  segments?: Segment[]
-  heads?: UrlHeads
-  hexHeads?: string[]
-} {
-  const [pathPart, headsSection, ...rest] = suffix.split("#")
-  if (rest.length > 0) {
+/**
+ * Parse an Automerge URL. Throws for any other scheme or malformed path/heads.
+ *
+ * Supported shapes:
+ *   - `automerge:<docId>`
+ *   - `automerge:<docId>#<heads>`              (heads `|`-joined)
+ *   - `automerge:<docId>/<path>`               (path `/`-joined segments)
+ *   - `automerge:<docId>/<path>#<heads>`
+ */
+export function parseAutomergeUrl(url: AutomergeUrl): ParsedAutomergeUrl {
+  const [baseUrl, headsSection, ...rest] = url.split("#")
+  if (url.startsWith(urlPrefix) && rest.length > 0) {
     throw new Error("Invalid URL: contains multiple heads sections")
   }
-  let path: string | undefined
-  let segments: Segment[] | undefined
-  if (pathPart.length > 0) {
-    if (!pathPart.startsWith("/")) {
-      throw new Error("Invalid Automerge URL suffix: " + suffix)
-    }
-    const raw = pathPart.slice(1)
-    if (raw.length > 0) {
-      path = raw
-      segments = parsePath(raw)
-    }
-  }
-  const base = {
+  const match = baseUrl.match(AUTOMERGE_URL)
+  if (!match) throw new Error("Invalid Automerge URL: " + url)
+  const [, docMatch, pathStr] = match
+  const binaryDocumentId = documentIdToBinary(docMatch as DocumentId)
+  if (!binaryDocumentId) throw new Error("Invalid Automerge URL: " + url)
+  const documentId = binaryToDocumentId(binaryDocumentId)
+
+  const path = pathStr !== undefined && pathStr.length > 0 ? pathStr : undefined
+  const segments = path !== undefined ? parsePath(path) : undefined
+
+  const base: ParsedAutomergeUrl = {
+    binaryDocumentId,
+    documentId,
     ...(path !== undefined ? { path } : {}),
     ...(segments !== undefined ? { segments } : {}),
   }
+
   if (headsSection === undefined) return base
 
   const heads = (headsSection === "" ? [] : headsSection.split("|")) as UrlHeads
@@ -143,32 +194,9 @@ export function parseAutomergeSuffix(suffix: string): {
 }
 
 /**
- * Parse an Automerge URL. Throws for any other scheme or malformed suffix.
- *
- * Supported shapes:
- *   - `automerge:<docId>`
- *   - `automerge:<docId>#<heads>`              (heads `|`-joined)
- *   - `automerge:<docId>/<path>`               (path `/`-joined segments)
- *   - `automerge:<docId>/<path>#<heads>`
- */
-export function parseAutomergeUrl(url: AutomergeUrl): ParsedAutomergeUrl {
-  if (url.startsWith(urlPrefix) && url.split("#").length > 2) {
-    throw new Error("Invalid URL: contains multiple heads sections")
-  }
-  const { scheme, binaryDocumentId, documentId, suffix } = parseDocumentUrl(url)
-  if (scheme !== AUTOMERGE) throw new Error("Invalid Automerge URL: " + url)
-  if (suffix === undefined) return { binaryDocumentId, documentId }
-  return {
-    binaryDocumentId,
-    documentId,
-    ...parseAutomergeSuffix(suffix),
-  }
-}
-
-/**
- * Build a document URL: `<scheme>:<documentId>[<suffix>]`. `scheme` defaults
- * to `"automerge"`. `suffix`, when non-empty, must start with `/`, `?`, or `#`.
- * Throws on invalid input.
+ * Build a default document URL: `<scheme>:<documentId>`. `scheme` defaults to
+ * `"automerge"`. Doc types with custom URL formats build their own URLs (see
+ * {@link stringifyAutomergeUrl} for Automerge). Throws on invalid input.
  */
 export function stringifyDocumentUrl<const Scheme extends string>(
   arg: DocumentUrlOptions & { scheme: Scheme }
@@ -185,31 +213,18 @@ export function stringifyDocumentUrl(
 export function stringifyDocumentUrl(
   arg: DocumentUrlOptions | DocumentId | BinaryDocumentId
 ): DocumentUrl {
-  const {
-    documentId,
-    scheme = AUTOMERGE,
-    suffix = undefined,
-  } = arg instanceof Uint8Array || typeof arg === "string"
-    ? { documentId: arg }
-    : arg
+  const { documentId, scheme = AUTOMERGE } =
+    arg instanceof Uint8Array || typeof arg === "string"
+      ? { documentId: arg }
+      : arg
   if (!isValidUrlScheme(scheme))
     throw new Error(`Invalid URL scheme: ${JSON.stringify(scheme)}`)
 
-  const binary =
-    documentId instanceof Uint8Array
-      ? padDocumentId(documentId)
-      : typeof documentId === "string"
-        ? documentIdToBinary(documentId)
-        : undefined
+  const binary = toBinaryDocumentId(documentId)
   if (!binary) throw new Error("Invalid documentId: " + documentId)
   const encodedDocumentId = binaryToDocumentId(binary)
 
-  if (suffix !== undefined && suffix.length > 0 && !SUFFIX_START.test(suffix))
-    throw new Error(
-      `Invalid URL suffix (must start with "/", "?", or "#"): ${JSON.stringify(suffix)}`
-    )
-
-  return `${scheme}:${encodedDocumentId}${suffix ?? ""}` as DocumentUrl
+  return `${scheme}:${encodedDocumentId}` as DocumentUrl
 }
 
 /**
@@ -230,7 +245,8 @@ export function stringifyAutomergeUrl(
     ? { documentId: arg }
     : arg
 
-  let suffix = ""
+  let url: string = stringifyDocumentUrl({ documentId, scheme: AUTOMERGE })
+
   const hasPath = path !== undefined && path.length > 0
   const hasSegments = segments !== undefined && segments.length > 0
   if (hasPath && hasSegments)
@@ -239,9 +255,9 @@ export function stringifyAutomergeUrl(
     if (path.includes("#"))
       throw new Error(`Invalid path: ${JSON.stringify(path)}`)
     parsePath(path)
-    suffix += "/" + path
+    url += "/" + path
   } else if (hasSegments) {
-    suffix += "/" + serializePath(segments)
+    url += "/" + serializePath(segments)
   }
 
   if (heads !== undefined) {
@@ -254,14 +270,10 @@ export function stringifyAutomergeUrl(
     })
     // Sort so two heads arrays with the same content in different
     // orders produce identical URLs.
-    suffix += "#" + [...heads].sort().join("|")
+    url += "#" + [...heads].sort().join("|")
   }
 
-  return stringifyDocumentUrl({
-    documentId,
-    scheme: AUTOMERGE,
-    suffix: suffix || undefined,
-  })
+  return url as AutomergeUrl
 }
 
 /** Helper to extract just the heads from an Automerge URL if they exist */
@@ -271,20 +283,29 @@ export const getHeadsFromUrl = (url: AutomergeUrl): string[] | undefined => {
 }
 
 /**
- * Whether `str` is a valid document URL (`<scheme>:<documentId>[<suffix>]`),
- * optionally with the given scheme. Suffix syntax is doc-type-specific and
- * not validated here; use {@link isValidAutomergeUrl} for Automerge URLs.
+ * Whether `str` is a valid document URL.
+ * - With no second argument: validates the default `<scheme>:<base58DocumentId>` format.
+ * - With a scheme string: validates the default format with that scheme.
+ * - With a doc type: validates the scheme and delegates to `docType.openUrl`
+ *   if defined (or the default format otherwise).
  */
 export function isValidDocumentUrl(str: unknown): str is DocumentUrl
-export function isValidDocumentUrl<Scheme extends string>(
+export function isValidDocumentUrl<const Scheme extends string>(
   str: unknown,
-  scheme: Scheme
+  schemeOrDocType: Scheme | UrlDocType<Scheme>
 ): str is DocumentUrl<Scheme>
-export function isValidDocumentUrl(str: unknown, scheme?: string): boolean {
+export function isValidDocumentUrl(
+  str: unknown,
+  schemeOrDocType?: string | UrlDocType
+): boolean {
   if (typeof str !== "string" || !str) return false
   try {
+    if (typeof schemeOrDocType === "object" && schemeOrDocType !== null) {
+      parseDocumentUrl(str, schemeOrDocType)
+      return true
+    }
     const parsed = parseDocumentUrl(str)
-    return scheme === undefined || parsed.scheme === scheme
+    return schemeOrDocType === undefined || parsed.scheme === schemeOrDocType
   } catch {
     return false
   }
@@ -343,12 +364,17 @@ export const decodeHeads = (heads: UrlHeads): string[] =>
  *
  * Currently supports:
  * - base58check-encoded DocumentId
- * - Document URL of any scheme (including Automerge URLs)
+ * - Automerge URL (including `/path` and `#heads`)
+ * - Default `<scheme>:<base58DocumentId>` URL of any scheme
+ * - Any custom URL format when `docType` is passed
  * - binary DocumentId
  *
  * Throws on invalid input.
  */
-export const interpretAsDocumentId = (id: AnyDocumentId): DocumentId => {
+export const interpretAsDocumentId = (
+  id: AnyDocumentId,
+  docType?: UrlDocType
+): DocumentId => {
   // binary
   if (id instanceof Uint8Array) {
     const binary = padDocumentId(id)
@@ -356,7 +382,15 @@ export const interpretAsDocumentId = (id: AnyDocumentId): DocumentId => {
     throw new Error("Invalid binary document ID")
   }
 
-  // url
+  // url with explicit docType
+  if (docType !== undefined && parseUrlScheme(id) !== undefined) {
+    return parseDocumentUrl(id, docType).documentId
+  }
+
+  // Automerge URL (including /path and #heads)
+  if (isValidAutomergeUrl(id)) return parseAutomergeUrl(id).documentId
+
+  // default <scheme>:<base58DocumentId> URL
   if (isValidDocumentUrl(id)) return parseDocumentUrl(id).documentId
 
   // base58check
@@ -373,9 +407,6 @@ export type DocumentUrlOptions = {
   documentId: DocumentId | BinaryDocumentId
   /** The URL scheme (the doc type). Defaults to `"automerge"`. */
   scheme?: string
-  /** Optional doc-type-specific suffix after `<scheme>:<documentId>`. Must
-   * start with `/`, `?`, or `#` if non-empty. */
-  suffix?: string
 }
 
 export type UrlOptions = {

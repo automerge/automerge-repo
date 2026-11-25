@@ -157,13 +157,25 @@ export class Handle<
     return this.#state.documentId
   }
 
-  /** `<scheme>:<documentId>[<suffix>]` */
+  /** This handle's URL (`<scheme>:...`), formatted by its doc type or `<scheme>:<documentId>`. */
   get url(): DocumentUrl<this["~scheme"]> {
     const docType = this.#state.docType
+    if (docType.formatUrl) {
+      const url = docType.formatUrl(this)
+      if (
+        typeof url !== "string" ||
+        !url.startsWith(`${docType.scheme}:`) ||
+        url.length <= docType.scheme.length + 1
+      ) {
+        throw new Error(
+          `formatUrl for ${docType.scheme} must return a ${docType.scheme}: URL`
+        )
+      }
+      return url as DocumentUrl<this["~scheme"]>
+    }
     return stringifyDocumentUrl({
       scheme: docType.scheme,
       documentId: this.documentId,
-      suffix: docType.urlSuffix?.(this),
     }) as DocumentUrl<this["~scheme"]>
   }
 

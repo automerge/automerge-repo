@@ -208,7 +208,9 @@ export function runDocTypeTests<S>(
       it("creates a DocHandle whose URL uses its scheme", async () => {
         const handle = await create(a)
         expect(handle).toBeInstanceOf(DocHandle)
-        expect(parseDocumentUrl(handle.url).scheme).toBe(docType.scheme)
+        expect(parseDocumentUrl(handle.url, docType).scheme).toBe(
+          docType.scheme
+        )
         expect(handle.isReady()).toBe(true)
         expect(a.handles[handle.documentId]).toBe(handle)
       })

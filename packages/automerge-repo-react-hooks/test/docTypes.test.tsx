@@ -125,8 +125,8 @@ describe("doc types", () => {
   it("keys lookups by doc type", async () => {
     const { handle } = await setup()
     expect(normalizeId(handle.url)).toBe(handle.url)
-    expect(cacheKey(handle.documentId, "counter")).toBe(handle.url)
-    expect(cacheKey(handle.url, "counter")).toBe(handle.url)
+    expect(cacheKey(handle.documentId, counter)).toBe(handle.url)
+    expect(cacheKey(handle.url, counter)).toBe(handle.url)
     expect(cacheKey(handle.documentId)).not.toBe(handle.url)
     expect(cacheKey(handle.url)).not.toBe(handle.url)
   })

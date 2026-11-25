@@ -12,11 +12,14 @@ import {
   isValidUrlScheme,
   parseAutomergeUrl,
   parseDocumentUrl,
+  parseUrlScheme,
   stringifyAutomergeUrl,
   stringifyDocumentUrl,
   type DocumentUrlOptions,
+  type UrlDocType,
   type UrlOptions,
 } from "../src/AutomergeUrl.js"
+import { automerge } from "../src/automerge/docType.js"
 import type {
   AutomergeUrl,
   BinaryDocumentId,
@@ -364,17 +367,33 @@ describe("empty heads section", () => {
   })
 })
 
-describe("document URL schemes and suffixes", () => {
+describe("document URL schemes and custom formats", () => {
   const notesUrl = `notes:${goodDocumentId}` as DocumentUrl<"notes">
   const heads = [bs58check.encode(new Uint8Array(32).fill(1))] as UrlHeads
+  // A doc type with a completely custom URL layout (`notes://v1/<hex>`).
+  const customNotes: UrlDocType<"notes"> = {
+    scheme: "notes",
+    openUrl(url) {
+      const m = url.match(/^notes:\/\/v1\/([0-9a-f]{64})$/)
+      if (!m) throw new Error(`Invalid notes URL: ${url}`)
+      const bytes = Uint8Array.from(
+        m[1].match(/../g)!.map(b => parseInt(b, 16))
+      ) as BinaryDocumentId
+      return { documentId: bytes }
+    },
+  }
+  const goodHex = [...goodBinaryDocumentId]
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("")
+  const customNotesUrl = `notes://v1/${goodHex}` as DocumentUrl<"notes">
 
-  it("uses automerge: by default, and parses any scheme generically", () => {
+  it("uses automerge: by default, and parses default <scheme>:<id> URLs", () => {
     assert.equal(stringifyDocumentUrl({ documentId: goodDocumentId }), goodUrl)
     assert.equal(parseDocumentUrl(goodUrl).scheme, "automerge")
-    assert.equal(parseDocumentUrl(goodUrl).suffix, undefined)
+    assert.equal(parseDocumentUrl(goodUrl).documentId, goodDocumentId)
   })
 
-  it("writes and parses another doc type's scheme", () => {
+  it("writes and parses another doc type's default URL", () => {
     const url = stringifyDocumentUrl({
       documentId: goodDocumentId,
       scheme: "notes",
@@ -383,49 +402,49 @@ describe("document URL schemes and suffixes", () => {
     const parsed = parseDocumentUrl(url)
     assert.equal(parsed.scheme, "notes")
     assert.equal(parsed.documentId, goodDocumentId)
-    assert.equal(parsed.suffix, undefined)
+    assert(isValidDocumentUrl(url))
+    assert(isValidDocumentUrl(url, "notes"))
+    assert(!isValidDocumentUrl(url, "automerge"))
+    assert(!isValidAutomergeUrl(url))
   })
 
-  it("keeps arbitrary suffixes raw on generic URLs (starting with /, ? or #)", () => {
-    for (const suffix of [
-      "/any/@not-an-index/syntax",
-      "?v=2&mode=raw",
-      `#${heads[0]}`,
-      "/a?b=1#c",
-    ]) {
-      const url = stringifyDocumentUrl({
-        documentId: goodDocumentId,
-        scheme: "notes",
-        suffix,
-      })
-      assert.equal(url, `${notesUrl}${suffix}`)
-      assert(isValidDocumentUrl(url))
-      assert(isValidDocumentUrl(url, "notes"))
-      assert(!isValidDocumentUrl(url, "automerge"))
-      assert(!isValidAutomergeUrl(url))
-      const parsed = parseDocumentUrl(url)
-      assert.equal(parsed.scheme, "notes")
-      assert.equal(parsed.documentId, goodDocumentId)
-      assert.equal(parsed.suffix, suffix)
-    }
+  it("extracts schemes with parseUrlScheme and parses custom formats with docType", () => {
+    assert.equal(parseUrlScheme(customNotesUrl), "notes")
+    assert.equal(parseUrlScheme(`${goodUrl}/a/b#${heads[0]}`), "automerge")
+    assert.equal(parseUrlScheme(goodDocumentId), undefined)
+    assert.equal(parseUrlScheme("Notes:abc"), undefined)
+    assert.equal(parseUrlScheme("notes:"), undefined)
 
-    // Generic helpers work on automerge: URLs too.
+    // Without docType, a custom format does not match default `<scheme>:<base58Id>`.
+    assert(!isValidDocumentUrl(customNotesUrl))
+    assert.throws(() => parseDocumentUrl(customNotesUrl))
+
+    // With docType, custom formats validate and parse cleanly.
+    assert(isValidDocumentUrl(customNotesUrl, customNotes))
+    assert(!isValidDocumentUrl("notes://v1/not-hex", customNotes))
+    assert(!isValidDocumentUrl(goodUrl, customNotes))
+    const parsed = parseDocumentUrl(customNotesUrl, customNotes)
+    assert.equal(parsed.scheme, "notes")
+    assert.equal(parsed.documentId, goodDocumentId)
+    assert.deepEqual(parsed.binaryDocumentId, goodBinaryDocumentId)
+
+    // Generic helpers also work on automerge: URLs with paths/heads via `automerge`.
     const amWithSuffix = `${goodUrl}/items/@0#${heads[0]}` as AutomergeUrl
-    assert(isValidDocumentUrl(amWithSuffix))
-    assert(isValidDocumentUrl(amWithSuffix, "automerge"))
-    assert.deepEqual(parseDocumentUrl(amWithSuffix), {
+    assert(isValidDocumentUrl(amWithSuffix, automerge))
+    assert.deepEqual(parseDocumentUrl(amWithSuffix, automerge), {
       scheme: "automerge",
       binaryDocumentId: goodBinaryDocumentId,
       documentId: goodDocumentId,
-      suffix: `/items/@0#${heads[0]}`,
     })
   })
 
-  it("rejects invalid schemes, bad suffixes, and non-automerge schemes in parseAutomergeUrl", () => {
+  it("rejects invalid schemes, extra suffixes on default URLs, and non-automerge schemes in parseAutomergeUrl", () => {
     assert(!isValidDocumentUrl(`Notes:${goodDocumentId}`))
     assert(!isValidDocumentUrl(`9lives:${goodDocumentId}`))
     assert(!isValidDocumentUrl(`automerge:notes:${goodDocumentId}`))
     assert(!isValidDocumentUrl(`automerge:${goodDocumentId}0`))
+    assert(!isValidDocumentUrl(`${notesUrl}/extra`))
+    assert(!isValidDocumentUrl("http://example.com"))
     assert(!isValidUrlScheme("Notes"))
     assert(!isValidUrlScheme("9lives"))
     assert(isValidUrlScheme("g-counter2+v1.0"))
@@ -435,14 +454,11 @@ describe("document URL schemes and suffixes", () => {
         scheme: "notes:",
       })
     )
-    assert.throws(() =>
-      stringifyDocumentUrl({
-        documentId: goodDocumentId,
-        scheme: "notes",
-        suffix: "no-leading-delimiter",
-      })
-    )
     assert.throws(() => parseAutomergeUrl(notesUrl as unknown as AutomergeUrl))
+    assert.throws(
+      () => parseAutomergeUrl(`${notesUrl}#a#b` as unknown as AutomergeUrl),
+      /Invalid Automerge URL/
+    )
     // `?` is not part of Automerge's URL syntax.
     assert(!isValidAutomergeUrl(`${goodUrl}?v=1`))
     assert.throws(() =>
@@ -450,12 +466,17 @@ describe("document URL schemes and suffixes", () => {
     )
   })
 
-  it("interprets any scheme's document URL as its document ID", () => {
+  it("interprets default, Automerge, and custom (with docType) URLs as document IDs", () => {
     assert.equal(interpretAsDocumentId(notesUrl), goodDocumentId)
     assert.equal(
-      interpretAsDocumentId(`${notesUrl}?v=2#frag` as DocumentUrl),
+      interpretAsDocumentId(`${goodUrl}/a/b#${heads[0]}` as AutomergeUrl),
       goodDocumentId
     )
+    assert.equal(
+      interpretAsDocumentId(customNotesUrl, customNotes),
+      goodDocumentId
+    )
+    assert.throws(() => interpretAsDocumentId(customNotesUrl))
   })
 
   it("accepts dynamically built options", () => {
@@ -480,7 +501,11 @@ describe("document URL schemes and suffixes", () => {
     // @ts-expect-error a notes URL is not an Automerge document's
     const wrong: AutomergeUrl = named
     const scheme: "notes" = parseDocumentUrl(named).scheme
-    void [automergeUrl, any, wrong, scheme]
+    const customScheme: "notes" = parseDocumentUrl(
+      customNotesUrl,
+      customNotes
+    ).scheme
+    void [automergeUrl, any, wrong, scheme, customScheme]
   })
 
   it("parses and validates Automerge paths and heads", () => {

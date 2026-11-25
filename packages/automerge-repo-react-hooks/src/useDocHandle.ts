@@ -83,8 +83,7 @@ export function useDocHandleIn(
   const [found, setFound] = useState<
     { repo: Repo; key: string; handle: AnyHandle } | undefined
   >()
-  const scheme = docType?.scheme
-  const key = id ? cacheKey(id, scheme) : undefined
+  const key = id ? cacheKey(id, docType) : undefined
 
   let currentHandle: AnyHandle | undefined =
     found && found.repo === repo && found.key === key ? found.handle : undefined

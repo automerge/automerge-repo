@@ -97,7 +97,7 @@ export function useDocHandlesIn(
   // Check if we need any new wrappers
   for (const id of idSet.values()) {
     let handle = handleMap.get(id)
-    const key = cacheKey(id, docType?.scheme)
+    const key = cacheKey(id, docType)
     let wrapper = cache.get(key)
     if (!wrapper) {
       try {

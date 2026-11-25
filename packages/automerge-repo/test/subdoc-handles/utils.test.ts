@@ -205,7 +205,7 @@ describe("utils", () => {
         /Invalid (Automerge|Document)?Url/i
       )
       await expect(repo.find("wrong:abc/path")).rejects.toThrow(
-        /Invalid (Automerge|Document)?Url/i
+        /of doc type wrong/i
       )
     })
 

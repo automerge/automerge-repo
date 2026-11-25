@@ -130,6 +130,10 @@ export interface AutomergeStores<R extends Repo> {
     initialContent?: T
   ): Promise<AutomergeDocumentStore<T, HandleOf<R, T>>>
   /** Delete a document */
+  delete<D extends AnyDocType>(
+    documentUrl: DocumentUrl<SchemeOf<D>>,
+    options: { docType: D }
+  ): Promise<void>
   delete(documentUrl: DocumentUrl): Promise<void>
   getRepo(): R
 }
@@ -184,8 +188,13 @@ export function createAutomergeStore<R extends Repo>(
     return createDocumentStore(handle)
   }
 
-  const deleteDocument = async (documentUrl: DocumentUrl) => {
-    return repo.delete(documentUrl)
+  const deleteDocument = async (
+    documentUrl: DocumentUrl,
+    options?: { docType?: AnyDocType }
+  ) => {
+    return options?.docType
+      ? repo.delete(documentUrl, { docType: options.docType })
+      : repo.delete(documentUrl)
   }
 
   /**

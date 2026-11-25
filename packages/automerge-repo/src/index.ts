@@ -40,10 +40,12 @@ export {
   isValidDocumentId,
   parseAutomergeUrl,
   parseDocumentUrl,
+  parseUrlScheme,
   stringifyAutomergeUrl,
   stringifyDocumentUrl,
   interpretAsDocumentId,
   documentIdToBinary,
+  binaryToDocumentId,
   generateAutomergeUrl,
   encodeHeads,
   decodeHeads,
@@ -52,6 +54,7 @@ export type {
   DocumentUrlOptions,
   ParsedAutomergeUrl,
   ParsedDocumentUrl,
+  UrlDocType,
   UrlOptions,
 } from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"

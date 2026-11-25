@@ -7,7 +7,8 @@ import {
   extractFragments,
   extractRecords,
 } from "../sedimentree/automerge/index.js"
-import { parseAutomergeSuffix } from "../AutomergeUrl.js"
+import { parseAutomergeUrl } from "../AutomergeUrl.js"
+import type { AutomergeUrl } from "../types.js"
 import { AutomergeHandle } from "./handle.js"
 
 /** The default document type: Automerge, behind an {@link AutomergeHandle}. */
@@ -63,9 +64,12 @@ export const automerge: AutomergeDocType = {
   view: (doc, heads) => A.view(doc, [...heads]),
   merge: (doc, other) => A.merge(doc, other),
   handle: AutomergeHandle,
-  openUrl: suffix => {
-    const { heads, segments } = parseAutomergeSuffix(suffix)
+  openUrl: url => {
+    const { documentId, heads, segments } = parseAutomergeUrl(
+      url as AutomergeUrl
+    )
     return {
+      documentId,
       ...(heads !== undefined ? { heads } : {}),
       ...(segments !== undefined
         ? {

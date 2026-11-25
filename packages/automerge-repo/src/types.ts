@@ -1,8 +1,8 @@
 /**
- * A branded document URL, `<scheme>:<base58check encoded ID>[<suffix>]`.
- * `Scheme` is the URL scheme (the document's doc type, e.g. `automerge`), for
- * type checks only; by default, any. Everything after the document ID is
- * specific to the doc type.
+ * A branded document URL, `<scheme>:<body...>`. `Scheme` is the URL scheme
+ * (the document's doc type, e.g. `automerge`), for type checks only; by
+ * default, any. Everything after `<scheme>:` is specific to the doc type
+ * (defaulting to `<scheme>:<base58check encoded ID>`).
  */
 export type DocumentUrl<Scheme extends string = string> = string & {
   __documentUrl: true
