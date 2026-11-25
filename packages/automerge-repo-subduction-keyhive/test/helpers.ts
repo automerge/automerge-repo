@@ -4,9 +4,15 @@ import {
   commitId,
   type LooseCommitRecord,
 } from "@automerge/automerge-repo/sedimentree"
-import { changesIn } from "@automerge/automerge-repo/sedimentree/automerge"
-import * as N from "@automerge/subduction"
-import { type Keyhive, Power, Signer } from "@keyhive/keyhive/slim"
+// Initializes Subduction's wasm module, which the backend uses through `slim`.
+import "@automerge/subduction"
+import {
+  MemberedId,
+  Power,
+  type ContactCard,
+  type GroupId,
+  type Keyhive,
+} from "@keyhive/keyhive/slim"
 import { vi } from "vitest"
 import { DummySubductionStorageAdapter } from "../../automerge-repo-subduction/src/helpers/DummySubductionStorageAdapter.js"
 import {
@@ -14,52 +20,45 @@ import {
   connectBackends,
 } from "../../automerge-repo-subduction/test/transport.js"
 import { innerBackend } from "../src/KeyhiveBackend.js"
+import type { LocalKeyhive } from "../src/LocalKeyhive.js"
 import {
   KeyhiveBackend,
-  LocalKeyhive,
   initKeyhiveWasm,
   type KeyhiveBackendOptions,
 } from "../src/index.js"
 
 initKeyhiveWasm()
 
-export function generateKeys(): Promise<CryptoKeyPair> {
-  return crypto.subtle.generateKey("Ed25519", true, [
-    "sign",
-    "verify",
-  ]) as Promise<CryptoKeyPair>
-}
-
-/** A peer whose Subduction and keyhive identities use the same key. */
+/** A peer whose Subduction and keyhive identities use the key in `storage`. */
 export async function createPeer(
-  keys?: CryptoKeyPair,
   storage = new DummySubductionStorageAdapter(),
   options?: Partial<KeyhiveBackendOptions>
 ) {
-  const pair = keys ?? (await generateKeys())
-  const { d } = await crypto.subtle.exportKey("jwk", pair.privateKey)
-  const signer = N.createMemorySigner(
-    new Uint8Array(Buffer.from(d!, "base64url"))
-  )
-  const local = await LocalKeyhive.open(
-    await Signer.webCryptoSigner(pair),
-    storage
-  )
-  const backend = new KeyhiveBackend(local, {
+  const backend = await KeyhiveBackend.load({
     storage,
-    signer,
     syncTimeoutMilliseconds: 1000,
-    changesIn,
     ...options,
   })
+  const inner = innerBackend(backend)
   return {
-    signer,
-    keyhive: local.keyhive,
-    inner: innerBackend(backend),
+    signer: inner.signer(),
+    keyhive: backend.keyhive().keyhive(),
+    inner,
     backend,
-    keys: pair,
     storage,
   }
+}
+
+/** A new group on `local` with the owner of `card` as a member. */
+export async function groupWith(
+  local: LocalKeyhive,
+  card: ContactCard,
+  power: Power
+): Promise<GroupId> {
+  const group = await local.generateGroup([])
+  await local.receiveContactCard(card)
+  await local.addMember(card.id, MemberedId.group(group), power)
+  return group
 }
 
 export type TestPeer = Awaited<ReturnType<typeof createPeer>>

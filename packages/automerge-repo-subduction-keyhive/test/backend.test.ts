@@ -1,19 +1,30 @@
 import { Repo } from "@automerge/automerge-repo"
-import * as N from "@automerge/subduction"
 import { expect, it, vi } from "vitest"
 import { innerBackend } from "../src/KeyhiveBackend.js"
 import { createPeer } from "./helpers.js"
 
-it("rejects a signer whose key is not the keyhive's", async () => {
-  await expect(
-    createPeer(undefined, undefined, { signer: N.createMemorySigner() })
-  ).rejects.toThrow(/same key/)
+it("rejects a signing key that is not the stored keyhive's", async () => {
+  const { backend, storage } = await createPeer()
+  await backend.close()
+  const signingKey = crypto.getRandomValues(new Uint8Array(32))
+  await expect(createPeer(storage, { signingKey })).rejects.toThrow(
+    /cannot be loaded with the signer/
+  )
+})
+
+it("judges current only the archive format its keyhive writes", async () => {
+  const { backend } = await createPeer()
+  const access = backend.keyhive().access()
+  const archive = await access.toArchive()
+  expect(access.isCurrentArchive(archive)).toBe(true)
+  archive[4] ^= 1
+  expect(access.isCurrentArchive(archive)).toBe(false)
 })
 
 it("rejects a sync interval that is not positive", async () => {
-  await expect(
-    createPeer(undefined, undefined, { syncIntervalMs: 0 })
-  ).rejects.toThrow(RangeError)
+  await expect(createPeer(undefined, { syncIntervalMs: 0 })).rejects.toThrow(
+    RangeError
+  )
 })
 
 it("rejects a relay key that is not 32 bytes", async () => {

@@ -5,6 +5,7 @@ import { freeAfter, uint8ArrayToHex } from "./utilities.js"
 const ARCHIVE_KEY = "keyhive/archive"
 const EVENTS_PREFIX = "keyhive/events/"
 const PREKEY_SECRETS_KEY = "keyhive/prekey-secrets"
+const SIGNING_KEY = "keyhive/signing-key"
 
 /** Keyhive state in a storage adapter. */
 export class KeyhiveStorage {
@@ -37,6 +38,23 @@ export class KeyhiveStorage {
   async loadPrekeySecrets(keyhive: Keyhive): Promise<void> {
     const [bytes] = await this.adapter.loadMany([PREKEY_SECRETS_KEY])
     if (bytes) await keyhive.importPrekeySecrets(bytes)
+  }
+
+  /**
+   * This replica's 32-byte Ed25519 secret key. A new one is generated and
+   * saved if there is none. It is stored unencrypted.
+   */
+  async loadOrCreateSigningKey(): Promise<Uint8Array> {
+    const [stored] = await this.adapter.loadMany([SIGNING_KEY])
+    if (stored) {
+      if (stored.byteLength !== 32) {
+        throw new TypeError("The stored signing key is not 32 bytes")
+      }
+      return stored
+    }
+    const key = crypto.getRandomValues(new Uint8Array(32))
+    await this.adapter.saveBatch([[SIGNING_KEY, key]])
+    return key
   }
 
   async loadArchive(): Promise<Archive | undefined> {

@@ -10,12 +10,7 @@ import { ChangeId, Keyhive, Power } from "@keyhive/keyhive/slim"
 import { describe, expect, it, vi } from "vitest"
 import { recordRef } from "../src/DocumentRefs.js"
 import { uint8ArrayToHex } from "../src/utilities.js"
-import {
-  createPeer,
-  generateKeys,
-  unseenCommit,
-  type TestPeer,
-} from "./helpers.js"
+import { createPeer, unseenCommit, type TestPeer } from "./helpers.js"
 
 interface Note {
   text: string
@@ -29,8 +24,7 @@ function contains(haystack: Uint8Array, text: string): boolean {
 
 describe("KeyhiveBackend persistence", () => {
   it("stores only ciphertext and reads it back after a crash", async () => {
-    const keys = await generateKeys()
-    const writer = await createPeer(keys)
+    const writer = await createPeer()
     const writerRepo = new Repo({ backend: writer.backend })
     const handle = await writerRepo.create<Note>({ text: secret })
     handle.change(doc => {
@@ -41,7 +35,7 @@ describe("KeyhiveBackend persistence", () => {
     const stored = await writer.storage.loadPrefix("")
     for (const [, bytes] of stored) expect(contains(bytes, secret)).toBe(false)
 
-    const restarted = await createPeer(keys, writer.storage)
+    const restarted = await createPeer(writer.storage)
     const reader = new Repo({ backend: restarted.backend })
     const reopened = await reader.find<Note>(handle.url)
     expect(reopened.doc()).toEqual({ text: `${secret}, edited` })
@@ -53,14 +47,14 @@ describe("KeyhiveBackend persistence", () => {
     const [writer, member] = [await createPeer(), await createPeer()]
     const writerRepo = new Repo({ backend: writer.backend })
     const handle = await writerRepo.create<Note>({ text: "before" })
-    const card = await member.backend.repoKeyhive().contactCard()
+    const card = await member.backend.keyhive().getExistingContactCard()
     await handle.keyhive().addMemberFromContactCard(card, Power.read())
     handle.change(doc => {
       doc.text = "after"
     })
     await writerRepo.flush()
 
-    const restarted = await createPeer(writer.keys, writer.storage)
+    const restarted = await createPeer(writer.storage)
     const reader = new Repo({ backend: restarted.backend })
     const reopened = await reader.find<Note>(handle.url)
     expect(reopened.doc()).toEqual({ text: "after" })
@@ -153,11 +147,11 @@ describe("KeyhiveBackend persistence", () => {
 
   it("saves keyhive events after a failed write of them", async () => {
     const { backend } = await createPeer()
-    const { local } = backend
+    const local = backend.keyhive()
     const save = vi
       .spyOn(local.storage, "saveEvents")
       .mockRejectedValueOnce(new Error("disk full"))
-    await expect(backend.repoKeyhive().createGroup()).rejects.toThrow(
+    await expect(backend.keyhive().generateGroup([])).rejects.toThrow(
       "disk full"
     )
     const failed = save.mock.calls[0][0]
@@ -170,7 +164,7 @@ describe("KeyhiveBackend persistence", () => {
 
   it("closes the inner backend when saving keyhive state fails", async () => {
     const peer = await createPeer()
-    vi.spyOn(peer.backend.local.storage, "saveArchive").mockRejectedValue(
+    vi.spyOn(peer.backend.keyhive().storage, "saveArchive").mockRejectedValue(
       new Error("disk full")
     )
     const close = vi.spyOn(peer.inner, "close")
@@ -246,7 +240,7 @@ describe("KeyhiveBackend content refs", () => {
     let refusing = true
     const refs = encryptions(writer, () => refusing)
     const waiting = [1, 2].map(() => writer.backend.store(id, [fragment]))
-    await writer.backend.local.queue.run(async () => {})
+    await writer.backend.keyhive().queue.run(async () => {})
 
     refusing = false
     await Promise.all([...waiting, writer.backend.store(id, [fragment])])
@@ -263,7 +257,7 @@ describe("KeyhiveBackend content refs", () => {
     const refs = encryptions(writer, r => refusing && r !== ref)
     const first = writer.backend.store(id, [fragment, unseenCommit(doc)])
     const second = writer.backend.store(id, [fragment])
-    await writer.backend.local.queue.run(async () => {})
+    await writer.backend.keyhive().queue.run(async () => {})
 
     refusing = false
     await Promise.all([first, second, writer.backend.store(id, [fragment])])

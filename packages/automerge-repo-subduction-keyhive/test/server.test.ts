@@ -107,7 +107,7 @@ describe.skipIf(!binary)("through a Subduction sync server", () => {
   /** A peer that connects to `server` through its options, as an application does. */
   async function connectedPeer(server: Server) {
     const adapter = new WebSocketSubductionNetworkAdapter(server.url)
-    const peer = await createPeer(undefined, undefined, {
+    const peer = await createPeer(undefined, {
       relays: [server.key],
       network: [adapter],
     })
@@ -129,7 +129,7 @@ describe.skipIf(!binary)("through a Subduction sync server", () => {
     await handle
       .keyhive()
       .addMemberFromContactCard(
-        await bob.peer.backend.repoKeyhive().contactCard(),
+        await bob.peer.backend.keyhive().getExistingContactCard(),
         Power.edit()
       )
 
@@ -162,7 +162,7 @@ describe.skipIf(!binary)("through a Subduction sync server", () => {
     await handle
       .keyhive()
       .addMemberFromContactCard(
-        await bob.backend.repoKeyhive().contactCard(),
+        await bob.backend.keyhive().getExistingContactCard(),
         Power.read()
       )
     // Long enough for the document and the membership to reach the server.
@@ -193,7 +193,7 @@ describe.skipIf(!binary)("through a Subduction sync server", () => {
       await handle
         .keyhive()
         .addMemberFromContactCard(
-          await member.peer.backend.repoKeyhive().contactCard(),
+          await member.peer.backend.keyhive().getExistingContactCard(),
           Power.read()
         )
     }
@@ -219,7 +219,7 @@ describe.skipIf(!binary)("through a Subduction sync server", () => {
     await handle
       .keyhive()
       .addMemberFromContactCard(
-        await bob.backend.repoKeyhive().contactCard(),
+        await bob.backend.keyhive().getExistingContactCard(),
         Power.read()
       )
     await whenReady(bobRepo, handle.url)
@@ -243,7 +243,7 @@ describe.skipIf(!binary)("through a Subduction sync server", () => {
     await handle
       .keyhive()
       .addMemberFromContactCard(
-        await bob.backend.repoKeyhive().contactCard(),
+        await bob.backend.keyhive().getExistingContactCard(),
         Power.edit()
       )
     const atBob = await whenReady<Note>(bobRepo, handle.url)
@@ -271,7 +271,7 @@ describe.skipIf(!binary)("through a Subduction sync server", () => {
     await handle
       .keyhive()
       .addMemberFromContactCard(
-        await bob.backend.repoKeyhive().contactCard(),
+        await bob.backend.keyhive().getExistingContactCard(),
         Power.read()
       )
     const atBob = await whenReady<Note>(bobRepo, handle.url)

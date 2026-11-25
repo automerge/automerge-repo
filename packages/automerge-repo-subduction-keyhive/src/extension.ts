@@ -23,12 +23,7 @@ export const keyhive = defineExtension<KeyhiveSpec>({
     keyhive(context) {
       const { session } = context
       if (!session) throw documentClosed()
-      return new DocKeyhive(
-        session.local,
-        session.id,
-        session.storedHeads,
-        () => context.session
-      )
+      return new DocKeyhive(session.local, session.id, () => context.session)
     },
   },
 })
