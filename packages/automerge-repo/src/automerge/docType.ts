@@ -8,9 +8,8 @@ import {
   extractRecords,
 } from "../sedimentree/automerge/index.js"
 import { registryOf } from "../subdoc-handles/handle-registry.js"
-import { parsePath, serializePath } from "../subdoc-handles/parser.js"
+import { parsePath } from "../subdoc-handles/parser.js"
 import { AutomergeHandle } from "./handle.js"
-import type { CursorRange, Segment } from "../subdoc-handles/types.js"
 
 /** The default document type: Automerge, behind an {@link AutomergeHandle}. */
 export interface AutomergeDocType extends DocType<
@@ -85,13 +84,6 @@ export const automerge: AutomergeDocType = {
   handle: AutomergeHandle,
   openPath: (handle, path) =>
     (handle as AutomergeHandle<any>).sub(...(parsePath(path) as any[])),
-  scopeKey: scope => {
-    const { path, range } = scope as {
-      path: Segment[]
-      range?: CursorRange
-    }
-    return serializePath(range ? [...path, range] : path)
-  },
   of() {
     return this
   },

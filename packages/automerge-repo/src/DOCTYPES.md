@@ -185,11 +185,10 @@ openPath(handle, path) {
 }
 ```
 
-Returning `handle` (the whole document, or its view) is all a doc type other
-than Automerge can do today. Automerge implements `openPath` by parsing
-`path` into segments and returning `handle.sub(...)`, a handle for that part
-of the document; a public way for other doc types to build such handles is
-planned (see below).
+Returning `handle` (the whole document, or its view) is the common case for
+non-Automerge doc types. Sub-document handles (`sub()`) are Automerge-only:
+Automerge implements `openPath` by parsing `path` into segments and returning
+`handle.sub(...)`.
 
 - `path` is the raw string after the first `/`, so each doc type defines its
   own path syntax. `parseAutomergeUrl(url).path` reads it and
@@ -205,7 +204,3 @@ planned (see below).
   path whose target does not exist yet, return a handle that reads it as
   absent until it appears.
 - Without `openPath`, `repo.query` throws before registering the document.
-- Today only Automerge has built-in scoped handles, so a non-Automerge
-  handle's default `url` still reports the document's root URL (with heads,
-  if pinned). A public `Handle` API for building scoped handles with their
-  own URLs, stable identity and scoped change events is planned.

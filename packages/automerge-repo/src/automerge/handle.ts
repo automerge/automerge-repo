@@ -11,9 +11,7 @@ import type { AutomergeUrl, UrlHeads } from "../types.js"
 import {
   Handle as BaseHandle,
   type HandleOptions,
-  deriveHandle,
   handleHeads,
-  handleScope,
   handleState,
 } from "../Handle.js"
 import type { DocHandleEvents } from "./events.js"
@@ -67,9 +65,6 @@ type DocHandleOptions = HandleOptions & {
 /** The Automerge document a document's state is: the core keeps it opaque. */
 const automergeDoc = (state: DocumentState): A.Doc<any> =>
   state.current as A.Doc<any>
-
-/** Where an Automerge handle points: a symbolic path, and a text range. */
-type AutomergeScope = { path: PathSegment[]; range?: CursorRange }
 
 /** The events of a handle whose backend's extensions declare the spec `X`:
  * the core ones, and the spec's, each carrying the handle it is emitted on. */
@@ -132,27 +127,18 @@ export class AutomergeHandle<T> extends BaseHandle<
   }
 
   /** Symbolic path. Empty on root handles; pattern segments resolved via the registry. */
-  get #path(): PathSegment[] {
-    return (handleScope(this) as AutomergeScope | undefined)?.path ?? []
-  }
+  readonly #path: PathSegment[]
 
   /** Cursor range for text-range sub-handles. */
-  get #range(): CursorRange | undefined {
-    return (handleScope(this) as AutomergeScope | undefined)?.range
-  }
+  readonly #range?: CursorRange
 
   /** @internal Handles are obtained from a {@link Repo} or another handle. */
   constructor(state: DocumentState, options: DocHandleOptions = {}) {
-    // An Automerge scope, as `deriveHandle` passes it.
-    const scope = options.scope as AutomergeScope | undefined
-    const path = scope?.path ?? options.pathSegments ?? []
-    const range = scope?.range ?? options.range
-    super(state, {
-      heads: options.heads,
-      scope: path.length || range ? { path, range } : undefined,
-    })
+    super(state, { heads: options.heads })
+    this.#path = options.pathSegments ?? []
+    this.#range = options.range
 
-    // Register in the per-document trie so dispatch can find us.
+    // Register in the per-document trie so dispatch and identity lookup find us.
     const node = registryOf(this.#state).getOrCreateNode(this.#path)
     registryOf(this.#state).cacheHandle(
       node,
@@ -583,10 +569,21 @@ export class AutomergeHandle<T> extends BaseHandle<
     // is scoped to this handle's path.)
     const { path, range } = this.#normalizePath(this.fullDoc(), combined)
 
-    return deriveHandle(
-      this,
-      path.length || range ? { path, range } : undefined,
-      heads
+    const state = this.#state
+    if (path.length === 0 && !range && !heads) {
+      return state.handle as AutomergeHandle<any>
+    }
+
+    return registryOf(state).getOrCreateHandle(
+      path,
+      range,
+      heads,
+      () =>
+        new (state.Handle as typeof AutomergeHandle)(state, {
+          heads,
+          pathSegments: path,
+          range,
+        })
     ) as AutomergeHandle<any>
   }
 

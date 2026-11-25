@@ -96,9 +96,6 @@ export interface DocType<
    */
   openPath?(handle: AnyHandle, path: string): AnyHandle
 
-  /** @internal Identity of a handle scope, for caching derived handles. */
-  scopeKey?(scope: unknown): string
-
   /**
    * @internal How a change reaches handles' `change` listeners, in place of
    * sending every writable listening handle `{ handle, doc }`. Called when

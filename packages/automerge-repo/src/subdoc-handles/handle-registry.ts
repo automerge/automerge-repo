@@ -16,9 +16,9 @@ import { matchesPattern } from "./utils.js"
 type ScopedChange = { patches: A.Patch[]; scopeReplaced: boolean }
 
 /**
- * Per-document trie of an Automerge document's live handles, for pattern
- * resolution caching and `change` dispatch scoped to each handle's path.
- * Handle identity is `deriveHandle`'s; this only tracks handles to notify.
+ * Per-document trie of an Automerge document's live handles, for handle
+ * identity, pattern resolution caching, and `change` dispatch scoped to each
+ * handle's path.
  *
  * Each symbolic path is exactly one trie node, carrying a
  * `Map<variantKey, WeakRef<DocHandle>>` for all variants at that path
@@ -73,6 +73,20 @@ export class HandleRegistry {
       node = descendCreating(node, seg)
     }
     return node
+  }
+
+  /** Return the cached handle for `(symbolicPath, range, fixedHeads)`, or create one. */
+  getOrCreateHandle<H extends DocHandle<any>>(
+    symbolicPath: readonly PathSegment[],
+    range: CursorRange | undefined,
+    fixedHeads: UrlHeads | undefined,
+    create: () => H
+  ): H {
+    const node = this.getOrCreateNode(symbolicPath)
+    const existing = node.handles
+      .get(variantKey(range, fixedHeads))
+      ?.deref() as H | undefined
+    return existing ?? create()
   }
 
   /** Cache `handle` at `(node, range, fixedHeads)`. */
@@ -641,7 +655,6 @@ function variantKey(
   fixedHeads: UrlHeads | undefined
 ): string {
   const r = range ? `${range.start}-${range.end}` : ""
-  const h =
-    fixedHeads && fixedHeads.length > 0 ? `#${headsKey(fixedHeads)}` : ""
+  const h = fixedHeads !== undefined ? `#${headsKey(fixedHeads)}` : ""
   return `${r}${h}`
 }

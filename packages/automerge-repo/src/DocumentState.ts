@@ -35,7 +35,7 @@ export class DocumentState {
   readonly docType: AnyDocType
   /** What the type is told about this document. */
   readonly context: DocTypeContext
-  /** Derived handles (views, scoped handles), weakly held. */
+  /** View handles, keyed by heads and weakly held. */
   readonly handles = new WeakValueMap<string, Handle<any, any, any>>()
   readonly listeners: Listeners
   readonly log: Logger

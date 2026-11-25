@@ -4,7 +4,7 @@ import {
   stringifyAutomergeUrl,
 } from "./AutomergeUrl.js"
 import type { DocumentState } from "./DocumentState.js"
-import { mergeStates } from "./DocType.js"
+import { mergeStates, requireView } from "./DocType.js"
 import type {
   DocumentId,
   AutomergeUrl,
@@ -74,40 +74,15 @@ export interface HandleEventApi<E extends object> {
 /** @internal Construction options; only Repo and other handles build handles. */
 export type HandleOptions = {
   heads?: UrlHeads
-  /** Where in the document this handle points; the doc type interprets it. */
-  scope?: unknown
 }
 
 let stateOf: (handle: AnyHandle) => DocumentState
-let scopeOf: (handle: AnyHandle) => unknown
 let fixedHeadsOf: (handle: AnyHandle) => UrlHeads | undefined
 
 /** @internal The document state behind a handle. */
 export const handleState = (handle: AnyHandle) => stateOf(handle)
-/** @internal A handle's scope; `undefined` for the whole document. */
-export const handleScope = (handle: AnyHandle) => scopeOf(handle)
 /** @internal A handle's fixed heads, if it is a view. */
 export const handleHeads = (handle: AnyHandle) => fixedHeadsOf(handle)
-
-/**
- * @internal The handle for `scope` at `heads` on `handle`'s document: the
- * cached one, or a new one of the document's handle class.
- */
-export function deriveHandle(
-  handle: AnyHandle,
-  scope: unknown,
-  heads: UrlHeads | undefined
-): AnyHandle {
-  const state = stateOf(handle)
-  if (scope === undefined && !heads) return state.handle
-  const scopeKey = scope === undefined ? "" : state.docType.scopeKey?.(scope)
-  const headsKey = heads ? [...heads].sort().join(",") : ""
-  const key = `${scopeKey ?? ""}#${headsKey}`
-  return state.handles.getOrCompute(
-    key,
-    () => new state.Handle(state, { heads, scope: scope as any })
-  )
-}
 
 /**
  * The parts of a handle every document type has: identity, reading at the
@@ -125,7 +100,6 @@ export class Handle<
 > implements HandleEventApi<E> {
   static {
     stateOf = handle => handle.#state
-    scopeOf = handle => handle.#scope
     fixedHeadsOf = handle => handle.#heads
   }
 
@@ -144,13 +118,11 @@ export class Handle<
   readonly #state: DocumentState
   /** If set, this handle shows the document only at these heads. */
   readonly #heads?: UrlHeads
-  readonly #scope: unknown
 
   /** @internal Handles are obtained from a {@link Repo} or another handle. */
   constructor(state: DocumentState, options: HandleOptions = {}) {
     this.#state = state
     this.#heads = options.heads
-    this.#scope = options.scope
   }
 
   get documentId(): DocumentId {
@@ -204,7 +176,13 @@ export class Handle<
 
   /** A read-only handle to the document as of `heads`. */
   view(heads: UrlHeads): this {
-    return deriveHandle(this, this.#scope, heads) as this
+    const state = this.#state
+    requireView(state.docType)
+    const key = [...heads].sort().join(",")
+    return state.handles.getOrCompute(
+      key,
+      () => new state.Handle(state, { heads })
+    ) as this
   }
 
   /** Returns the heads and the timestamp of the last update from the given peer. */
