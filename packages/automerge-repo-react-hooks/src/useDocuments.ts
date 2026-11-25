@@ -4,10 +4,11 @@ import type {
   AutomergeKind,
   AutomergeUrl,
   DocHandle,
+  DocumentUrl,
   HandleKind,
   KindOf,
-  NameOf,
   Repo,
+  SchemeOf,
 } from "@automerge/automerge-repo/slim"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim"
 import { useCallback, useEffect, useState } from "react"
@@ -37,11 +38,11 @@ export type UseDocumentsReturnOf<S, K extends HandleKind> = [K] extends [
   ? [DocMap<S>, ChangeDocFn<S>]
   : [
       Map<
-        AutomergeUrl,
+        DocumentUrl<K["scheme"]>,
         Exclude<ReturnType<DocHandle<S, {}, K>["doc"]>, undefined>
       >,
       (
-        id: AutomergeUrl,
+        id: DocumentUrl<K["scheme"]>,
         ...args: Parameters<DocHandle<S, {}, K>["change"]>
       ) => Promise<void>,
     ]
@@ -59,7 +60,7 @@ export function useDocuments<
   D extends AnyDocType = AutomergeDocType,
   S = T,
 >(
-  ids: AutomergeUrl<NameOf<D>>[],
+  ids: DocumentUrl<SchemeOf<D>>[],
   options?: UseDocumentsOptions & DocTypeOption<D, S>
 ): UseDocumentsReturnOf<S, KindOf<D>> {
   return useDocumentsIn(useRepo(), ids, options) as UseDocumentsReturnOf<
@@ -71,15 +72,15 @@ export function useDocuments<
 /** @internal {@link useDocuments} on a given Repo. */
 export function useDocumentsIn(
   repo: Repo,
-  ids: AutomergeUrl[],
+  ids: DocumentUrl[],
   { suspense = true, docType }: AnyHookParams = {}
 ): [
-  Map<AutomergeUrl, unknown>,
-  (id: AutomergeUrl, ...args: any[]) => Promise<void>,
+  Map<DocumentUrl, unknown>,
+  (id: DocumentUrl, ...args: any[]) => Promise<void>,
 ] {
   const handleMap = useDocHandlesIn(repo, ids, { suspense, docType })
   const [docMap, setDocMap] = useState(() => {
-    const docs = new Map<AutomergeUrl, unknown>()
+    const docs = new Map<DocumentUrl, unknown>()
     handleMap.forEach((handle, id) => {
       if (handle) docs.set(id, handle.doc())
     })
@@ -87,7 +88,7 @@ export function useDocumentsIn(
   })
 
   useEffect(() => {
-    const listeners = new Map<AutomergeUrl, () => void>()
+    const listeners = new Map<DocumentUrl, () => void>()
 
     handleMap.forEach((handle, id) => {
       if (handle) {
@@ -133,7 +134,7 @@ export function useDocumentsIn(
   }, [handleMap])
 
   const changeDoc = useCallback(
-    async (id: AutomergeUrl, ...args: any[]) => {
+    async (id: DocumentUrl, ...args: any[]) => {
       const handle = handleMap.get(id)
       if (handle) {
         return handle.change(...(args as [any]))

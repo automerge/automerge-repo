@@ -1,11 +1,11 @@
 import type {
   AnyDocType,
   AutomergeDocType,
-  AutomergeUrl,
   DocHandle,
+  DocumentUrl,
   KindOf,
-  NameOf,
   Repo,
+  SchemeOf,
 } from "@automerge/automerge-repo/slim"
 import {
   createEffect,
@@ -41,7 +41,7 @@ export default function useDocHandle<
   D extends AnyDocType = AutomergeDocType,
   S = T,
 >(
-  url: MaybeAccessor<AutomergeUrl<NameOf<D>> | undefined>,
+  url: MaybeAccessor<DocumentUrl<SchemeOf<D>> | undefined>,
   options?: UseDocHandleOptions & DocTypeOption<D, S>
 ): Resource<DocHandle<S, {}, KindOf<D>> | undefined> {
   return useDocHandleIn(repoFor(options), url, options) as Resource<
@@ -61,7 +61,7 @@ export function repoFor(options?: UseDocHandleOptions): Repo {
 /** @internal {@link useDocHandle} on a given Repo. */
 export function useDocHandleIn(
   repo: Repo,
-  url: MaybeAccessor<AutomergeUrl | undefined>,
+  url: MaybeAccessor<DocumentUrl | undefined>,
   options?: Pick<AnyOptions, "~skipInitialValue" | "docType">
 ): Resource<AnyHandle | undefined> {
   // Typed as Automerge's: `repo.query` and `repo.find` default to it.

@@ -5,13 +5,13 @@ import type {
   AutomergeDocType,
   DocHandle,
   KindOf,
-  NameOf,
   Of,
   Repo,
+  SchemeOf,
 } from "@automerge/automerge-repo/slim"
 import { wrapPromise, type PromiseWrapper } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
-import { cacheKey, handleCache, normalizeId } from "./handleCache.js"
+import { cacheKey, handleCache } from "./handleCache.js"
 import { useEffect, useRef, useState } from "react"
 
 export interface UseDocHandleSuspendingParams {
@@ -53,7 +53,7 @@ export function useDocHandle<
   D extends AnyDocType = AutomergeDocType,
   S = T,
 >(
-  id: AnyDocumentId<NameOf<D>>,
+  id: AnyDocumentId<SchemeOf<D>>,
   params: UseDocHandleSuspendingParams & DocTypeOption<D, S>
 ): DocHandle<S, {}, KindOf<D>>
 export function useDocHandle<
@@ -61,7 +61,7 @@ export function useDocHandle<
   D extends AnyDocType = AutomergeDocType,
   S = T,
 >(
-  id: AnyDocumentId<NameOf<D>> | undefined,
+  id: AnyDocumentId<SchemeOf<D>> | undefined,
   params?: { suspense?: false } & DocTypeOption<D, S>
 ): DocHandle<S, {}, KindOf<D>> | undefined
 export function useDocHandle(
@@ -78,17 +78,16 @@ export function useDocHandleIn(
   { suspense = false, docType }: AnyHookParams = {}
 ): AnyHandle | undefined {
   const controllerRef = useRef<AbortController | undefined>(undefined)
-  // With the Repo it came from: a handle found on another Repo (the provided
-  // one changed) is not this Repo's.
+  // With the Repo and lookup key it came from: a handle found on another Repo
+  // or for another ID/docType is not this lookup's.
   const [found, setFound] = useState<
-    { repo: Repo; handle: AnyHandle } | undefined
+    { repo: Repo; key: string; handle: AnyHandle } | undefined
   >()
-  const handle = found?.repo === repo ? found.handle : undefined
-  const name = docType?.name
+  const scheme = docType?.scheme
+  const key = id ? cacheKey(id, scheme) : undefined
 
   let currentHandle: AnyHandle | undefined =
-    // make sure the handle matches the id
-    id && handle && handle.url === normalizeId(id, name) ? handle : undefined
+    found && found.repo === repo && found.key === key ? found.handle : undefined
 
   // Typed as Automerge's: `repo.query` and `repo.find` default to it.
   const options = { docType } as { docType: AnyDocType }
@@ -101,7 +100,6 @@ export function useDocHandleIn(
   }
 
   const cache = handleCache(repo)
-  const key = id ? cacheKey(id, name) : undefined
   let wrapper = key ? cache.get(key) : undefined
   if (!wrapper && id && key) {
     controllerRef.current?.abort()
@@ -122,7 +120,7 @@ export function useDocHandleIn(
    * re-running this function until it succeeds, whereas the synchronous
    * form uses a setState to track the value. */
   useEffect(() => {
-    if (currentHandle || suspense || !wrapper) {
+    if (currentHandle || suspense || !wrapper || !key) {
       return
     }
     // Stays true until this effect run is torn down (unmount or id change); a
@@ -130,7 +128,7 @@ export function useDocHandleIn(
     let active = true
     wrapper.promise
       .then(handle => {
-        if (active) setFound({ repo, handle: handle as AnyHandle })
+        if (active) setFound({ repo, key, handle: handle as AnyHandle })
       })
       .catch(() => {
         // Drop the failed wrapper so a later render retries instead of reusing

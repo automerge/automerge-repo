@@ -1,11 +1,11 @@
 import type {
   AnyDocType,
   AutomergeDocType,
-  AutomergeUrl,
   DocHandle,
+  DocumentUrl,
   KindOf,
-  NameOf,
   Repo,
+  SchemeOf,
 } from "@automerge/automerge-repo/slim"
 import { repoFor, useDocHandleIn } from "./useDocHandle.js"
 import createDocSignal from "./createDocSignal.js"
@@ -34,7 +34,7 @@ export default function useDocSignal<
   D extends AnyDocType = AutomergeDocType,
   S = T,
 >(
-  url: MaybeAccessor<AutomergeUrl<NameOf<D>> | undefined>,
+  url: MaybeAccessor<DocumentUrl<SchemeOf<D>> | undefined>,
   options?: UseDocHandleOptions & DocTypeOption<D, S>
 ): DocAndHandle<DocHandle<S, {}, KindOf<D>>> {
   return useDocSignalIn(repoFor(options), url, options) as DocAndHandle<
@@ -45,7 +45,7 @@ export default function useDocSignal<
 /** @internal {@link useDocSignal} on a given Repo. */
 export function useDocSignalIn(
   repo: Repo,
-  url: MaybeAccessor<AutomergeUrl | undefined>,
+  url: MaybeAccessor<DocumentUrl | undefined>,
   options?: Pick<AnyOptions, "~skipInitialValue" | "docType">
 ): [Accessor<unknown>, Resource<AnyHandle | undefined>] {
   const handle = useDocHandleIn(repo, url, options)

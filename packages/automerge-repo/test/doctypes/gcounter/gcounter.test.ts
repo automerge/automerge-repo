@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { Repo } from "../../../src/Repo.js"
 import { automerge } from "../../../src/automerge/docType.js"
 import { isHandleOf } from "../../../src/types/DocHandle.js"
-import { stringifyAutomergeUrl } from "../../../src/AutomergeUrl.js"
+import {
+  stringifyAutomergeUrl,
+  stringifyDocumentUrl,
+} from "../../../src/AutomergeUrl.js"
 import { defineDocType } from "../../../src/DocType.js"
 import {
   Handle,
@@ -12,7 +15,7 @@ import {
 import { defineExtension, provides } from "../../../src/sedimentree/index.js"
 import { MemoryBackend } from "../../../src/sedimentree/memory/MemoryBackend.js"
 import { gcounter, type CounterState } from "./gcounter.js"
-import type { AutomergeUrl } from "../../../src/types.js"
+import type { DocumentUrl, UrlHeads } from "../../../src/types.js"
 
 /** A member every handle of a Repo on its backend gets. */
 const describes = defineExtension<{ members: { describe(): string } }>({
@@ -71,7 +74,7 @@ describe("a G-Counter doc type", () => {
     }
     const deltaCounter = defineDocType({
       ...gcounter,
-      name: "delta-gcounter",
+      scheme: "delta-gcounter",
       handle: DeltaHandle,
     })
     const counter = await repo().create(1, { docType: deltaCounter })
@@ -97,7 +100,7 @@ describe("a G-Counter doc type", () => {
     }
     const flaky = defineDocType({
       ...gcounter,
-      name: "flaky-gcounter",
+      scheme: "flaky-gcounter",
       handle: FlakyHandle,
     })
     const counter = await repo().create(1, { docType: flaky })
@@ -138,10 +141,10 @@ describe("a G-Counter doc type", () => {
     )
   })
 
-  it("names its doc type in URLs and requires its type to open them", async () => {
+  it("uses its scheme in URLs and requires its type to open them", async () => {
     const backend = new MemoryBackend()
     const counter = await repo(backend).create(1, { docType: gcounter })
-    expect(counter.url).toMatch(/^automerge:gcounter:/)
+    expect(counter.url).toMatch(/^gcounter:/)
     const other = repo(backend)
     // Typed URLs are checked at compile time too; plain strings only here.
     // @ts-expect-error a counter's URL needs its doc type
@@ -182,74 +185,139 @@ describe("a G-Counter doc type", () => {
     expect(isHandleOf({ "~spec": {} } as object, automerge)).toBe(false)
   })
 
-  it("rejects Automerge-only operations", async () => {
+  it("rejects Automerge-only operations and unsupported URL suffixes", async () => {
     const r = repo()
     const counter = await r.create(1, { docType: gcounter })
     await expect(r.export(counter.url)).rejects.toThrow(/of doc type gcounter/)
     await expect(r.clone(counter as any)).rejects.toThrow(/cloned/)
-    const withPath = `${counter.url}/path` as AutomergeUrl
-    expect(() => r.query(withPath, { docType: gcounter })).toThrow(/no paths/)
+    const withPath = `${counter.url}/path` as DocumentUrl<"gcounter">
+    expect(() => r.query(withPath, { docType: gcounter })).toThrow(/suffix/)
+    const withHeads =
+      `${counter.url}#${counter.heads()[0]}` as DocumentUrl<"gcounter">
+    expect(() => r.query(withHeads, { docType: gcounter })).toThrow(/suffix/)
   })
 
-  it("opens URL paths through openPath, with heads pinned first, and rejects if it throws", async () => {
-    const opened: { path: string; readOnly: boolean; doc: unknown }[] = []
-    const withPaths = defineDocType({
+  it("formats and opens custom URL suffixes through urlSuffix and openUrl", async () => {
+    const opened: { suffix: string; readOnly: boolean; doc: unknown }[] = []
+    const withSuffixes = defineDocType({
       ...gcounter,
-      name: "pathed-gcounter",
-      openPath: (handle, path) => {
-        if (path === "bad") throw new Error("unknown path: bad")
-        opened.push({ path, readOnly: handle.isReadOnly(), doc: handle.doc() })
-        return handle
+      scheme: "suffixed-gcounter",
+      urlSuffix: handle =>
+        handle.isReadOnly() ? `?at=${handle.heads().join(",")}` : undefined,
+      openUrl: suffix => {
+        if (suffix === "/invalid-syntax")
+          throw new Error("bad suffix: /invalid-syntax")
+        const [part, query] = suffix.split("?")
+        const at = new URLSearchParams(query ?? "").get("at")
+        const heads = at ? (at.split(",") as UrlHeads) : undefined
+        return {
+          heads,
+          open:
+            part && part.length > 0
+              ? handle => {
+                  if (part === "/bad") throw new Error("unknown target: /bad")
+                  opened.push({
+                    suffix,
+                    readOnly: handle.isReadOnly(),
+                    doc: handle.doc(),
+                  })
+                  return handle
+                }
+              : undefined,
+        }
       },
     })
     const backend = new MemoryBackend()
     const a = repo(backend)
-    const counter = await a.create(1, { docType: withPaths })
+    const counter = await a.create(1, { docType: withSuffixes })
     const initialHeads = counter.heads()
     await counter.increment(4)
     await a.flush()
 
-    const b = repo(backend)
-    const liveUrl = stringifyAutomergeUrl({
-      documentId: counter.documentId,
-      docType: withPaths,
-      path: "sub/item",
-    })
-    const live = await b.find(liveUrl, { docType: withPaths })
-    expect(live.doc()).toBe(5)
-    expect(opened[0]).toEqual({ path: "sub/item", readOnly: false, doc: 5 })
+    // urlSuffix formats pinned view URLs; root URL stays bare.
+    expect(counter.url).toBe(`suffixed-gcounter:${counter.documentId}`)
+    const view = counter.view(initialHeads)
+    expect(view.url).toBe(
+      `suffixed-gcounter:${counter.documentId}?at=${initialHeads.join(",")}`
+    )
 
-    // When a URL has both `#heads` and `/path`, `openPath` receives the view.
-    const pinnedUrl = stringifyAutomergeUrl({
+    const b = repo(backend)
+    const roundTripped = await b.find(view.url, { docType: withSuffixes })
+    expect(roundTripped.isReadOnly()).toBe(true)
+    expect(roundTripped.doc()).toBe(1)
+
+    const liveUrl = stringifyDocumentUrl({
       documentId: counter.documentId,
-      docType: withPaths,
-      path: "at-initial",
-      heads: initialHeads,
+      scheme: withSuffixes.scheme,
+      suffix: "/sub/item",
     })
-    const pinned = await b.find(pinnedUrl, { docType: withPaths })
+    const live = await b.find(liveUrl, { docType: withSuffixes })
+    expect(live.doc()).toBe(5)
+    expect(opened[0]).toEqual({ suffix: "/sub/item", readOnly: false, doc: 5 })
+
+    // When a URL has both a target and heads, `open` receives the view.
+    const pinnedUrl = stringifyDocumentUrl({
+      documentId: counter.documentId,
+      scheme: withSuffixes.scheme,
+      suffix: `/at-initial?at=${initialHeads.join(",")}`,
+    })
+    const pinned = await b.find(pinnedUrl, { docType: withSuffixes })
     expect(pinned.isReadOnly()).toBe(true)
     expect(pinned.doc()).toBe(1)
-    expect(opened[1]).toEqual({ path: "at-initial", readOnly: true, doc: 1 })
-
-    // A throwing `openPath` rejects `find` on a fresh (loading) Repo, while
-    // leaving the root document ready.
-    const c = repo(backend)
-    const badUrl = stringifyAutomergeUrl({
-      documentId: counter.documentId,
-      docType: withPaths,
-      path: "bad",
+    expect(opened[1]).toEqual({
+      suffix: `/at-initial?at=${initialHeads.join(",")}`,
+      readOnly: true,
+      doc: 1,
     })
-    await expect(c.find(badUrl, { docType: withPaths })).rejects.toThrow(
-      "unknown path: bad"
+
+    // Sync syntax error in `openUrl` throws before registering the document.
+    const c = repo(backend)
+    expect(() =>
+      c.query(
+        stringifyDocumentUrl({
+          documentId: counter.documentId,
+          scheme: withSuffixes.scheme,
+          suffix: "/invalid-syntax",
+        }),
+        { docType: withSuffixes }
+      )
+    ).toThrow("bad suffix: /invalid-syntax")
+    // Invalid base58check heads returned by `openUrl` also fail before registering.
+    expect(() =>
+      c.query(
+        stringifyDocumentUrl({
+          documentId: counter.documentId,
+          scheme: withSuffixes.scheme,
+          suffix: "?at=not-valid-base58",
+        }),
+        { docType: withSuffixes }
+      )
+    ).toThrow(/Invalid heads/)
+    expect(Object.keys(c.handles)).toEqual([])
+
+    // A throwing `open` rejects `find` on a fresh (loading) Repo, while
+    // leaving the root document ready.
+    const badUrl = stringifyDocumentUrl({
+      documentId: counter.documentId,
+      scheme: withSuffixes.scheme,
+      suffix: "/bad",
+    })
+    await expect(c.find(badUrl, { docType: withSuffixes })).rejects.toThrow(
+      "unknown target: /bad"
     )
-    expect((await c.find(counter.url, { docType: withPaths })).doc()).toBe(5)
+    expect((await c.find(counter.url, { docType: withSuffixes })).doc()).toBe(5)
   })
 
-  it("does not register a document when a lookup asks for unsupported views or paths", async () => {
+  it("does not register a document when a lookup asks for unsupported views or suffixes", async () => {
     const noViews = defineDocType({
       ...gcounter,
-      name: "viewless-gcounter",
+      scheme: "viewless-gcounter",
       view: undefined,
+      openUrl: suffix => ({ heads: [suffix.slice(1)] as UrlHeads }),
+    })
+    const noSuffixes = defineDocType({
+      ...gcounter,
+      scheme: "bare-gcounter",
     })
     const backend = new MemoryBackend()
     const writer = repo(backend)
@@ -257,37 +325,45 @@ describe("a G-Counter doc type", () => {
     await writer.flush()
 
     const reader = repo(backend)
-    const withHeads = stringifyAutomergeUrl({
+    const withHeads = stringifyDocumentUrl({
       documentId: counter.documentId,
-      docType: noViews,
-      heads: counter.heads(),
+      scheme: noViews.scheme,
+      suffix: `#${counter.heads()[0]}`,
     })
     expect(() => reader.query(withHeads, { docType: noViews })).toThrow(
       /no views/
     )
-    const withPath = stringifyAutomergeUrl({
+    const withSuffix = stringifyDocumentUrl({
       documentId: counter.documentId,
-      docType: noViews,
-      path: "sub",
+      scheme: noSuffixes.scheme,
+      suffix: "/sub",
     })
-    expect(() => reader.query(withPath, { docType: noViews })).toThrow(
-      /no paths/
+    expect(() => reader.query(withSuffix, { docType: noSuffixes })).toThrow(
+      /suffix/
     )
     expect(Object.keys(reader.handles)).toEqual([])
   })
 
-  it("rejects invalid handles returned from openPath", async () => {
+  it("rejects invalid handles returned from openUrl", async () => {
     const r = repo()
     const other = await r.create(99, { docType: gcounter })
     let rootRef: any
     let mode: "not-a-handle" | "other-doc" | "dropped-view" = "not-a-handle"
     const broken = defineDocType({
       ...gcounter,
-      name: "broken-paths",
-      openPath: () => {
-        if (mode === "not-a-handle") return { fake: true } as any
-        if (mode === "other-doc") return other
-        return rootRef
+      scheme: "broken-urls",
+      openUrl: suffix => {
+        const heads = suffix.includes("#")
+          ? ([suffix.split("#")[1]] as UrlHeads)
+          : undefined
+        return {
+          heads,
+          open: () => {
+            if (mode === "not-a-handle") return { fake: true } as any
+            if (mode === "other-doc") return other
+            return rootRef
+          },
+        }
       },
     })
     const counter = await r.create(1, { docType: broken })
@@ -297,10 +373,10 @@ describe("a G-Counter doc type", () => {
     mode = "not-a-handle"
     await expect(
       r.find(
-        stringifyAutomergeUrl({
+        stringifyDocumentUrl({
           documentId: counter.documentId,
-          docType: broken,
-          path: "a",
+          scheme: broken.scheme,
+          suffix: "/a",
         }),
         { docType: broken }
       )
@@ -309,10 +385,10 @@ describe("a G-Counter doc type", () => {
     mode = "other-doc"
     await expect(
       r.find(
-        stringifyAutomergeUrl({
+        stringifyDocumentUrl({
           documentId: counter.documentId,
-          docType: broken,
-          path: "b",
+          scheme: broken.scheme,
+          suffix: "/b",
         }),
         { docType: broken }
       )
@@ -321,18 +397,17 @@ describe("a G-Counter doc type", () => {
     mode = "dropped-view"
     await expect(
       r.find(
-        stringifyAutomergeUrl({
+        stringifyDocumentUrl({
           documentId: counter.documentId,
-          docType: broken,
-          path: "c",
-          heads,
+          scheme: broken.scheme,
+          suffix: `/c#${heads[0]}`,
         }),
         { docType: broken }
       )
     ).rejects.toThrow(/preserve the view's heads/)
   })
 
-  it("fires change, heads-changed and resolves find(url#heads) when apply mutates state in place", async () => {
+  it("fires change, heads-changed and resolves find(url with heads) when apply mutates state in place", async () => {
     const copyInto = (
       target: CounterState | undefined,
       next: CounterState
@@ -348,11 +423,12 @@ describe("a G-Counter doc type", () => {
     }
     const mutable = defineDocType({
       ...gcounter,
-      name: "mutable-gcounter",
+      scheme: "mutable-gcounter",
       change: (state, amount: number, ctx) =>
         copyInto(state, gcounter.change(state, amount, ctx)),
       apply: (state, records) =>
         copyInto(state, gcounter.apply(state, records)),
+      openUrl: suffix => ({ heads: suffix.slice(1).split("|") as UrlHeads }),
     })
     const backend = new MemoryBackend()
     const a = repo(backend)
@@ -363,15 +439,15 @@ describe("a G-Counter doc type", () => {
     let headsChanged = 0
     reader.on("change", ({ doc }) => changes.push(doc))
     reader.on("heads-changed", () => headsChanged++)
-    // Edit on writer: produces a future head we also ask `b.find(url#heads)` to wait for.
+    // Edit on writer: produces a future head we also ask `b.find` to wait for.
     const isolated = repo()
     const fork = await isolated.create(0, { docType: mutable })
     await fork.merge(writer)
     await fork.increment(4)
-    const targetUrl = stringifyAutomergeUrl({
-      docType: mutable,
+    const targetUrl = stringifyDocumentUrl({
+      scheme: mutable.scheme,
       documentId: writer.documentId,
-      heads: fork.heads(),
+      suffix: `#${fork.heads().join("|")}`,
     })
     const waiting = b.find(targetUrl, { docType: mutable })
     await writer.merge(fork)

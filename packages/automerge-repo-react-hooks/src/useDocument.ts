@@ -6,8 +6,8 @@ import type {
   DocHandle,
   HandleKind,
   KindOf,
-  NameOf,
   Repo,
+  SchemeOf,
 } from "@automerge/automerge-repo/slim"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim"
 import { useCallback, useEffect, useState } from "react"
@@ -83,7 +83,7 @@ export function useDocument<
   D extends AnyDocType = AutomergeDocType,
   S = T,
 >(
-  id: AnyDocumentId<NameOf<D>>,
+  id: AnyDocumentId<SchemeOf<D>>,
   params: UseDocumentSuspendingParams & DocTypeOption<D, S>
 ): UseDocumentReturnOf<S, KindOf<D>>
 export function useDocument<
@@ -91,7 +91,7 @@ export function useDocument<
   D extends AnyDocType = AutomergeDocType,
   S = T,
 >(
-  id: AnyDocumentId<NameOf<D>> | undefined,
+  id: AnyDocumentId<SchemeOf<D>> | undefined,
   params?: { suspense?: false } & DocTypeOption<D, S>
 ): UseDocumentReturnOf<S, KindOf<D>> | [undefined, () => Promise<void>]
 export function useDocument(

@@ -5,9 +5,9 @@ import {
   Handle,
   MemoryBackend,
   Repo,
-  type AutomergeUrl,
   type DocType,
   type DocTypeHelpers,
+  type DocumentUrl,
   type HandleKind,
   type Shaped,
 } from "@automerge/automerge-repo"
@@ -79,7 +79,7 @@ declare class CounterHandle extends Handle<number, number> {
   increment(): Promise<void>
 }
 interface Counter extends HandleKind {
-  readonly name: "counter"
+  readonly scheme: "counter"
   readonly handle: CounterHandle
 }
 declare const counterType: DocType<
@@ -92,14 +92,14 @@ declare const counterType: DocType<
 > &
   DocTypeHelpers<CounterHandle, "counter">
 const counter = counterType.as<Counter>()
-declare const counterUrl: AutomergeUrl<"counter">
+declare const counterUrl: DocumentUrl<"counter">
 
 // A doc type whose handles are generic in the shape, given with `of`.
 declare class RegisterHandle<T> extends Handle<T, T> {
   get<K extends keyof T>(key: K): T[K]
 }
 interface Register extends Shaped {
-  readonly name: "register"
+  readonly scheme: "register"
   readonly handle: RegisterHandle<this["Shape"]>
 }
 declare const registerType: DocType<
@@ -112,7 +112,7 @@ declare const registerType: DocType<
 > &
   DocTypeHelpers<RegisterHandle<unknown>, "register">
 const register = registerType.as<Register>()
-declare const registerUrl: AutomergeUrl<"register">
+declare const registerUrl: DocumentUrl<"register">
 
 export async function shaped() {
   const stores = createAutomergeStore(repo)
@@ -121,7 +121,7 @@ export async function shaped() {
   })
   store?.handle.get("title") satisfies string | undefined
   store?.handle.ping()
-  store?.url satisfies AutomergeUrl<"register"> | undefined
+  store?.url satisfies DocumentUrl<"register"> | undefined
   store?.subscribe(value => value?.title satisfies string | undefined)
   void store?.change({ title: "x" })
   // @ts-expect-error a register holds a Todo

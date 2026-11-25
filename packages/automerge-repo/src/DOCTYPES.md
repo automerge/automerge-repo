@@ -15,19 +15,22 @@ const repo = new Repo()
 const counter = await repo.create(5, { docType: gcounter })
 await counter.increment() // a member of the type
 counter.doc() // 6
-counter.url // "automerge:gcounter:…"
+counter.url // "gcounter:…"
 
 const same = await repo.find(counter.url, { docType: gcounter })
 ```
 
 - The type is chosen per call, with `{ docType }` on `create`, `find`, `query`
   and `findWithProgress`. Without it you get Automerge.
-- A type's `name` (lowercase letters, digits and `-`) is written in its URLs:
-  `automerge:gcounter:<id>[#heads]`. Automerge's URLs stay
-  `automerge:<id>[/path][#heads]`. `parseAutomergeUrl(url).docTypeName` reads
-  the name; `isValidAutomergeUrl` checks the format only, for any type. `find`
-  throws if a URL names another type, or if the document is already open as
-  another type.
+- A type's `scheme` (lowercase RFC 3986 URL scheme) is the URL prefix:
+  `gcounter:<id>[<suffix>]`, and Automerge's stay
+  `automerge:<id>[/<path>][#<heads>]`. Everything after the document ID
+  (starting at `/`, `?`, or `#`) is specific to the doc type.
+  `parseDocumentUrl`, `stringifyDocumentUrl`, and `isValidDocumentUrl` work on
+  every scheme (including `automerge:`); `parseAutomergeUrl`,
+  `stringifyAutomergeUrl`, and `isValidAutomergeUrl` additionally parse and
+  validate Automerge's `/path` and `#heads`. `find` throws if a URL uses
+  another scheme, or if the document is already open as another type.
 - `repo.handles` and the `document` event list every document, typed as a
   handle of any type (`DocHandle<any, X, AnyHandleKind>`). Narrow one with
   `isHandleOf(handle, gcounter)`.
@@ -41,8 +44,9 @@ const same = await repo.find(counter.url, { docType: gcounter })
   `DocHandle<Todo, X, Register>`. `of` is type-level only; every shape is the
   same doc type at runtime. `automerge.of<Todo>()` is the same as
   `find<Todo>(url)`.
-- `clone`, `import` and `export` are Automerge only. URL paths require an
-  `openPath` hook on the doc type (Automerge implements it for sub-handles).
+- `clone`, `import`, `export` and sub-handles (`sub()`) are Automerge only.
+  URL suffixes require an `openUrl` hook on the doc type (Automerge implements
+  it for `/path` and `#heads`).
 - The React hooks, Svelte stores and Solid primitives take `{ docType }` as
   `find` does, and default to Automerge: `useDocument(url, { docType: gcounter })`
   gives the counter's value and a function changing it as its handle's
@@ -77,12 +81,12 @@ export class CounterHandle extends Handle<number, number> {
 }
 
 export interface GCounter extends HandleKind {
-  readonly name: "gcounter"
+  readonly scheme: "gcounter"
   readonly handle: CounterHandle
 }
 
 export const gcounter = defineDocType({
-  name: "gcounter",
+  scheme: "gcounter",
   create: (start: number | undefined) => newCounter(start), // ≥ 1 commit
   value: (state: CounterState) => sum(state), // what doc() returns
   change: (state: CounterState, amount: number) => add(state, amount),
@@ -97,26 +101,26 @@ export const gcounter = defineDocType({
 
 `defineDocType` checks that the class's `Handle<View, Change>` matches the
 type's `value` and `change`, and `as` that the interface names the class
-given as `handle` and the type's `name`. Handles' URLs are typed with the
-name: `counter.url` is `AutomergeUrl<"gcounter">`. `find`, `query` and
+given as `handle` and the type's `scheme`. Handles' URLs are typed with the
+scheme: `counter.url` is `DocumentUrl<"gcounter">`. `find`, `query` and
 `findWithProgress` reject a typed URL of another doc type at compile time
-(`find(counter.url)` needs `{ docType: gcounter }`); a plain `AutomergeUrl`,
+(`find(counter.url)` needs `{ docType: gcounter }`); a plain `DocumentUrl`,
 such as a link read from a document, is only checked when opened.
 
-The name appears twice: as a string in the definition, used in URLs at
+The scheme appears twice: as a string in the definition, used in URLs at
 runtime, and as a type in the interface, which TypeScript can't read from the
 definition without losing the interface's name. `as` rejects a mismatch. To
 write the string once, share a constant:
 
 ```ts
-const name = "gcounter"
+const scheme = "gcounter"
 
 export interface GCounter extends HandleKind {
-  readonly name: typeof name
+  readonly scheme: typeof scheme
   readonly handle: CounterHandle
 }
 
-export const gcounter = defineDocType({ name, …, handle: CounterHandle }).as<GCounter>()
+export const gcounter = defineDocType({ scheme, …, handle: CounterHandle }).as<GCounter>()
 ```
 
 The contract, checked by `runDocTypeTests` (`src/helpers/tests/doc-type-tests.ts`):
@@ -130,8 +134,7 @@ The contract, checked by `runDocTypeTests` (`src/helpers/tests/doc-type-tests.ts
 - State may be changed in place: Repo reads heads before each change and never
   keeps an old state.
 - Without `fragments`, a type is never compacted; without `view`, it has no
-  views and no `find(url#heads)`; without `merge`, merging applies the other
-  document's records.
+  views; without `merge`, merging applies the other document's records.
 
 ### Handles generic in the document's shape
 
@@ -148,7 +151,7 @@ export class RegisterHandle<T> extends Handle<T, T> {
 }
 
 export interface Register extends Shaped {
-  readonly name: "register"
+  readonly scheme: "register"
   readonly handle: RegisterHandle<this["Shape"]>
   readonly init: this["Shape"] // optional
 }
@@ -184,34 +187,37 @@ handle is writable and has at least one `change` listener; `change` is a
 `before` may be `undefined` on first load or identical to `after` for types
 that mutate their state in place.
 
-### URL paths
+### URL suffixes
 
-A doc type opts into `/<path>` URLs (`automerge:<name>:<id>/<path>[#heads]`)
-by implementing `openPath(handle, path)`:
+Everything after `<scheme>:<id>` (starting with `/`, `?`, or `#`) is specific
+to the doc type. A doc type opts in by implementing `openUrl(suffix)` (and
+optionally `urlSuffix(handle)` so `handle.url` emits matching suffixes):
 
 ```ts
-openPath(handle, path) {
-  if (!isValidPath(path)) throw new Error(`Invalid path: ${path}`)
-  return handle
+urlSuffix(handle) {
+  return handle.isReadOnly() ? `?at=${handle.heads().join(",")}` : undefined
+},
+openUrl(suffix) {
+  const at = new URLSearchParams(suffix.slice(1)).get("at")
+  if (!at) throw new Error(`Invalid suffix: ${suffix}`)
+  return { heads: at.split(",") as UrlHeads }
 }
 ```
 
-Returning `handle` (the whole document, or its view) is the common case for
-non-Automerge doc types. Sub-document handles (`sub()`) are Automerge-only:
-Automerge implements `openPath` by parsing `path` into segments and returning
-`handle.sub(...)`.
+Sub-document handles (`sub()`) are Automerge-only: Automerge implements
+`openUrl` to parse `/<path>` and `#<heads>`, returning `{ heads, open }` where
+`open` calls `handle.sub(...)`.
 
-- `path` is the raw string after the first `/`, so each doc type defines its
-  own path syntax. `parseAutomergeUrl(url).path` reads it and
-  `stringifyAutomergeUrl({ documentId, docType, path })` writes it.
-  (`segments` is parsed only for Automerge URLs, and `stringifyAutomergeUrl`
-  validates Automerge paths.)
-- `handle` is the root handle, or a view handle pinned to the URL's `#heads`.
-  The returned handle must be a `DocHandle` for the same document, and must
-  stay read-only when `handle` is a view.
-- Throw only for paths that can never be valid. `openPath` runs once when
-  the document becomes ready, and throwing fails that path's query
-  (`repo.find` rejects) while the root document stays ready. For a valid
-  path whose target does not exist yet, return a handle that reads it as
-  absent until it appears.
-- Without `openPath`, `repo.query` throws before registering the document.
+- `suffix` is the raw string starting at `/`, `?`, or `#`.
+  `parseDocumentUrl(url).suffix` reads it and
+  `stringifyDocumentUrl({ documentId, scheme, suffix })` writes it.
+- `openUrl` runs synchronously in `repo.query` before the document is
+  registered, so syntax errors fail immediately without opening a session.
+- If `openUrl` returns `{ heads }`, `repo.query` checks `view` support and
+  waits until those heads arrive, then opens a view handle.
+- If `openUrl` returns `{ open }`, `open(handle)` runs once the root (or view)
+  handle is ready. Throwing fails that query (`repo.find` rejects) while
+  leaving the root document ready. The returned handle must be a `DocHandle`
+  for the same document and stay read-only when `handle` is a view.
+- Without `openUrl`, `repo.query` throws on any URL with a suffix before
+  registering the document.

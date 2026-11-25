@@ -131,7 +131,7 @@ export type DocHandle<
   X extends HandleExtensionSpec = {},
   K extends HandleKind = AutomergeKind,
 > = HandleFor<K, T> & {
-  readonly "~name": K["name"]
+  readonly "~scheme": K["scheme"]
   readonly "~spec"?: X
 } & ExtensionMembers<X> &
   ExtensionEventsApi<VisibleSpec<X>, HandleFor<K, T>>
@@ -139,7 +139,7 @@ export type DocHandle<
 /** The class of every handle, for `instanceof`. */
 export const DocHandle = Handle
 
-/** Whether `handle` is of the doc type `type` (compared by name). Keeps
+/** Whether `handle` is of the doc type `type` (compared by scheme). Keeps
  * the backend's extensions the handle was typed with. */
 export function isHandleOf<S extends HandleExtensionSpec, D extends AnyDocType>(
   handle: { readonly "~spec"?: S },
@@ -147,6 +147,6 @@ export function isHandleOf<S extends HandleExtensionSpec, D extends AnyDocType>(
 ): handle is { readonly "~spec"?: S } & DocHandle<unknown, S, KindOf<D>> {
   return (
     handle instanceof Handle &&
-    handleState(handle).docType.name === docType.name
+    handleState(handle).docType.scheme === docType.scheme
   )
 }

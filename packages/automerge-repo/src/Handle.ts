@@ -1,13 +1,13 @@
 import {
   decodeHeads,
   encodeHeads,
-  stringifyAutomergeUrl,
+  stringifyDocumentUrl,
 } from "./AutomergeUrl.js"
 import type { DocumentState } from "./DocumentState.js"
 import { mergeStates, requireView } from "./DocType.js"
 import type {
   DocumentId,
-  AutomergeUrl,
+  DocumentUrl,
   PeerId,
   SyncInfo,
   UrlHeads,
@@ -131,9 +131,9 @@ export class Handle<
     changeEventPayloadOf = (handle, change) => handle.changeEventPayload(change)
   }
 
-  /** Type only: the name of this handle's doc type, which its URL is typed
-   * with; `DocHandle` sets it. */
-  declare readonly "~name": string
+  /** Type only: the URL scheme of this handle's doc type, which its URL is
+   * typed with; `DocHandle` sets it. */
+  declare readonly "~scheme": string
 
   /**
    * Type only, never set: the backend's extension spec; `DocHandle` sets
@@ -157,13 +157,14 @@ export class Handle<
     return this.#state.documentId
   }
 
-  /** `automerge:<doc type name>:<documentId>[#heads]` */
-  get url(): AutomergeUrl<this["~name"]> {
-    return stringifyAutomergeUrl({
-      docType: this.#state.docType,
+  /** `<scheme>:<documentId>[<suffix>]` */
+  get url(): DocumentUrl<this["~scheme"]> {
+    const docType = this.#state.docType
+    return stringifyDocumentUrl({
+      scheme: docType.scheme,
       documentId: this.documentId,
-      heads: this.#heads,
-    }) as AutomergeUrl<this["~name"]>
+      suffix: docType.urlSuffix?.(this),
+    }) as DocumentUrl<this["~scheme"]>
   }
 
   /**
@@ -247,9 +248,9 @@ export class Handle<
     this.#throwIfFixedHeads("merge")
     const { docType } = this.#state
     const otherState = other.#state
-    if (otherState.docType.name !== docType.name)
+    if (otherState.docType.scheme !== docType.scheme)
       throw new Error(
-        `Cannot merge a ${otherState.docType.name} document into a ${docType.name} document`
+        `Cannot merge a ${otherState.docType.scheme} document into a ${docType.scheme} document`
       )
     const incoming = otherState.viewAt(other.#heads)
     // A merge can bring many boundaries at once; store their fragments with it.
@@ -269,9 +270,16 @@ export class Handle<
     this.#state.delete()
   }
 
-  /** True if the other handle has the same URL as this one. */
+  /** True if the other handle points at the same document, view and URL. */
   equals(other: AnyHandle): boolean {
-    return this.url === other.url
+    if (this.url !== other.url) return false
+    const a = this.#heads
+    const b = other.#heads
+    if (a === b) return true
+    if (!a || !b || a.length !== b.length) return false
+    const sa = [...a].sort()
+    const sb = [...b].sort()
+    return sa.every((h, i) => h === sb[i])
   }
 
   /**

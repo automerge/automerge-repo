@@ -152,7 +152,7 @@ export function queryAtHeads<
 
 /**
  * Mirrors `query`, mapping a ready handle through `open` (e.g. a doc type's
- * `openPath`). Cached per upstream state so `open` runs once per ready
+ * `openUrl`). Cached per upstream state so `open` runs once per ready
  * transition and `state()` agrees with subscribers. If `open` throws, this
  * query yields `failed`, terminally, while the upstream query is unaffected.
  */

@@ -10,6 +10,7 @@ import {
   encodeHeads,
   parseAutomergeUrl,
   stringifyAutomergeUrl,
+  stringifyDocumentUrl,
 } from "../src/AutomergeUrl.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import { idBytes, sedimentreeId } from "../src/sedimentree/index.js"
@@ -674,11 +675,13 @@ describe("backend-driven Repo", () => {
   it("rejects a URL of another doc type without a matching type", async () => {
     const r = repo(new MemoryBackend())
     const handle = await r.create({ n: 0 })
-    const url = stringifyAutomergeUrl({
+    const url = stringifyDocumentUrl({
       documentId: handle.documentId,
-      docType: { name: "gcounter" },
+      scheme: "gcounter",
     })
+    // @ts-expect-error a gcounter URL needs its doc type
     expect(() => r.query(url)).toThrow(/of doc type gcounter/)
+    // @ts-expect-error a gcounter URL needs its doc type
     await expect(r.find(url)).rejects.toThrow(/of doc type gcounter/)
   })
 

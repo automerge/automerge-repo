@@ -1,11 +1,12 @@
 import { EventEmitter } from "eventemitter3"
 import {
   binaryToDocumentId,
+  decodeHeads,
   documentIdToBinary,
   interpretAsDocumentId,
-  isValidAutomergeUrl,
-  isValidDocTypeName,
-  parseAutomergeUrl,
+  isValidDocumentUrl,
+  isValidUrlScheme,
+  parseDocumentUrl,
 } from "./AutomergeUrl.js"
 import {
   mergeStates,
@@ -14,8 +15,9 @@ import {
   type HandleKind,
   type InitOf,
   type KindOf,
-  type NameOf,
   type Of,
+  type SchemeOf,
+  type UrlTarget,
 } from "./DocType.js"
 import { extendHandle } from "./DocHandle.js"
 import { Handle } from "./Handle.js"
@@ -91,10 +93,8 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   #classFor(docType: AnyDocType): typeof Handle {
     let Class = this.#classes.get(docType)
     if (!Class) {
-      if (!isValidDocTypeName(docType.name))
-        throw new Error(
-          `Invalid doc type name: ${JSON.stringify(docType.name)}`
-        )
+      if (!isValidUrlScheme(docType.scheme))
+        throw new Error(`Invalid URL scheme: ${JSON.stringify(docType.scheme)}`)
       Class = extendHandle(
         this.#backend.handleExtensions ?? [],
         (docType.handle ?? Handle) as typeof Handle
@@ -154,7 +154,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     D extends AnyDocType = AnyDocType,
     S = unknown,
   >(
-    id: AnyDocumentId<NameOf<D>>,
+    id: AnyDocumentId<SchemeOf<D>>,
     options: AbortOptions & { docType: Of<D, S> }
   ): DocumentProgress<S, X, KindOf<D>>
   findWithProgress<T>(
@@ -168,9 +168,9 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     return toProgress(this.query(id, options as { docType: AnyDocType }))
   }
 
-  /** A document of the doc type `type`; its URL must name `type`. */
+  /** A document of the doc type `type`; its URL must use `type`'s scheme. */
   find<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
-    id: AnyDocumentId<NameOf<D>>,
+    id: AnyDocumentId<SchemeOf<D>>,
     options: RepoFindOptions & { docType: Of<D, S> }
   ): Promise<DocHandle<S, X, KindOf<D>>>
   /** Cancellation stops this wait, not the shared document's loading. */
@@ -191,12 +191,12 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
 
   /**
    * Observe the readiness of a document, starting to load it if needed.
-   * Accepts everything {@link Repo.find} does; heads and paths in a URL
-   * yield the matching view or sub-handle once ready.
+   * Accepts everything {@link Repo.find} does; doc-type-specific URL suffixes
+   * (such as Automerge's `/path` and `#heads`) are interpreted by the doc type.
    */
-  /** A document of the doc type `type`; its URL must name `type`. */
+  /** A document of the doc type `type`; its URL must use `type`'s scheme. */
   query<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
-    id: AnyDocumentId<NameOf<D>>,
+    id: AnyDocumentId<SchemeOf<D>>,
     options: { docType: Of<D, S> }
   ): DocumentQuery<S, X, KindOf<D>>
   query<T>(id: AnyDocumentId<"automerge">): DocumentQuery<T, X>
@@ -205,50 +205,63 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     { docType = automerge }: { docType?: AnyDocType } = {}
   ): DocumentQuery<any, X, any> {
     this.#checkOpen()
-    const parsed = isValidAutomergeUrl(id)
-      ? parseAutomergeUrl(id)
+    const parsed = isValidDocumentUrl(id)
+      ? parseDocumentUrl(id)
       : {
           documentId: interpretAsDocumentId(id),
-          heads: undefined,
-          path: undefined,
-          docTypeName: undefined,
+          scheme: undefined,
+          suffix: undefined,
         }
-    const { documentId, heads, path, docTypeName } = parsed
-    if (docTypeName !== undefined && docTypeName !== docType.name)
+    const { documentId, scheme, suffix } = parsed
+    if (scheme !== undefined && scheme !== docType.scheme)
       throw new Error(
         docType === automerge
-          ? `Cannot open ${id}: it is of doc type ${docTypeName}; pass that type`
-          : `Cannot open ${id} as ${docType.name}: it is of doc type ${docTypeName}`
+          ? `Cannot open ${id}: it is of doc type ${scheme}; pass that type`
+          : `Cannot open ${id} as ${docType.scheme}: it is of doc type ${scheme}`
       )
     const existing = this.#documents.get(documentId)
-    if (existing && existing.docType.name !== docType.name)
+    if (existing && existing.docType.scheme !== docType.scheme)
       throw new Error(
-        `Document ${documentId} is already open as ${existing.docType.name}, not ${docType.name}`
+        `Document ${documentId} is already open as ${existing.docType.scheme}, not ${docType.scheme}`
       )
-    if (heads) requireView(docType)
-    if (path !== undefined && !docType.openPath)
-      throw new Error(`${docType.name} URLs have no paths: ${id}`)
+    let target: UrlTarget | undefined
+    if (suffix !== undefined) {
+      if (!docType.openUrl)
+        throw new Error(`${docType.scheme} URLs do not take a suffix: ${id}`)
+      target = docType.openUrl(suffix)
+      if (target.heads) {
+        requireView(docType)
+        try {
+          decodeHeads(target.heads)
+        } catch {
+          throw new Error(
+            `Invalid heads returned by openUrl for ${docType.scheme}: ${id}`
+          )
+        }
+      }
+    }
     const document = existing ?? this.#register(documentId, undefined, docType)
     let query = document.query as DocumentQuery<any, X, any>
-    if (heads) {
-      query = queryAtHeads(query, heads, fn =>
+    if (target?.heads) {
+      query = queryAtHeads(query, target.heads, fn =>
         document.state.onHeadsChanged(fn)
       )
     }
-    if (path !== undefined) {
+    if (target?.open) {
+      const targetWithOpen = target
       query = queryMapped(query, handle => {
-        const opened = docType.openPath!(handle, path)
+        const opened = targetWithOpen.open!(handle)
         if (!(opened instanceof Handle))
           throw new Error(
-            `openPath for ${docType.name} must return a DocHandle`
+            `openUrl for ${docType.scheme} must return a DocHandle`
           )
         if (opened.documentId !== handle.documentId)
           throw new Error(
-            `openPath for ${docType.name} returned a handle for a different document`
+            `openUrl for ${docType.scheme} returned a handle for a different document`
           )
         if (handle.isReadOnly() && !opened.isReadOnly())
           throw new Error(
-            `openPath for ${docType.name} must preserve the view's heads`
+            `openUrl for ${docType.scheme} must preserve the view's heads`
           )
         return opened as any
       })
@@ -307,7 +320,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     docType: AnyDocType = automerge
   ): Promise<DocHandle<T, X>> {
     if (!docType.heads(state).length)
-      throw new Error(`A new ${docType.name} document needs a commit`)
+      throw new Error(`A new ${docType.scheme} document needs a commit`)
     const allocated = await this.#backend.create(
       docType.recordsSince(state, []),
       requested ? { documentId: this.#backendId(requested) } : undefined
@@ -319,9 +332,9 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
       // Loading can begin while backend creation is pending. Adopt that shared entry.
       if (existing.state.deleted || existing.state.closed)
         throw new Error("Document is no longer open")
-      if (existing.docType.name !== docType.name)
+      if (existing.docType.scheme !== docType.scheme)
         throw new Error(
-          `Document ${id} is already open as ${existing.docType.name}, not ${docType.name}`
+          `Document ${id} is already open as ${existing.docType.scheme}, not ${docType.scheme}`
         )
       existing.adopt(state)
       return this.#handle(existing)

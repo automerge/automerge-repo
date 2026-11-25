@@ -202,10 +202,10 @@ describe("utils", () => {
 
     it("should throw on invalid URL format", async () => {
       await expect(repo.find("not-a-valid-url")).rejects.toThrow(
-        /Invalid (Automerge)?Url/i
+        /Invalid (Automerge|Document)?Url/i
       )
       await expect(repo.find("wrong:abc/path")).rejects.toThrow(
-        /Invalid (Automerge)?Url/i
+        /Invalid (Automerge|Document)?Url/i
       )
     })
 

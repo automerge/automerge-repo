@@ -2,11 +2,11 @@ import type {
   AnyDocType,
   AnyDocumentId,
   AutomergeDocType,
-  AutomergeUrl,
+  DocumentUrl,
   HandleOf,
   KindOf,
-  NameOf,
   Repo,
+  SchemeOf,
 } from "@automerge/automerge-repo/slim"
 import {
   createContext,
@@ -42,18 +42,18 @@ export interface RepoHooks<R extends Repo> {
   useRepo(): R
   /** As the package's `useDocHandle`, typed for this Repo. */
   useDocHandle<T = unknown, D extends AnyDocType = AutomergeDocType, S = T>(
-    id: AnyDocumentId<NameOf<D>>,
+    id: AnyDocumentId<SchemeOf<D>>,
     params: UseDocHandleSuspendingParams & DocTypeOption<D, S>
   ): HandleOf<R, S, KindOf<D>>
   useDocHandle<T = unknown, D extends AnyDocType = AutomergeDocType, S = T>(
-    id: AnyDocumentId<NameOf<D>> | undefined,
+    id: AnyDocumentId<SchemeOf<D>> | undefined,
     params?: { suspense?: false } & DocTypeOption<D, S>
   ): HandleOf<R, S, KindOf<D>> | undefined
   /** As the package's `useDocHandles`, typed for this Repo. */
   useDocHandles<T = unknown, D extends AnyDocType = AutomergeDocType, S = T>(
-    ids: AutomergeUrl<NameOf<D>>[],
+    ids: DocumentUrl<SchemeOf<D>>[],
     params?: UseDocHandlesParams & DocTypeOption<D, S>
-  ): Map<AutomergeUrl, HandleOf<R, S, KindOf<D>> | undefined>
+  ): Map<DocumentUrl<SchemeOf<D>>, HandleOf<R, S, KindOf<D>> | undefined>
   /** As the package's `useDocument`, on this Repo. */
   useDocument: typeof packageUseDocument
   /** As the package's `useDocuments`, on this Repo. */
@@ -112,7 +112,7 @@ export function createRepoHooks<R extends Repo = Repo>(
     return useDocHandleIn(useRepo(), id, params)
   }
 
-  function useDocHandles(ids: AutomergeUrl[], params?: AnyHookParams) {
+  function useDocHandles(ids: DocumentUrl[], params?: AnyHookParams) {
     return useDocHandlesIn(useRepo(), ids, params)
   }
 
@@ -120,7 +120,7 @@ export function createRepoHooks<R extends Repo = Repo>(
     return useDocumentIn(useRepo(), id, params)
   }
 
-  function useDocuments(ids: AutomergeUrl[], options?: AnyHookParams) {
+  function useDocuments(ids: DocumentUrl[], options?: AnyHookParams) {
     return useDocumentsIn(useRepo(), ids, options)
   }
 

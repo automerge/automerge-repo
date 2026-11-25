@@ -3,9 +3,10 @@ import type {
   AutomergeDocType,
   AutomergeUrl,
   DocHandle,
+  DocumentUrl,
   KindOf,
-  NameOf,
   Repo,
+  SchemeOf,
 } from "@automerge/automerge-repo/slim"
 import { useState, useEffect } from "react"
 import { useRepo } from "./useRepo.js"
@@ -34,11 +35,11 @@ export function useDocHandles<
   D extends AnyDocType = AutomergeDocType,
   S = T,
 >(
-  ids: AutomergeUrl<NameOf<D>>[],
+  ids: DocumentUrl<SchemeOf<D>>[],
   params?: UseDocHandlesParams & DocTypeOption<D, S>
-): Map<AutomergeUrl, DocHandle<S, {}, KindOf<D>> | undefined> {
+): Map<DocumentUrl<SchemeOf<D>>, DocHandle<S, {}, KindOf<D>> | undefined> {
   return useDocHandlesIn(useRepo(), ids, params) as Map<
-    AutomergeUrl,
+    DocumentUrl<SchemeOf<D>>,
     DocHandle<S, {}, KindOf<D>> | undefined
   >
 }
@@ -46,10 +47,10 @@ export function useDocHandles<
 /** The handles of `ids` that `repo` already has ready. */
 function readyHandles(
   repo: Repo,
-  ids: Set<AutomergeUrl>,
+  ids: Set<DocumentUrl>,
   docType: AnyDocType | undefined
-): Map<AutomergeUrl, AnyHandle | undefined> {
-  const map = new Map<AutomergeUrl, AnyHandle | undefined>()
+): Map<DocumentUrl, AnyHandle | undefined> {
+  const map = new Map<DocumentUrl, AnyHandle | undefined>()
   for (const id of ids.values()) {
     let state
     try {
@@ -68,10 +69,10 @@ function readyHandles(
 /** @internal {@link useDocHandles} on a given Repo. */
 export function useDocHandlesIn(
   repo: Repo,
-  ids: AutomergeUrl[],
+  ids: DocumentUrl[],
   { suspense = false, docType }: AnyHookParams = {}
-): Map<AutomergeUrl, AnyHandle | undefined> {
-  type HandleMap = Map<AutomergeUrl, AnyHandle | undefined>
+): Map<DocumentUrl, AnyHandle | undefined> {
+  type HandleMap = Map<DocumentUrl, AnyHandle | undefined>
   const idSet = useSet(ids)
   // Initialize the map with any handles that are ready
   const [found, setFound] = useState(() => ({
@@ -89,14 +90,14 @@ export function useDocHandlesIn(
   const setHandleMap = (map: HandleMap) => setFound({ repo, docType, map })
 
   const pendingPromises: PromiseWrapper<AnyHandle>[] = []
-  const pendingIds: AutomergeUrl[] = []
+  const pendingIds: DocumentUrl[] = []
   const nextHandleMap: HandleMap = new Map()
 
   const cache = handleCache(repo)
   // Check if we need any new wrappers
   for (const id of idSet.values()) {
     let handle = handleMap.get(id)
-    const key = cacheKey(id, docType?.name)
+    const key = cacheKey(id, docType?.scheme)
     let wrapper = cache.get(key)
     if (!wrapper) {
       try {

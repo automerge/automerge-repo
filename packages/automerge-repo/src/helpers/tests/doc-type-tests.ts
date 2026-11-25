@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AnyDocType } from "../../DocType.js"
-import { parseAutomergeUrl } from "../../AutomergeUrl.js"
+import { parseDocumentUrl } from "../../AutomergeUrl.js"
 import { Repo } from "../../Repo.js"
 import { DocHandle } from "../../types/DocHandle.js"
 import { MemoryBackend } from "../../sedimentree/memory/MemoryBackend.js"
@@ -205,10 +205,10 @@ export function runDocTypeTests<S>(
           interval: 5,
         })
 
-      it("creates a DocHandle whose URL names its doc type", async () => {
+      it("creates a DocHandle whose URL uses its scheme", async () => {
         const handle = await create(a)
         expect(handle).toBeInstanceOf(DocHandle)
-        expect(parseAutomergeUrl(handle.url).docTypeName).toBe(docType.name)
+        expect(parseDocumentUrl(handle.url).scheme).toBe(docType.scheme)
         expect(handle.isReady()).toBe(true)
         expect(a.handles[handle.documentId]).toBe(handle)
       })
@@ -252,9 +252,6 @@ export function runDocTypeTests<S>(
         await f.edit(handle)
         if (!docType.view) {
           expect(() => handle.view(heads)).toThrow(/no views/)
-          await expect(
-            find(a, `${handle.url}#${heads.join("|")}`)
-          ).rejects.toThrow(/no views/)
           return
         }
         const view = handle.view(heads)
@@ -262,12 +259,15 @@ export function runDocTypeTests<S>(
         expect(view.isReadOnly()).toBe(true)
         expect(view.heads()).toEqual(heads)
         expect(handle.view(heads)).toBe(view)
-        const pinned = await find(a, view.url)
-        expect(pinned.isReadOnly()).toBe(true)
-        expect(sorted(pinned)).toEqual([...(heads as string[])].sort())
+        expect(view.equals(handle)).toBe(false)
+        if (view.url !== handle.url) {
+          const pinned = await find(a, view.url)
+          expect(pinned.isReadOnly()).toBe(true)
+          expect(sorted(pinned)).toEqual([...(heads as string[])].sort())
+        }
       })
 
-      it("accepts an equal doc type: same name", async () => {
+      it("accepts an equal doc type: same scheme", async () => {
         const handle = await create(a)
         expect(
           await a.find(handle.url as any, { docType: { ...docType } })
@@ -276,7 +276,7 @@ export function runDocTypeTests<S>(
 
       it("rejects another doc type for the same document", async () => {
         const handle = await create(a)
-        const other = { ...docType, name: `${docType.name}-x` }
+        const other = { ...docType, scheme: `${docType.scheme}-x` }
         expect(() => a.query(handle.url as any, { docType: other })).toThrow(
           /of doc type .*/
         )

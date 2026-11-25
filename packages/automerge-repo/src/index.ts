@@ -35,17 +35,25 @@ export type { Handle as DocHandleClass } from "./Handle.js"
 export type { HandleExtensionSpec } from "./sedimentree/extension.js"
 export {
   isValidAutomergeUrl,
-  isValidDocTypeName,
+  isValidDocumentUrl,
+  isValidUrlScheme,
   isValidDocumentId,
   parseAutomergeUrl,
+  parseDocumentUrl,
   stringifyAutomergeUrl,
+  stringifyDocumentUrl,
   interpretAsDocumentId,
   documentIdToBinary,
   generateAutomergeUrl,
   encodeHeads,
   decodeHeads,
 } from "./AutomergeUrl.js"
-export type { ParsedAutomergeUrl, UrlOptions } from "./AutomergeUrl.js"
+export type {
+  DocumentUrlOptions,
+  ParsedAutomergeUrl,
+  ParsedDocumentUrl,
+  UrlOptions,
+} from "./AutomergeUrl.js"
 export { Repo } from "./Repo.js"
 export { setLoggerFactory, makeLogger } from "./Logger.js"
 export type { Logger, LoggerFactory } from "./Logger.js"
@@ -130,11 +138,12 @@ export type {
   InitOf,
   Kinded,
   KindOf,
-  NameOf,
   Of,
   PlainHandle,
+  SchemeOf,
   ShapeOf,
   Shaped,
+  UrlTarget,
 } from "./DocType.js"
 export type { BackendOf, SameBackend, WithBackend } from "./types/DocHandle.js"
 

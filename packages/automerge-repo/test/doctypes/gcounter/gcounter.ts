@@ -29,12 +29,12 @@ export class CounterHandle extends Handle<number, number> {
 /** The G-Counter's handles; also the doc type's name:
  * `DocHandle<unknown, X, GCounter>`. */
 export interface GCounter extends HandleKind {
-  readonly name: "gcounter"
+  readonly scheme: "gcounter"
   readonly handle: CounterHandle
 }
 
 export const gcounter = defineDocType({
-  name: "gcounter",
+  scheme: "gcounter",
   create: (start: number | undefined) => newCounter(start),
   value: (state: CounterState) =>
     [...state.applied.values()].reduce((n, c) => n + c.amount, 0),

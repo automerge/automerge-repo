@@ -1,4 +1,4 @@
-import type { DocumentId, RepoId } from "./types.js"
+import type { DocumentId, RepoId, UrlHeads } from "./types.js"
 import type { DocumentState } from "./DocumentState.js"
 import type { AnyHandle, Handle, HandleOptions } from "./Handle.js"
 
@@ -20,6 +20,14 @@ export interface DocTypeContext {
   readonly repoId: RepoId
 }
 
+/** What {@link DocType.openUrl} asks the Repo to do for a URL's suffix. */
+export interface UrlTarget {
+  /** Wait until these heads are in the document's history, then open a view. */
+  heads?: UrlHeads
+  /** Derive a handle from the ready root (or view) handle. */
+  open?(handle: AnyHandle): AnyHandle
+}
+
 /**
  * A kind of document: how its state is built from, and turned into,
  * sedimentree records, and how it is read and changed. Repo is otherwise
@@ -36,13 +44,13 @@ export interface DocType<
   View = State,
   Change = unknown,
   Init = unknown,
-  Name extends string = string,
+  Scheme extends string = string,
   H extends HandleClass | undefined = HandleClass | undefined,
 > {
-  /** The type's name and identity, e.g. `gcounter`: written in its
-   * documents' URLs (`automerge:gcounter:<id>`). Lowercase letters, digits
-   * and `-`, starting with a letter; `automerge` is Automerge's. */
-  readonly name: Name
+  /** The type's URL scheme and identity, e.g. `gcounter`: written in its
+   * documents' URLs (`gcounter:<id>`). Lowercase RFC 3986 scheme (letter,
+   * then letters, digits, `+`, `.`, `-`); `automerge` is Automerge's. */
+  readonly scheme: Scheme
 
   /** A new document's state, with at least one commit. Its ID is not
    * known yet: the backend allocates it from the first records. */
@@ -90,11 +98,19 @@ export interface DocType<
   readonly handle?: H
 
   /**
-   * Open the handle named by a URL's `/<path>`. `handle` is the document's
-   * root handle, or a view handle pinned to the URL's `#heads`. Without this,
-   * URLs of this type have no paths.
+   * Interpret the part of a URL after `<scheme>:<documentId>` (starting with
+   * `/`, `?`, or `#`). Called synchronously before opening the document, so
+   * invalid suffixes fail immediately. Without this, URLs of this type take
+   * nothing after the document ID.
    */
-  openPath?(handle: AnyHandle, path: string): AnyHandle
+  openUrl?(suffix: string): UrlTarget
+
+  /**
+   * Format the suffix appended to `<scheme>:<documentId>` by
+   * {@link Handle.url} (must start with `/`, `?`, or `#` if non-empty).
+   * Paired with `openUrl`.
+   */
+  urlSuffix?(handle: AnyHandle): string | undefined
 }
 
 export type AnyDocType = DocType<any, any, any, any, string, any>
@@ -108,7 +124,7 @@ export type AnyDocType = DocType<any, any, any, any, string, any>
  *
  * ```ts
  * export interface GCounter extends HandleKind {
- *   readonly name: "gcounter"
+ *   readonly scheme: "gcounter"
  *   readonly handle: CounterHandle
  * }
  * export const gcounter = defineDocType({ …, handle: CounterHandle }).as<GCounter>()
@@ -117,9 +133,9 @@ export type AnyDocType = DocType<any, any, any, any, string, any>
  * A doc type whose handles are generic in the shape extends {@link Shaped}.
  */
 export interface HandleKind {
-  /** The doc type's name, as its definition gives it: handles' URLs are
-   * typed with it (`AutomergeUrl<"gcounter">`). */
-  readonly name: string
+  /** The doc type's URL scheme, as its definition gives it: handles' URLs are
+   * typed with it (`DocumentUrl<"gcounter">`). */
+  readonly scheme: string
   /** Filled in by the library: the document's shape, as `of<Shape>()` gives
    * it. Read it in `handle` as `this["Shape"]`. */
   readonly Shape: unknown
@@ -134,7 +150,7 @@ export interface HandleKind {
  *
  * ```ts
  * export interface Register extends Shaped {
- *   readonly name: "register"
+ *   readonly scheme: "register"
  *   readonly handle: RegisterHandle<this["Shape"]>
  *   readonly init: this["Shape"] // optional: what `create` takes
  * }
@@ -148,24 +164,24 @@ export interface Shaped extends HandleKind {
   readonly "~shaped": true
 }
 
-/** The handles of a doc type named `Name` with this class, and no
+/** The handles of a doc type with scheme `Scheme` and this class, and no
  * {@link HandleKind}. */
 export interface HandleOfClass<
   C extends HandleClass,
-  Name extends string = string,
+  Scheme extends string = string,
 > extends HandleKind {
-  readonly name: Name
+  readonly scheme: Scheme
   readonly handle: InstanceType<C>
 }
 
-/** The handles of a doc type named `Name` with no class: the base `Handle`,
- * typed from the doc type's `value` and `change`. */
+/** The handles of a doc type with scheme `Scheme` and no class: the base
+ * `Handle`, typed from the doc type's `value` and `change`. */
 export interface PlainHandle<
   V,
   C,
-  Name extends string = string,
+  Scheme extends string = string,
 > extends HandleKind {
-  readonly name: Name
+  readonly scheme: Scheme
   readonly handle: Handle<V, C>
 }
 
@@ -199,15 +215,15 @@ export type KindOf<D> = D extends { readonly "~kind"?: infer K }
   : DefaultKind<D>
 
 type DefaultKind<D> =
-  D extends DocType<any, infer V, infer C, any, infer Name, infer H>
+  D extends DocType<any, infer V, infer C, any, infer Scheme, infer H>
     ? H extends HandleClass
-      ? HandleOfClass<H, Name>
-      : PlainHandle<V, C, Name>
+      ? HandleOfClass<H, Scheme>
+      : PlainHandle<V, C, Scheme>
     : never
 
-/** A doc type's name, as a literal type when its definition gives one. */
-export type NameOf<D> = D extends { readonly name: infer N extends string }
-  ? N
+/** A doc type's URL scheme, as a literal type when its definition gives one. */
+export type SchemeOf<D> = D extends { readonly scheme: infer S extends string }
+  ? S
   : string
 
 /** What `create` takes for a doc type and shape `T`: what its
@@ -220,21 +236,21 @@ export type InitOf<D, T = ShapeOf<D>> =
       ? I
       : never
 
-/** What {@link defineDocType} adds to a doc type named `Name`, for handles
- * `H`. */
+/** What {@link defineDocType} adds to a doc type with scheme `Scheme`, for
+ * handles `H`. */
 export interface DocTypeHelpers<
   H extends Handle<any, any, any>,
-  Name extends string = string,
+  Scheme extends string = string,
 > {
   /** This doc type, with its handles described by `K` (and named by it).
-   * `K`'s handle must be the type's handle class, and its name the type's.
+   * `K`'s handle must be the type's handle class, and its scheme the type's.
    * Type-level only. */
   // `HandleKind` without its `handle`: intersecting that (a `Handle`) with
   // `H` goes too deep for TypeScript, as `url`'s type reads `this`.
   as<
-    K extends Omit<HandleKind, "handle" | "name"> & {
+    K extends Omit<HandleKind, "handle" | "scheme"> & {
       readonly handle: H
-      readonly name: Name
+      readonly scheme: Scheme
     },
   >(): Kinded<this, K>
 }
@@ -249,27 +265,27 @@ export function defineDocType<
   View,
   Change,
   Init,
-  const Name extends string,
+  const Scheme extends string,
   H extends HandleClass,
 >(
-  type: DocType<State, View, Change, Init, Name, H> & {
+  type: DocType<State, View, Change, Init, Scheme, H> & {
     readonly handle: H & (new (...args: any[]) => Handle<View, Change, any>)
   }
-): DocType<State, View, Change, Init, Name, H> & {
+): DocType<State, View, Change, Init, Scheme, H> & {
   readonly handle: H
-} & DocTypeHelpers<InstanceType<H>, Name>
+} & DocTypeHelpers<InstanceType<H>, Scheme>
 export function defineDocType<
   State,
   View,
   Change,
   Init,
-  const Name extends string,
+  const Scheme extends string,
 >(
-  type: DocType<State, View, Change, Init, Name, undefined> & {
+  type: DocType<State, View, Change, Init, Scheme, undefined> & {
     readonly handle?: undefined
   }
-): DocType<State, View, Change, Init, Name, undefined> &
-  DocTypeHelpers<Handle<View, Change>, Name>
+): DocType<State, View, Change, Init, Scheme, undefined> &
+  DocTypeHelpers<Handle<View, Change>, Scheme>
 export function defineDocType(
   type: AnyDocType
 ): AnyDocType & DocTypeHelpers<Handle<any, any, any>> {
@@ -296,5 +312,5 @@ export function mergeStates<State>(
 
 /** Throws unless the type has views. */
 export function requireView(type: AnyDocType): void {
-  if (!type.view) throw new Error(`${type.name} documents have no views`)
+  if (!type.view) throw new Error(`${type.scheme} documents have no views`)
 }

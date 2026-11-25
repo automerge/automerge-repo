@@ -34,13 +34,13 @@ export class RegisterHandle<T> extends Handle<T, T> {
 /** The register's handles, generic in the shape, and what `create` takes for
  * it. Also the doc type's name: `DocHandle<Todo, X, Register>`. */
 export interface Register extends Shaped {
-  readonly name: "register"
+  readonly scheme: "register"
   readonly handle: RegisterHandle<this["Shape"]>
   readonly init: this["Shape"]
 }
 
 export const register = defineDocType({
-  name: "register",
+  scheme: "register",
   create: (value: unknown): RegisterState => commit(emptyGraph(), { value }),
   value: valueOf,
   change: (state: RegisterState, value: unknown) => commit(state, { value }),

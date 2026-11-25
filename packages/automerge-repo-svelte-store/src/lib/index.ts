@@ -1,17 +1,17 @@
 import type {
   AnyDocType,
   AutomergeDocType,
-  AutomergeUrl,
   ChangeFn,
   Doc,
   DocHandle,
   DocumentId,
+  DocumentUrl,
   HandleOf,
   InitOf,
   KindOf,
-  NameOf,
   Of,
   Repo,
+  SchemeOf,
 } from "@automerge/automerge-repo/slim"
 
 import { getContext, setContext } from "svelte"
@@ -44,8 +44,8 @@ export function getContextRepo<R extends Repo = Repo>(): R {
 }
 
 /** Whether `H` is a handle of a doc type other than Automerge. */
-type IsOtherDocType<H> = H extends { readonly "~name": infer N }
-  ? [N] extends ["automerge"]
+type IsOtherDocType<H> = H extends { readonly "~scheme": infer S }
+  ? [S] extends ["automerge"]
     ? false
     : true
   : false
@@ -84,9 +84,9 @@ export interface AutomergeDocumentStore<
   change(...args: StoreChangeArgs<T, H>): Promise<void>
 
   /**
-   * The URL of the document, typed with its doc type's name
+   * The URL of the document, typed with its doc type's scheme
    */
-  readonly url: H extends { readonly url: infer U } ? U : AutomergeUrl
+  readonly url: H extends { readonly url: infer U } ? U : DocumentUrl
 
   /**
    * The ID of the document
@@ -117,7 +117,7 @@ export type DocTypeOption<D, S> = { docType?: Of<D, S> }
 export interface AutomergeStores<R extends Repo> {
   /** Find a document by URL and create a reactive wrapper */
   find<T = unknown, D extends AnyDocType = AutomergeDocType, S = T>(
-    automergeUrl: AutomergeUrl<NameOf<D>>,
+    documentUrl: DocumentUrl<SchemeOf<D>>,
     options?: DocTypeOption<D, S>
   ): Promise<DocTypeStore<R, D, S> | null>
   /** Create a new document and wrap it with reactive state. Its initial
@@ -130,13 +130,13 @@ export interface AutomergeStores<R extends Repo> {
     initialContent?: T
   ): Promise<AutomergeDocumentStore<T, HandleOf<R, T>>>
   /** Delete a document */
-  delete(automergeUrl: AutomergeUrl): Promise<void>
+  delete(documentUrl: DocumentUrl): Promise<void>
   getRepo(): R
 }
 
 /** A handle of any doc type, as the stores use it. */
 type AnyHandle = {
-  readonly url: AutomergeUrl
+  readonly url: DocumentUrl
   readonly documentId: DocumentId
   doc(): unknown
   change(...args: any[]): Promise<void>
@@ -158,7 +158,7 @@ export function createAutomergeStore<R extends Repo>(
   // Typed as Automerge's: `repo.find` and `repo.create` default to it.
   const anyRepo = repo as unknown as {
     find(
-      url: AutomergeUrl,
+      url: DocumentUrl,
       options?: { docType?: AnyDocType }
     ): Promise<AnyHandle>
     create(
@@ -168,10 +168,10 @@ export function createAutomergeStore<R extends Repo>(
   }
 
   const find = async (
-    automergeUrl: AutomergeUrl,
+    documentUrl: DocumentUrl,
     options?: { docType?: AnyDocType }
   ) => {
-    const handle = await anyRepo.find(automergeUrl, options)
+    const handle = await anyRepo.find(documentUrl, options)
     if (!handle) return null
     return createDocumentStore(handle)
   }
@@ -184,8 +184,8 @@ export function createAutomergeStore<R extends Repo>(
     return createDocumentStore(handle)
   }
 
-  const deleteDocument = async (automergeUrl: AutomergeUrl) => {
-    return repo.delete(automergeUrl)
+  const deleteDocument = async (documentUrl: DocumentUrl) => {
+    return repo.delete(documentUrl)
   }
 
   /**
@@ -263,7 +263,7 @@ export function document<
   D extends AnyDocType = AutomergeDocType,
   S = T,
 >(
-  docIdOrUrl: DocumentId | AutomergeUrl<NameOf<D>>,
+  docIdOrUrl: DocumentId | DocumentUrl<SchemeOf<D>>,
   repoOrOptions?: Repo | (DocTypeOption<D, S> & { repo?: Repo })
 ): Promise<DocTypeStore<Repo, D, S> | null> {
   const options: (DocTypeOption<D, S> & { repo?: Repo }) | undefined =
@@ -271,7 +271,7 @@ export function document<
       ? { repo: repoOrOptions as Repo }
       : (repoOrOptions as DocTypeOption<D, S> & { repo?: Repo })
   const store = createAutomergeStore(options?.repo || getContextRepo())
-  return store.find(docIdOrUrl as AutomergeUrl<NameOf<D>>, {
+  return store.find(docIdOrUrl as DocumentUrl<SchemeOf<D>>, {
     docType: options?.docType,
   })
 }

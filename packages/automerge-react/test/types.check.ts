@@ -16,6 +16,7 @@ import {
   type DocHandle,
   type DocType,
   type DocTypeHelpers,
+  type DocumentUrl,
   type HandleKind,
   type Shaped,
   type PresenceInbound,
@@ -88,7 +89,7 @@ declare class CounterHandle extends Handle<number, number> {
   increment(): Promise<void>
 }
 interface Counter extends HandleKind {
-  readonly name: "counter"
+  readonly scheme: "counter"
   readonly handle: CounterHandle
 }
 declare const counter: DocType<
@@ -101,9 +102,9 @@ declare const counter: DocType<
 > &
   DocTypeHelpers<CounterHandle, "counter">
 const counterType = counter.as<Counter>()
-declare const counterUrl: AutomergeUrl<"counter">
-declare const todoUrl: AutomergeUrl<"automerge">
-export function docTypes(url: AutomergeUrl) {
+declare const counterUrl: DocumentUrl<"counter">
+declare const todoUrl: AutomergeUrl
+export function docTypes(url: DocumentUrl) {
   const plain = useDocHandle(counterUrl, {
     suspense: true,
     docType: counterType,
@@ -140,14 +141,19 @@ export function docTypes(url: AutomergeUrl) {
   void changeTodo(d => void (d.title = "x"))
   useDocument<Todo>(url, { suspense: true })[0].title satisfies string
 
-  useDocHandles([counterUrl], { docType: counterType })
-    .get(counterUrl)
-    ?.increment()
+  const counterHandles = useDocHandles([counterUrl], { docType: counterType })
+  counterHandles.get(counterUrl)?.increment()
+  // @ts-expect-error map is keyed by counter URLs, not Automerge URLs
+  counterHandles.get(todoUrl)
   const [values, changeOne] = useDocuments([counterUrl], {
     docType: counterType,
   })
   values.get(counterUrl) satisfies number | undefined
+  // @ts-expect-error map is keyed by counter URLs, not Automerge URLs
+  values.get(todoUrl)
   void changeOne(counterUrl, 1)
+  // @ts-expect-error changeOne takes a counter URL, not an Automerge URL
+  void changeOne(todoUrl, 1)
 
   const typed = createRepoHooks(repo)
   const counterHandle = typed.useDocHandle(counterUrl, {
@@ -172,7 +178,7 @@ declare class RegisterHandle<T> extends Handle<T, T> {
   get<K extends keyof T>(key: K): T[K]
 }
 interface Register extends Shaped {
-  readonly name: "register"
+  readonly scheme: "register"
   readonly handle: RegisterHandle<this["Shape"]>
 }
 declare const registerType: DocType<
@@ -185,7 +191,7 @@ declare const registerType: DocType<
 > &
   DocTypeHelpers<RegisterHandle<unknown>, "register">
 const register = registerType.as<Register>()
-declare const registerUrl: AutomergeUrl<"register">
+declare const registerUrl: DocumentUrl<"register">
 
 export function shaped() {
   const handle = useDocHandle(registerUrl, {

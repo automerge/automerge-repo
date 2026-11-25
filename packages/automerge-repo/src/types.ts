@@ -1,35 +1,42 @@
 /**
- * A branded string representing a URL for a document, in the form `automerge:<base58check encoded
- * string>`; for example, `automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu`. A document of another doc type
- * names it: `automerge:<doc type name>:<base58check encoded string>`. `DocTypeName` is that name,
- * for type checks only; by default, any.
+ * A branded document URL, `<scheme>:<base58check encoded ID>[<suffix>]`.
+ * `Scheme` is the URL scheme (the document's doc type, e.g. `automerge`), for
+ * type checks only; by default, any. Everything after the document ID is
+ * specific to the doc type.
  */
-export type AutomergeUrl<DocTypeName extends string = string> = string & {
+export type DocumentUrl<Scheme extends string = string> = string & {
   __documentUrl: true
   // A method, so checked loosely both ways: a URL of any doc type (`string`)
-  // fits one with a name, and back, but two different names don't.
-  __docTypeName?(name: DocTypeName): void
+  // fits one with a scheme, and back, but two different schemes don't.
+  __urlScheme?(scheme: Scheme): void
 } // for opening / linking
 
 /**
+ * A URL for an Automerge document, in the form `automerge:<base58check encoded
+ * string>[/<path>][#<heads>]`; for example,
+ * `automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu`.
+ */
+export type AutomergeUrl = DocumentUrl<"automerge"> // for opening / linking
+
+/**
  * The base58check-encoded 32-byte ID of a document, written as just the first
- * 16 bytes when the rest are zero. This follows the `automerge:` protocol
- * prefix in an AutomergeUrl; for example, `4NMNnkMhL8jXrdJ9jamS58PAVdXu`. When
- * recording links to an Automerge document in another Automerge document, you
- * should store a {@link AutomergeUrl} instead.
+ * 16 bytes when the rest are zero. This follows the `<scheme>:` protocol
+ * prefix in a {@link DocumentUrl}; for example, `4NMNnkMhL8jXrdJ9jamS58PAVdXu`.
+ * When recording links to a document in another document, you should store a
+ * {@link DocumentUrl} (or {@link AutomergeUrl}) instead.
  */
 export type DocumentId = string & { __documentId: true } // for logging
 
 /**
  * The unencoded 32-byte ID; a 16-byte (v2) ID is accepted as input and
- * zero-padded. Typically use an {@link AutomergeUrl} instead.
+ * zero-padded. Typically use a {@link DocumentUrl} instead.
  */
 export type BinaryDocumentId = Uint8Array & { __binaryDocumentId: true } // for storing / syncing
 
-/** Any way of naming a document; with `DocTypeName`, URLs must be of a
- * document of that doc type, or of any. */
-export type AnyDocumentId<DocTypeName extends string = string> =
-  | AutomergeUrl<DocTypeName>
+/** Any way of naming a document; with `Scheme`, URLs must be of a document of
+ * that doc type, or of any. */
+export type AnyDocumentId<Scheme extends string = string> =
+  | DocumentUrl<Scheme>
   | DocumentId
   | BinaryDocumentId
 

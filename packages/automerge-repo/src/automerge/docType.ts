@@ -7,7 +7,7 @@ import {
   extractFragments,
   extractRecords,
 } from "../sedimentree/automerge/index.js"
-import { parsePath } from "../subdoc-handles/parser.js"
+import { parseAutomergeSuffix } from "../AutomergeUrl.js"
 import { AutomergeHandle } from "./handle.js"
 
 /** The default document type: Automerge, behind an {@link AutomergeHandle}. */
@@ -28,14 +28,14 @@ export interface AutomergeDocType extends DocType<
 /** Automerge's handles: generic in the document's shape, and passing the
  * backend's extensions on to sub-handles. */
 export interface AutomergeKind extends Shaped {
-  readonly name: "automerge"
+  readonly scheme: "automerge"
   readonly handle: AutomergeHandle<this["Shape"]>
   readonly init: this["Shape"] | undefined
 }
 
 /** The default document type: Automerge. */
 export const automerge: AutomergeDocType = {
-  name: "automerge",
+  scheme: "automerge",
   // Only non-empty plain objects seed a document; anything else starts it
   // empty, with one empty change so it has a head.
   create: (init: unknown): A.Doc<any> =>
@@ -63,8 +63,18 @@ export const automerge: AutomergeDocType = {
   view: (doc, heads) => A.view(doc, [...heads]),
   merge: (doc, other) => A.merge(doc, other),
   handle: AutomergeHandle,
-  openPath: (handle, path) =>
-    (handle as AutomergeHandle<any>).sub(...(parsePath(path) as any[])),
+  openUrl: suffix => {
+    const { heads, segments } = parseAutomergeSuffix(suffix)
+    return {
+      ...(heads !== undefined ? { heads } : {}),
+      ...(segments !== undefined
+        ? {
+            open: handle =>
+              (handle as AutomergeHandle<any>).sub(...(segments as any[])),
+          }
+        : {}),
+    }
+  },
   of() {
     return this
   },

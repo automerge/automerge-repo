@@ -215,7 +215,7 @@ export class DocumentState {
     if (!heads) return this.current
     const docType = this.docType
     if (!docType.view)
-      throw new Error(`${docType.name} documents have no views`)
+      throw new Error(`${docType.scheme} documents have no views`)
     const key = [...heads].sort().join(",")
     const cached = this.#viewCache.get(key)
     if (cached !== undefined) return cached

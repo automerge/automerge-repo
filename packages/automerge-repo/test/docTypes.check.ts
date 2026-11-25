@@ -13,7 +13,13 @@ import type { AnyHandleKind, SameBackend } from "../src/types/DocHandle.js"
 import { Presence } from "../src/presence/Presence.js"
 import { defineExtension, provides } from "../src/sedimentree/index.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
-import type { AutomergeUrl, DocumentId, PeerId, RepoId } from "../src/types.js"
+import type {
+  AutomergeUrl,
+  DocumentId,
+  DocumentUrl,
+  PeerId,
+  RepoId,
+} from "../src/types.js"
 import {
   CounterHandle,
   gcounter,
@@ -58,7 +64,7 @@ if (isHandleOf(any, automerge))
 // A doc type with no custom handle class still derives doc(), change() and
 // change-event types from its definition.
 const plainCounter = defineDocType({
-  name: "plain-counter",
+  scheme: "plain-counter",
   create: (n: number) => ({ n }),
   value: s => s.n,
   change: (s, by: number) => ({ n: s.n + by }),
@@ -167,11 +173,11 @@ class TreeHandle<T> extends Handle<T, T> {
   }
 }
 interface Tree extends Shaped {
-  readonly name: "tree"
+  readonly scheme: "tree"
   readonly handle: TreeHandle<this["Shape"]>
 }
 const tree = defineDocType({
-  name: "tree",
+  scheme: "tree",
   create: (init: unknown) => ({ init }),
   value: s => s.init,
   change: (s, init: unknown) => ({ init }),
@@ -184,7 +190,7 @@ const tree = defineDocType({
 type Nested = { a: { b: { c: number } } }
 export async function sameBackend() {
   const extRepo = new Repo({ backend: new EphemeralBackend() })
-  const t = await extRepo.find("tree:x" as AutomergeUrl, {
+  const t = await extRepo.find("tree:x" as DocumentUrl<"tree">, {
     docType: tree.of<Nested>(),
   })
   t.at("a").at("b").doc().c satisfies number
@@ -193,7 +199,7 @@ export async function sameBackend() {
   new Presence({ handle: t.at("a") })
   // @ts-expect-error not a key
   t.at("nope")
-  const plainT = await new Repo().find("tree:x" as AutomergeUrl, {
+  const plainT = await new Repo().find("tree:x" as DocumentUrl<"tree">, {
     docType: tree.of<Nested>(),
   })
   // @ts-expect-error a plain backend's derived handles have no broadcast
@@ -250,11 +256,11 @@ class OtherHandle<T> extends Handle<T, T> {
   }
 }
 interface WrongClass extends Shaped {
-  readonly name: "wrong-class"
+  readonly scheme: "wrong-class"
   readonly handle: OtherHandle<this["Shape"]>
 }
 defineDocType({
-  name: "wrong-class",
+  scheme: "wrong-class",
   create: (v: unknown) => ({ v }),
   value: (s: { v: unknown }) => s.v,
   change: (_s: { v: unknown }, v: unknown) => ({ v }),
@@ -266,7 +272,7 @@ defineDocType({
 gcounter.of<Todo2>()
 class StringHandle extends Handle<string, string> {}
 defineDocType({
-  name: "mismatch",
+  scheme: "mismatch",
   create: (n: number) => ({ v: n as unknown }),
   value: (s: { v: unknown }) => s.v as number,
   change: (_s: { v: unknown }, by: number) => ({ v: by as unknown }),
@@ -274,18 +280,18 @@ defineDocType({
   // @ts-expect-error the class's doc() and change() types disagree with the type
   handle: StringHandle,
 })
-interface WrongName extends HandleKind {
-  readonly name: "not-gcounter"
+interface WrongScheme extends HandleKind {
+  readonly scheme: "not-gcounter"
   readonly handle: CounterHandle
 }
 defineDocType({
   ...gcounter,
-  name: "gcounter-copy",
+  scheme: "gcounter-copy",
   handle: CounterHandle,
-  // @ts-expect-error the kind's name differs from the definition's
-}).as<WrongName>()
+  // @ts-expect-error the kind's scheme differs from the definition's
+}).as<WrongScheme>()
 
-// Handles' URLs name their doc type.
+// Handles' URLs use their doc type's scheme.
 export async function urls() {
   const r = new Repo({ backend: new EphemeralBackend() })
   const counter = await r.create(1, { docType: gcounter })
@@ -293,16 +299,16 @@ export async function urls() {
   const bare = await r.create(1, { docType: plainCounter })
   const listed = r.handles["x" as DocumentId]
   const checks: [
-    Equal<typeof counter.url, AutomergeUrl<"gcounter">>,
-    Equal<typeof doc.url, AutomergeUrl<"automerge">>,
-    Equal<typeof bare.url, AutomergeUrl<"plain-counter">>,
+    Equal<typeof counter.url, DocumentUrl<"gcounter">>,
+    Equal<typeof doc.url, AutomergeUrl>,
+    Equal<typeof bare.url, DocumentUrl<"plain-counter">>,
   ] = [true, true, true]
-  const fromView: AutomergeUrl<"gcounter"> = counter.view(counter.heads()).url
-  const fromSub: AutomergeUrl<"automerge"> = doc.sub("items", 0).url
-  const any: AutomergeUrl = counter.url
-  const fromListed: AutomergeUrl = listed.url
+  const fromView: DocumentUrl<"gcounter"> = counter.view(counter.heads()).url
+  const fromSub: AutomergeUrl = doc.sub("items", 0).url
+  const any: DocumentUrl = counter.url
+  const fromListed: DocumentUrl = listed.url
   // @ts-expect-error a counter's URL is not an Automerge document's
-  const wrong: AutomergeUrl<"automerge"> = counter.url
+  const wrong: AutomergeUrl = counter.url
   return [checks, fromView, fromSub, any, fromListed, wrong]
 }
 
@@ -311,7 +317,7 @@ export async function findChecks() {
   const r = new Repo()
   const counter = await r.create(1, { docType: gcounter })
   const doc = await r.find<Todo2>("automerge:x" as AutomergeUrl)
-  const link = "automerge:x" as AutomergeUrl
+  const link = "automerge:x" as DocumentUrl
   await r.find(counter.url, { docType: gcounter })
   await r.find(doc.url)
   await r.find<Todo2>(doc.sub("items", 0).url)

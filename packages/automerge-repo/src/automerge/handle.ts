@@ -7,7 +7,7 @@ import {
 } from "../AutomergeUrl.js"
 import type { DocumentState } from "../DocumentState.js"
 import { arraysAreEqual } from "../sedimentree/arraysAreEqual.js"
-import type { AutomergeUrl, UrlHeads } from "../types.js"
+import type { AutomergeUrl, DocumentUrl, UrlHeads } from "../types.js"
 import {
   Handle as BaseHandle,
   type HandleOptions,
@@ -115,7 +115,7 @@ export class AutomergeHandle<T> extends BaseHandle<
   DocHandleEvents<T>
 > {
   /** Type only: Automerge handles' URLs are Automerge documents'. */
-  declare readonly "~name": "automerge"
+  declare readonly "~scheme": "automerge"
 
   /** Shared per-document state. Every handle into the same doc shares one;
    * a sub-handle's `T` is its scoped value's type, not the document's. */
@@ -158,7 +158,7 @@ export class AutomergeHandle<T> extends BaseHandle<
    * The URL might include a path, or heads, both optionally.
    * like this: `automerge:<docId>[/path][#heads]`;
    */
-  get url(): AutomergeUrl<this["~name"]> {
+  get url(): DocumentUrl<this["~scheme"]> {
     const segments: Segment[] | undefined =
       this.#path.length > 0 || this.#range
         ? this.#range
@@ -169,7 +169,7 @@ export class AutomergeHandle<T> extends BaseHandle<
       documentId: this.documentId,
       heads: this.#fixedHeads,
       segments,
-    }) as AutomergeUrl<this["~name"]>
+    }) as AutomergeUrl as DocumentUrl<this["~scheme"]>
   }
 
   /**

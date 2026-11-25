@@ -77,7 +77,7 @@ describe("DocumentState with states that are not objects", () => {
     const apply = vi.fn(() => 99)
     const docType = {
       ...automerge,
-      name: "numeric",
+      scheme: "numeric",
       apply,
       heads: (n: number | null) => [String(n)],
       view: (n: number) => n - 1,

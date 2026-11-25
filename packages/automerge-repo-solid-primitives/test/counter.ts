@@ -43,12 +43,12 @@ export class CounterHandle extends Handle<number, number> {
 }
 
 export interface Counter extends HandleKind {
-  readonly name: "counter"
+  readonly scheme: "counter"
   readonly handle: CounterHandle
 }
 
 export const counter = defineDocType({
-  name: "counter",
+  scheme: "counter",
   create: (start: number | undefined) => add(new Map(), start ?? 0),
   value: (state: State) =>
     [...state.values()].reduce((n, c) => n + c.amount, 0),
