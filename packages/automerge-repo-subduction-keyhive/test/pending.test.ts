@@ -3,7 +3,7 @@ import { sedimentreeId } from "@automerge/automerge-repo/sedimentree"
 import { DocumentId, Power } from "@keyhive/keyhive/slim"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { uint8ArrayToHex } from "../src/utilities.js"
-import { connect, createPeer, readerWithoutKeys } from "./helpers.js"
+import { connect, createPeer, groupWith, readerWithoutKeys } from "./helpers.js"
 
 interface Note {
   text: string
@@ -13,8 +13,8 @@ interface Note {
 async function sharedPeers(manualSync = false) {
   const options = manualSync ? { syncIntervalMs: null } : undefined
   const [alice, bob] = [
-    await createPeer(undefined, undefined, options),
-    await createPeer(undefined, undefined, options),
+    await createPeer(undefined, options),
+    await createPeer(undefined, options),
   ]
   const { disconnect } = await connect(alice, bob)
   const aliceRepo = new Repo({ backend: alice.backend })
@@ -31,7 +31,7 @@ async function sharedPeers(manualSync = false) {
     handle
       .keyhive()
       .addMemberFromContactCard(
-        await bob.backend.repoKeyhive().contactCard(),
+        await bob.backend.keyhive().getExistingContactCard(),
         Power.read()
       )
   const stop = async () => {
@@ -124,10 +124,9 @@ describe("content that arrives before its key", () => {
     const before = attempts.length
     slow = true
     // A keyhive change for bob that gives him no key for the document.
-    const team = peers.alice.backend.repoKeyhive()
-    await team.addGroupMemberFromContactCard(
-      await team.createGroup(),
-      await peers.bob.backend.repoKeyhive().contactCard(),
+    await groupWith(
+      peers.alice.backend.keyhive(),
+      await peers.bob.backend.keyhive().getExistingContactCard(),
       Power.read()
     )
     peers.sync()
@@ -179,7 +178,7 @@ describe("content that arrives before its key", () => {
     await peers.bobRepo.shutdown()
     await peers.disconnect()
 
-    const restarted = await createPeer(peers.bob.keys, peers.bob.storage)
+    const restarted = await createPeer(peers.bob.storage)
     const repo = new Repo({ backend: restarted.backend })
     cleanup.push(() => repo.shutdown())
     void repo.find<Note>(peers.handle.url).catch(() => {})
@@ -212,9 +211,9 @@ describe("content that arrives before its key", () => {
       { timeout: 8000 }
     )
 
-    await peers.alice.backend.local.queue.run(() =>
-      peers.alice.keyhive.forcePcsUpdate(peers.docId)
-    )
+    await peers.alice.backend
+      .keyhive()
+      .queue.run(() => peers.alice.keyhive.forcePcsUpdate(peers.docId))
     peers.handle.change(doc => {
       doc.text = "needs a newer key"
     })

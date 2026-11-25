@@ -13,18 +13,12 @@ import {
 } from "@keyhive/keyhive/slim"
 import type { KeyhiveSession } from "./KeyhiveSession.js"
 import type { LocalKeyhive } from "./LocalKeyhive.js"
-import {
-  receiveContactCard,
-  setContentHeads,
-  type StoredHeads,
-} from "./RepoKeyhive.js"
 
 /** The keyhive operations on one document (`handle.keyhive()`). */
 export class DocKeyhive {
   constructor(
     private readonly local: LocalKeyhive,
     private readonly id: SedimentreeId,
-    private readonly storedHeads: StoredHeads,
     /** The document's session. `undefined` once it's closed. */
     private readonly session: () => KeyhiveSession | undefined
   ) {}
@@ -35,20 +29,17 @@ export class DocKeyhive {
   }
 
   /** Grant access to an agent that keyhive already knows. */
-  addMember(id: Identifier, power: Power): Promise<void> {
-    return this.local.queue.run(async () => {
-      await this.local.keyhive.addMember(id, this.#memberedId(), power)
-      await this.local.persist()
-    })
+  async addMember(id: Identifier, power: Power): Promise<void> {
+    await this.local.addMember(id, this.#memberedId(), power)
   }
 
   /** Receive `card`, then grant access to its owner. */
-  addMemberFromContactCard(card: ContactCard, power: Power): Promise<void> {
-    return this.local.queue.run(async () => {
-      await receiveContactCard(this.local.keyhive, card)
-      await this.local.keyhive.addMember(card.id, this.#memberedId(), power)
-      await this.local.persist()
-    })
+  async addMemberFromContactCard(
+    card: ContactCard,
+    power: Power
+  ): Promise<void> {
+    await this.local.receiveContactCard(card)
+    await this.local.addMember(card.id, this.#memberedId(), power)
   }
 
   /**
@@ -56,12 +47,8 @@ export class DocKeyhive {
    * document's stored history. Writes not stored yet, including those
    * waiting to be encrypted, are not covered.
    */
-  revokeMember(id: Identifier): Promise<void> {
-    return this.local.queue.run(async () => {
-      await setContentHeads(this.local, this.storedHeads, this.id)
-      await this.local.keyhive.revokeMember(id, true, this.#memberedId())
-      await this.local.persist()
-    })
+  async revokeMember(id: Identifier): Promise<void> {
+    await this.local.revokeMember(id, true, this.#memberedId())
   }
 
   /**
@@ -70,21 +57,17 @@ export class DocKeyhive {
    * are left out.
    */
   members(): Promise<Membership[]> {
-    return this.local.queue.run(() =>
-      this.local.keyhive.docMemberCapabilities(this.documentId)
-    )
+    return this.local.docMemberCapabilities(this.documentId)
   }
 
   /** `id`'s access to the document. `undefined` if it has none. */
   accessFor(id: Identifier): Promise<Power | undefined> {
-    return this.local.queue.run(() =>
-      this.local.keyhive.accessForDoc(id, this.documentId)
-    )
+    return this.local.accessForDoc(id, this.documentId)
   }
 
   /** This replica's access to the document. */
   myAccess(): Promise<Power | undefined> {
-    return this.accessFor(new Identifier(this.local.keyhive.id.toBytes()))
+    return this.accessFor(new Identifier(this.local.id.toBytes()))
   }
 
   /** The number of received records for this document that cannot be decrypted yet. */

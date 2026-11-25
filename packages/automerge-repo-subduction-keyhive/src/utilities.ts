@@ -18,10 +18,6 @@ export function uint8ArrayToHex(arr: Uint8Array): string {
     .join("")
 }
 
-export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  return a.length === b.length && a.every((byte, i) => byte === b[i])
-}
-
 export function hexToUint8Array(hex: string): Uint8Array {
   const bytes = new Uint8Array(hex.length / 2)
   for (let i = 0; i < hex.length; i += 2) {

@@ -10,6 +10,7 @@ import {
   DocumentId,
   Identifier,
   type Keyhive,
+  MemberedId,
   Power,
 } from "@keyhive/keyhive/slim"
 import {
@@ -25,6 +26,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   connect,
   createPeer,
+  groupWith,
   readerWithoutKeys,
   unseenCommit,
   type TestPeer,
@@ -90,14 +92,14 @@ describe("document membership through DocKeyhive", () => {
     await handle
       .keyhive()
       .addMemberFromContactCard(
-        await bob.backend.repoKeyhive().contactCard(),
+        await bob.backend.keyhive().getExistingContactCard(),
         Power.read()
       )
     const atBob = await bobRepo.find<Note>(handle.url)
     await handle
       .keyhive()
       .addMemberFromContactCard(
-        await carol.backend.repoKeyhive().contactCard(),
+        await carol.backend.keyhive().getExistingContactCard(),
         Power.read()
       )
     handle.change(note => {
@@ -115,11 +117,9 @@ describe("document membership through DocKeyhive", () => {
     const [alice, bob] = [await createPeer(), await createPeer()]
     await link(alice, bob)
     const [aliceRepo, bobRepo] = [await repoOf(alice), await repoOf(bob)]
-    const team = alice.backend.repoKeyhive()
-    const group = await team.createGroup()
-    await team.addGroupMemberFromContactCard(
-      group,
-      await bob.backend.repoKeyhive().contactCard(),
+    const group = await groupWith(
+      alice.backend.keyhive(),
+      await bob.backend.keyhive().getExistingContactCard(),
       Power.read()
     )
     const handle = await aliceRepo.create<Note>({ text: "for the group" })
@@ -134,7 +134,7 @@ describe("document membership through DocKeyhive", () => {
     await link(alice, bob)
     const [aliceRepo, bobRepo] = [await repoOf(alice), await repoOf(bob)]
     const handle = await aliceRepo.create<Note>({ text: "first" })
-    const card = await bob.backend.repoKeyhive().contactCard()
+    const card = await bob.backend.keyhive().getExistingContactCard()
     await handle.keyhive().addMemberFromContactCard(card, Power.edit())
     const atBob = await bobRepo.find<Note>(handle.url)
     await handle
@@ -166,43 +166,6 @@ describe("document membership through DocKeyhive", () => {
     )
   }, 40000)
 
-  it("drops a commit whose decrypted change is not the commit it claims", async () => {
-    const [alice, bob] = [await createPeer(), await createPeer()]
-    await link(alice, bob)
-    const [aliceRepo, bobRepo] = [await repoOf(alice), await repoOf(bob)]
-    const handle = await aliceRepo.create<Note>({ text: "first" })
-    await handle
-      .keyhive()
-      .addMemberFromContactCard(
-        await bob.backend.repoKeyhive().contactCard(),
-        Power.edit()
-      )
-    const atBob = await bobRepo.find<Note>(handle.url)
-    const forged = A.getLastLocalChange(
-      A.change(A.clone(atBob.doc()), note => {
-        note.text = "forged"
-      })
-    )!
-    const encrypt = bob.keyhive.tryEncrypt.bind(bob.keyhive)
-    vi.spyOn(bob.keyhive, "tryEncrypt").mockImplementation((doc, ref, preds) =>
-      encrypt(doc, ref, preds, forged)
-    )
-    const dropped = vi.spyOn(log, "warn")
-    cleanup.push(async () => dropped.mockRestore())
-
-    atBob.change(note => {
-      note.text = "honest"
-    })
-    await vi.waitFor(
-      () =>
-        expect(dropped).toHaveBeenCalledWith(
-          expect.stringContaining("does not match")
-        ),
-      options
-    )
-    expect(handle.doc()).toEqual({ text: "first" })
-  }, 20000)
-
   it("reads a commit whose ref a forged commit claimed first", async () => {
     const [alice, bob] = [await createPeer(), await createPeer()]
     await link(alice, bob)
@@ -211,7 +174,7 @@ describe("document membership through DocKeyhive", () => {
     await handle
       .keyhive()
       .addMemberFromContactCard(
-        await bob.backend.repoKeyhive().contactCard(),
+        await bob.backend.keyhive().getExistingContactCard(),
         Power.edit()
       )
     const atBob = await bobRepo.find<Note>(handle.url)
@@ -235,69 +198,6 @@ describe("document membership through DocKeyhive", () => {
     )
   }, 20000)
 
-  it("opens a document whose newest commit builds on a dropped one", async () => {
-    const [alice, bob, carol] = [
-      await createPeer(),
-      await createPeer(),
-      await createPeer(),
-    ]
-    await link(alice, bob)
-    const { disconnect } = await connect(alice, carol)
-    const [aliceRepo, bobRepo] = [await repoOf(alice), await repoOf(bob)]
-    const carolRepo = new Repo({ backend: carol.backend })
-    const handle = await aliceRepo.create<Note>({ text: "first" })
-    await handle
-      .keyhive()
-      .addMemberFromContactCard(
-        await bob.backend.repoKeyhive().contactCard(),
-        Power.edit()
-      )
-    await handle
-      .keyhive()
-      .addMemberFromContactCard(
-        await carol.backend.repoKeyhive().contactCard(),
-        Power.read()
-      )
-    const atBob = await bobRepo.find<Note>(handle.url)
-    await carolRepo.find<Note>(handle.url)
-    const forged = A.getLastLocalChange(
-      A.change(A.clone(atBob.doc()), note => {
-        note.text = "forged"
-      })
-    )!
-    const encrypt = bob.keyhive.tryEncrypt.bind(bob.keyhive)
-    const forge = vi
-      .spyOn(bob.keyhive, "tryEncrypt")
-      .mockImplementation((doc, ref, preds) => encrypt(doc, ref, preds, forged))
-    atBob.change(note => {
-      note.text = "dropped"
-    })
-    await bobRepo.flush()
-    forge.mockRestore()
-    atBob.change(note => {
-      note.text = "on top of it"
-    })
-    await bobRepo.flush()
-    const top = commitId(decodeHeads(atBob.heads())[0])
-    const id = sedimentreeId(parseAutomergeUrl(handle.url).binaryDocumentId)
-    await vi.waitFor(async () => {
-      const heads = (await carol.inner.subduction.getHeads(id)) ?? []
-      expect(heads.map(commitId)).toContain(top)
-      expect(carol.backend.pendingCount(id)).toBe(0)
-    }, options)
-    await carolRepo.flush()
-    await carolRepo.shutdown()
-    await disconnect()
-
-    // After a restart Carol reads every record from storage at once, so her
-    // first marker already includes the commit built on the dropped one.
-    const restarted = await createPeer(carol.keys, carol.storage)
-    const reopened = await (
-      await repoOf(restarted)
-    ).find<Note>(handle.url, { signal: AbortSignal.timeout(10000) })
-    expect(reopened.doc()).toEqual({ text: "first" })
-  }, 40000)
-
   it("lets a member added after compaction read the document", async () => {
     const [alice, bob] = [await createPeer(), await createPeer()]
     await link(alice, bob)
@@ -314,7 +214,7 @@ describe("document membership through DocKeyhive", () => {
     await handle
       .keyhive()
       .addMemberFromContactCard(
-        await bob.backend.repoKeyhive().contactCard(),
+        await bob.backend.keyhive().getExistingContactCard(),
         Power.read()
       )
     handle.change(doc => void doc.n++)
@@ -344,7 +244,7 @@ describe("document membership through DocKeyhive", () => {
     await handle
       .keyhive()
       .addMemberFromContactCard(
-        await carol.backend.repoKeyhive().contactCard(),
+        await carol.backend.keyhive().getExistingContactCard(),
         Power.edit()
       )
     handle.change(doc => void doc.n++)
@@ -373,7 +273,7 @@ describe("document membership through DocKeyhive", () => {
     const [aliceRepo, bobRepo] = [await repoOf(alice), await repoOf(bob)]
     const handle = await aliceRepo.create<Note>({ text: "before" })
     const doc = handle.keyhive()
-    const card = await bob.backend.repoKeyhive().contactCard()
+    const card = await bob.backend.keyhive().getExistingContactCard()
     await doc.addMemberFromContactCard(card, Power.read())
     const atBob = await bobRepo.find<Note>(handle.url)
     expect(atBob.doc()).toEqual({ text: "before" })
@@ -399,11 +299,9 @@ describe("document membership through DocKeyhive", () => {
     const [alice, bob] = [await createPeer(), await createPeer()]
     await link(alice, bob)
     const [aliceRepo, bobRepo] = [await repoOf(alice), await repoOf(bob)]
-    const team = alice.backend.repoKeyhive()
-    const group = await team.createGroup()
-    await team.addGroupMemberFromContactCard(
-      group,
-      await bob.backend.repoKeyhive().contactCard(),
+    const group = await groupWith(
+      alice.backend.keyhive(),
+      await bob.backend.keyhive().getExistingContactCard(),
       Power.read()
     )
     const handle = await aliceRepo.create<Note>({ text: "before" })
@@ -411,10 +309,13 @@ describe("document membership through DocKeyhive", () => {
     const atBob = await bobRepo.find<Note>(handle.url)
     readerWithoutKeys(bob.keyhive)
 
-    await team.revokeGroupMember(
-      group,
-      new Identifier(bob.signer.verifyingKey())
-    )
+    await alice.backend
+      .keyhive()
+      .revokeMember(
+        new Identifier(bob.signer.verifyingKey()),
+        true,
+        MemberedId.group(group)
+      )
     handle.change(note => {
       note.text = "after"
     })
@@ -435,7 +336,7 @@ describe("document membership through DocKeyhive", () => {
     await handle
       .keyhive()
       .addMemberFromContactCard(
-        await bob.backend.repoKeyhive().contactCard(),
+        await bob.backend.keyhive().getExistingContactCard(),
         Power.read()
       )
     const view = handle.view(handle.heads())
@@ -450,11 +351,9 @@ describe("document membership through DocKeyhive", () => {
 
   it("records the document's latest heads when revoking a member of a group", async () => {
     const [alice, bob] = [await createPeer(), await createPeer()]
-    const team = alice.backend.repoKeyhive()
-    const group = await team.createGroup()
-    await team.addGroupMemberFromContactCard(
-      group,
-      await bob.backend.repoKeyhive().contactCard(),
+    const group = await groupWith(
+      alice.backend.keyhive(),
+      await bob.backend.keyhive().getExistingContactCard(),
       Power.read()
     )
     const repo = await repoOf(alice)
@@ -466,10 +365,13 @@ describe("document membership through DocKeyhive", () => {
     await repo.flush()
     const retained = retainedHeads(alice.keyhive, handle.url)
 
-    await team.revokeGroupMember(
-      group,
-      new Identifier(bob.signer.verifyingKey())
-    )
+    await alice.backend
+      .keyhive()
+      .revokeMember(
+        new Identifier(bob.signer.verifyingKey()),
+        true,
+        MemberedId.group(group)
+      )
     expect(retained).toEqual(decodeHeads(handle.heads()))
   })
 
@@ -486,7 +388,7 @@ describe("document membership through DocKeyhive", () => {
   it("grants Relay on a document created before keyhive knew the relay", async () => {
     const relay = await createPeer()
     const key = relay.signer.verifyingKey()
-    const alice = await createPeer(undefined, undefined, { relays: [key] })
+    const alice = await createPeer(undefined, { relays: [key] })
     const handle = await (await repoOf(alice)).create<Note>({ text: "kept" })
 
     await link(alice, relay)
@@ -509,7 +411,7 @@ describe("document membership through DocKeyhive", () => {
   async function relayWithDocument() {
     const relay = await createPeer()
     const key = relay.signer.verifyingKey()
-    const alice = await createPeer(undefined, undefined, { relays: [key] })
+    const alice = await createPeer(undefined, { relays: [key] })
     await link(alice, relay)
     const aliceRepo = await repoOf(alice)
     const handle = await aliceRepo.create<Note>({ text: "kept" })
@@ -547,7 +449,9 @@ describe("document membership through DocKeyhive", () => {
     // A key rotation reaches the relay, which then either checks its access
     // or tries its pending records.
     const before = access.mock.calls.length
-    await alice.backend.local.queue.run(() => alice.keyhive.forcePcsUpdate(doc))
+    await alice.backend
+      .keyhive()
+      .queue.run(() => alice.keyhive.forcePcsUpdate(doc))
     alice.backend.syncKeyhive()
     await vi.waitFor(
       () =>

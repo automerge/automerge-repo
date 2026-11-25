@@ -11,6 +11,12 @@ import {
 import { freeAfter } from "./utilities.js"
 
 /**
+ * The first bytes of every archive this version of keyhive writes (`KHIV` and
+ * the format version).
+ */
+const ARCHIVE_HEADER = new Uint8Array([0x4b, 0x48, 0x49, 0x56, 4])
+
+/**
  * Wrap `keyhive` as the byte-level `KeyhiveAccess` that Subduction's `keyhive`
  * option takes. Only bytes cross the boundary so Subduction and the keyhive
  * can be in separate Wasm modules.
@@ -68,6 +74,9 @@ export function keyhiveAccess(keyhive: Keyhive): KeyhiveAccess {
 
     toArchive: async () =>
       freeAfter(await keyhive.toArchive(), archive => archive.toBytes()),
+
+    isCurrentArchive: archive =>
+      ARCHIVE_HEADER.every((byte, i) => archive[i] === byte),
 
     ingestArchive: async bytes =>
       freeAfter(new Archive(bytes), archive => keyhive.ingestArchive(archive)),

@@ -1,7 +1,9 @@
 import {
   checkpointForCommit,
   idBytes,
+  type CheckpointId,
   type CommitId,
+  type FragmentRecord,
   type SedimentreeRecord,
 } from "@automerge/automerge-repo/sedimentree"
 import { ChangeId, Encrypted } from "@keyhive/keyhive/slim"
@@ -26,55 +28,6 @@ export function recordRef(record: SedimentreeRecord): ContentRef {
   } finally {
     ref.free()
   }
-}
-
-/**
- * The hashes of the changes in a blob and the changes outside it that they
- * depend on. `undefined` if the blob is not valid content.
- */
-export type ChangesIn = (
-  blob: Uint8Array
-) => { hashes: CommitId[]; deps: CommitId[] } | undefined
-
-/**
- * The hashes of the changes in a decrypted record's blob. `undefined` if
- * the blob is not the content its metadata describes. A commit's change must
- * hash to its id and depend on exactly its parents. A fragment's bundle must
- * contain its head and a change for each checkpoint, must not contain its
- * boundary, and must depend on changes outside it exactly when the boundary
- * is not empty. The boundary is the fragment's parents among fragments.
- * The bundle's dependencies are in the boundary's history but need not equal
- * it. Keyhive binds a ciphertext to the content ref in its header but not to
- * the record that contains it. A writer could otherwise put any change under
- * an existing commit's id.
- */
-export function matchingChanges(
-  record: SedimentreeRecord,
-  changesIn: ChangesIn
-): CommitId[] | undefined {
-  const content = changesIn(record.blob)
-  if (!content) return undefined
-  const { hashes, deps } = content
-  const matches =
-    record.kind === "commit"
-      ? hashes.length === 1 &&
-        hashes[0] === record.id &&
-        sameIds(deps, record.parents)
-      : hashes.includes(record.head) &&
-        !record.boundary.some(id => hashes.includes(id)) &&
-        (deps.length === 0) === (record.boundary.length === 0) &&
-        record.checkpoints.every(checkpoint =>
-          hashes.some(hash => checkpointForCommit(hash) === checkpoint)
-        )
-  return matches ? hashes : undefined
-}
-
-function sameIds(ids: readonly CommitId[], expected: readonly CommitId[]) {
-  const actual = new Set(ids)
-  return (
-    actual.size === new Set(expected).size &&
-    expected.every(id => actual.has(id))
-  )
 }
 
 /** The content ref in a ciphertext's header. Throws if `blob` is not a keyhive
@@ -108,22 +61,26 @@ interface KnownFragment {
   readonly level: number
 }
 
-/** Fragments by ref with the commits each contains. */
+/** Fragments by ref along with the boundary commits each is known to contain. */
 export class FragmentIndex {
   readonly #fragments = new Map<ContentRef, KnownFragment>()
-  /** The refs of the fragments that contain each commit. */
-  readonly #containing = new Map<CommitId, ContentRef[]>()
+  /** The refs of the fragments with each head or checkpoint. */
+  readonly #containing = new Map<CommitId | CheckpointId, ContentRef[]>()
 
-  add(ref: ContentRef, head: CommitId, commits: Iterable<CommitId>): void {
+  add(
+    ref: ContentRef,
+    fragment: Pick<FragmentRecord, "head" | "checkpoints">
+  ): void {
     if (this.#fragments.has(ref)) return
+    const { head, checkpoints } = fragment
     this.#fragments.set(ref, {
       head,
       level: /^(?:00)*/.exec(head)![0].length / 2,
     })
-    for (const commit of commits) {
-      const refs = this.#containing.get(commit)
+    for (const key of [head, ...checkpoints]) {
+      const refs = this.#containing.get(key)
       if (refs) refs.push(ref)
-      else this.#containing.set(commit, [ref])
+      else this.#containing.set(key, [ref])
     }
   }
 
@@ -132,8 +89,8 @@ export class FragmentIndex {
   }
 
   /**
-   * The deepest fragment here that contains `commit` among those `include`
-   * accepts.
+   * The deepest fragment here that is known to contain `commit`, among those
+   * `include` accepts.
    */
   deepestContaining(
     commit: CommitId,
@@ -141,7 +98,11 @@ export class FragmentIndex {
   ): ContentRef | undefined {
     let deepest: ContentRef | undefined
     let level = -1
-    for (const ref of this.#containing.get(commit) ?? []) {
+    const refs = [
+      ...(this.#containing.get(commit) ?? []),
+      ...(this.#containing.get(checkpointForCommit(commit)) ?? []),
+    ]
+    for (const ref of refs) {
       const fragment = this.#fragments.get(ref)!
       if (fragment.level > level && include(ref)) {
         deepest = ref

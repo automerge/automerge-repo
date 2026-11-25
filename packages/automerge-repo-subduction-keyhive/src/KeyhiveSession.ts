@@ -13,15 +13,12 @@ import type {
 import { Encrypted } from "@keyhive/keyhive/slim"
 import {
   ciphertextRef,
-  matchingChanges,
   recordRef,
   storedRef,
-  type ChangesIn,
   type ContentRef,
   type DocumentRefs,
 } from "./DocumentRefs.js"
 import type { LocalKeyhive } from "./LocalKeyhive.js"
-import type { StoredHeads } from "./RepoKeyhive.js"
 import { log } from "./logging.js"
 import { PromiseQueue } from "./PromiseQueue.js"
 import { freeAfter } from "./utilities.js"
@@ -55,14 +52,12 @@ export function pendingHead(record: PendingRecord): CommitId {
 /** What a session requires from its backend. */
 export interface SessionContext {
   readonly local: LocalKeyhive
-  readonly storedHeads: StoredHeads
   readonly decrypt: CausalDecrypt
   readonly loadBlob: LoadBlob
   /** Whether this replica's access to the document is at most Relay. */
   readonly atMostRelay: () => Promise<boolean>
   /** Shared by every session of the document. */
   readonly refs: DocumentRefs
-  readonly changesIn: ChangesIn
   readonly onClose: () => void
 }
 
@@ -123,7 +118,7 @@ export class KeyhiveSession implements SubductionSession {
   readonly #visible = new Map<CommitId, readonly CommitId[]>()
   /**
    * Fragments the consumer can already read. A record at a commit one of
-   * them contains is not kept pending. What each contains is in the
+   * them is known to contain is not kept pending. Those commits are in the
    * document's `refs.fragments`.
    */
   readonly #released = new Set<ContentRef>()
@@ -150,11 +145,6 @@ export class KeyhiveSession implements SubductionSession {
   /** This replica's keyhive, which the `keyhive` handle extension reaches through the session. */
   get local(): LocalKeyhive {
     return this.context.local
-  }
-
-  /** For the `keyhive` handle extension. */
-  get storedHeads(): StoredHeads {
-    return this.context.storedHeads
   }
 
   get events(): AsyncIterable<SubductionEvent> {
@@ -340,19 +330,15 @@ export class KeyhiveSession implements SubductionSession {
         this.#pending.delete(block.ref)
         this.#blobs.delete(block.ref)
         const plaintext = { ...opened, blob: block.plaintext }
-        const changes =
-          recordRef(plaintext) === block.ref
-            ? matchingChanges(plaintext, this.context.changesIn)
-            : undefined
-        if (!changes) {
+        if (recordRef(plaintext) !== block.ref) {
           log.warn(
-            "[KeyhiveSession] dropping a record whose content does not match it"
+            "[KeyhiveSession] dropping a record whose content is not under its ref"
           )
           continue
         }
         this.#handled.add(block.ref)
         if (opened.kind === "fragment") {
-          this.context.refs.fragments.add(block.ref, opened.head, changes)
+          this.context.refs.fragments.add(block.ref, opened)
           this.#released.add(block.ref)
         }
         this.#see(opened)
@@ -373,7 +359,12 @@ export class KeyhiveSession implements SubductionSession {
     }
   }
 
-  /** Drop the pending records at commits that a released fragment contains. */
+  /**
+   * Drop the pending records at commits a released fragment is known to
+   * contain. Others it contains stay pending until the inner backend removes
+   * them, and a copy that decrypts first is applied twice, which Automerge
+   * ignores.
+   */
   #dropCovered(): void {
     for (const [ref, record] of this.#pending) {
       if (this.#covered(pendingHead(record))) {
@@ -439,12 +430,12 @@ export class KeyhiveSession implements SubductionSession {
     this.#visible.set(head, predecessors(record))
   }
 
-  /** Whether a released fragment contains `commit`. */
+  /** Whether a released fragment is known to contain `commit`. */
   #covered(commit: CommitId): boolean {
     return this.#releasedContaining(commit) !== undefined
   }
 
-  /** The deepest released fragment that contains `commit`. */
+  /** The deepest released fragment known to contain `commit`. */
   #releasedContaining(commit: CommitId): ContentRef | undefined {
     return this.context.refs.fragments.deepestContaining(commit, ref =>
       this.#released.has(ref)

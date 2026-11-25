@@ -22,6 +22,7 @@ import {
   type Transport,
   type TransportAudience,
 } from "@automerge/automerge-repo-subduction"
+import { createMemorySigner } from "@automerge/subduction/slim"
 import {
   ChangeId,
   DocumentId,
@@ -29,12 +30,12 @@ import {
   Identifier,
   type Keyhive,
   Power,
+  Signer as KeyhiveSigner,
 } from "@keyhive/keyhive/slim"
 import { keyhive } from "./extension.js"
 import {
   contentRef,
   DocumentRefs,
-  type ChangesIn,
   recordRef,
   refBytes,
   storedRef,
@@ -48,33 +49,30 @@ import {
   type PendingRecord,
 } from "./KeyhiveSession.js"
 import { RelayGrants } from "./RelayGrants.js"
-import type { LocalKeyhive } from "./LocalKeyhive.js"
+import { LocalKeyhive, type StoredHeads } from "./LocalKeyhive.js"
+import { KeyhiveStorage } from "./KeyhiveStorage.js"
 import { KeyhiveSync, type KeyhiveSyncOptions } from "./KeyhiveSync.js"
 import { log } from "./logging.js"
-import { RepoKeyhive, type StoredHeads } from "./RepoKeyhive.js"
-import { bytesEqual, freeAfter, freeAll, Rerun } from "./utilities.js"
+import { freeAfter, freeAll, Rerun } from "./utilities.js"
 import type { PromiseQueue } from "./PromiseQueue.js"
 
 /**
- * The options of the inner {@link SubductionBackend}, except its keyhive and
- * document IDs, which {@link KeyhiveBackend} supplies, plus the keyhive sync
- * intervals and the sync servers to grant Relay.
+ * The options of the inner {@link SubductionBackend}, except its signer,
+ * keyhive and document IDs, which {@link KeyhiveBackend} supplies, plus the
+ * keyhive sync intervals and the sync servers to grant Relay.
  */
 export interface KeyhiveBackendOptions
   extends
-    Omit<SubductionBackendOptions, "keyhive" | "mintDocumentId">,
+    Omit<SubductionBackendOptions, "signer" | "keyhive" | "mintDocumentId">,
     Pick<KeyhiveSyncOptions, "syncIntervalMs" | "backupSyncIntervalMs"> {
   /**
-   * Reads which changes a decrypted blob contains. A decrypted record is
-   * dropped unless its blob matches its metadata and a released fragment's
-   * changes tell the session which commits it covers.
+   * This replica's 32-byte Ed25519 secret key, which signs for it in both
+   * keyhive and Subduction. If it is omitted, the key in `storage` is used,
+   * or a new one is generated and saved there. A key passed here is not
+   * saved, so pass it on every load. {@link KeyhiveBackend.load} rejects if
+   * it is not the key of the keyhive in `storage`.
    */
-  changesIn: ChangesIn
-  /**
-   * Signs for this replica in Subduction. It must use the same key as
-   * `local`'s keyhive. The constructor throws a `TypeError` otherwise.
-   */
-  signer: NonNullable<SubductionBackendOptions["signer"]>
+  signingKey?: Uint8Array
   /**
    * The 32-byte verifying keys of the sync servers granted Relay on every
    * document this replica can reach. They are not stored and need to be
@@ -132,8 +130,9 @@ export class KeyhiveBackend implements SedimentreeBackend {
    */
   readonly #waiting = new Map<SedimentreeId, WaitingStore[]>()
 
+  readonly #local: LocalKeyhive
+  /** The keyhive inside {@link keyhive}. Call it only inside its queue. */
   readonly #keyhive: Keyhive
-  readonly #changesIn: ChangesIn
   readonly #relayGrants: RelayGrants
   /** Retries of pending records and waiting stores after keyhive state arrives. */
   readonly #retries = new Rerun(async () => {
@@ -152,35 +151,50 @@ export class KeyhiveBackend implements SedimentreeBackend {
     ((await this.#inner.subduction.getHeads(id)) ?? []).map(commitId)
 
   /**
-   * Builds the inner backend on `local`'s keyhive and starts keyhive sync
-   * with its peers (`close` stops sync).
+   * Load this replica's signing key and keyhive from `options.storage`, or
+   * create them, then build the backend and start keyhive sync with its
+   * peers (`close` stops sync). Rejects with keyhive's `TryFromArchiveError`
+   * if `options.signingKey` is not the key of the keyhive in storage and
+   * with a `RangeError` if a sync interval is not positive.
    */
-  constructor(
-    readonly local: LocalKeyhive,
-    options: KeyhiveBackendOptions
-  ) {
-    const {
-      changesIn,
-      relays = [],
-      syncIntervalMs,
-      backupSyncIntervalMs,
-      ...subduction
-    } = options
-    const keyhiveId = local.keyhive.id.toBytes()
-    if (!bytesEqual(keyhiveId, subduction.signer.verifyingKey())) {
-      throw new TypeError("signer must use the same key as local's keyhive")
-    }
-    for (const ms of [syncIntervalMs, backupSyncIntervalMs]) {
+  static async load(options: KeyhiveBackendOptions): Promise<KeyhiveBackend> {
+    for (const ms of [options.syncIntervalMs, options.backupSyncIntervalMs]) {
       if (ms != null && !(ms > 0)) {
         throw new RangeError(`sync intervals must be positive, not ${ms}`)
       }
     }
+    const key =
+      options.signingKey ??
+      (await new KeyhiveStorage(options.storage).loadOrCreateSigningKey())
+    let backend: KeyhiveBackend | undefined
+    const local = await LocalKeyhive.open(
+      KeyhiveSigner.memorySignerFromBytes(key),
+      options.storage,
+      id => backend!.#storedHeads(id)
+    )
+    backend = new KeyhiveBackend(local, createMemorySigner(key), options)
+    return backend
+  }
+
+  private constructor(
+    local: LocalKeyhive,
+    signer: NonNullable<SubductionBackendOptions["signer"]>,
+    options: KeyhiveBackendOptions
+  ) {
+    const {
+      relays = [],
+      syncIntervalMs,
+      backupSyncIntervalMs,
+      signingKey: _,
+      ...subduction
+    } = options
     this.#inner = new SubductionBackend({
       ...subduction,
+      signer,
       keyhive: local.access(),
     })
-    this.#keyhive = local.keyhive
-    this.#changesIn = changesIn
+    this.#local = local
+    this.#keyhive = local.keyhive()
     this.#queue = local.queue
     this.#relayGrants = new RelayGrants(local, relays)
     this.#sync = new KeyhiveSync({
@@ -196,6 +210,11 @@ export class KeyhiveBackend implements SedimentreeBackend {
         this.#resyncSessions()
       },
     })
+  }
+
+  /** This replica's keyhive. */
+  keyhive(): LocalKeyhive {
+    return this.#local
   }
 
   create(
@@ -232,7 +251,7 @@ export class KeyhiveBackend implements SedimentreeBackend {
       const id = sedimentreeId(documentId.toBytes())
       await this.#relayGrants.grantNew(id)
       const encrypted = await this.#encryptAll(id, records)
-      await this.local.persist()
+      await this.#local.persist()
       return this.#inner.create(encrypted, { documentId: id })
     })
   }
@@ -242,13 +261,11 @@ export class KeyhiveBackend implements SedimentreeBackend {
       id,
       this.#inner.open(id),
       {
-        local: this.local,
-        storedHeads: this.#storedHeads,
+        local: this.#local,
         decrypt: (encrypted, load) => this.#causalDecrypt(id, encrypted, load),
         loadBlob: this.#blobLoader(id),
         atMostRelay: () => this.#atMostRelay(id),
         refs: this.#refsOf(id),
-        changesIn: this.#changesIn,
         onClose: () => {
           this.#sessions.delete(session)
           if (!this.#isOpen(id)) this.#refs.get(id)?.dropOwnWrites()
@@ -332,14 +349,6 @@ export class KeyhiveBackend implements SedimentreeBackend {
   }
 
   /**
-   * The keyhive operations that are not scoped to one document.
-   * TODO: remove once the `repo.keyhive` attribute is supported.
-   */
-  repoKeyhive(): RepoKeyhive {
-    return new RepoKeyhive(this.local, this.#storedHeads)
-  }
-
-  /**
    * The number of received records of `id` that open sessions cannot decrypt
    * yet. Local writes that cannot be encrypted yet are not counted.
    */
@@ -406,8 +415,8 @@ export class KeyhiveBackend implements SedimentreeBackend {
             new BackendError("store", "closed", "Backend is closed")
           )
         }
-        await this.local.persist()
-        await this.local.storage.saveArchive(this.#keyhive)
+        await this.#local.persist()
+        await this.#local.storage.saveArchive(this.#keyhive)
       })
     } finally {
       await this.#inner.close()
@@ -534,7 +543,7 @@ export class KeyhiveBackend implements SedimentreeBackend {
       records.push(...encrypted.map(({ record }) => record))
     }
     try {
-      await this.local.persist()
+      await this.#local.persist()
       if (records.length > 0) await this.#inner.store(id, records)
     } catch (error) {
       for (const store of stores) store.reject(error)
@@ -625,10 +634,7 @@ export class KeyhiveBackend implements SedimentreeBackend {
       const content = encrypted.encryptedContent()
       const blob = content.toBytes()
       freeAll([content, encrypted])
-      if (record.kind === "fragment") {
-        const commits = this.#changesIn(record.blob)?.hashes ?? [record.head]
-        refs.fragments.add(ref, record.head, commits)
-      }
+      if (record.kind === "fragment") refs.fragments.add(ref, record)
       return { blob, ref }
     })
   }

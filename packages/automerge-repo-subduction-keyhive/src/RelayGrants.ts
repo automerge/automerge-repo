@@ -9,10 +9,9 @@ import {
   MemberedId,
   Power,
 } from "@keyhive/keyhive/slim"
-import type { LocalKeyhive } from "./LocalKeyhive.js"
+import { reachableIds, type LocalKeyhive } from "./LocalKeyhive.js"
 import { log } from "./logging.js"
 import { relayKey, relayKeyBytes, type RelayKey } from "./relayKey.js"
-import { reachableIds } from "./RepoKeyhive.js"
 import { freeAfter, freeAll, Rerun } from "./utilities.js"
 
 /**
@@ -106,7 +105,7 @@ export class RelayGrants {
     const { counter, reachable, known } = await this.local.queue.run(
       async () => ({
         counter: this.local.changeCounter,
-        reachable: await reachableIds(this.local.keyhive),
+        reachable: await reachableIds(this.local.keyhive()),
         known: await this.#known(),
       })
     )
@@ -162,7 +161,7 @@ export class RelayGrants {
     const known = new Set<RelayKey>()
     for (const relay of this.#relays) {
       const id = new IndividualId(relayKeyBytes(relay))
-      if (await freeAfter(id, i => this.local.keyhive.hasIndividual(i))) {
+      if (await freeAfter(id, i => this.local.keyhive().hasIndividual(i))) {
         known.add(relay)
       }
     }
@@ -175,7 +174,7 @@ export class RelayGrants {
    * inside the queue.
    */
   async #grant(relay: RelayKey, ids: readonly SedimentreeId[]): Promise<void> {
-    const keyhive = this.local.keyhive
+    const keyhive = this.local.keyhive()
     const documents = ids.map(id => new DocumentId(idBytes(id)))
     const membered: MemberedId[] = []
     try {

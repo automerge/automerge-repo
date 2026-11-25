@@ -14,8 +14,8 @@ afterEach(async () => {
 
 async function linkedPeers(options?: Partial<KeyhiveBackendOptions>) {
   const [alice, bob] = [
-    await createPeer(undefined, undefined, options),
-    await createPeer(undefined, undefined, options),
+    await createPeer(undefined, options),
+    await createPeer(undefined, options),
   ]
   const { disconnect } = await connect(alice, bob)
   const repo = new Repo({ backend: alice.backend })
@@ -33,12 +33,12 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 it("keeps a document received from a peer after a crash", async () => {
   const { bob, repo, bobRepo } = await linkedPeers()
   const handle = await repo.create({ text: "kept" })
-  const card = await bob.backend.repoKeyhive().contactCard()
+  const card = await bob.backend.keyhive().getExistingContactCard()
   await handle.keyhive().addMemberFromContactCard(card, Power.read())
   await bobRepo.find(handle.url, { signal: AbortSignal.timeout(10000) })
   await bob.backend.flush()
 
-  const reopened = await createPeer(bob.keys, bob.storage)
+  const reopened = await createPeer(bob.storage)
   const offlineRepo = new Repo({ backend: reopened.backend })
   cleanup.push(() => offlineRepo.shutdown())
   const found = await offlineRepo.find<{ text: string }>(handle.url, {
@@ -53,7 +53,7 @@ it("delivers ephemeral messages between handles", async () => {
   await handle
     .keyhive()
     .addMemberFromContactCard(
-      await bob.backend.repoKeyhive().contactCard(),
+      await bob.backend.keyhive().getExistingContactCard(),
       Power.read()
     )
   const atBob = await bobRepo.find(handle.url, {
@@ -94,7 +94,7 @@ it("runs one keyhive round at a time with each peer", async () => {
 
 it("keeps syncing keyhive with other peers while one peer's round does not finish", async () => {
   const { alice } = await linkedPeers({ syncIntervalMs: 50 })
-  const carol = await createPeer(undefined, undefined, { syncIntervalMs: 50 })
+  const carol = await createPeer(undefined, { syncIntervalMs: 50 })
   const { disconnect } = await connect(alice, carol)
   cleanup.push(disconnect, () => carol.backend.close())
   const subduction = alice.inner.subduction
@@ -174,7 +174,7 @@ it("does not decrypt a record again when the inner session delivers it again", a
     handle.change(doc => void (doc.n = n))
     await repo.flush()
   }
-  const card = await bob.backend.repoKeyhive().contactCard()
+  const card = await bob.backend.keyhive().getExistingContactCard()
   await handle.keyhive().addMemberFromContactCard(card, Power.read())
   const found = await bobRepo.find<{ n: number }>(handle.url, {
     signal: AbortSignal.timeout(10000),
@@ -204,7 +204,7 @@ it("does not re-sync a readable document after a keyhive change", async () => {
     syncIntervalMs: null,
     backupSyncIntervalMs: null,
   })
-  const card = await bob.backend.repoKeyhive().contactCard()
+  const card = await bob.backend.keyhive().getExistingContactCard()
   const first = await repo.create({ text: "first" })
   await first.keyhive().addMemberFromContactCard(card, Power.read())
   const foundFirst = bobRepo.find(first.url, {
@@ -238,7 +238,7 @@ it("does not re-sync a readable document after a keyhive change", async () => {
 
 it("resyncs after a keyhive change only with peers the sync policy announces to", async () => {
   const quiet = () => syncRule({ access: true, announce: false })
-  const alice = await createPeer(undefined, undefined, { syncPolicy: quiet })
+  const alice = await createPeer(undefined, { syncPolicy: quiet })
   const bob = await createPeer()
   const { disconnect } = await connect(alice, bob)
   const [repo, bobRepo] = [
@@ -261,7 +261,7 @@ it("resyncs after a keyhive change only with peers the sync policy announces to"
   await handle
     .keyhive()
     .addMemberFromContactCard(
-      await bob.backend.repoKeyhive().contactCard(),
+      await bob.backend.keyhive().getExistingContactCard(),
       Power.read()
     )
   await bobRepo.find(handle.url, { signal: AbortSignal.timeout(10000) })
@@ -278,7 +278,7 @@ it("delivers a membership change through the backup sync alone", async () => {
     backupSyncIntervalMs: 1100,
   })
   const handle = await repo.create({ text: "shared" })
-  const card = await bob.backend.repoKeyhive().contactCard()
+  const card = await bob.backend.keyhive().getExistingContactCard()
   await handle.keyhive().addMemberFromContactCard(card, Power.read())
 
   const found = await bobRepo.find<{ text: string }>(handle.url, {
@@ -302,7 +302,7 @@ it("sends no plaintext over the wire", async () => {
   await handle
     .keyhive()
     .addMemberFromContactCard(
-      await bob.backend.repoKeyhive().contactCard(),
+      await bob.backend.keyhive().getExistingContactCard(),
       Power.edit()
     )
   const atBob = await bobRepo.find<{ text: string }>(handle.url, {
@@ -329,7 +329,7 @@ it("converges on concurrent writes by two members", async () => {
   await handle
     .keyhive()
     .addMemberFromContactCard(
-      await bob.backend.repoKeyhive().contactCard(),
+      await bob.backend.keyhive().getExistingContactCard(),
       Power.edit()
     )
   const atBob = await bobRepo.find<Record<string, number>>(handle.url, {
