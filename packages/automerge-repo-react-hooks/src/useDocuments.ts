@@ -1,7 +1,17 @@
-import { AutomergeUrl, Repo } from "@automerge/automerge-repo/slim"
+import type {
+  AnyDocType,
+  AutomergeKind,
+  AutomergeUrl,
+  DocHandle,
+  HandleKind,
+  KindOf,
+  NameOf,
+  Repo,
+} from "@automerge/automerge-repo/slim"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim"
 import { useCallback, useEffect, useState } from "react"
 import { useDocHandlesIn } from "./useDocHandles.js"
+import type { AnyHookParams, DocTypeParams } from "./useDocHandle.js"
 import { useRepo } from "./useRepo.js"
 
 export type DocMap<T> = Map<AutomergeUrl, Doc<T>>
@@ -16,28 +26,69 @@ export interface UseDocumentsOptions {
 }
 
 /**
+ * What `useDocuments` returns for documents of shape `S` whose doc type's
+ * handles are `K`: Automerge's as a {@link DocMap} and {@link ChangeDocFn},
+ * others' as their handles' `doc()` and `change`.
+ */
+export type UseDocumentsReturnOf<S, K extends HandleKind> = [K] extends [
+  AutomergeKind,
+]
+  ? [DocMap<S>, ChangeDocFn<S>]
+  : [
+      Map<
+        AutomergeUrl,
+        Exclude<ReturnType<DocHandle<S, {}, K>["doc"]>, undefined>
+      >,
+      (
+        id: AutomergeUrl,
+        ...args: Parameters<DocHandle<S, {}, K>["change"]>
+      ) => Promise<void>,
+    ]
+
+/**
  * Several documents and a function to change them, from the Repo in
  * {@link RepoContext}. In app code, prefer the `useDocuments` from
  * {@link createRepoHooks}, so all hooks come from one place.
+ *
+ * Opens Automerge documents unless `docType` names another doc type, as
+ * `repo.find` does.
  */
+export function useDocuments<
+  _T = unknown,
+  D extends AnyDocType = AnyDocType,
+  S = unknown,
+>(
+  ids: AutomergeUrl<NameOf<D>>[],
+  options: UseDocumentsOptions & DocTypeParams<D, S>
+): UseDocumentsReturnOf<S, KindOf<D>>
 export function useDocuments<T>(
-  ids: AutomergeUrl[],
+  ids: AutomergeUrl<"automerge">[],
   options?: UseDocumentsOptions
-): [DocMap<T>, ChangeDocFn<T>] {
-  return useDocumentsIn<T>(useRepo(), ids, options)
+): [DocMap<T>, ChangeDocFn<T>]
+export function useDocuments(
+  ids: AutomergeUrl[],
+  options?: AnyHookParams
+): [
+  Map<AutomergeUrl, unknown>,
+  (id: AutomergeUrl, ...args: any[]) => Promise<void>,
+] {
+  return useDocumentsIn(useRepo(), ids, options)
 }
 
 /** @internal {@link useDocuments} on a given Repo. */
-export function useDocumentsIn<T>(
+export function useDocumentsIn(
   repo: Repo,
   ids: AutomergeUrl[],
-  { suspense = true }: UseDocumentsOptions = {}
-): [DocMap<T>, ChangeDocFn<T>] {
-  const handleMap = useDocHandlesIn<T>(repo, ids, { suspense })
-  const [docMap, setDocMap] = useState<DocMap<T>>(() => {
-    const docs: DocMap<T> = new Map()
+  { suspense = true, docType }: AnyHookParams = {}
+): [
+  Map<AutomergeUrl, unknown>,
+  (id: AutomergeUrl, ...args: any[]) => Promise<void>,
+] {
+  const handleMap = useDocHandlesIn(repo, ids, { suspense, docType })
+  const [docMap, setDocMap] = useState(() => {
+    const docs = new Map<AutomergeUrl, unknown>()
     handleMap.forEach((handle, id) => {
-      if (handle) docs.set(id, handle.doc() as Doc<T>)
+      if (handle) docs.set(id, handle.doc())
     })
     return docs
   })
@@ -50,7 +101,7 @@ export function useDocumentsIn<T>(
         const onChange = () => {
           setDocMap(prev => {
             const next = new Map(prev)
-            next.set(id, handle.doc() as Doc<T>)
+            next.set(id, handle.doc())
             return next
           })
         }
@@ -58,7 +109,7 @@ export function useDocumentsIn<T>(
         // Initial state
         setDocMap(prev => {
           const next = new Map(prev)
-          next.set(id, handle.doc() as Doc<T>)
+          next.set(id, handle.doc())
           return next
         })
 
@@ -89,14 +140,10 @@ export function useDocumentsIn<T>(
   }, [handleMap])
 
   const changeDoc = useCallback(
-    async (
-      id: AutomergeUrl,
-      changeFn: ChangeFn<T>,
-      options?: ChangeOptions<T>
-    ) => {
+    async (id: AutomergeUrl, ...args: any[]) => {
       const handle = handleMap.get(id)
       if (handle) {
-        return handle.change(changeFn, options)
+        return handle.change(...(args as [any]))
       }
     },
     [handleMap]

@@ -1,6 +1,15 @@
 // Compile-time checks of how the primitives are typed.
 // Not a test: checked by `pnpm lint`.
-import { MemoryBackend, Repo } from "@automerge/automerge-repo"
+import {
+  automerge,
+  Handle,
+  MemoryBackend,
+  Repo,
+  type AutomergeUrl,
+  type DocType,
+  type DocTypeHelpers,
+  type HandleKind,
+} from "@automerge/automerge-repo"
 import {
   createRepoPrimitives,
   useDocHandle,
@@ -45,3 +54,47 @@ primitives.makeDocumentProjection(loaded).title satisfies string
 loaded.on("change", payload => void primitives.autoproduce(payload))
 
 void plainRepo
+
+// Doc types other than Automerge, with `{ docType }` as `repo.find` takes.
+declare class CounterHandle extends Handle<number, number> {
+  increment(): Promise<void>
+}
+interface Counter extends HandleKind {
+  readonly name: "counter"
+  readonly handle: CounterHandle
+}
+declare const counterType: DocType<
+  unknown,
+  number,
+  number,
+  number,
+  "counter",
+  typeof CounterHandle
+> &
+  DocTypeHelpers<CounterHandle, "counter">
+const counter = counterType.as<Counter>()
+declare const counterUrl: AutomergeUrl<"counter">
+
+useDocHandle(counterUrl, { docType: counter })()?.increment()
+// @ts-expect-error a plain handle
+useDocHandle(counterUrl, { docType: counter })()?.ping()
+// @ts-expect-error a counter's URL needs its doc type
+useDocHandle(counterUrl)
+useDocument(counterUrl, { docType: counter })[0]() satisfies number | undefined
+useDocSignal(counterUrl, { docType: counter })[0]() satisfies number | undefined
+useDocument(url, { docType: automerge.of<Todo>() })[0]()?.title satisfies
+  | string
+  | undefined
+
+primitives.useDocHandle(counterUrl, { docType: counter })()?.ping()
+const [count, counterHandle] = primitives.useDocument(counterUrl, {
+  docType: counter,
+})
+count() satisfies number | undefined
+counterHandle()?.increment()
+counterHandle()?.ping()
+primitives.useDocSignal(counterUrl, { docType: counter })[1]()?.ping()
+primitives.createDocSignal(counterHandle)() satisfies number | undefined
+primitives.makeDocSignal(counterHandle()!)() satisfies number | undefined
+// @ts-expect-error a projection is of an Automerge document
+primitives.createDocumentProjection(counterHandle)

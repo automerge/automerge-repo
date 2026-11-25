@@ -9,8 +9,14 @@ export { default as useDocSignal } from "./useDocSignal.js"
 export { default as useRepo } from "./useRepo.js"
 export {
   createRepoPrimitives,
+  type DocAndHandle,
   type RepoPrimitiveOptions,
   type RepoPrimitives,
 } from "./createRepoPrimitives.js"
 export { RepoContext } from "./context.js"
-export type { MaybeAccessor, UseDocHandleOptions } from "./types.js"
+export type {
+  DocTypeOptions,
+  MaybeAccessor,
+  UseDocHandleOptions,
+  ValueOf,
+} from "./types.js"

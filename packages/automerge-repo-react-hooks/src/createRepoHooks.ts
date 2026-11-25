@@ -1,7 +1,10 @@
 import type {
+  AnyDocType,
   AnyDocumentId,
   AutomergeUrl,
   HandleOf,
+  KindOf,
+  NameOf,
   Repo,
 } from "@automerge/automerge-repo/slim"
 import {
@@ -13,7 +16,8 @@ import {
 } from "react"
 import {
   useDocHandleIn,
-  type UseDocHandleParams,
+  type AnyHookParams,
+  type DocTypeParams,
   type UseDocHandleSuspendingParams,
   type UseDocHandleSynchronousParams,
 } from "./useDocHandle.js"
@@ -21,15 +25,10 @@ import { useDocHandlesIn, type UseDocHandlesParams } from "./useDocHandles.js"
 import {
   useDocumentIn,
   type useDocument as packageUseDocument,
-  type UseDocumentParams,
-  type UseDocumentReturn,
 } from "./useDocument.js"
 import {
   useDocumentsIn,
-  type ChangeDocFn,
-  type DocMap,
   type useDocuments as packageUseDocuments,
-  type UseDocumentsOptions,
 } from "./useDocuments.js"
 import { usePresence } from "./usePresence.js"
 import { RepoContext } from "./useRepo.js"
@@ -42,17 +41,29 @@ export interface RepoHooks<R extends Repo> {
   /** The provided Repo; throws outside a {@link RepoHooks.RepoProvider}. */
   useRepo(): R
   /** As the package's `useDocHandle`, typed for this Repo. */
+  useDocHandle<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
+    id: AnyDocumentId<NameOf<D>>,
+    params: UseDocHandleSuspendingParams & DocTypeParams<D, S>
+  ): HandleOf<R, S, KindOf<D>>
+  useDocHandle<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
+    id: AnyDocumentId<NameOf<D>> | undefined,
+    params: { suspense?: false } & DocTypeParams<D, S>
+  ): HandleOf<R, S, KindOf<D>> | undefined
   useDocHandle<T>(
-    id: AnyDocumentId,
+    id: AnyDocumentId<"automerge">,
     params: UseDocHandleSuspendingParams
   ): HandleOf<R, T>
   useDocHandle<T>(
-    id: AnyDocumentId | undefined,
+    id: AnyDocumentId<"automerge"> | undefined,
     params?: UseDocHandleSynchronousParams
   ): HandleOf<R, T> | undefined
   /** As the package's `useDocHandles`, typed for this Repo. */
+  useDocHandles<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
+    ids: AutomergeUrl<NameOf<D>>[],
+    params: UseDocHandlesParams & DocTypeParams<D, S>
+  ): Map<AutomergeUrl, HandleOf<R, S, KindOf<D>> | undefined>
   useDocHandles<T>(
-    ids: AutomergeUrl[],
+    ids: AutomergeUrl<"automerge">[],
     params?: UseDocHandlesParams
   ): Map<AutomergeUrl, HandleOf<R, T> | undefined>
   /** As the package's `useDocument`, on this Repo. */
@@ -109,46 +120,29 @@ export function createRepoHooks<R extends Repo = Repo>(
     return repo
   }
 
-  function useDocHandle<T>(
-    id: AnyDocumentId | undefined,
-    params?: UseDocHandleParams
-  ): HandleOf<R, T> | undefined {
-    return useDocHandleIn<T>(useRepo(), id, params) as
-      | HandleOf<R, T>
-      | undefined
+  function useDocHandle(id: AnyDocumentId | undefined, params?: AnyHookParams) {
+    return useDocHandleIn(useRepo(), id, params)
   }
 
-  function useDocHandles<T>(
-    ids: AutomergeUrl[],
-    params?: UseDocHandlesParams
-  ): Map<AutomergeUrl, HandleOf<R, T> | undefined> {
-    return useDocHandlesIn<T>(useRepo(), ids, params) as Map<
-      AutomergeUrl,
-      HandleOf<R, T> | undefined
-    >
+  function useDocHandles(ids: AutomergeUrl[], params?: AnyHookParams) {
+    return useDocHandlesIn(useRepo(), ids, params)
   }
 
-  function useDocument<T>(
-    id: AnyDocumentId | undefined,
-    params?: UseDocumentParams
-  ): UseDocumentReturn<T> | [undefined, () => Promise<void>] {
-    return useDocumentIn<T>(useRepo(), id, params)
+  function useDocument(id: AnyDocumentId | undefined, params?: AnyHookParams) {
+    return useDocumentIn(useRepo(), id, params)
   }
 
-  function useDocuments<T>(
-    ids: AutomergeUrl[],
-    options?: UseDocumentsOptions
-  ): [DocMap<T>, ChangeDocFn<T>] {
-    return useDocumentsIn<T>(useRepo(), ids, options)
+  function useDocuments(ids: AutomergeUrl[], options?: AnyHookParams) {
+    return useDocumentsIn(useRepo(), ids, options)
   }
 
   return {
     RepoProvider,
     useRepo,
     useDocHandle: useDocHandle as RepoHooks<R>["useDocHandle"],
-    useDocHandles,
+    useDocHandles: useDocHandles as RepoHooks<R>["useDocHandles"],
     useDocument: useDocument as RepoHooks<R>["useDocument"],
-    useDocuments,
+    useDocuments: useDocuments as RepoHooks<R>["useDocuments"],
     usePresence,
   }
 }

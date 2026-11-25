@@ -26,17 +26,20 @@
 export { useDocument } from "./useDocument.js"
 export type {
   UseDocumentReturn,
+  UseDocumentReturnOf,
   UseDocumentSuspendingParams,
   UseDocumentSynchronousParams,
 } from "./useDocument.js"
 export { useDocuments } from "./useDocuments.js"
 export type {
   UseDocumentsOptions,
+  UseDocumentsReturnOf,
   DocMap,
   ChangeDocFn,
 } from "./useDocuments.js"
 export { useDocHandle } from "./useDocHandle.js"
 export type {
+  DocTypeParams,
   UseDocHandleSuspendingParams,
   UseDocHandleSynchronousParams,
 } from "./useDocHandle.js"

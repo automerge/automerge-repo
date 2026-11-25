@@ -43,6 +43,11 @@ const same = await repo.find(counter.url, { docType: gcounter })
   `find<Todo>(url)`.
 - `clone`, `import` and `export` are Automerge only. URL paths require an
   `openPath` hook on the doc type (Automerge implements it for sub-handles).
+- The React hooks, Svelte stores and Solid primitives take `{ docType }` as
+  `find` does, and default to Automerge: `useDocument(url, { docType: gcounter })`
+  gives the counter's value and a function changing it as its handle's
+  `change` does. Solid's `useDocument` is fine-grained for Automerge only;
+  other types' values are coarse-grained, as `useDocSignal`'s.
 
 ## What every handle has
 

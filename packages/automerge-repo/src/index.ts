@@ -127,6 +127,7 @@ export type {
   HandleKind,
   HandleOfClass,
   InitOf,
+  Kinded,
   KindOf,
   NameOf,
   Of,

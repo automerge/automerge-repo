@@ -1,7 +1,10 @@
 import type {
+  AnyDocType,
   AutomergeUrl,
   Doc,
   HandleOf,
+  KindOf,
+  NameOf,
   Repo,
 } from "@automerge/automerge-repo/slim"
 import {
@@ -18,7 +21,13 @@ import createDocSignal from "./createDocSignal.js"
 import createDocumentProjection from "./createDocumentProjection.js"
 import makeDocSignal from "./makeDocSignal.js"
 import makeDocumentProjection from "./makeDocumentProjection.js"
-import type { MaybeAccessor, UseDocHandleOptions } from "./types.js"
+import type {
+  AnyOptions,
+  DocTypeOptions,
+  MaybeAccessor,
+  UseDocHandleOptions,
+  ValueOf,
+} from "./types.js"
 import { useDocHandleIn } from "./useDocHandle.js"
 import { useDocSignalIn } from "./useDocSignal.js"
 import { useDocumentIn } from "./useDocument.js"
@@ -26,6 +35,13 @@ import { useDocumentIn } from "./useDocument.js"
 /** Options of the primitives {@link createRepoPrimitives} makes: those of
  * `useDocHandle` but `repo`, which is always the provided one. */
 export type RepoPrimitiveOptions = Omit<UseDocHandleOptions, "repo">
+
+/** A document's value and its handle `H`, as `useDocument` and
+ * `useDocSignal` give them. */
+export type DocAndHandle<H> = [
+  Accessor<ValueOf<H> | undefined>,
+  Resource<H | undefined>,
+]
 
 /** The provider and primitives {@link createRepoPrimitives} makes for a
  * Repo type `R`. */
@@ -36,18 +52,30 @@ export interface RepoPrimitives<R extends Repo> {
   /** The provided Repo; throws outside a {@link RepoPrimitives.RepoProvider}. */
   useRepo(): R
   /** As the package's `useDocHandle`, typed for this Repo. */
+  useDocHandle<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
+    url: MaybeAccessor<AutomergeUrl<NameOf<D>> | undefined>,
+    options: RepoPrimitiveOptions & DocTypeOptions<D, S>
+  ): Resource<HandleOf<R, S, KindOf<D>> | undefined>
   useDocHandle<T>(
-    url: MaybeAccessor<AutomergeUrl | undefined>,
+    url: MaybeAccessor<AutomergeUrl<"automerge"> | undefined>,
     options?: RepoPrimitiveOptions
   ): Resource<HandleOf<R, T> | undefined>
   /** As the package's `useDocument`, typed for this Repo. */
+  useDocument<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
+    url: MaybeAccessor<AutomergeUrl<NameOf<D>> | undefined>,
+    options: RepoPrimitiveOptions & DocTypeOptions<D, S>
+  ): DocAndHandle<HandleOf<R, S, KindOf<D>>>
   useDocument<T extends object>(
-    url: MaybeAccessor<AutomergeUrl | undefined>,
+    url: MaybeAccessor<AutomergeUrl<"automerge"> | undefined>,
     options?: RepoPrimitiveOptions
   ): [Accessor<Doc<T> | undefined>, Resource<HandleOf<R, T> | undefined>]
   /** As the package's `useDocSignal`, typed for this Repo. */
+  useDocSignal<_T = unknown, D extends AnyDocType = AnyDocType, S = unknown>(
+    url: MaybeAccessor<AutomergeUrl<NameOf<D>> | undefined>,
+    options: RepoPrimitiveOptions & DocTypeOptions<D, S>
+  ): DocAndHandle<HandleOf<R, S, KindOf<D>>>
   useDocSignal<T extends object>(
-    url: MaybeAccessor<AutomergeUrl | undefined>,
+    url: MaybeAccessor<AutomergeUrl<"automerge"> | undefined>,
     options?: RepoPrimitiveOptions
   ): [Accessor<Doc<T> | undefined>, Resource<HandleOf<R, T> | undefined>]
   // The package's primitives that take a handle, so all come from one place.
@@ -108,29 +136,33 @@ export function createRepoPrimitives<R extends Repo = Repo>(
         },
       }),
     useRepo,
-    useDocHandle: <T>(
+    useDocHandle: ((
       url: MaybeAccessor<AutomergeUrl | undefined>,
-      options?: RepoPrimitiveOptions
+      options?: AnyOptions
     ) =>
-      useDocHandleIn<T>(useRepo(), url, options) as Resource<
-        HandleOf<R, T> | undefined
-      >,
-    useDocument: <T extends object>(
+      useDocHandleIn(
+        useRepo(),
+        url,
+        options
+      )) as RepoPrimitives<R>["useDocHandle"],
+    useDocument: ((
       url: MaybeAccessor<AutomergeUrl | undefined>,
-      options?: RepoPrimitiveOptions
+      options?: AnyOptions
     ) =>
-      useDocumentIn<T>(useRepo(), url, options) as [
-        Accessor<Doc<T> | undefined>,
-        Resource<HandleOf<R, T> | undefined>,
-      ],
-    useDocSignal: <T extends object>(
+      useDocumentIn(
+        useRepo(),
+        url,
+        options
+      )) as RepoPrimitives<R>["useDocument"],
+    useDocSignal: ((
       url: MaybeAccessor<AutomergeUrl | undefined>,
-      options?: RepoPrimitiveOptions
+      options?: AnyOptions
     ) =>
-      useDocSignalIn<T>(useRepo(), url, options) as [
-        Accessor<Doc<T> | undefined>,
-        Resource<HandleOf<R, T> | undefined>,
-      ],
+      useDocSignalIn(
+        useRepo(),
+        url,
+        options
+      )) as RepoPrimitives<R>["useDocSignal"],
     autoproduce,
     createDocSignal,
     makeDocSignal,

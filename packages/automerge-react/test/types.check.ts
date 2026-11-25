@@ -1,12 +1,22 @@
 // Compile-time checks of how the hooks are typed.
 // Not a test: checked by `pnpm lint`.
 import {
+  automerge,
   useDocHandle,
+  useDocHandles,
+  useDocument,
+  useDocuments,
   useRepo,
   usePresence,
+  Handle,
   Repo,
   createRepoHooks,
   MemoryBackend,
+  type AutomergeUrl,
+  type DocHandle,
+  type DocType,
+  type DocTypeHelpers,
+  type HandleKind,
   type PresenceInbound,
 } from "@automerge/react"
 import {
@@ -70,4 +80,88 @@ export function component(url: any) {
   byName.useDocHandle<Todo>(url, { suspense: true }).broadcast("t")
   byName.RepoProvider({ value: repo })
   void [r, ok]
+}
+
+// Doc types other than Automerge, with `{ docType }` as `repo.find` takes.
+declare class CounterHandle extends Handle<number, number> {
+  increment(): Promise<void>
+}
+interface Counter extends HandleKind {
+  readonly name: "counter"
+  readonly handle: CounterHandle
+}
+declare const counter: DocType<
+  unknown,
+  number,
+  number,
+  number,
+  "counter",
+  typeof CounterHandle
+> &
+  DocTypeHelpers<CounterHandle, "counter">
+const counterType = counter.as<Counter>()
+declare const counterUrl: AutomergeUrl<"counter">
+declare const todoUrl: AutomergeUrl<"automerge">
+export function docTypes(url: AutomergeUrl) {
+  const plain = useDocHandle(counterUrl, {
+    suspense: true,
+    docType: counterType,
+  })
+  void plain.increment()
+  plain satisfies DocHandle<unknown, {}, Counter>
+  // @ts-expect-error a plain handle
+  plain.broadcast("x")
+  useDocHandle(url, { docType: counterType })?.increment()
+  useDocHandle(counterUrl, { suspense: false, docType: counterType })
+  // @ts-expect-error a counter's URL needs its doc type
+  useDocHandle(counterUrl, { suspense: true })
+  // @ts-expect-error an Automerge document's URL is not a counter's
+  useDocHandle(todoUrl, { docType: counterType })
+
+  const [value, change] = useDocument(counterUrl, {
+    suspense: true,
+    docType: counterType,
+  })
+  value satisfies number
+  void change(1)
+  // @ts-expect-error a counter changes by a number
+  void change("x")
+  const [maybe] = useDocument(counterUrl, { docType: counterType })
+  // @ts-expect-error may be loading
+  maybe.toFixed()
+
+  // `automerge.of<T>()` is the same as `<T>`.
+  const [todo, changeTodo] = useDocument(url, {
+    suspense: true,
+    docType: automerge.of<Todo>(),
+  })
+  todo.title satisfies string
+  void changeTodo(d => void (d.title = "x"))
+  useDocument<Todo>(url, { suspense: true })[0].title satisfies string
+
+  useDocHandles([counterUrl], { docType: counterType })
+    .get(counterUrl)
+    ?.increment()
+  const [values, changeOne] = useDocuments([counterUrl], {
+    docType: counterType,
+  })
+  values.get(counterUrl) satisfies number | undefined
+  void changeOne(counterUrl, 1)
+
+  const typed = createRepoHooks(repo)
+  const counterHandle = typed.useDocHandle(counterUrl, {
+    suspense: true,
+    docType: counterType,
+  })
+  void counterHandle.increment()
+  counterHandle.broadcast("x")
+  typed
+    .useDocHandles([counterUrl], { docType: counterType })
+    .get(counterUrl)
+    ?.broadcast("x")
+  const [typedValue] = typed.useDocument(counterUrl, {
+    suspense: true,
+    docType: counterType,
+  })
+  typedValue satisfies number
 }

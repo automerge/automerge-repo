@@ -1,7 +1,20 @@
-import { AnyDocumentId, Repo } from "@automerge/automerge-repo/slim"
+import type {
+  AnyDocType,
+  AnyDocumentId,
+  AutomergeKind,
+  DocHandle,
+  HandleKind,
+  KindOf,
+  NameOf,
+  Repo,
+} from "@automerge/automerge-repo/slim"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim"
 import { useCallback, useEffect, useState } from "react"
-import { useDocHandleIn } from "./useDocHandle.js"
+import {
+  useDocHandleIn,
+  type AnyHookParams,
+  type DocTypeParams,
+} from "./useDocHandle.js"
 import { useRepo } from "./useRepo.js"
 
 /**
@@ -43,46 +56,81 @@ export type UseDocumentReturn<T> = [
 ]
 
 /**
+ * What `useDocument` returns for a document of shape `S` whose doc type's
+ * handles are `K`: Automerge's as {@link UseDocumentReturn}, others' as the
+ * handle's `doc()` and `change`.
+ */
+export type UseDocumentReturnOf<S, K extends HandleKind> = [K] extends [
+  AutomergeKind,
+]
+  ? UseDocumentReturn<S>
+  : [
+      Exclude<ReturnType<DocHandle<S, {}, K>["doc"]>, undefined>,
+      DocHandle<S, {}, K>["change"],
+    ]
+
+/**
  * A document and a function to change it, from the Repo in
  * {@link RepoContext}. In app code, prefer the `useDocument` from
  * {@link createRepoHooks}, so all hooks come from one place.
+ *
+ * Opens an Automerge document unless `docType` names another doc type, as
+ * `repo.find` does; the function changes it as its handle's `change` does.
  */
+// `_T` lets `useDocument<T>` instantiate every overload; the last one,
+// Automerge's, is what `ReturnType` reads.
+export function useDocument<
+  _T = unknown,
+  D extends AnyDocType = AnyDocType,
+  S = unknown,
+>(
+  id: AnyDocumentId<NameOf<D>>,
+  params: UseDocumentSuspendingParams & DocTypeParams<D, S>
+): UseDocumentReturnOf<S, KindOf<D>>
+export function useDocument<
+  _T = unknown,
+  D extends AnyDocType = AnyDocType,
+  S = unknown,
+>(
+  id: AnyDocumentId<NameOf<D>> | undefined,
+  params: { suspense?: false } & DocTypeParams<D, S>
+): UseDocumentReturnOf<S, KindOf<D>> | [undefined, () => Promise<void>]
 export function useDocument<T>(
-  id: AnyDocumentId,
+  id: AnyDocumentId<"automerge">,
   params: UseDocumentSuspendingParams
 ): UseDocumentReturn<T>
 export function useDocument<T>(
-  id: AnyDocumentId | undefined,
+  id: AnyDocumentId<"automerge"> | undefined,
   params?: UseDocumentSynchronousParams
 ): UseDocumentReturn<T> | [undefined, () => Promise<void>]
-export function useDocument<T>(
+export function useDocument(
   id: AnyDocumentId | undefined,
-  params?: UseDocumentParams
-): UseDocumentReturn<T> | [undefined, () => Promise<void>] {
-  return useDocumentIn<T>(useRepo(), id, params)
+  params?: AnyHookParams
+): [unknown, (...args: any[]) => Promise<void>] {
+  return useDocumentIn(useRepo(), id, params)
 }
 
 /** @internal {@link useDocument} on a given Repo. */
-export function useDocumentIn<T>(
+export function useDocumentIn(
   repo: Repo,
   id: AnyDocumentId | undefined,
-  params: UseDocumentParams = { suspense: false }
-): UseDocumentReturn<T> | [undefined, () => Promise<void>] {
-  const handle = useDocHandleIn<T>(repo, id, params)
+  params: AnyHookParams = { suspense: false }
+): [unknown, (...args: any[]) => Promise<void>] {
+  const handle = useDocHandleIn(repo, id, params)
   // Initialize with current doc state
-  const [doc, setDoc] = useState<Doc<T> | undefined>(() => handle?.doc())
+  const [doc, setDoc] = useState<unknown>(() => handle?.doc())
   const [deleteError, setDeleteError] = useState<Error>()
 
   // Reinitialize doc when handle changes
   useEffect(() => {
-    setDoc(handle?.doc())
+    setDoc(() => handle?.doc())
   }, [handle])
 
   useEffect(() => {
     if (!handle) {
       return
     }
-    const onChange = () => setDoc(handle.doc())
+    const onChange = () => setDoc(() => handle.doc())
     const onDelete = () => {
       setDeleteError(new Error(`Document ${id} was deleted`))
     }
@@ -97,9 +145,7 @@ export function useDocumentIn<T>(
   }, [handle, id])
 
   const changeDoc = useCallback(
-    (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => {
-      return handle!.change(changeFn, options)
-    },
+    (...args: any[]) => handle!.change(...(args as [any])),
     [handle]
   )
 
@@ -107,7 +153,7 @@ export function useDocumentIn<T>(
     throw deleteError
   }
 
-  if (!doc) {
+  if (doc === undefined) {
     return [undefined, async () => {}]
   }
   return [doc, changeDoc]
