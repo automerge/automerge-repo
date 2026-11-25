@@ -4,7 +4,11 @@ import { Repo } from "../src/Repo.js"
 import { DocHandle, isHandleOf } from "../src/types/DocHandle.js"
 import { automerge } from "../src/automerge/docType.js"
 import { defineDocType, type HandleKind, type Shaped } from "../src/DocType.js"
-import { Handle } from "../src/Handle.js"
+import {
+  Handle,
+  type CoreHandleEvents,
+  type StateChange,
+} from "../src/Handle.js"
 import type { AnyHandleKind, SameBackend } from "../src/types/DocHandle.js"
 import { Presence } from "../src/presence/Presence.js"
 import { defineExtension, provides } from "../src/sedimentree/index.js"
@@ -326,3 +330,20 @@ export async function findChecks() {
   // @ts-expect-error nor through findWithProgress
   r.findWithProgress(counter.url)
 }
+
+// `changeEventPayload` is checked against the handle's `change` event type.
+type DeltaEvents = Omit<CoreHandleEvents<number>, "change"> & {
+  change: (payload: { handle: DeltaHandle; doc: number; delta: number }) => void
+}
+class DeltaHandle extends Handle<number, number, DeltaEvents> {
+  protected changeEventPayload(_change: StateChange) {
+    return { handle: this, doc: this.doc(), delta: 1 }
+  }
+}
+class BadDeltaHandle extends Handle<number, number, DeltaEvents> {
+  // @ts-expect-error missing `delta` required by `DeltaEvents["change"]`
+  protected changeEventPayload(_change: StateChange) {
+    return { handle: this, doc: this.doc() }
+  }
+}
+void [DeltaHandle, BadDeltaHandle]

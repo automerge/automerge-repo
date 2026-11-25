@@ -5,12 +5,16 @@ import { Listeners } from "./Listeners.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"
 import { arraysAreEqual } from "./sedimentree/arraysAreEqual.js"
 import type { AnyHandleKind, DocHandle } from "./types/DocHandle.js"
-import { Handle as BaseHandle } from "./Handle.js"
+import {
+  Handle as BaseHandle,
+  handleChangeEventPayload,
+  type StateChange,
+} from "./Handle.js"
 import { extendHandle } from "./DocHandle.js"
 import { RootQuery } from "./DocumentQuery.js"
 import type { Document } from "./Document.js"
 import type { ExtensionContext } from "./sedimentree/extension.js"
-import type { AnyDocType, DocTypeContext, StateChange } from "./DocType.js"
+import type { AnyDocType, DocTypeContext } from "./DocType.js"
 import type { Handle } from "./Handle.js"
 import { automerge } from "./automerge/docType.js"
 
@@ -228,7 +232,7 @@ export class DocumentState {
    */
   applyMutation(
     mutator: (state: any) => unknown,
-    options: { incoming?: boolean; initial?: boolean; compact?: boolean } = {}
+    options: { incoming?: boolean; compact?: boolean } = {}
   ): Promise<void> {
     if (this.deleted) throw new Error("Document is deleted")
     if (this.closed) throw new Error("Document is closed")
@@ -244,29 +248,35 @@ export class DocumentState {
   }
 
   /** Adopt the first loaded state without making an empty one first. */
-  applyLoaded(after: unknown, initial: boolean): Promise<void> {
+  applyLoaded(after: unknown): Promise<void> {
     if (this.deleted) throw new Error("Document is deleted")
     if (this.closed) throw new Error("Document is closed")
     const before = this.#current
     const beforeHeads = before === undefined ? [] : this.docType.heads(before)
-    return this.#adopt(before, beforeHeads, after, { incoming: true, initial })
+    return this.#adopt(before, beforeHeads, after, { incoming: true })
   }
 
-  /** Every writable listening handle gets the document's new value. */
-  #dispatchChange({ after, initial }: StateChange<unknown>): void {
-    // A heads listener can attach a change listener during dispatch.
-    if (initial && !this.listeners.hasWritable("change")) return
-    const doc = this.docType.value(after)
-    this.listeners.emitAll("change", handle => ({ handle, doc }), {
-      writableOnly: true,
-    })
+  /** Deliver `change` to every writable listening handle that describes one. */
+  #dispatchChange(change: StateChange): void {
+    for (const handle of this.listeners.handles()) {
+      if (handle.isReadOnly() || this.listeners.count(handle, "change") === 0)
+        continue
+      let payload: unknown
+      try {
+        payload = handleChangeEventPayload(handle, change)
+      } catch (e) {
+        this.log.error("error in changeEventPayload: %o", e)
+        continue
+      }
+      if (payload !== undefined) this.listeners.emit(handle, "change", payload)
+    }
   }
 
   #adopt(
     before: unknown,
     beforeHeads: string[],
     after: unknown,
-    options: { incoming?: boolean; initial?: boolean; compact?: boolean }
+    options: { incoming?: boolean; compact?: boolean }
   ): Promise<void> {
     // Always adopt the new state even when heads are unchanged: a type with
     // immutable states can hand back a fresh one that `before` no longer
@@ -279,12 +289,7 @@ export class DocumentState {
         : this.#owner.commit(beforeHeads, after, { compact: options.compact })
     void stored.catch(() => {})
     if (arraysAreEqual(beforeHeads, afterHeads)) return stored
-    const initial =
-      !!options.incoming && !!options.initial && beforeHeads.length === 0
-    const change = { before, beforeHeads, after, afterHeads, initial }
-    const dispatchChange =
-      this.docType.changeDispatcher?.(this, change) ??
-      (() => this.#dispatchChange(change))
+    const change: StateChange = { before, beforeHeads, after, afterHeads }
     this.#events.push(() => {
       // Heads are document-level: the payload is the whole document's value.
       let value: { doc: unknown } | undefined
@@ -303,7 +308,7 @@ export class DocumentState {
           this.log.error("error in heads subscriber: %o", e)
         }
       }
-      dispatchChange()
+      this.#dispatchChange(change)
     })
     if (!this.#dispatching) {
       this.#dispatching = true

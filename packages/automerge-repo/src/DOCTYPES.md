@@ -173,6 +173,17 @@ backend's extension members; a method of the same name as one of those
 throws when the Repo first uses the type. `view()` returns `this`, so views
 keep the class and the extensions.
 
+### Custom `change` event payloads
+
+By default, every writable listening handle receives `{ handle, doc }` on a
+`change` event. A handle subclass can override `protected changeEventPayload(change)`
+to attach extra fields (as Automerge does with `patches` and `patchInfo`) or
+return `undefined` to emit no event. It runs at delivery time only when the
+handle is writable and has at least one `change` listener; `change` is a
+`StateChange<State>` (`before`, `beforeHeads`, `after`, `afterHeads`), where
+`before` may be `undefined` on first load or identical to `after` for types
+that mutate their state in place.
+
 ### URL paths
 
 A doc type opts into `/<path>` URLs (`automerge:<name>:<id>/<path>[#heads]`)

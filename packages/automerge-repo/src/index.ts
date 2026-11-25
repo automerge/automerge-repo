@@ -118,6 +118,7 @@ export type { AnyDocHandle, AnyHandleKind } from "./types/DocHandle.js"
 export { automerge } from "./automerge/docType.js"
 export type { AutomergeDocType, AutomergeKind } from "./automerge/docType.js"
 export { Handle } from "./Handle.js"
+export type { StateChange } from "./Handle.js"
 export { defineDocType } from "./DocType.js"
 export type {
   AnyDocType,

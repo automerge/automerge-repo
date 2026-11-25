@@ -62,13 +62,6 @@ export class Listeners {
     return [...(this.#listeners.get(handle)?.keys() ?? [])]
   }
 
-  /** Whether any writable handle listens for `event`. */
-  hasWritable(event: string): boolean {
-    for (const [handle, events] of this.#listeners)
-      if (!handle.isReadOnly() && events.has(event)) return true
-    return false
-  }
-
   /** @internal Number of handles with at least one listener. */
   get retainedCount(): number {
     return this.#listeners.size

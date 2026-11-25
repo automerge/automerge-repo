@@ -95,27 +95,6 @@ export interface DocType<
    * URLs of this type have no paths.
    */
   openPath?(handle: AnyHandle, path: string): AnyHandle
-
-  /**
-   * @internal How a change reaches handles' `change` listeners, in place of
-   * sending every writable listening handle `{ handle, doc }`. Called when
-   * the change is adopted; the returned function runs in event order.
-   */
-  changeDispatcher?(
-    document: DocumentState,
-    change: StateChange<State>
-  ): () => void
-}
-
-/** @internal A change of state that moved the document's heads. */
-export interface StateChange<State> {
-  /** Undefined on the first load. May be `after`, changed in place. */
-  before: State | undefined
-  beforeHeads: string[]
-  after: State
-  afterHeads: string[]
-  /** The first load of a document with no history before it. */
-  initial: boolean
 }
 
 export type AnyDocType = DocType<any, any, any, any, string, any>

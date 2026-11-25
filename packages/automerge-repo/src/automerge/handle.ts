@@ -11,6 +11,8 @@ import type { AutomergeUrl, UrlHeads } from "../types.js"
 import {
   Handle as BaseHandle,
   type HandleOptions,
+  type PayloadOn,
+  type StateChange,
   handleHeads,
   handleState,
 } from "../Handle.js"
@@ -139,13 +141,16 @@ export class AutomergeHandle<T> extends BaseHandle<
     this.#range = options.range
 
     // Register in the per-document trie so dispatch and identity lookup find us.
-    const node = registryOf(this.#state).getOrCreateNode(this.#path)
-    registryOf(this.#state).cacheHandle(
-      node,
-      this.#range,
-      this.#fixedHeads,
-      this
-    )
+    const node = registryOf(state).getOrCreateNode(this.#path)
+    registryOf(state).cacheHandle(node, this.#range, this.#fixedHeads, this)
+  }
+
+  protected changeEventPayload(
+    change: StateChange<A.Doc<any>>
+  ): PayloadOn<DocHandleEvents<T>["change"], this> | undefined {
+    return registryOf(this.#state).changeEventPayload(this, change) as
+      | PayloadOn<DocHandleEvents<T>["change"], this>
+      | undefined
   }
 
   /**

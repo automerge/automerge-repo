@@ -7,7 +7,6 @@ import {
   extractFragments,
   extractRecords,
 } from "../sedimentree/automerge/index.js"
-import { registryOf } from "../subdoc-handles/handle-registry.js"
 import { parsePath } from "../subdoc-handles/parser.js"
 import { AutomergeHandle } from "./handle.js"
 
@@ -63,24 +62,6 @@ export const automerge: AutomergeDocType = {
   fragments: extractFragments,
   view: (doc, heads) => A.view(doc, [...heads]),
   merge: (doc, other) => A.merge(doc, other),
-  // Patches per handle, scoped to each sub-handle's path.
-  changeDispatcher: (
-    document,
-    { before, beforeHeads, after, afterHeads, initial }
-  ) => {
-    const patches = initial ? undefined : A.diff(after, beforeHeads, afterHeads)
-    return () => {
-      // A heads listener can attach a change listener during dispatch.
-      if (initial && !document.listeners.hasWritable("change")) return
-      const changes = patches ?? A.diff(after, beforeHeads, afterHeads)
-      if (changes.length > 0)
-        registryOf(document).dispatchChange(after, changes, {
-          before: before ?? A.view(after, []),
-          after,
-          source: "change",
-        })
-    }
-  },
   handle: AutomergeHandle,
   openPath: (handle, path) =>
     (handle as AutomergeHandle<any>).sub(...(parsePath(path) as any[])),

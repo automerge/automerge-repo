@@ -4,6 +4,11 @@ import { automerge } from "../../../src/automerge/docType.js"
 import { isHandleOf } from "../../../src/types/DocHandle.js"
 import { stringifyAutomergeUrl } from "../../../src/AutomergeUrl.js"
 import { defineDocType } from "../../../src/DocType.js"
+import {
+  Handle,
+  type CoreHandleEvents,
+  type StateChange,
+} from "../../../src/Handle.js"
 import { defineExtension, provides } from "../../../src/sedimentree/index.js"
 import { MemoryBackend } from "../../../src/sedimentree/memory/MemoryBackend.js"
 import { gcounter, type CounterState } from "./gcounter.js"
@@ -42,6 +47,68 @@ describe("a G-Counter doc type", () => {
     counter.on("change", ({ doc }) => seen.push(doc))
     await counter.increment(3)
     expect(seen).toEqual([3])
+  })
+
+  it("lets a handle subclass shape or suppress change events via changeEventPayload", async () => {
+    type DeltaEvents = Omit<CoreHandleEvents<number>, "change"> & {
+      change: (payload: {
+        handle: DeltaHandle
+        doc: number
+        delta: number
+      }) => void
+    }
+    const sum = (s: CounterState | undefined) =>
+      s ? [...s.applied.values()].reduce((n, c) => n + c.amount, 0) : 0
+    let calls = 0
+    class DeltaHandle extends Handle<number, number, DeltaEvents> {
+      protected changeEventPayload(change: StateChange<CounterState>) {
+        calls++
+        const doc = sum(change.after)
+        const delta = doc - sum(change.before)
+        if (delta === 0) return undefined
+        return { handle: this, doc, delta }
+      }
+    }
+    const deltaCounter = defineDocType({
+      ...gcounter,
+      name: "delta-gcounter",
+      handle: DeltaHandle,
+    })
+    const counter = await repo().create(1, { docType: deltaCounter })
+    // No change listener attached: changeEventPayload is not called.
+    await counter.change(2)
+    expect(calls).toBe(0)
+
+    const seen: { doc: number; delta: number }[] = []
+    counter.on("change", ({ doc, delta }) => seen.push({ doc, delta }))
+    await counter.change(0)
+    await counter.change(5)
+    expect(calls).toBe(2)
+    expect(seen).toEqual([{ doc: 8, delta: 5 }])
+  })
+
+  it("isolates errors thrown by changeEventPayload", async () => {
+    let shouldThrow = true
+    class FlakyHandle extends Handle<number, number> {
+      protected changeEventPayload(change: StateChange<CounterState>) {
+        if (shouldThrow) throw new Error("boom")
+        return super.changeEventPayload(change)
+      }
+    }
+    const flaky = defineDocType({
+      ...gcounter,
+      name: "flaky-gcounter",
+      handle: FlakyHandle,
+    })
+    const counter = await repo().create(1, { docType: flaky })
+    const seen: number[] = []
+    counter.on("change", ({ doc }) => seen.push(doc!))
+    await counter.change(2)
+    expect(counter.doc()).toBe(3)
+    expect(seen).toEqual([])
+    shouldThrow = false
+    await counter.change(4)
+    expect(seen).toEqual([7])
   })
 
   it("has backend extension members too", async () => {

@@ -16,6 +16,17 @@ import type {
 /** A handle of any view, change and event types. */
 export type AnyHandle = Handle<any, any, any>
 
+/** A change of document state that moved its heads. */
+export interface StateChange<State = unknown> {
+  /** The previous state, or `undefined` on the first load. For doc types
+   * that change their state in place, `before` and `after` may be the same
+   * object. */
+  before: State | undefined
+  beforeHeads: string[]
+  after: State
+  afterHeads: string[]
+}
+
 /** The events every handle emits. `V` is what `doc()` returns. */
 export interface CoreHandleEvents<V = unknown, H = AnyHandle> {
   /** The heads moved. `doc` is the whole document's value. */
@@ -53,6 +64,13 @@ export type PayloadOn<F, This> = F extends (payload: infer P) => any
     : P
   : never
 
+/** The `change` event's payload from event map `E`, with `handle` as `This`. */
+type ChangeEventPayload<E extends object, This> = E extends {
+  change: infer F
+}
+  ? PayloadOn<F, This> | undefined
+  : unknown
+
 /** Event subscription methods for an event map `E`. */
 export interface HandleEventApi<E extends object> {
   on<K extends keyof E>(event: K, fn: ListenerOn<E[K], this>): this
@@ -78,11 +96,20 @@ export type HandleOptions = {
 
 let stateOf: (handle: AnyHandle) => DocumentState
 let fixedHeadsOf: (handle: AnyHandle) => UrlHeads | undefined
+let changeEventPayloadOf: (
+  handle: AnyHandle,
+  change: StateChange<any>
+) => unknown
 
 /** @internal The document state behind a handle. */
 export const handleState = (handle: AnyHandle) => stateOf(handle)
 /** @internal A handle's fixed heads, if it is a view. */
 export const handleHeads = (handle: AnyHandle) => fixedHeadsOf(handle)
+/** @internal The `change` event payload for `handle`, or `undefined` for none. */
+export const handleChangeEventPayload = (
+  handle: AnyHandle,
+  change: StateChange<any>
+) => changeEventPayloadOf(handle, change)
 
 /**
  * The parts of a handle every document type has: identity, reading at the
@@ -101,6 +128,7 @@ export class Handle<
   static {
     stateOf = handle => handle.#state
     fixedHeadsOf = handle => handle.#heads
+    changeEventPayloadOf = (handle, change) => handle.changeEventPayload(change)
   }
 
   /** Type only: the name of this handle's doc type, which its URL is typed
@@ -244,6 +272,21 @@ export class Handle<
   /** True if the other handle has the same URL as this one. */
   equals(other: AnyHandle): boolean {
     return this.url === other.url
+  }
+
+  /**
+   * Shape or suppress the `change` event delivered on this handle when the
+   * document's heads move. Called at event delivery time only if this handle
+   * is writable and has at least one `change` listener; return `undefined`
+   * to emit no event. Defaults to `{ handle: this, doc }` for `change.after`.
+   */
+  protected changeEventPayload(
+    change: StateChange<any>
+  ): ChangeEventPayload<E, this> {
+    return {
+      handle: this,
+      doc: this.#state.docType.value(change.after),
+    } as ChangeEventPayload<E, this>
   }
 
   #throwIfFixedHeads(operation: string) {

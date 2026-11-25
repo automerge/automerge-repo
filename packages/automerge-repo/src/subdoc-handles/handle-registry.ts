@@ -3,6 +3,7 @@ import type { Prop } from "@automerge/automerge/slim"
 import type { UrlHeads } from "../types.js"
 import { scopedValueAt } from "./path-ops.js"
 import type { DocumentState } from "../DocumentState.js"
+import type { StateChange } from "../Handle.js"
 import type { DocHandle } from "../types/DocHandle.js"
 import { KIND } from "./types.js"
 import type { CursorRange, PathSegment, Pattern } from "./types.js"
@@ -60,6 +61,16 @@ export class HandleRegistry {
   readonly #scopes = new WeakMap<
     DocHandle<any>,
     { path: readonly PathSegment[]; range: CursorRange | undefined }
+  >()
+
+  /** Cached per-change diff and trie walk, reused across listening handles
+   * of the same change and freed once delivery finishes. */
+  readonly #changeCache = new WeakMap<
+    StateChange<any>,
+    {
+      perHandle: Map<DocHandle<any>, ScopedChange>
+      patchInfo: A.PatchInfo<any>
+    }
   >()
 
   constructor(readonly state: DocumentState) {}
@@ -214,55 +225,66 @@ export class HandleRegistry {
   // Dispatch
 
   /**
-   * Fan `change` out to writeable handles. One trie walk per patch;
-   * crossed pattern edges are bulk-resolved. Fixed-heads handles skipped.
+   * Build the `change` event payload for `handle`, or `undefined` if nothing
+   * in its scope changed. Runs `A.diff` and one trie walk per `change` on
+   * the first handle asked, reusing the result for the rest.
    */
-  dispatchChange(
-    doc: A.Doc<any>,
-    patches: A.Patch[],
-    patchInfo: A.PatchInfo<any>
-  ): void {
-    const perHandle = new Map<DocHandle<any>, ScopedChange>()
-    const resolvedNodes = new Set<TrieNode>()
-    const docHeadsKey = headsKey(A.getHeads(doc))
-    const before = patchInfo.before
-    // Pattern edges are resolved against *both* the before- and after-state
-    // (once per node, gated by `resolvedNodes`). `patternBefore` carries the
-    // before-index so the walk can tell stable matches (descend for content)
-    // from ones that appeared / disappeared / moved (whole scope replaced).
-    const patternBefore = new Map<PatternEdge, number | undefined>()
+  changeEventPayload(
+    handle: DocHandle<any>,
+    change: StateChange<A.Doc<any>>
+  ): unknown {
+    let entry = this.#changeCache.get(change)
+    if (!entry) {
+      const { before, beforeHeads, after, afterHeads } = change
+      const patches = A.diff(after, beforeHeads, afterHeads)
+      const perHandle = new Map<DocHandle<any>, ScopedChange>()
+      const beforeDoc = before ?? (A.view(after, []) as A.Doc<any>)
+      const patchInfo: A.PatchInfo<any> = {
+        before: beforeDoc,
+        after,
+        source: "change",
+      }
+      if (patches.length > 0) {
+        const resolvedNodes = new Set<TrieNode>()
+        const docHeadsKey = headsKey(A.getHeads(after))
+        // Pattern edges are resolved against *both* the before- and after-state
+        // (once per node, gated by `resolvedNodes`). `patternBefore` carries the
+        // before-index so the walk can tell stable matches (descend for content)
+        // from ones that appeared / disappeared / moved (whole scope replaced).
+        const patternBefore = new Map<PatternEdge, number | undefined>()
 
-    // Patches are trimmed to each handle's scope as the trie is walked - the
-    // descent depth is exactly the scope length, so paths are re-rooted (and
-    // boundary changes flagged) inline, with no second pass.
-    for (const patch of patches) {
-      collectForPatch(
-        this.root,
-        patch.path,
-        0,
-        doc,
-        before,
-        patch,
-        perHandle,
-        resolvedNodes,
-        patternBefore,
-        docHeadsKey
-      )
+        // Patches are trimmed to each handle's scope as the trie is walked - the
+        // descent depth is exactly the scope length, so paths are re-rooted (and
+        // boundary changes flagged) inline, with no second pass.
+        for (const patch of patches) {
+          collectForPatch(
+            this.root,
+            patch.path,
+            0,
+            after,
+            beforeDoc,
+            patch,
+            perHandle,
+            resolvedNodes,
+            patternBefore,
+            docHeadsKey
+          )
+        }
+      }
+      entry = { perHandle, patchInfo }
+      this.#changeCache.set(change, entry)
     }
 
-    for (const handle of this.state.listeners.handles()) {
-      if (handle.isReadOnly()) continue
-      const scoped = perHandle.get(handle as DocHandle<any>)
-      if (!scoped) continue
-      if (scoped.patches.length === 0 && !scoped.scopeReplaced) continue
-      this.state.listeners.emit(handle, "change", {
-        handle,
-        // Scope this event's snapshot, not a later reentrant edit.
-        doc: this.#scopedDoc(handle as DocHandle<any>, doc),
-        patches: scoped.patches,
-        scopeReplaced: scoped.scopeReplaced,
-        patchInfo,
-      })
+    const scoped = entry.perHandle.get(handle)
+    if (!scoped || (scoped.patches.length === 0 && !scoped.scopeReplaced))
+      return undefined
+    return {
+      handle,
+      // Scope this event's snapshot, not a later reentrant edit.
+      doc: this.#scopedDoc(handle, change.after),
+      patches: scoped.patches,
+      scopeReplaced: scoped.scopeReplaced,
+      patchInfo: entry.patchInfo,
     }
   }
 

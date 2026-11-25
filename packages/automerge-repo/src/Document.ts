@@ -334,10 +334,7 @@ export class Document {
   adopt(state: unknown): void {
     void this.state.applyMutation(
       current => mergeStates(this.docType, current, state),
-      {
-        incoming: true,
-        initial: this.query.pending,
-      }
+      { incoming: true }
     )
     this.#complete()
   }
@@ -404,10 +401,7 @@ export class Document {
         if (unknown.length) {
           void this.state.applyMutation(
             current => this.docType.apply(current, unknown),
-            {
-              incoming: true,
-              initial: this.query.pending,
-            }
+            { incoming: true }
           )
         }
         // Every stored fragment, including echoes of our own and those in
@@ -496,11 +490,10 @@ export class Document {
     if (current === undefined) {
       // The first scan can become the document directly.
       const next = this.docType.apply(undefined, unknown)
-      void this.state.applyLoaded(next, this.query.pending)
+      void this.state.applyLoaded(next)
     } else {
       void this.state.applyMutation(doc => this.docType.apply(doc, unknown), {
         incoming: true,
-        initial: this.query.pending,
       })
     }
   }
