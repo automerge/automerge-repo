@@ -1,6 +1,6 @@
 import type { next as A } from "@automerge/automerge/slim"
-import type { DocHandle } from "./types/DocHandle.js"
-import type { PeerId, UrlHeads } from "./types.js"
+import type { DocHandle } from "../types/DocHandle.js"
+import type { PeerId, UrlHeads } from "../types.js"
 
 /**
  * These are the events that this DocHandle emits to external listeners.

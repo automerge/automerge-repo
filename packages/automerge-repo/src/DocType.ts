@@ -1,6 +1,6 @@
 import type { DocumentId, RepoId } from "./types.js"
 import type { DocumentState } from "./DocumentState.js"
-import type { Handle, HandleOptions } from "./Handle.js"
+import type { AnyHandle, Handle, HandleOptions } from "./Handle.js"
 
 /** A class of handles: constructed by the Repo, never by apps. */
 export type HandleClass = new (
@@ -88,6 +88,13 @@ export interface DocType<
    * the type's reading and editing API. Defaults to `Handle`.
    */
   readonly handle?: H
+
+  /**
+   * Open the handle named by a URL's `/<path>`. `handle` is the document's
+   * root handle, or a view handle pinned to the URL's `#heads`. Without this,
+   * URLs of this type have no paths.
+   */
+  openPath?(handle: AnyHandle, path: string): AnyHandle
 
   /** @internal Identity of a handle scope, for caching derived handles. */
   scopeKey?(scope: unknown): string

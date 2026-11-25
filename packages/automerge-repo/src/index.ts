@@ -91,7 +91,7 @@ export type {
   DocHandleHeadsChangedPayload,
   DocHandleRemoteHeadsPayload,
   DocHandleEvents,
-} from "./DocHandleEvents.js"
+} from "./automerge/events.js"
 
 export type {
   AbortOptions,

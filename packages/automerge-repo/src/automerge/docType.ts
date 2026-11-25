@@ -8,7 +8,7 @@ import {
   extractRecords,
 } from "../sedimentree/automerge/index.js"
 import { registryOf } from "../subdoc-handles/handle-registry.js"
-import { serializePath } from "../subdoc-handles/parser.js"
+import { parsePath, serializePath } from "../subdoc-handles/parser.js"
 import { AutomergeHandle } from "./handle.js"
 import type { CursorRange, Segment } from "../subdoc-handles/types.js"
 
@@ -83,6 +83,8 @@ export const automerge: AutomergeDocType = {
     }
   },
   handle: AutomergeHandle,
+  openPath: (handle, path) =>
+    (handle as AutomergeHandle<any>).sub(...(parsePath(path) as any[])),
   scopeKey: scope => {
     const { path, range } = scope as {
       path: Segment[]
@@ -93,4 +95,22 @@ export const automerge: AutomergeDocType = {
   of() {
     return this
   },
+}
+
+/** @internal Independent copy of an Automerge state (for `Repo.clone` and merges). */
+export const cloneAutomerge = (doc: unknown): A.Doc<any> =>
+  A.clone(doc as A.Doc<any>)
+
+/** @internal Decode an Automerge document binary (for `Repo.import`). */
+export const loadAutomerge = (binary: Uint8Array): A.Doc<any> => A.load(binary)
+
+/** @internal Encode an Automerge state as a binary (for `Repo.export`). */
+export const saveAutomerge = (doc: unknown): Uint8Array =>
+  A.save(doc as A.Doc<any>)
+
+/** @internal Ensure an Automerge state has at least one commit before creating
+ * a new document on the backend. */
+export const ensureAutomergeCommit = (doc: unknown): A.Doc<any> => {
+  const current = doc as A.Doc<any>
+  return A.getHeads(current).length ? current : A.emptyChange(current)
 }

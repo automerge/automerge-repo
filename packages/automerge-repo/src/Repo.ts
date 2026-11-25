@@ -1,4 +1,3 @@
-import { next as A } from "@automerge/automerge/slim"
 import { EventEmitter } from "eventemitter3"
 import {
   binaryToDocumentId,
@@ -9,6 +8,7 @@ import {
   parseAutomergeUrl,
 } from "./AutomergeUrl.js"
 import {
+  mergeStates,
   requireView,
   type AnyDocType,
   type HandleKind,
@@ -27,13 +27,20 @@ import {
 import { Document } from "./Document.js"
 import {
   queryAtHeads,
-  queryAtPath,
+  queryMapped,
   waitUntilReady,
   type DocumentQuery,
 } from "./DocumentQuery.js"
 import { toProgress, type DocumentProgress } from "./DocumentProgress.js"
 import { makeLogger } from "./Logger.js"
-import { automerge, type AutomergeKind } from "./automerge/docType.js"
+import {
+  automerge,
+  cloneAutomerge,
+  ensureAutomergeCommit,
+  loadAutomerge,
+  saveAutomerge,
+  type AutomergeKind,
+} from "./automerge/docType.js"
 import { MemoryBackend } from "./sedimentree/memory/MemoryBackend.js"
 import {
   BackendError,
@@ -131,7 +138,11 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     this.#checkOpen()
     if (!isHandleOf(handle, automerge))
       throw new Error("Only Automerge documents can be cloned")
-    return this.#track(this.#createDocument(A.clone(handle.fullDoc())))
+    return this.#track(
+      this.#createDocument(
+        ensureAutomergeCommit(cloneAutomerge(handle.fullDoc()))
+      )
+    )
   }
 
   /**
@@ -199,10 +210,10 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
       : {
           documentId: interpretAsDocumentId(id),
           heads: undefined,
-          segments: undefined,
+          path: undefined,
           docTypeName: undefined,
         }
-    const { documentId, heads, segments, docTypeName } = parsed
+    const { documentId, heads, path, docTypeName } = parsed
     if (docTypeName !== undefined && docTypeName !== docType.name)
       throw new Error(
         docType === automerge
@@ -214,18 +225,33 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
       throw new Error(
         `Document ${documentId} is already open as ${existing.docType.name}, not ${docType.name}`
       )
+    if (heads) requireView(docType)
+    if (path !== undefined && !docType.openPath)
+      throw new Error(`${docType.name} URLs have no paths: ${id}`)
     const document = existing ?? this.#register(documentId, undefined, docType)
     let query = document.query as DocumentQuery<any, X, any>
     if (heads) {
-      requireView(docType)
       query = queryAtHeads(query, heads, fn =>
         document.state.onHeadsChanged(fn)
       )
     }
-    if (segments?.length) {
-      if (docType !== automerge)
-        throw new Error(`${docType.name} URLs have no paths: ${id}`)
-      query = queryAtPath(query, segments)
+    if (path !== undefined) {
+      query = queryMapped(query, handle => {
+        const opened = docType.openPath!(handle, path)
+        if (!(opened instanceof Handle))
+          throw new Error(
+            `openPath for ${docType.name} must return a DocHandle`
+          )
+        if (opened.documentId !== handle.documentId)
+          throw new Error(
+            `openPath for ${docType.name} returned a handle for a different document`
+          )
+        if (handle.isReadOnly() && !opened.isReadOnly())
+          throw new Error(
+            `openPath for ${docType.name} must preserve the view's heads`
+          )
+        return opened as any
+      })
     }
     return query
   }
@@ -236,29 +262,29 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     args?: { docId?: DocumentId }
   ): Promise<DocHandle<T, X>> {
     this.#checkOpen()
-    const doc = A.load<T>(binary)
+    const doc = loadAutomerge(binary)
     const id = args?.docId && interpretAsDocumentId(args.docId)
     return this.#track(this.#importDocument(doc, id))
   }
 
   async #importDocument<T>(
-    doc: A.Doc<T>,
+    doc: unknown,
     id?: DocumentId
   ): Promise<DocHandle<T, X>> {
-    if (!id) return this.#createDocument(doc)
+    if (!id) return this.#createDocument(ensureAutomergeCommit(doc))
     const existing = this.#documents.get(id)
     if (existing && existing.docType !== automerge)
       throw new Error(`Document ${id} is not an Automerge document`)
     if (existing?.query.state().status === "ready") {
       await existing.state.applyMutation(
-        current => A.merge(current, A.clone(doc)),
+        current => mergeStates(automerge, current, cloneAutomerge(doc)),
         { compact: true }
       )
       this.#checkOpen()
       return this.#handle(existing)
     }
     try {
-      return await this.#createDocument(doc, id)
+      return await this.#createDocument(ensureAutomergeCommit(doc), id)
     } catch (error) {
       // A creation conflict means stored history exists, not that import should replace it.
       if (!(error instanceof BackendError && error.code === "conflict"))
@@ -266,26 +292,24 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
       const handle = await this.find<T>(id)
       await this.#documents
         .get(id)!
-        .state.applyMutation(current => A.merge(current, A.clone(doc)), {
-          compact: true,
-        })
+        .state.applyMutation(
+          current => mergeStates(automerge, current, cloneAutomerge(doc)),
+          { compact: true }
+        )
       this.#checkOpen()
       return handle
     }
   }
 
   async #createDocument<T>(
-    doc: A.Doc<T>,
+    state: unknown,
     requested?: DocumentId,
     docType: AnyDocType = automerge
   ): Promise<DocHandle<T, X>> {
-    if (!docType.heads(doc).length) {
-      if (docType !== automerge)
-        throw new Error(`A new ${docType.name} document needs a commit`)
-      doc = A.emptyChange(doc)
-    }
+    if (!docType.heads(state).length)
+      throw new Error(`A new ${docType.name} document needs a commit`)
     const allocated = await this.#backend.create(
-      docType.recordsSince(doc, []),
+      docType.recordsSince(state, []),
       requested ? { documentId: this.#backendId(requested) } : undefined
     )
     const id = binaryToDocumentId(idBytes(allocated) as BinaryDocumentId)
@@ -299,10 +323,10 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
         throw new Error(
           `Document ${id} is already open as ${existing.docType.name}, not ${docType.name}`
         )
-      existing.adopt(doc)
+      existing.adopt(state)
       return this.#handle(existing)
     }
-    return this.#handle(this.#register(id, doc, docType))
+    return this.#handle(this.#register(id, state, docType))
   }
 
   /** The root handle, typed with the backend's extensions. */
@@ -363,7 +387,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     const handle = await this.find(id)
     if (!isHandleOf(handle, automerge))
       throw new Error("Only Automerge documents can be exported")
-    return A.save(handle.fullDoc())
+    return saveAutomerge(handle.fullDoc())
   }
 
   /** Concurrent calls are not deduplicated; each resolves once history is

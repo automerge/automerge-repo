@@ -448,4 +448,50 @@ describe("doc type names in URLs", () => {
     const name: "notes" = parseAutomergeUrl(named).docTypeName
     void [automergeUrl, any, wrong, name]
   })
+
+  it("keeps raw paths for any doc type, and segments only for Automerge", () => {
+    const automergeWithPath = stringifyAutomergeUrl({
+      documentId: goodDocumentId,
+      path: "items/@0/title",
+    })
+    assert.equal(automergeWithPath, `${goodUrl}/items/@0/title`)
+    const parsedAutomerge = parseAutomergeUrl(automergeWithPath)
+    assert.equal(parsedAutomerge.path, "items/@0/title")
+    assert.equal(parsedAutomerge.segments?.length, 3)
+
+    // Non-Automerge paths are not parsed with Automerge's segment syntax.
+    const customPath = "any/@not-an-index/syntax"
+    const customWithPath = stringifyAutomergeUrl({
+      documentId: goodDocumentId,
+      docType: notes,
+      path: customPath,
+      heads,
+    })
+    assert.equal(customWithPath, `${notesUrl}/${customPath}#${heads[0]}`)
+    assert(isValidAutomergeUrl(customWithPath))
+    const parsedCustom = parseAutomergeUrl(customWithPath)
+    assert.equal(parsedCustom.path, customPath)
+    assert.equal(parsedCustom.segments, undefined)
+    assert.deepEqual(parsedCustom.heads, heads)
+
+    assert.throws(() =>
+      stringifyAutomergeUrl({
+        documentId: goodDocumentId,
+        path: "a#b",
+      })
+    )
+    assert.throws(() =>
+      stringifyAutomergeUrl({
+        documentId: goodDocumentId,
+        path: "a//b",
+      })
+    )
+    assert.throws(() =>
+      stringifyAutomergeUrl({
+        documentId: goodDocumentId,
+        path: "a",
+        segments: ["a"],
+      })
+    )
+  })
 })

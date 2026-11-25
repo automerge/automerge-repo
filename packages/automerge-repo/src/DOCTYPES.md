@@ -41,7 +41,8 @@ const same = await repo.find(counter.url, { docType: gcounter })
   `DocHandle<Todo, X, Register>`. `of` is type-level only; every shape is the
   same doc type at runtime. `automerge.of<Todo>()` is the same as
   `find<Todo>(url)`.
-- `clone`, `import`, `export` and URL paths (sub-handles) are Automerge only.
+- `clone`, `import` and `export` are Automerge only. URL paths require an
+  `openPath` hook on the doc type (Automerge implements it for sub-handles).
 
 ## What every handle has
 
@@ -166,3 +167,40 @@ parameters. Repo makes one subclass of the type's class per Repo, adding the
 backend's extension members; a method of the same name as one of those
 throws when the Repo first uses the type. `view()` returns `this`, so views
 keep the class and the extensions.
+
+### URL paths
+
+A doc type opts into `/<path>` URLs (`automerge:<name>:<id>/<path>[#heads]`)
+by implementing `openPath(handle, path)`:
+
+```ts
+openPath(handle, path) {
+  if (!isValidPath(path)) throw new Error(`Invalid path: ${path}`)
+  return handle
+}
+```
+
+Returning `handle` (the whole document, or its view) is all a doc type other
+than Automerge can do today. Automerge implements `openPath` by parsing
+`path` into segments and returning `handle.sub(...)`, a handle for that part
+of the document; a public way for other doc types to build such handles is
+planned (see below).
+
+- `path` is the raw string after the first `/`, so each doc type defines its
+  own path syntax. `parseAutomergeUrl(url).path` reads it and
+  `stringifyAutomergeUrl({ documentId, docType, path })` writes it.
+  (`segments` is parsed only for Automerge URLs, and `stringifyAutomergeUrl`
+  validates Automerge paths.)
+- `handle` is the root handle, or a view handle pinned to the URL's `#heads`.
+  The returned handle must be a `DocHandle` for the same document, and must
+  stay read-only when `handle` is a view.
+- Throw only for paths that can never be valid. `openPath` runs once when
+  the document becomes ready, and throwing fails that path's query
+  (`repo.find` rejects) while the root document stays ready. For a valid
+  path whose target does not exist yet, return a handle that reads it as
+  absent until it appears.
+- Without `openPath`, `repo.query` throws before registering the document.
+- Today only Automerge has built-in scoped handles, so a non-Automerge
+  handle's default `url` still reports the document's root URL (with heads,
+  if pinned). A public `Handle` API for building scoped handles with their
+  own URLs, stable identity and scoped change events is planned.

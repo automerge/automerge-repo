@@ -3,7 +3,6 @@ import type { HandleExtensionSpec } from "./sedimentree/extension.js"
 import type { HandleKind } from "./DocType.js"
 import type { AutomergeKind } from "./automerge/docType.js"
 import type { DocumentId, UrlHeads } from "./types.js"
-import type { Segment } from "./subdoc-handles/types.js"
 import { makeLogger } from "./Logger.js"
 
 const log = makeLogger("automerge-repo:query")
@@ -151,22 +150,51 @@ export function queryAtHeads<
   }
 }
 
-/** Mirrors `query`, yielding a sub-handle scoped to `segments` once ready. */
-export function queryAtPath<T, X extends HandleExtensionSpec = {}>(
-  query: DocumentQuery<T, X>,
-  segments: Segment[]
-): DocumentQuery<T, X> {
-  const map = (state: QueryState<T, X>): QueryState<T, X> =>
-    state.status === "ready"
-      ? {
-          status: "ready",
-          handle: state.handle.sub(...(segments as any[])) as DocHandle<T, X>,
-        }
-      : state
+/**
+ * Mirrors `query`, mapping a ready handle through `open` (e.g. a doc type's
+ * `openPath`). Cached per upstream state so `open` runs once per ready
+ * transition and `state()` agrees with subscribers. If `open` throws, this
+ * query yields `failed`, terminally, while the upstream query is unaffected.
+ */
+export function queryMapped<
+  T,
+  X extends HandleExtensionSpec = {},
+  K extends HandleKind = AutomergeKind,
+>(
+  query: DocumentQuery<T, X, K>,
+  open: (handle: DocHandle<T, X, K>) => DocHandle<T, X, K>
+): DocumentQuery<T, X, K> {
+  let lastUpstream: QueryState<T, X, K> | undefined
+  let lastMapped: QueryState<T, X, K> | undefined
+  /** Set once `open` throws: `failed` is terminal, so later upstream states are ignored. */
+  let openFailed = false
+  const map = (state: QueryState<T, X, K>): QueryState<T, X, K> => {
+    if (openFailed) return lastMapped!
+    if (lastUpstream && statesEqual(lastUpstream, state)) return lastMapped!
+    lastUpstream = state
+    if (state.status !== "ready") return (lastMapped = state)
+    try {
+      return (lastMapped = { status: "ready", handle: open(state.handle) })
+    } catch (error) {
+      openFailed = true
+      return (lastMapped = {
+        status: "failed",
+        error: error instanceof Error ? error : new Error(String(error)),
+      })
+    }
+  }
   return {
     documentId: query.documentId,
     state: () => map(query.state()),
-    subscribe: callback => query.subscribe(state => callback(map(state))),
+    subscribe: callback => {
+      let delivered: QueryState<T, X, K> | undefined
+      return query.subscribe(state => {
+        const next = map(state)
+        if (next === delivered) return
+        delivered = next
+        callback(next)
+      })
+    },
   }
 }
 

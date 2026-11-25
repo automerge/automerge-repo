@@ -124,6 +124,147 @@ describe("a G-Counter doc type", () => {
     expect(() => r.query(withPath, { docType: gcounter })).toThrow(/no paths/)
   })
 
+  it("opens URL paths through openPath, with heads pinned first, and rejects if it throws", async () => {
+    const opened: { path: string; readOnly: boolean; doc: unknown }[] = []
+    const withPaths = defineDocType({
+      ...gcounter,
+      name: "pathed-gcounter",
+      openPath: (handle, path) => {
+        if (path === "bad") throw new Error("unknown path: bad")
+        opened.push({ path, readOnly: handle.isReadOnly(), doc: handle.doc() })
+        return handle
+      },
+    })
+    const backend = new MemoryBackend()
+    const a = repo(backend)
+    const counter = await a.create(1, { docType: withPaths })
+    const initialHeads = counter.heads()
+    await counter.increment(4)
+    await a.flush()
+
+    const b = repo(backend)
+    const liveUrl = stringifyAutomergeUrl({
+      documentId: counter.documentId,
+      docType: withPaths,
+      path: "sub/item",
+    })
+    const live = await b.find(liveUrl, { docType: withPaths })
+    expect(live.doc()).toBe(5)
+    expect(opened[0]).toEqual({ path: "sub/item", readOnly: false, doc: 5 })
+
+    // When a URL has both `#heads` and `/path`, `openPath` receives the view.
+    const pinnedUrl = stringifyAutomergeUrl({
+      documentId: counter.documentId,
+      docType: withPaths,
+      path: "at-initial",
+      heads: initialHeads,
+    })
+    const pinned = await b.find(pinnedUrl, { docType: withPaths })
+    expect(pinned.isReadOnly()).toBe(true)
+    expect(pinned.doc()).toBe(1)
+    expect(opened[1]).toEqual({ path: "at-initial", readOnly: true, doc: 1 })
+
+    // A throwing `openPath` rejects `find` on a fresh (loading) Repo, while
+    // leaving the root document ready.
+    const c = repo(backend)
+    const badUrl = stringifyAutomergeUrl({
+      documentId: counter.documentId,
+      docType: withPaths,
+      path: "bad",
+    })
+    await expect(c.find(badUrl, { docType: withPaths })).rejects.toThrow(
+      "unknown path: bad"
+    )
+    expect((await c.find(counter.url, { docType: withPaths })).doc()).toBe(5)
+  })
+
+  it("does not register a document when a lookup asks for unsupported views or paths", async () => {
+    const noViews = defineDocType({
+      ...gcounter,
+      name: "viewless-gcounter",
+      view: undefined,
+    })
+    const backend = new MemoryBackend()
+    const writer = repo(backend)
+    const counter = await writer.create(1, { docType: noViews })
+    await writer.flush()
+
+    const reader = repo(backend)
+    const withHeads = stringifyAutomergeUrl({
+      documentId: counter.documentId,
+      docType: noViews,
+      heads: counter.heads(),
+    })
+    expect(() => reader.query(withHeads, { docType: noViews })).toThrow(
+      /no views/
+    )
+    const withPath = stringifyAutomergeUrl({
+      documentId: counter.documentId,
+      docType: noViews,
+      path: "sub",
+    })
+    expect(() => reader.query(withPath, { docType: noViews })).toThrow(
+      /no paths/
+    )
+    expect(Object.keys(reader.handles)).toEqual([])
+  })
+
+  it("rejects invalid handles returned from openPath", async () => {
+    const r = repo()
+    const other = await r.create(99, { docType: gcounter })
+    let rootRef: any
+    let mode: "not-a-handle" | "other-doc" | "dropped-view" = "not-a-handle"
+    const broken = defineDocType({
+      ...gcounter,
+      name: "broken-paths",
+      openPath: () => {
+        if (mode === "not-a-handle") return { fake: true } as any
+        if (mode === "other-doc") return other
+        return rootRef
+      },
+    })
+    const counter = await r.create(1, { docType: broken })
+    rootRef = counter
+    const heads = counter.heads()
+
+    mode = "not-a-handle"
+    await expect(
+      r.find(
+        stringifyAutomergeUrl({
+          documentId: counter.documentId,
+          docType: broken,
+          path: "a",
+        }),
+        { docType: broken }
+      )
+    ).rejects.toThrow(/must return a DocHandle/)
+
+    mode = "other-doc"
+    await expect(
+      r.find(
+        stringifyAutomergeUrl({
+          documentId: counter.documentId,
+          docType: broken,
+          path: "b",
+        }),
+        { docType: broken }
+      )
+    ).rejects.toThrow(/different document/)
+
+    mode = "dropped-view"
+    await expect(
+      r.find(
+        stringifyAutomergeUrl({
+          documentId: counter.documentId,
+          docType: broken,
+          path: "c",
+          heads,
+        }),
+        { docType: broken }
+      )
+    ).rejects.toThrow(/preserve the view's heads/)
+  })
+
   it("fires change, heads-changed and resolves find(url#heads) when apply mutates state in place", async () => {
     const copyInto = (
       target: CounterState | undefined,

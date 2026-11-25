@@ -16,7 +16,7 @@ import {
   handleScope,
   handleState,
 } from "../Handle.js"
-import type { DocHandleEvents } from "../DocHandleEvents.js"
+import type { DocHandleEvents } from "./events.js"
 // The public type: this class's members and the backend's extension members.
 // Methods returning handles return it, so derived handles keep the extensions.
 import type { BackendOf, DocHandle as Handle } from "../types/DocHandle.js"

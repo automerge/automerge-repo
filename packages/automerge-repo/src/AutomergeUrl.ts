@@ -58,9 +58,14 @@ export interface ParsedAutomergeUrl<DocTypeName extends string = string> {
   /** Optional hex array of heads, in Automerge core format */
   hexHeads?: string[] // AKA: heads
   /**
+   * Optional raw path after the first `/` (without the leading `/`).
+   * Undefined for plain document URLs.
+   */
+  path?: string
+  /**
    * Optional path segments, parsed from the `/seg/seg/...` suffix on
-   * URLs that point at a sub-tree of the document. Undefined for plain
-   * document URLs.
+   * Automerge URLs that point at a sub-tree of the document. Undefined for
+   * plain document URLs and for other doc types.
    */
   segments?: Segment[]
 }
@@ -71,11 +76,10 @@ export interface ParsedAutomergeUrl<DocTypeName extends string = string> {
  * Supported shapes:
  *   - `automerge:<docId>`                      (an Automerge document)
  *   - `automerge:<name>:<docId>`               (a document of doc type `name`)
- *   - either, then `/<path>` (`/`-joined segments) and/or `#<heads>`
- *     (`|`-joined)
+ *   - either, then `/<path>` and/or `#<heads>` (`|`-joined)
  *
- * `segments` is undefined when no path is present; otherwise it's the
- * parsed `Segment[]`.
+ * `path` is undefined when no path is present. `segments` is populated for
+ * Automerge URLs with a path.
  */
 export function parseAutomergeUrl<DocTypeName extends string>(
   url: AutomergeUrl<DocTypeName>
@@ -95,14 +99,21 @@ export function parseAutomergeUrl(url: AutomergeUrl): ParsedAutomergeUrl {
   if (!binaryDocumentId) throw new Error("Invalid document URL: " + url)
   const documentId = binaryToDocumentId(binaryDocumentId)
 
+  const path = pathStr !== undefined && pathStr.length > 0 ? pathStr : undefined
   const segments =
-    pathStr !== undefined && pathStr.length > 0 ? parsePath(pathStr) : undefined
+    path !== undefined && docTypeName === AUTOMERGE
+      ? parsePath(path)
+      : undefined
 
-  if (headsSection === undefined) {
-    return segments
-      ? { docTypeName, binaryDocumentId, documentId, segments }
-      : { docTypeName, binaryDocumentId, documentId }
+  const base: ParsedAutomergeUrl = {
+    docTypeName,
+    binaryDocumentId,
+    documentId,
+    ...(path !== undefined ? { path } : {}),
+    ...(segments !== undefined ? { segments } : {}),
   }
+
+  if (headsSection === undefined) return base
 
   const heads = (headsSection === "" ? [] : headsSection.split("|")) as UrlHeads
   const hexHeads = heads.map(head => {
@@ -112,9 +123,7 @@ export function parseAutomergeUrl(url: AutomergeUrl): ParsedAutomergeUrl {
       throw new Error(`Invalid head in URL: ${head}`)
     }
   })
-  return segments
-    ? { docTypeName, binaryDocumentId, hexHeads, documentId, heads, segments }
-    : { docTypeName, binaryDocumentId, hexHeads, documentId, heads }
+  return { ...base, hexHeads, heads }
 }
 
 /**
@@ -139,6 +148,7 @@ export function stringifyAutomergeUrl(
   const {
     documentId,
     heads = undefined,
+    path = undefined,
     segments = undefined,
     docType = undefined,
   } = arg instanceof Uint8Array || typeof arg === "string"
@@ -162,7 +172,16 @@ export function stringifyAutomergeUrl(
       ? `${urlPrefix}${encodedDocumentId}`
       : `${urlPrefix}${name}:${encodedDocumentId}`
 
-  if (segments !== undefined && segments.length > 0) {
+  const hasPath = path !== undefined && path.length > 0
+  const hasSegments = segments !== undefined && segments.length > 0
+  if (hasPath && hasSegments)
+    throw new Error("Cannot specify both path and segments")
+  if (hasPath) {
+    if (path.includes("#"))
+      throw new Error(`Invalid path: ${JSON.stringify(path)}`)
+    if (name === AUTOMERGE) parsePath(path)
+    url += "/" + path
+  } else if (hasSegments) {
     url += "/" + serializePath(segments)
   }
 
@@ -271,6 +290,9 @@ export const interpretAsDocumentId = (id: AnyDocumentId): DocumentId => {
 export type UrlOptions = {
   documentId: DocumentId | BinaryDocumentId
   heads?: UrlHeads
+  /** Raw URL path (without the leading `/`). Cannot be combined with
+   * `segments`. */
+  path?: string
   segments?: Segment[]
   /** The document's doc type; its name is written in the URL unless it is
    * Automerge. Defaults to Automerge. */

@@ -2,7 +2,7 @@ import { next as A } from "@automerge/automerge"
 import { describe, expect, it, vi } from "vitest"
 import {
   queryAtHeads,
-  queryAtPath,
+  queryMapped,
   waitUntilReady,
   type QueryState,
 } from "../src/DocumentQuery.js"
@@ -113,7 +113,7 @@ describe("RootQuery", () => {
     ).query.subscribe(atHeads)
     expect(atHeads).toHaveBeenCalledExactlyOnceWith({ status: "loading" })
     const atPath = vi.fn()
-    queryAtPath(query, ["items"] as any).subscribe(atPath)
+    queryMapped(query, h => h.sub("items") as any).subscribe(atPath)
     expect(atPath).toHaveBeenCalledOnce()
     expect(atPath.mock.calls[0][0].handle.doc()).toEqual(["a"])
   })
@@ -276,10 +276,10 @@ describe("queryAtHeads", () => {
   })
 })
 
-describe("queryAtPath", () => {
-  it("yields a sub-handle once ready", () => {
+describe("queryMapped", () => {
+  it("yields the mapped handle once ready", () => {
     const { query } = readyQuery({ items: ["a"] })
-    const state = queryAtPath(query, ["items"] as any).state()
+    const state = queryMapped(query, h => h.sub("items") as any).state()
     expect(state.status === "ready" && state.handle.doc()).toEqual(["a"])
   })
 
@@ -287,13 +287,71 @@ describe("queryAtPath", () => {
     const { query, handle } = createTestQuery<{ items: string[] }>(docId)
     applyInbound(handle, () => A.from({ items: ["a"] }))
     const states: QueryState<unknown>[] = []
-    queryAtPath(query, ["items"] as any).subscribe(s => states.push(s))
+    queryMapped(query, h => h.sub("items") as any).subscribe(s =>
+      states.push(s)
+    )
     query.ready()
     expect(states).toHaveLength(2)
     expect(states[0]).toEqual({ status: "loading" })
     expect(states[1].status === "ready" && states[1].handle.doc()).toEqual([
       "a",
     ])
+  })
+
+  it("turns a throwing mapper into a failed state without affecting the root query", async () => {
+    const { query, handle } = createTestQuery<{ items: string[] }>(docId)
+    applyInbound(handle, () => A.from({ items: ["a"] }))
+    const mapped = queryMapped(query, () => {
+      throw new Error("bad path")
+    })
+    const waiting = waitUntilReady(mapped)
+    query.ready()
+    await expect(waiting).rejects.toThrow("bad path")
+    expect(mapped.state()).toEqual({
+      status: "failed",
+      error: expect.objectContaining({ message: "bad path" }),
+    })
+    expect(query.state()).toEqual({ status: "ready", handle })
+  })
+
+  it("keeps a failed mapping terminal when the upstream query later changes", () => {
+    const { query, handle } = createTestQuery<{ items: string[] }>(docId)
+    applyInbound(handle, () => A.from({ items: ["a"] }))
+    const mapped = queryMapped(query, () => {
+      throw new Error("bad path")
+    })
+    const seen: QueryState<unknown>[] = []
+    mapped.subscribe(s => seen.push(s))
+    query.ready()
+    const failed = mapped.state()
+    expect(failed).toMatchObject({ status: "failed" })
+    query.deleted()
+    expect(query.state()).toEqual({ status: "deleted" })
+    expect(mapped.state()).toBe(failed)
+    expect(seen.map(s => s.status)).toEqual(["loading", "failed"])
+  })
+
+  it("caches the mapped state so open runs once and state() agrees with subscribers", () => {
+    const { query, handle } = createTestQuery<{ items: string[] }>(docId)
+    applyInbound(handle, () => A.from({ items: ["a"] }))
+    let calls = 0
+    const open = vi.fn((h: DocHandle<{ items: string[] }>) => {
+      calls++
+      if (calls === 1) throw new Error("failed once")
+      return h.sub("items") as any
+    })
+    const mapped = queryMapped(query, open)
+    const seen: QueryState<unknown>[] = []
+    mapped.subscribe(s => seen.push(s))
+    query.ready()
+    expect(open).toHaveBeenCalledTimes(1)
+    expect(seen.at(-1)?.status).toBe("failed")
+    // Subsequent state() and subscriber reads see the same failed result without rerunning open.
+    expect(mapped.state()).toBe(seen.at(-1))
+    const late = vi.fn()
+    mapped.subscribe(late)
+    expect(late).toHaveBeenCalledExactlyOnceWith(seen.at(-1))
+    expect(open).toHaveBeenCalledTimes(1)
   })
 })
 
