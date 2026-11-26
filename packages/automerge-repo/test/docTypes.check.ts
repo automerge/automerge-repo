@@ -19,13 +19,8 @@ import type { AnyHandleKind, SameBackend } from "../src/types/DocHandle.js"
 import { Presence } from "../src/presence/Presence.js"
 import { defineExtension, provides } from "../src/sedimentree/index.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
-import type {
-  AutomergeUrl,
-  DocumentId,
-  DocumentUrl,
-  PeerId,
-  RepoId,
-} from "../src/types.js"
+import type { AutomergeUrl } from "../src/automerge/url.js"
+import type { DocumentId, DocumentUrl, PeerId, RepoId } from "../src/types.js"
 import {
   CounterHandle,
   gcounter,

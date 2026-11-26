@@ -2,7 +2,7 @@ import {
   decodeHeads,
   encodeHeads,
   stringifyDocumentUrl,
-} from "./AutomergeUrl.js"
+} from "./DocumentUrl.js"
 import type { DocumentState } from "./DocumentState.js"
 import { mergeStates, requireView } from "./DocType.js"
 import type {

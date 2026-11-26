@@ -7,7 +7,7 @@ import {
   type QueryState,
 } from "../src/DocumentQuery.js"
 import { toProgress } from "../src/DocumentProgress.js"
-import { encodeHeads } from "../src/AutomergeUrl.js"
+import { encodeHeads } from "../src/DocumentId.js"
 import type { DocumentId, UrlHeads } from "../src/types.js"
 import type { DocHandle } from "../src/types/DocHandle.js"
 import { applyInbound, createTestQuery } from "./helpers/testHandle.js"

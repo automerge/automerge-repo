@@ -4,8 +4,8 @@
  * This file is not executed - it's purely for type checking.
  */
 
-import type { DocHandle } from "../../src/types/DocHandle.js"
-import type { MutableText } from "../../src/subdoc-handles/types.js"
+import type { DocHandle } from "../../../src/types/DocHandle.js"
+import type { MutableText } from "../../../src/automerge/subdoc-handles/types.js"
 
 type TestDoc = {
   title: string
@@ -182,7 +182,7 @@ const deepNumberValue = deepNumberRef.doc()
 import type {
   SegmentsFromString,
   InferSubTypeFromString,
-} from "../../src/subdoc-handles/types.js"
+} from "../../../src/automerge/subdoc-handles/types.js"
 
 // Test PathFromString parsing
 type TestSplit1 = SegmentsFromString<"todos/0/title">

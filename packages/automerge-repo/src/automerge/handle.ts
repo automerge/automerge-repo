@@ -1,13 +1,9 @@
 import { next as A } from "@automerge/automerge/slim"
 import type { Prop } from "@automerge/automerge/slim"
-import {
-  decodeHeads,
-  encodeHeads,
-  stringifyAutomergeUrl,
-} from "../AutomergeUrl.js"
+import { decodeHeads, encodeHeads } from "../DocumentId.js"
 import type { DocumentState } from "../DocumentState.js"
 import { arraysAreEqual } from "../sedimentree/arraysAreEqual.js"
-import type { AutomergeUrl, DocumentUrl, UrlHeads } from "../types.js"
+import type { DocumentUrl, UrlHeads } from "../types.js"
 import {
   Handle as BaseHandle,
   type HandleOptions,
@@ -20,13 +16,14 @@ import type { DocHandleEvents } from "./events.js"
 // The public type: this class's members and the backend's extension members.
 // Methods returning handles return it, so derived handles keep the extensions.
 import type { BackendOf, DocHandle as Handle } from "../types/DocHandle.js"
+import { stringifyAutomergeUrl, type AutomergeUrl } from "./url.js"
 import {
   isCursorMarker,
   isPattern,
   isSegment,
-} from "../subdoc-handles/guards.js"
-import { registryOf } from "../subdoc-handles/handle-registry.js"
-import { matchesPattern } from "../subdoc-handles/utils.js"
+} from "./subdoc-handles/guards.js"
+import { registryOf } from "./subdoc-handles/handle-registry.js"
+import { matchesPattern } from "./subdoc-handles/utils.js"
 import {
   applyScopedChange,
   applyScopedRemove,
@@ -35,7 +32,7 @@ import {
   resolvePropPath,
   resolveSegmentProp,
   scopedValue,
-} from "../subdoc-handles/path-ops.js"
+} from "./subdoc-handles/path-ops.js"
 import type {
   AnyPathInput,
   CursorRange,
@@ -46,8 +43,8 @@ import type {
   SubChangeFn,
   ResolvedPathSegment,
   Segment,
-} from "../subdoc-handles/types.js"
-import { KIND } from "../subdoc-handles/types.js"
+} from "./subdoc-handles/types.js"
+import { KIND } from "./subdoc-handles/types.js"
 import {
   EmptyKeyError,
   isPathPrefixCompatible,
@@ -55,7 +52,7 @@ import {
   segmentEquals,
   symbolicOnly,
   zipResolvedSegments,
-} from "../subdoc-handles/segments.js"
+} from "./subdoc-handles/segments.js"
 
 /** @internal Construction options; only the Repo and sub-handles build handles. */
 type DocHandleOptions = HandleOptions & {

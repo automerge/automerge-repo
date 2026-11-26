@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest"
-import { Repo } from "../../src/Repo.js"
-import type { DocHandle } from "../../src/types/DocHandle.js"
+import { Repo } from "../../../src/Repo.js"
+import type { DocHandle } from "../../../src/types/DocHandle.js"
 
 type TestDoc = {
   content: string

@@ -1,6 +1,6 @@
 import { next as A } from "@automerge/automerge"
 import { describe, expect, it, vi } from "vitest"
-import { encodeHeads } from "../src/AutomergeUrl.js"
+import { encodeHeads } from "../src/DocumentId.js"
 import { DocumentState } from "../src/DocumentState.js"
 import { automerge } from "../src/automerge/docType.js"
 import type { AnyDocType } from "../src/DocType.js"

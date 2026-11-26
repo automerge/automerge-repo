@@ -2,10 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { Repo } from "../../../src/Repo.js"
 import { automerge } from "../../../src/automerge/docType.js"
 import { isHandleOf } from "../../../src/types/DocHandle.js"
-import {
-  documentIdToBinary,
-  stringifyAutomergeUrl,
-} from "../../../src/AutomergeUrl.js"
+import { documentIdToBinary } from "../../../src/DocumentId.js"
+import { stringifyAutomergeUrl } from "../../../src/automerge/url.js"
 import { defineDocType } from "../../../src/DocType.js"
 import {
   Handle,

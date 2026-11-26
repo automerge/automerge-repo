@@ -6,7 +6,7 @@ import type { DocHandle } from "../src/types/DocHandle.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import { sedimentreeId, type RecordBatch } from "../src/sedimentree/index.js"
 import { extractNewCommits } from "../src/sedimentree/automerge/index.js"
-import { documentIdToBinary } from "../src/AutomergeUrl.js"
+import { documentIdToBinary } from "../src/DocumentId.js"
 
 // Native ESM exports are sealed; forward through a configurable namespace so
 // the library's slim import can be spied on.

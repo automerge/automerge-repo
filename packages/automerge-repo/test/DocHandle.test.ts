@@ -1,11 +1,11 @@
 import { next as A } from "@automerge/automerge"
 import assert from "assert"
 import { describe, expect, it, vi } from "vitest"
+import { encodeHeads } from "../src/DocumentId.js"
 import {
-  encodeHeads,
   generateAutomergeUrl,
   parseAutomergeUrl,
-} from "../src/AutomergeUrl.js"
+} from "../src/automerge/url.js"
 import { eventPromise } from "./helpers/eventPromise.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
 import type { DocumentState } from "../src/DocumentState.js"

@@ -1,20 +1,20 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import * as Automerge from "@automerge/automerge"
-import { Repo } from "../../src/Repo.js"
-import type { DocHandle } from "../../src/types/DocHandle.js"
-import { cursor } from "../../src/subdoc-handles/utils.js"
+import { Repo } from "../../../src/Repo.js"
+import type { DocHandle } from "../../../src/types/DocHandle.js"
+import { cursor } from "../../../src/automerge/subdoc-handles/utils.js"
 import {
   parsePath,
   parseSegment,
   serializeSegment,
-} from "../../src/subdoc-handles/parser.js"
+} from "../../../src/automerge/subdoc-handles/parser.js"
 import {
   parseAutomergeUrl,
   isValidAutomergeUrl,
-} from "../../src/AutomergeUrl.js"
-import { KIND } from "../../src/subdoc-handles/types.js"
-import type { AutomergeUrl } from "../../src/types.js"
-import { splice } from "../../src/index.js"
+  type AutomergeUrl,
+} from "../../../src/automerge/url.js"
+import { KIND } from "../../../src/automerge/subdoc-handles/types.js"
+import { splice } from "../../../src/index.js"
 
 describe("Edge Cases", () => {
   let repo: Repo

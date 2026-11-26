@@ -1,6 +1,9 @@
 import { next as A } from "@automerge/automerge"
 import { describe, expect, it, vi } from "vitest"
-import { generateAutomergeUrl, parseAutomergeUrl } from "../src/AutomergeUrl.js"
+import {
+  generateAutomergeUrl,
+  parseAutomergeUrl,
+} from "../src/automerge/url.js"
 import { setLoggerFactory } from "../src/Logger.js"
 import { createTestDocument } from "./helpers/testHandle.js"
 

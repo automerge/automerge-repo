@@ -1,11 +1,12 @@
 import * as Automerge from "@automerge/automerge"
 import { beforeEach, describe, expect, it } from "vitest"
-import { Repo } from "../../src/Repo.js"
-import type { DocHandle } from "../../src/types/DocHandle.js"
-import { KIND } from "../../src/subdoc-handles/types.js"
-import { cursor } from "../../src/subdoc-handles/utils.js"
-import { encodeHeads, parseAutomergeUrl } from "../../src/AutomergeUrl.js"
-import { splice } from "../../src/index.js"
+import { Repo } from "../../../src/Repo.js"
+import type { DocHandle } from "../../../src/types/DocHandle.js"
+import { KIND } from "../../../src/automerge/subdoc-handles/types.js"
+import { cursor } from "../../../src/automerge/subdoc-handles/utils.js"
+import { encodeHeads } from "../../../src/DocumentId.js"
+import { parseAutomergeUrl } from "../../../src/automerge/url.js"
+import { splice } from "../../../src/index.js"
 
 /**
  * Reconstruct a sub-handle from its URL: parse the URL's segments and

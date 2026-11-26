@@ -1,15 +1,16 @@
 import { next as A } from "@automerge/automerge/slim"
 import { defineDocType, type Shaped, type UrlTarget } from "../DocType.js"
-import { isPlainObject } from "../helpers/isPlainObject.js"
 import { concatBytes } from "../sedimentree/concatBytes.js"
 import {
   extractCommitsSince,
   extractFragments,
   extractRecords,
 } from "../sedimentree/automerge/index.js"
-import { parseAutomergeUrl } from "../AutomergeUrl.js"
-import type { AutomergeUrl } from "../types.js"
 import { AutomergeHandle } from "./handle.js"
+import { parseAutomergeUrl, type AutomergeUrl } from "./url.js"
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
 
 /** Automerge's handles: generic in the document's shape, and passing the
  * backend's extensions on to sub-handles. */

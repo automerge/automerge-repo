@@ -1,5 +1,5 @@
 import { makeLogger, Logger } from "./Logger.js"
-import { decodeHeads, encodeHeads } from "./AutomergeUrl.js"
+import { decodeHeads, encodeHeads } from "./DocumentId.js"
 import type { DocumentId, PeerId, RepoId, SyncInfo, UrlHeads } from "./types.js"
 import { Listeners } from "./Listeners.js"
 import { WeakValueMap } from "./helpers/WeakValueMap.js"

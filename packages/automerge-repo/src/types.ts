@@ -12,13 +12,6 @@ export type DocumentUrl<Scheme extends string = string> = string & {
 } // for opening / linking
 
 /**
- * A URL for an Automerge document, in the form `automerge:<base58check encoded
- * string>[/<path>][#<heads>]`; for example,
- * `automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu`.
- */
-export type AutomergeUrl = DocumentUrl<"automerge"> // for opening / linking
-
-/**
  * The base58check-encoded 32-byte ID of a document, written as just the first
  * 16 bytes when the rest are zero. This follows the `<scheme>:` protocol
  * prefix in a {@link DocumentUrl}; for example, `4NMNnkMhL8jXrdJ9jamS58PAVdXu`.

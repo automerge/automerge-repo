@@ -1,17 +1,17 @@
 import { describe, it, expect, beforeEach } from "vitest"
 import * as Automerge from "@automerge/automerge"
-import { Repo } from "../../src/Repo.js"
-import { DocHandle } from "../../src/types/DocHandle.js"
-import { createTestDocument } from "../helpers/testHandle.js"
+import { Repo } from "../../../src/Repo.js"
+import { DocHandle } from "../../../src/types/DocHandle.js"
+import { createTestDocument } from "../../helpers/testHandle.js"
 import {
   registryOf,
   type HandleRegistry,
-} from "../../src/subdoc-handles/handle-registry.js"
-import type { Listeners } from "../../src/Listeners.js"
-import { encodeHeads } from "../../src/AutomergeUrl.js"
-import { splice } from "../../src/index.js"
-import { cursor } from "../../src/subdoc-handles/utils.js"
-import { flushGC, gcAvailable, waitForGC } from "../helpers/flushGC.js"
+} from "../../../src/automerge/subdoc-handles/handle-registry.js"
+import type { Listeners } from "../../../src/Listeners.js"
+import { encodeHeads } from "../../../src/DocumentId.js"
+import { splice } from "../../../src/index.js"
+import { cursor } from "../../../src/automerge/subdoc-handles/utils.js"
+import { flushGC, gcAvailable, waitForGC } from "../../helpers/flushGC.js"
 
 const itGC = gcAvailable ? it : it.skip
 

@@ -8,7 +8,7 @@ import {
   parseDocumentUrl,
   parseUrlScheme,
   toBinaryDocumentId,
-} from "./AutomergeUrl.js"
+} from "./DocumentUrl.js"
 import {
   mergeStates,
   requireView,

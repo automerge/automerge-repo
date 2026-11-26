@@ -6,12 +6,15 @@ import { DocHandle } from "../src/types/DocHandle.js"
 import {
   binaryToDocumentId,
   documentIdToBinary,
-  generateAutomergeUrl,
   encodeHeads,
+  stringifyDocumentUrl,
+} from "../src/DocumentUrl.js"
+import {
+  generateAutomergeUrl,
   parseAutomergeUrl,
   stringifyAutomergeUrl,
-  stringifyDocumentUrl,
-} from "../src/AutomergeUrl.js"
+  type AutomergeUrl,
+} from "../src/automerge/url.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import { idBytes, sedimentreeId } from "../src/sedimentree/index.js"
 import { extractRecords } from "../src/sedimentree/automerge/index.js"
@@ -19,7 +22,6 @@ import { commitStores } from "./helpers/commitStores.js"
 import { scriptedBackend } from "./helpers/scriptedBackend.js"
 import type {
   AnyDocumentId,
-  AutomergeUrl,
   BinaryDocumentId,
   DocumentId,
   RepoId,

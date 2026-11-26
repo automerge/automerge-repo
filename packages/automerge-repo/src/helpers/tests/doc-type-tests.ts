@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AnyDocType } from "../../DocType.js"
-import { parseDocumentUrl } from "../../AutomergeUrl.js"
+import { parseDocumentUrl } from "../../DocumentUrl.js"
 import { Repo } from "../../Repo.js"
 import { DocHandle } from "../../types/DocHandle.js"
 import { MemoryBackend } from "../../sedimentree/memory/MemoryBackend.js"

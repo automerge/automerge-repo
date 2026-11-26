@@ -33,29 +33,23 @@ export type { Handle as DocHandleClass } from "./Handle.js"
  * `@automerge/automerge-repo/sedimentree` entry. */
 export type { HandleExtensionSpec } from "./sedimentree/extension.js"
 export {
-  isValidAutomergeUrl,
   isValidDocumentUrl,
   isValidUrlScheme,
   isValidDocumentId,
-  parseAutomergeUrl,
   parseDocumentUrl,
   parseUrlScheme,
-  stringifyAutomergeUrl,
   stringifyDocumentUrl,
   interpretAsDocumentId,
   documentIdToBinary,
   binaryToDocumentId,
-  generateAutomergeUrl,
   encodeHeads,
   decodeHeads,
-} from "./AutomergeUrl.js"
+} from "./DocumentUrl.js"
 export type {
   DocumentUrlOptions,
-  ParsedAutomergeUrl,
   ParsedDocumentUrl,
   UrlDocType,
-  UrlOptions,
-} from "./AutomergeUrl.js"
+} from "./DocumentUrl.js"
 export { Repo } from "./Repo.js"
 export { setLoggerFactory, makeLogger } from "./Logger.js"
 export type { Logger, LoggerFactory } from "./Logger.js"
@@ -87,21 +81,10 @@ export type {
   DEFAULT_PEER_TTL_MS,
 } from "./presence/constants.js"
 
-import { next as Automerge, type ObjID } from "@automerge/automerge/slim"
-
 /** @hidden **/
 export * as cbor from "./helpers/cbor.js"
 
 // types
-
-export type {
-  DocHandleChangePayload,
-  DocHandleDeletePayload,
-  DocHandleEncodedChangePayload,
-  DocHandleHeadsChangedPayload,
-  DocHandleRemoteHeadsPayload,
-  DocHandleEvents,
-} from "./automerge/events.js"
 
 export type {
   AbortOptions,
@@ -125,8 +108,6 @@ export type {
 
 export { isHandleOf } from "./types/DocHandle.js"
 export type { AnyDocHandle, AnyHandleKind } from "./types/DocHandle.js"
-export { automerge } from "./automerge/docType.js"
-export type { AutomergeDocType, AutomergeKind } from "./automerge/docType.js"
 export { Handle } from "./Handle.js"
 export type { StateChange } from "./Handle.js"
 export { defineDocType } from "./DocType.js"
@@ -153,80 +134,6 @@ export type { BackendOf, SameBackend, WithBackend } from "./types/DocHandle.js"
 
 export * from "./types.js"
 
-// Sub-document handle helpers (experimental). A sub-handle is just a
-// `DocHandle` scoped to a path - `handle.sub(...)` returns a `DocHandle`.
-// Path-related types and the `cursor()` helper live here.
-export type {
-  PathInput,
-  MutableText,
-  InferSubType,
-  Pattern,
-  SubChangeFn,
-} from "./subdoc-handles/types.js"
-export { cursor } from "./subdoc-handles/utils.js"
-
-// Automerge re-exports
-//
-// Note that we can't use export type { .. } from "@automerge/automerge" because we are
-// importing automerge like this:
-//
-// import { next as Automerge } from "@automerge/automerge"
-//
-// I.e. we are using the `next` export from Automerge. Not the module itself. This is
-// to maintain compatiblity with Automerge 3.0 and 2.0. In 2.0 we used to have a
-// subpath export at `/next` so the re-exports looked like this:
-//
-// export { type .. } from "@automerge/automerge/slim/next"
-//
-// However, we have now removed the subpath export (and deprecated next generally)
-// so we need to explicitly name each type we are re-exporting here.
-export const Counter = Automerge.Counter
-export const RawString = Automerge.RawString
-// In automerge 3.0 RawString is renamed to ImmutableString
-export const ImmutableString = Automerge.RawString
-
-// Export separate RawString and ImmutableString types,
-// whose symbols are only usable as values otherwise.
-export type RawString = InstanceType<typeof Automerge.RawString>
-export type ImmutableString = RawString
-
-export type Counter = Automerge.Counter
-export type Doc<T> = Automerge.Doc<T>
-export type Heads = Automerge.Heads
-export type Patch = Automerge.Patch
-export type PatchCallback<T> = Automerge.PatchCallback<T>
-export type Prop = Automerge.Prop
-export type ActorId = Automerge.ActorId
-export type Change = Automerge.Change
-export type ChangeFn<T> = Automerge.ChangeFn<T>
-export type Mark = Automerge.Mark
-export type MarkSet = Automerge.MarkSet
-export type MarkRange = Automerge.MarkRange
-export type MarkValue = Automerge.MarkValue
-export type Cursor = Automerge.Cursor
-
-// export a few utility functions that aren't in automerge-repo
-// NB that these should probably all just be available via the dochandle
-export const getChanges = Automerge.getChanges
-export const getAllChanges = Automerge.getAllChanges
-export const applyChanges = Automerge.applyChanges
-export const view = Automerge.view
-export const getConflicts = Automerge.getConflicts
-
-// export type-specific utility functions
-// these mostly can't be on the data-type in question because
-// JS strings can't have methods added to them
-export const getCursor = Automerge.getCursor
-export const getCursorPosition = Automerge.getCursorPosition
-export const splice = Automerge.splice
-export const updateText = Automerge.updateText
-export const insertAt = Automerge.insertAt
-export const deleteAt = Automerge.deleteAt
-export const mark = Automerge.mark
-export const unmark = Automerge.unmark
-export const isRawString = Automerge.isRawString
-// In Automerge 3.0 raw string is renamed to immutable string
-export const isImmutableString = Automerge.isRawString
-
-export const getObjectId = Automerge.getObjectId
-export type { ObjID }
+// Automerge doc type: doc type definition, events, URLs, sub-document handles
+// and Automerge CRDT re-exports.
+export * from "./automerge/index.js"

@@ -3,12 +3,11 @@ import { next as SlimA } from "@automerge/automerge/slim"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Repo } from "../src/Repo.js"
 import type { DocHandle } from "../src/types/DocHandle.js"
+import { binaryToDocumentId, encodeHeads } from "../src/DocumentId.js"
 import {
-  binaryToDocumentId,
-  encodeHeads,
   generateAutomergeUrl,
   parseAutomergeUrl,
-} from "../src/AutomergeUrl.js"
+} from "../src/automerge/url.js"
 import type { BinaryDocumentId, PeerId } from "../src/types.js"
 import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
 import { BackendError, commitId, headsOf } from "../src/sedimentree/index.js"
