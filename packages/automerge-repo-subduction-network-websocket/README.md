@@ -1,4 +1,4 @@
-# Automerge Repo Subduction WebSocket network adapter (experimental)
+# Automerge Repo Subduction WebSocket network adapter
 
 A WebSocket client for `@automerge/automerge-repo-subduction`: a
 `WebSocketNetworkAdapter` implementing

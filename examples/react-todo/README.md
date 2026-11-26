@@ -1,6 +1,6 @@
 # Todo Demo
 
-React todo list backed by the experimental Subduction backend and IndexedDB.
+React todo list backed by the Subduction backend and IndexedDB.
 Tabs sync through `wss://subduction.sync.inkandswitch.com` by default, not
 BroadcastChannel.
 

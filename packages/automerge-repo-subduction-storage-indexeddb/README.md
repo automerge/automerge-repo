@@ -1,4 +1,4 @@
-# Automerge Repo Subduction IndexedDB storage adapter (experimental)
+# Automerge Repo Subduction IndexedDB storage adapter
 
 Browser storage for `@automerge/automerge-repo-subduction`: an
 `IndexedDBStorageAdapter` implementing
