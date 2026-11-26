@@ -21,7 +21,7 @@ export interface AutomergeKind extends Shaped {
   readonly init: this["Shape"] | undefined
 }
 
-/** The default document type: Automerge, behind an {@link AutomergeHandle}. */
+/** The default document type: Automerge, behind an `AutomergeHandle`. */
 export const automerge = defineDocType({
   scheme: "automerge",
   // Non-empty plain objects seed the document via `A.from`; empty objects and
@@ -72,5 +72,5 @@ export const automerge = defineDocType({
   },
 }).as<AutomergeKind>()
 
-/** The default document type: Automerge, behind an {@link AutomergeHandle}. */
+/** The default document type: Automerge, behind an `AutomergeHandle`. */
 export type AutomergeDocType = typeof automerge

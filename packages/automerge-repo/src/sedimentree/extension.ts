@@ -8,8 +8,9 @@ import type { SedimentreeId } from "./ids.js"
  * Everything about one handle extension's types: what it needs of a
  * session, what its backend sends it, the members it adds to handles and the
  * events it emits on them. Each extension carries its own spec (see
- * {@link defineExtension}); a backend's is the intersection of those of the
- * extensions it lists (see {@link provides}).
+ * `defineExtension`); a backend's is the intersection of those of the
+ * extensions it lists (see `provides`). Both are exported from
+ * `@automerge/automerge-repo/sedimentree`.
  *
  * ```ts
  * interface MySpec {

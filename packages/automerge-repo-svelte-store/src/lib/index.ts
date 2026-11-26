@@ -78,8 +78,8 @@ export interface AutomergeDocumentStore<
   H = DocHandle<T>,
 > extends Writable<StoreValue<T, H> | null> {
   /**
-   * Make changes to the document, as its handle's `change` does
-   * @param changeFn Function that modifies the document
+   * Make changes to the document, as its handle's `change` does: a change
+   * function for Automerge, or what the doc type's `change` takes.
    */
   change(...args: StoreChangeArgs<T, H>): Promise<void>
 

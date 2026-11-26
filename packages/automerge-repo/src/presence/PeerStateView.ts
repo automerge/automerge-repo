@@ -17,7 +17,7 @@ export type GetStatesOpts<State extends PresenceState, SummaryState> = {
    * Function to summarize the presence activity from several different peers in
    * a group.
    *
-   * @param states states of all peers in a group, as grouped by {@param keyFn}
+   * @param states states of all peers in a group, as grouped by `groupingFn`
    * @returns a value summarizing presence for this group
    */
   summaryFn?: (states: PeerState<State>[]) => SummaryState

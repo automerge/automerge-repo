@@ -66,7 +66,7 @@ const alias = {
 
 ## Storage adapters
 
-- [automerge-repo-subduction-storage-indexeddb](../automerge-repo-subduction-storage-indexeddb/):
+- [automerge-repo-subduction-storage-indexeddb](../automerge-repo-subduction-storage-indexeddb/README.md):
   browser storage
 - `DummySubductionStorageAdapter` (`helpers/` subpath): in-memory, for tests and throwaway peers.
 
@@ -74,7 +74,7 @@ An adapter implements `SubductionStorageAdapterInterface`:
 
 ## Network adapters
 
-- [automerge-repo-subduction-network-websocket](../automerge-repo-subduction-network-websocket/):
+- [automerge-repo-subduction-network-websocket](../automerge-repo-subduction-network-websocket/README.md):
   WebSocket client.
 
 An adapter implements `SubductionNetworkAdapterInterface`. It only supplies byte transports;

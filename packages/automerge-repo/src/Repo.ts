@@ -63,7 +63,8 @@ import type {
 /**
  * Owns Automerge documents; its backend owns their storage and sync. `X` is
  * what the backend's extensions add to every handle; it is taken from the
- * backend's type, see {@link SedimentreeBackend}.
+ * backend's type, see `SedimentreeBackend` in
+ * `@automerge/automerge-repo/sedimentree`.
  */
 export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   RepoEvents<X>
