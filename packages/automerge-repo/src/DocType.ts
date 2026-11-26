@@ -1,17 +1,17 @@
 import type { BinaryDocumentId, DocumentId, RepoId, UrlHeads } from "./types.js"
 import type { DocumentState } from "./DocumentState.js"
 import type { AnyHandle, Handle, HandleOptions } from "./Handle.js"
+import type {
+  CommitId,
+  FragmentRecord,
+  RecordBatch,
+} from "./sedimentree/index.js"
 
 /** A class of handles: constructed by the Repo, never by apps. */
 export type HandleClass = new (
   state: DocumentState,
   options?: HandleOptions
 ) => Handle<any, any, any>
-import type {
-  CommitId,
-  FragmentRecord,
-  RecordBatch,
-} from "./sedimentree/index.js"
 
 /** What a document type is told about the document it is working on. */
 export interface DocTypeContext {

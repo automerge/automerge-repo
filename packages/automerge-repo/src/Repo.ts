@@ -36,14 +36,14 @@ import {
 } from "./DocumentQuery.js"
 import { toProgress, type DocumentProgress } from "./DocumentProgress.js"
 import { makeLogger } from "./Logger.js"
+import { automerge, type AutomergeKind } from "./automerge/docType.js"
 import {
-  automerge,
   cloneAutomerge,
   ensureAutomergeCommit,
   loadAutomerge,
   saveAutomerge,
-  type AutomergeKind,
-} from "./automerge/docType.js"
+  type AutomergeDoc,
+} from "./automerge/helpers.js"
 import { MemoryBackend } from "./sedimentree/memory/MemoryBackend.js"
 import {
   BackendError,
@@ -292,7 +292,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
   }
 
   async #importDocument<T>(
-    doc: unknown,
+    doc: AutomergeDoc,
     id?: DocumentId
   ): Promise<DocHandle<T, X>> {
     if (!id) return this.#createDocument(ensureAutomergeCommit(doc))
