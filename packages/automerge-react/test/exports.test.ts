@@ -24,8 +24,8 @@ describe("@automerge/react built entrypoints", () => {
       for (const name of ['createRepo', 'RepoHandle', 'RepoQuery',
         'BroadcastChannelNetworkAdapter', 'MessageChannelNetworkAdapter',
         'WebSocketClientAdapter', 'IndexedDBStorageAdapter',
-        'SubductionBackend', 'WebSocketSubductionNetworkAdapter',
-        'IndexedDBSubductionStorageAdapter', 'useLocalAwareness',
+        'SubductionBackend', 'WebSocketNetworkAdapter',
+        'useLocalAwareness',
         'useRemoteAwareness']) {
         assert.equal(name in api, false, name)
       }

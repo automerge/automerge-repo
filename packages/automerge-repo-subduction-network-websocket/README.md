@@ -1,14 +1,14 @@
 # Automerge Repo Subduction WebSocket network adapter (experimental)
 
 A WebSocket client for `@automerge/automerge-repo-subduction`: a
-`WebSocketSubductionNetworkAdapter` implementing
+`WebSocketNetworkAdapter` implementing
 `SubductionNetworkAdapterInterface`.
 
 ```ts
 import { SubductionBackend } from "@automerge/automerge-repo-subduction"
-import { WebSocketSubductionNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
+import { WebSocketNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
 
-const server = new WebSocketSubductionNetworkAdapter("wss://example.com", {
+const server = new WebSocketNetworkAdapter("wss://example.com", {
   retry: { initialMs: 500, maxMs: 30_000 },
   connectTimeoutMilliseconds: 10_000,
 })

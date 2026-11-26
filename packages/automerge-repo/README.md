@@ -14,14 +14,14 @@ We have included a [Subduction Backend](../automerge-repo-subduction/) in this i
 import "@automerge/subduction" // initializes Subduction's WASM
 import { Repo } from "@automerge/automerge-repo"
 import { SubductionBackend } from "@automerge/automerge-repo-subduction"
-import { IndexedDBSubductionStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
-import { WebSocketSubductionNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
+import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
+import { WebSocketNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
 
-const storage = new IndexedDBSubductionStorageAdapter()
+const storage = new IndexedDBStorageAdapter()
 const backend = new SubductionBackend({
   storage,
   network: [
-    new WebSocketSubductionNetworkAdapter(
+    new WebSocketNetworkAdapter(
       "wss://subduction.sync.inkandswitch.com"
     ),
   ],

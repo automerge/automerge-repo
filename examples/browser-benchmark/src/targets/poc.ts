@@ -8,11 +8,11 @@ import {
   SubductionBackend,
   type SubductionStorageAdapterInterface,
 } from "@automerge/automerge-repo-subduction"
-import { IndexedDBSubductionStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
+import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
 import type { Handle, StorageStats, Target } from "../target.js"
 
 function profile(
-  store: IndexedDBSubductionStorageAdapter,
+  store: IndexedDBStorageAdapter,
   stats: StorageStats
 ): SubductionStorageAdapterInterface {
   return {
@@ -87,7 +87,7 @@ export const target: Target = {
   ImmutableString,
   splice: splice as Target["splice"],
   open(database, stats) {
-    const storage = new IndexedDBSubductionStorageAdapter({ database })
+    const storage = new IndexedDBStorageAdapter({ database })
     const backend = new SubductionBackend({
       storage: stats ? profile(storage, stats) : storage,
     })

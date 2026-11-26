@@ -4,7 +4,7 @@ import { sedimentreeId } from "@automerge/automerge-repo/sedimentree"
 import { SubductionBackend } from "@automerge/automerge-repo-subduction"
 import { DummySubductionStorageAdapter } from "@automerge/automerge-repo-subduction/helpers/DummySubductionStorageAdapter.js"
 import { expect, it, vi } from "vitest"
-import { WebSocketSubductionNetworkAdapter } from "../src/index.js"
+import { WebSocketNetworkAdapter } from "../src/index.js"
 import { PairedTransport } from "./transport.js"
 
 const { openTransport } = vi.hoisted(() => ({ openTransport: vi.fn() }))
@@ -40,7 +40,7 @@ it("syncs through real native handshakes and keeps the connection across deleteL
     storage: new DummySubductionStorageAdapter(),
   })
   const wires = connectTo(remoteBackend)
-  const adapter = new WebSocketSubductionNetworkAdapter("ws://localhost:8080", {
+  const adapter = new WebSocketNetworkAdapter("ws://localhost:8080", {
     retry: { initialMs: 10, maxMs: 50 },
   })
   const local = new SubductionBackend({
@@ -102,7 +102,7 @@ it("completes onboarding while an unrelated deletion runs", async () => {
       return add.call(this, transport, audience)
     }
   )
-  const adapter = new WebSocketSubductionNetworkAdapter("ws://localhost:8080", {
+  const adapter = new WebSocketNetworkAdapter("ws://localhost:8080", {
     retry: { initialMs: 10, maxMs: 50 },
   })
   const local = new SubductionBackend({ storage, network: [adapter] })

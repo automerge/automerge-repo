@@ -1,14 +1,14 @@
 # Automerge Repo Subduction IndexedDB storage adapter (experimental)
 
 Browser storage for `@automerge/automerge-repo-subduction`: an
-`IndexedDBSubductionStorageAdapter` implementing
+`IndexedDBStorageAdapter` implementing
 `SubductionStorageAdapterInterface`.
 
 ```ts
 import { SubductionBackend } from "@automerge/automerge-repo-subduction"
-import { IndexedDBSubductionStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
+import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
 
-const storage = new IndexedDBSubductionStorageAdapter()
+const storage = new IndexedDBStorageAdapter()
 const backend = new SubductionBackend({ storage })
 // ... after repo.shutdown() and backend.close():
 await storage.close()

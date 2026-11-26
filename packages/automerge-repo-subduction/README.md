@@ -10,13 +10,13 @@ built on [Subduction](https://github.com/inkandswitch/subduction)
 ```ts
 import { createMemorySigner } from "@automerge/subduction"
 import { SubductionBackend } from "@automerge/automerge-repo-subduction"
-import { WebSocketSubductionNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
+import { WebSocketNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
 import { DummySubductionStorageAdapter } from "@automerge/automerge-repo-subduction/helpers/DummySubductionStorageAdapter.js"
 
 const backend = new SubductionBackend({
   storage: new DummySubductionStorageAdapter(),
   // Optional:
-  network: [new WebSocketSubductionNetworkAdapter("ws://127.0.0.1:8080")],
+  network: [new WebSocketNetworkAdapter("ws://127.0.0.1:8080")],
   signer: createMemorySigner(), // default: new in-memory identity
   syncTimeoutMilliseconds: 30_000, // default: Subduction's own
   // mintDocumentId: async initialRecords => id, // see Document IDs

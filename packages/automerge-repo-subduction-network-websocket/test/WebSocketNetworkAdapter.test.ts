@@ -16,8 +16,8 @@ import {
   type Mock,
 } from "vitest"
 import {
-  WebSocketSubductionNetworkAdapter,
-  type WebSocketSubductionNetworkAdapterOptions,
+  WebSocketNetworkAdapter,
+  type WebSocketNetworkAdapterOptions,
 } from "../src/index.js"
 
 const { openTransport } = vi.hoisted(() => ({ openTransport: vi.fn() }))
@@ -27,21 +27,18 @@ async function flush() {
   for (let i = 0; i < 20; i++) await Promise.resolve()
 }
 
-describe("WebSocketSubductionNetworkAdapter", () => {
-  let adapters: WebSocketSubductionNetworkAdapter[]
+describe("WebSocketNetworkAdapter", () => {
+  let adapters: WebSocketNetworkAdapter[]
   let transports: Transport[]
   let connect: Mock<SubductionConnect>
 
-  function create(options: WebSocketSubductionNetworkAdapterOptions = {}) {
-    const adapter = new WebSocketSubductionNetworkAdapter(
-      "ws://localhost:8080",
-      options
-    )
+  function create(options: WebSocketNetworkAdapterOptions = {}) {
+    const adapter = new WebSocketNetworkAdapter("ws://localhost:8080", options)
     adapters.push(adapter)
     return adapter
   }
 
-  function start(options: WebSocketSubductionNetworkAdapterOptions = {}) {
+  function start(options: WebSocketNetworkAdapterOptions = {}) {
     const adapter = create(options)
     void adapter.start(connect).catch(() => {})
     return adapter
@@ -102,7 +99,7 @@ describe("WebSocketSubductionNetworkAdapter", () => {
   })
 
   it("uses a service name override", async () => {
-    const adapter = new WebSocketSubductionNetworkAdapter({
+    const adapter = new WebSocketNetworkAdapter({
       url: "wss://proxy.example",
       serviceName: "sync-service",
     })
@@ -316,9 +313,9 @@ describe("WebSocketSubductionNetworkAdapter", () => {
   })
 
   it("validates URLs and retry settings at construction", () => {
-    expect(
-      () => new WebSocketSubductionNetworkAdapter("https://localhost")
-    ).toThrow("ws:")
+    expect(() => new WebSocketNetworkAdapter("https://localhost")).toThrow(
+      "ws:"
+    )
     expect(() => create({ retry: { initialMs: 0 } })).toThrow("positive")
     expect(() => create({ retry: { initialMs: 100, maxMs: 50 } })).toThrow(
       "maxMs"
@@ -331,7 +328,7 @@ describe("WebSocketSubductionNetworkAdapter", () => {
         "ab".repeat(32)
       )
     })
-    function backend(adapter: WebSocketSubductionNetworkAdapter) {
+    function backend(adapter: WebSocketNetworkAdapter) {
       return new SubductionBackend({
         storage: new DummySubductionStorageAdapter(),
         network: [adapter],

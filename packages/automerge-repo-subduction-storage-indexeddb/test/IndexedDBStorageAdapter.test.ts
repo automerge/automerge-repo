@@ -1,7 +1,7 @@
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { runSubductionStorageAdapterTests } from "@automerge/automerge-repo-subduction/helpers/tests/subduction-storage-adapter-tests.js"
-import { IndexedDBSubductionStorageAdapter } from "../src/index.js"
+import { IndexedDBStorageAdapter } from "../src/index.js"
 
 beforeEach(() => {
   vi.stubGlobal("indexedDB", new IDBFactory())
@@ -13,15 +13,15 @@ afterEach(() => {
 })
 
 runSubductionStorageAdapterTests(async () => {
-  const adapter = new IndexedDBSubductionStorageAdapter({
+  const adapter = new IndexedDBStorageAdapter({
     database: "contract",
   })
   return { adapter, teardown: () => adapter.close() }
-}, "IndexedDBSubductionStorageAdapter")
+}, "IndexedDBStorageAdapter")
 
-describe("IndexedDBSubductionStorageAdapter", () => {
+describe("IndexedDBStorageAdapter", () => {
   it("persists in the default database across close and reopen", async () => {
-    const store = new IndexedDBSubductionStorageAdapter()
+    const store = new IndexedDBStorageAdapter()
     try {
       await store.saveBatch([["key", new Uint8Array([1])]])
       await store.close()
@@ -36,11 +36,11 @@ describe("IndexedDBSubductionStorageAdapter", () => {
 
   it("uses a configured database and object store", async () => {
     const options = { database: "custom", store: "documents" }
-    const store = new IndexedDBSubductionStorageAdapter(options)
+    const store = new IndexedDBStorageAdapter(options)
     try {
       await store.saveBatch([["key", new Uint8Array([7])]])
       await store.close()
-      const reopened = new IndexedDBSubductionStorageAdapter(options)
+      const reopened = new IndexedDBStorageAdapter(options)
       try {
         expect(await reopened.loadMany(["key"])).toEqual([new Uint8Array([7])])
       } finally {
@@ -53,7 +53,7 @@ describe("IndexedDBSubductionStorageAdapter", () => {
 
   it("does not resolve a batch that aborts after a successful put", async () => {
     const open = vi.spyOn(indexedDB, "open")
-    const store = new IndexedDBSubductionStorageAdapter({ database: "aborted" })
+    const store = new IndexedDBStorageAdapter({ database: "aborted" })
     try {
       await store.saveBatch([["a", new Uint8Array([1])]])
       const db = open.mock.results[0].value.result as IDBDatabase

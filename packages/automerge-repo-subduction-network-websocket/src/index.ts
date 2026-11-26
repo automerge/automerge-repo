@@ -16,7 +16,7 @@ export type WebSocketConnectionStatus =
   | "disconnected"
   | "closed"
 
-export interface WebSocketSubductionNetworkAdapterOptions {
+export interface WebSocketNetworkAdapterOptions {
   /** `stableMs`: how long a connection must stay up before backoff resets. Default: 5s. */
   retry?: false | { initialMs?: number; maxMs?: number; stableMs?: number }
   /** Deadline for socket opening, authentication and backend onboarding. Default: 10s. */
@@ -31,7 +31,7 @@ interface Pending {
 /** Connects a Subduction backend to one WebSocket server, reconnecting with
  * backoff. The backend starts and stops it; the handshake is signed with the
  * backend's signer. */
-export class WebSocketSubductionNetworkAdapter implements SubductionNetworkAdapterInterface {
+export class WebSocketNetworkAdapter implements SubductionNetworkAdapterInterface {
   readonly url: string
   readonly #serviceName: string
   readonly #retry: boolean
@@ -55,7 +55,7 @@ export class WebSocketSubductionNetworkAdapter implements SubductionNetworkAdapt
 
   constructor(
     server: SubductionWebSocketServer,
-    options: WebSocketSubductionNetworkAdapterOptions = {}
+    options: WebSocketNetworkAdapterOptions = {}
   ) {
     const config =
       typeof server === "string" || server instanceof URL

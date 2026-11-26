@@ -6,8 +6,8 @@ import {
   type DocHandle,
 } from "@automerge/react"
 import { SubductionBackend } from "@automerge/automerge-repo-subduction"
-import { WebSocketSubductionNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
-import { IndexedDBSubductionStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
+import { WebSocketNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
+import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
 
 import React, { Suspense } from "react"
 import { ErrorBoundary } from "react-error-boundary"
@@ -20,12 +20,12 @@ const server = new URL(
   new URLSearchParams(location.search).get("server") ??
     "wss://subduction.sync.inkandswitch.com"
 )
-const storage = new IndexedDBSubductionStorageAdapter({
+const storage = new IndexedDBStorageAdapter({
   database: "automerge-repo-demo-todo",
 })
 const backend = new SubductionBackend({
   storage,
-  network: [new WebSocketSubductionNetworkAdapter(server)],
+  network: [new WebSocketNetworkAdapter(server)],
 })
 const repo = new Repo({ backend })
 
