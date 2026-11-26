@@ -70,10 +70,9 @@ export class CounterHandle extends Handle<number, number> {
 
 ### 3. Optional: name the handles
 
-Without a `HandleKind`, TypeScript displays handles using the class's name. To
-give them a clean name (and share the scheme constant once so the runtime
-string and type cannot drift), declare an interface extending `HandleKind` and
-pass it to `.as<...>()`:
+Declare an interface extending `HandleKind` and pass it to `.as<...>()` to give
+handles a named `DocHandle` type. Sharing `scheme` as a constant keeps the
+runtime string and type in sync:
 
 ```ts
 import { defineDocType, type HandleKind } from "@automerge/automerge-repo"
@@ -125,12 +124,11 @@ The React hooks, Svelte stores and Solid primitives take `{ docType }` as
 
 ## Handles generic in the document's shape
 
-TypeScript cannot apply a shape type argument to a class held in a value. If
-your handle class is generic, extend `Shaped` instead of `HandleKind` and refer
-to the shape as `this["Shape"]`. Only shaped types gain `.of<T>()`, which is
-type-level only (the same doc type at runtime). See
-`packages/automerge-repo/test/doctypes/register/register.ts` for the full
-example.
+If your handle class is generic, extend `Shaped` instead of `HandleKind` and
+refer to the document type parameter as `this["Shape"]`.
+
+`.as<...>()` can then be called on the definition to add `.of<T>()` to the doc type
+which is used to add your document shape to the type when using `create`, `find` etc.
 
 ```ts
 import { defineDocType, Handle, type Shaped } from "@automerge/automerge-repo"
@@ -143,31 +141,19 @@ export class RegisterHandle<T> extends Handle<T, T> {
 
 export interface Register extends Shaped {
   readonly scheme: "register"
-  readonly handle: RegisterHandle<this["Shape"]>
-  readonly init: this["Shape"] // optional: what create() takes
+  readonly handle: RegisterHandle<this["Shape"]> // `this["Shape"]` = `T` passed to `.of<T>()`
+  readonly init: this["Shape"] // optional: types the initial value in `repo.create()`
 }
 
 export const register = defineDocType({
   scheme: "register",
   // …
   handle: RegisterHandle,
-}).as<Register>()
+}).as<Register>() // adds `.of<T>()` to `register`
 
-const handle = await repo.find(url, { docType: register.of<Todo>() })
+const handle = await repo.find(url, { docType: register.of<Todo>() }) // sets `this["Shape"]` to `Todo`
+handle.get("title") // typed as `Todo["title"]`
 ```
-
-## Returning other handles
-
-Every handle automatically gets the Repo backend's extension members and
-events; a doc type never mentions them. If a handle method returns another
-handle, pass the backend's spec on with `BackendOf<this>` so the returned
-handle keeps those extensions:
-
-```ts
-part<K extends keyof T>(key: K): DocHandle<T[K], BackendOf<this>, MyKind>
-```
-
-`view()` returns `this`, so views keep the handle class and backend extensions.
 
 ## Custom `change` event payloads
 
@@ -189,26 +175,28 @@ paths or query parameters), implement `openUrl(url)` and `formatUrl(handle)`:
 
 ```ts
 formatUrl(handle) {
-  // Append the pinned heads when formatting a read-only view handle
+  const path = handle.section ? `/${handle.section}` : ""
   const query = handle.isReadOnly() ? `?at=${handle.heads().join(",")}` : ""
-  return `notes://v1/${handle.documentId}${query}`
+  return `notes://v1/${handle.documentId}${path}${query}`
 },
 openUrl(url) {
-  // Parse the custom format and return the document ID (plus optional view heads)
-  const m = url.match(/^notes:\/\/v1\/([^?]+)(?:\?(.*))?$/)
+  const m = url.match(/^notes:\/\/v1\/([^/?]+)(?:\/([^?]+))?(?:\?(.*))?$/)
   if (!m) throw new Error(`Invalid notes URL: ${url}`)
-  const at = new URLSearchParams(m[2] ?? "").get("at")
+  const [, id, section, query] = m
+  const at = new URLSearchParams(query ?? "").get("at")
   return {
-    documentId: m[1] as DocumentId,
+    documentId: id as DocumentId,
     heads: at ? (at.split(",") as UrlHeads) : undefined,
+    // Apply extra URL params once the root (or view) handle is ready
+    open: section ? handle => handle.at(section) : undefined,
   }
 },
 ```
 
-- `openUrl(url)` returns `{ documentId, heads?, open? }`. Returning `heads`
-  waits for those heads and opens a view; returning `open(handle)` derives a
-  handle once ready (the returned handle must belong to the same document and
-  stay read-only when `handle` is a view).
+- `openUrl(url)` returns `{ documentId, heads?, open? }`: `heads` waits for
+  those heads and opens a view; `open(handle)` applies any extra URL params once
+  ready (the returned handle must keep the same `documentId` and stay read-only
+  if `handle` is a view).
 - `openUrl` runs synchronously in `repo.query` before the document is opened,
   so invalid URLs fail immediately without opening a backend session.
 - `formatUrl(handle)` must return a URL starting with `<scheme>:`.
@@ -222,17 +210,11 @@ openUrl(url) {
   followed by lowercase letters, digits, `+`, `.` or `-`. `find` and `query`
   reject typed URLs of another scheme at compile time and throw at runtime if a
   URL's scheme or an already-open document disagrees with `docType`.
-- **Hex heads.** Heads and commit IDs are 64 lowercase hex characters; every
-  head is a commit.
 - **`apply` contract.** `apply` must hold commits whose parents are missing and
   apply them once their parents arrive, and must produce the same state if
   records arrive twice or out of order.
-- **Handle classes.** Handles are built by Repo, never by apps: do not add
+- **Handle classes.** Handles should only be built by Repo, so do not add
   constructor parameters. A handle method whose name clashes with a backend
-  extension throws when the Repo first uses the type. Use methods, getters and
-  `#private` fields, not public class fields: those are set on each instance,
-  where the clash check cannot see them.
-- **Automerge only.** `repo.clone`, `repo.import`, `repo.export` and
-  `repo.metrics` (skips other types), and the Automerge handle's own members:
-  `fullDoc`, `history`, `diff`, `changeAt`, `metrics` and sub-handles (`sub()`
-  and related). `merge` works for every type.
+  extension throws when the Repo first uses the type.
+- **Automerge only on `Repo`.** `repo.clone`, `repo.import`, `repo.export`, and
+  `repo.metrics` (which skips other types). `handle.merge` works for every type.
