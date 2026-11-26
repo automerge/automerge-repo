@@ -450,7 +450,7 @@ describe("Repo persistence", () => {
       expect(reopened.doc()).toEqual({ count: 9 })
     })
 
-    it("refuses eviction after a failed write, without retrying it", async () => {
+    it("evicts after a failed write without retrying it, rejecting so find reloads durable history", async () => {
       let fail = false
       const backend = new MemoryBackend({
         beforeStore: () => {
@@ -467,16 +467,23 @@ describe("Repo persistence", () => {
         })
       ).rejects.toThrow("disk full")
       fail = false
-      for (let i = 0; i < 2; i++) {
-        await expect(r.removeFromCache(handle.documentId)).rejects.toThrow(
-          "Repo flush failed"
-        )
-        expect(r.handles[handle.documentId]).toBe(handle)
-      }
+      await expect(r.removeFromCache(handle.documentId)).rejects.toThrow(
+        "Repo flush failed"
+      )
+      expect(r.handles[handle.documentId]).toBeUndefined()
       expect(attempts).toHaveBeenCalledOnce()
+      await r.flush()
+
+      const reopened = await r.find<Doc>(handle.url)
+      expect(reopened).not.toBe(handle)
+      expect(reopened.doc()).toEqual({ count: 0 })
+      await reopened.change(d => {
+        d.count = 2
+      })
+      expect(reopened.doc()).toEqual({ count: 2 })
     })
 
-    it("keeps the entry when the backend barrier fails, and can retry", async () => {
+    it("evicts even when the backend barrier fails, and rejects", async () => {
       const backend = new MemoryBackend()
       const r = repo(backend)
       const handle = await r.create<Doc>({ count: 0 })
@@ -486,11 +493,13 @@ describe("Repo persistence", () => {
       await expect(r.removeFromCache(handle.documentId)).rejects.toMatchObject({
         errors: [expect.objectContaining({ message: "barrier failed" })],
       })
-      expect(r.handles[handle.documentId]).toBe(handle)
-      await r.removeFromCache(handle.documentId)
+      expect(r.handles[handle.documentId]).toBeUndefined()
+      await r.flush([handle.documentId])
       expect(flush).toHaveBeenCalledTimes(2)
       expect(flush).toHaveBeenLastCalledWith([treeId(handle)])
-      expect(r.handles[handle.documentId]).toBeUndefined()
+      const reopened = await r.find<Doc>(handle.url)
+      expect(reopened).not.toBe(handle)
+      expect(reopened.doc()).toEqual({ count: 0 })
     })
 
     it("retains a session whose close failed, so cleanup can be retried", async () => {

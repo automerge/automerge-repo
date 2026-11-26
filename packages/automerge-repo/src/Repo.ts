@@ -501,7 +501,8 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     }
   }
 
-  /** Persist first, then release a cached document without deleting its history. */
+  /** Persist first, then release a cached document without deleting its history.
+   * Still releases and evicts the document if flushing fails, then rejects. */
   async removeFromCache(input: DocumentId): Promise<void> {
     this.#checkOpen()
     const id = interpretAsDocumentId(input)
@@ -509,10 +510,13 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     if (!document) return
     // Stop edits before draining; otherwise retained handles can outlive eviction.
     document.close()
-    await this.flush([id])
-    await this.#track(document.release())
-    if (this.#documents.get(id) === document) this.#documents.delete(id)
-    document.query.fail(new Error("Document removed from cache"))
+    try {
+      await this.flush([id])
+    } finally {
+      await this.#track(document.release())
+      if (this.#documents.get(id) === document) this.#documents.delete(id)
+      document.query.fail(new Error("Document removed from cache"))
+    }
   }
 
   /** Best-effort teardown. Use flush() first when persistence failures must reject. */
