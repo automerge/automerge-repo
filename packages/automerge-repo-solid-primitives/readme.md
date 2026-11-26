@@ -9,7 +9,7 @@ pnpm add solid-js @automerge/automerge-repo @automerge/automerge-repo-solid-prim
 
 ## Changes from v2
 
-You should use `createRepoPrimitives(repo)` rather than directly calling 
+You should use `createRepoPrimitives(repo)` rather than directly calling
 `useDocHandle`, `RepoProvider` etc.
 
 ## Setup
