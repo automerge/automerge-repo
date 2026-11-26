@@ -1,11 +1,5 @@
 import { next as A } from "@automerge/automerge/slim"
-import {
-  defineDocType,
-  type DocType,
-  type Kinded,
-  type Shaped,
-  type UrlTarget,
-} from "../DocType.js"
+import { defineDocType, type Shaped, type UrlTarget } from "../DocType.js"
 import { isPlainObject } from "../helpers/isPlainObject.js"
 import { concatBytes } from "../sedimentree/concatBytes.js"
 import {
@@ -26,21 +20,6 @@ export interface AutomergeKind extends Shaped {
 }
 
 /** The default document type: Automerge, behind an {@link AutomergeHandle}. */
-export interface AutomergeDocType extends Kinded<
-  DocType<
-    A.Doc<any>,
-    A.Doc<any>,
-    A.ChangeFn<any>,
-    unknown,
-    "automerge",
-    typeof AutomergeHandle
-  >,
-  AutomergeKind
-> {}
-
-/** The default document type: Automerge. */
-// Cast: `defineDocType` would read `value` and `change` types from
-// `AutomergeHandle`, whose `doc()` and `change()` also cover sub-handles.
 export const automerge = defineDocType({
   scheme: "automerge",
   // Non-empty plain objects seed the document via `A.from`; empty objects and
@@ -85,4 +64,7 @@ export const automerge = defineDocType({
     }
     return target
   },
-}).as<AutomergeKind>() as AutomergeDocType
+}).as<AutomergeKind>()
+
+/** The default document type: Automerge, behind an {@link AutomergeHandle}. */
+export type AutomergeDocType = typeof automerge

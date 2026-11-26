@@ -3,7 +3,13 @@
 import { Repo } from "../src/Repo.js"
 import { DocHandle, isHandleOf } from "../src/types/DocHandle.js"
 import { automerge } from "../src/automerge/docType.js"
-import { defineDocType, type HandleKind, type Shaped } from "../src/DocType.js"
+import { AutomergeHandle } from "../src/automerge/handle.js"
+import {
+  defineDocType,
+  type DocTypeContext,
+  type HandleKind,
+  type Shaped,
+} from "../src/DocType.js"
 import {
   Handle,
   type CoreHandleEvents,
@@ -280,6 +286,35 @@ defineDocType({
   // @ts-expect-error the class's doc() and change() types disagree with the type
   handle: StringHandle,
 })
+
+// A class whose doc() may be undefined and whose change() accepts wider inputs
+// is accepted, while the type's own `value` and `change` keep their types.
+class MaybeNumberHandle extends Handle<number | undefined, number | string> {}
+const maybeNumber = defineDocType({
+  scheme: "maybe-number",
+  create: (n: number) => ({ v: n as unknown }),
+  value: (s: { v: unknown }) => s.v as number,
+  change: (_s: { v: unknown }, by: number) => ({ v: by as unknown }),
+  ...storage,
+  handle: MaybeNumberHandle,
+})
+declare const numberState: { v: unknown }
+declare const context: DocTypeContext
+maybeNumber.value(numberState) satisfies number
+// @ts-expect-error change takes a number
+maybeNumber.change(numberState, "1", context)
+
+// Automerge's own `value` and `change` keep Automerge's types.
+declare const automergeDoc: ReturnType<typeof automerge.create>
+const automergeValueIsDefined: undefined extends ReturnType<
+  typeof automerge.value
+>
+  ? false
+  : true = true
+void automergeValueIsDefined
+// @ts-expect-error change takes a change function
+automerge.change(automergeDoc, 5, context)
+automerge.handle satisfies typeof AutomergeHandle
 interface WrongScheme extends HandleKind {
   readonly scheme: "not-gcounter"
   readonly handle: CounterHandle

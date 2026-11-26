@@ -238,10 +238,12 @@ export type InitOf<D, T = ShapeOf<D>> =
       : never
 
 /** What {@link defineDocType} adds to a doc type with scheme `Scheme`, for
- * handles `H`. */
+ * handles `H`. When `D` is given, `as` returns `Kinded<D, K>` without
+ * keeping these helpers on the finished type. */
 export interface DocTypeHelpers<
   H extends Handle<any, any, any>,
   Scheme extends string = string,
+  D = never,
 > {
   /** This doc type, with its handles described by `K` (and named by it).
    * `K`'s handle must be the type's handle class, and its scheme the type's.
@@ -253,13 +255,14 @@ export interface DocTypeHelpers<
       readonly handle: H
       readonly scheme: Scheme
     },
-  >(): Kinded<this, K>
+  >(): Kinded<[D] extends [never] ? this : D, K>
 }
 
 /**
  * Infer a type's parameters, and its handle class if given, from its
- * definition. The class's `Handle<View, Change>` must match the type's
- * `value` and `change`.
+ * definition. `View` and `Change` come from the type's `value` and `change`;
+ * the class's `doc()` may return `View | undefined` (for handles that may not
+ * resolve) and its `change()` must accept `Change`.
  */
 export function defineDocType<
   State,
@@ -270,11 +273,18 @@ export function defineDocType<
   H extends HandleClass,
 >(
   type: DocType<State, View, Change, Init, Scheme, H> & {
-    readonly handle: H & (new (...args: any[]) => Handle<View, Change, any>)
+    readonly handle: H &
+      (new (
+        ...args: any[]
+      ) => Handle<NoInfer<View> | undefined, NoInfer<Change>, any>)
   }
 ): DocType<State, View, Change, Init, Scheme, H> & {
   readonly handle: H
-} & DocTypeHelpers<InstanceType<H>, Scheme>
+} & DocTypeHelpers<
+    InstanceType<H>,
+    Scheme,
+    DocType<State, View, Change, Init, Scheme, H> & { readonly handle: H }
+  >
 export function defineDocType<
   State,
   View,
@@ -286,10 +296,14 @@ export function defineDocType<
     readonly handle?: undefined
   }
 ): DocType<State, View, Change, Init, Scheme, undefined> &
-  DocTypeHelpers<Handle<View, Change>, Scheme>
+  DocTypeHelpers<
+    Handle<View, Change>,
+    Scheme,
+    DocType<State, View, Change, Init, Scheme, undefined>
+  >
 export function defineDocType(
   type: AnyDocType
-): AnyDocType & DocTypeHelpers<Handle<any, any, any>> {
+): AnyDocType & DocTypeHelpers<Handle<any, any, any>, string, AnyDocType> {
   const self = function (this: unknown) {
     return this
   }
@@ -297,7 +311,7 @@ export function defineDocType(
   return Object.defineProperties(type, {
     as: { value: self, configurable: true },
     of: { value: self, configurable: true },
-  }) as AnyDocType & DocTypeHelpers<Handle<any, any, any>>
+  }) as AnyDocType & DocTypeHelpers<Handle<any, any, any>, string, AnyDocType>
 }
 
 /** `other`'s history added to `state`, with the type's `merge` if it has one. */

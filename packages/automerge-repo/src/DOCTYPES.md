@@ -88,8 +88,9 @@ export class CounterHandle extends Handle<number, number> {
 }
 ```
 
-`defineDocType` checks that `Handle<View, Change>` matches `value` and
-`change`.
+`defineDocType` takes `View` and `Change` from `value` and `change`, and checks
+the class against them. Its `doc()` may also return `undefined`, for handles
+that may not resolve.
 
 ### 3. Optional: name the handles
 
