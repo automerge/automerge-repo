@@ -215,7 +215,7 @@ describe("real local Subduction", () => {
     const entered = deferred(),
       release = deferred()
     const load = storage.loadPrefix.bind(storage)
-    const scan = `subduction-v2/trees/${id}/`
+    const scan = `subduction/trees/${id}/`
     let blocked = false
     vi.spyOn(storage, "loadPrefix").mockImplementation(async prefix => {
       if (!blocked && prefix.startsWith(scan)) {
@@ -436,7 +436,7 @@ describe("real local Subduction", () => {
   it("persists native signed bytes, opaque commit identities and parents; reloads through a fresh engine", async () => {
     const backend = create()
     await backend.store(tree, [record(2, [1]), record(1)])
-    const keys = await storage.list("subduction-v2/")
+    const keys = await storage.list("subduction/")
     const key = keys.find(k => k.endsWith(`/signed/${cid(2)}`))!
     expect((await storage.load(key))!.length).toBeGreaterThan(0)
     const engine = nodeOf(backend)
@@ -761,7 +761,7 @@ describe("real local Subduction", () => {
   it("reports malformed persisted fragments rather than treating them as absent", async () => {
     const backend = create()
     await storage.save(
-      `subduction-v2/trees/${tree}/fragments/signed/${cid(1)}`,
+      `subduction/trees/${tree}/fragments/signed/${cid(1)}`,
       new Uint8Array([1])
     )
     const iterator = backend.open(tree).events[Symbol.asyncIterator]()
@@ -772,7 +772,7 @@ describe("real local Subduction", () => {
     expect((await iterator.next()).done).toBe(true)
     // Deletion goes through native and does not need a readable tree.
     await backend.deleteLocal(tree)
-    expect(await storage.list("subduction-v2/")).toEqual([])
+    expect(await storage.list("subduction/")).toEqual([])
   })
 
   // The bridge pairs stored values and decodes signed frames; Subduction
@@ -783,7 +783,7 @@ describe("real local Subduction", () => {
       const backend = create()
       await backend.store(tree, [record(1)])
       await backend.close()
-      const key = (await storage.list("subduction-v2/")).find(k =>
+      const key = (await storage.list("subduction/")).find(k =>
         k.includes("/commits/signed/")
       )!
       if (kind === "missing-blob")
@@ -863,7 +863,7 @@ describe("real local Subduction", () => {
       if (key.includes("/commits/")) throw new Error("disk failed")
     }
     await expect(backend.store(tree, [record(1)])).rejects.toThrow()
-    expect(await storage.list("subduction-v2/ids/")).toEqual([])
+    expect(await storage.list("subduction/ids/")).toEqual([])
   })
 
   it("enumerates a registered tree even if its batch fails", async () => {
@@ -874,8 +874,8 @@ describe("real local Subduction", () => {
     await expect(
       backend.store(tree, [record(1), record(2, [1])])
     ).rejects.toThrow()
-    expect(await storage.list("subduction-v2/ids/")).toEqual([
-      `subduction-v2/ids/${tree}`,
+    expect(await storage.list("subduction/ids/")).toEqual([
+      `subduction/ids/${tree}`,
     ])
   })
 
@@ -931,7 +931,7 @@ describe("real local Subduction", () => {
     })
     await vi.waitFor(async () =>
       expect(
-        (await storage.list("subduction-v2/")).some(key =>
+        (await storage.list("subduction/")).some(key =>
           key.endsWith(`/signed/${cid(2)}`)
         )
       ).toBe(true)
@@ -953,7 +953,7 @@ describe("real local Subduction", () => {
       code: "deleted",
     })
     await deleting
-    expect(await storage.list("subduction-v2/")).toEqual([])
+    expect(await storage.list("subduction/")).toEqual([])
     expect((await initial(backend.open(tree))).complete.found).toBe(false)
     await backend.store(tree, [record(2)])
     expect((await initial(backend.open(tree))).records).toEqual([record(2)])
@@ -975,7 +975,7 @@ describe("real local Subduction", () => {
     gate.resolve()
     await writing
     await deleting
-    expect(await storage.list("subduction-v2/")).toEqual([])
+    expect(await storage.list("subduction/")).toEqual([])
   })
 
   it("flush waits for an accepted deletion, but not another document's", async () => {
@@ -999,7 +999,7 @@ describe("real local Subduction", () => {
     expect(flushed).toBe(false)
     gate.resolve()
     await flushing
-    expect(await storage.list("subduction-v2/")).toEqual([])
+    expect(await storage.list("subduction/")).toEqual([])
     await deleting
   })
 

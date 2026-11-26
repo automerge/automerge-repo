@@ -28,7 +28,7 @@ const wait = { timeout: 8000, interval: 20 }
 // store and sync history as a fragment rather than loose commits.
 const isRecordKey = (key: string) => /\/(commits|fragments)\//.test(key)
 const fragmentKeys = async (p: Peer) =>
-  (await p.storage.list("subduction-v2/")).filter(key =>
+  (await p.storage.list("subduction/")).filter(key =>
     key.includes("/fragments/")
   )
 
@@ -188,7 +188,7 @@ describe("public Repo with native Subduction", () => {
       expect(A.getHeads(receiver.fullDoc())).toEqual(A.getHeads(fixture))
     }, wait)
     await b.repo.flush()
-    const keys = await b.storage.list("subduction-v2/")
+    const keys = await b.storage.list("subduction/")
     expect(keys.some(key => key.includes("/fragments/"))).toBe(true)
     expect(keys.some(key => key.includes("/commits/"))).toBe(true)
     await wires[0].disconnect()
@@ -223,7 +223,7 @@ describe("public Repo with native Subduction", () => {
     for (const p of [a, b])
       await vi.waitFor(async () => {
         expect(
-          (await p.storage.list("subduction-v2/")).some(key =>
+          (await p.storage.list("subduction/")).some(key =>
             key.includes("/fragments/")
           )
         ).toBe(true)
@@ -262,7 +262,7 @@ describe("public Repo with native Subduction", () => {
     expect(pushedFragments).toHaveBeenCalledOnce()
     await vi.waitFor(async () => {
       expect(
-        (await b.storage.list("subduction-v2/")).some(key =>
+        (await b.storage.list("subduction/")).some(key =>
           key.includes("/fragments/")
         )
       ).toBe(true)
@@ -487,7 +487,7 @@ describe("public Repo with native Subduction", () => {
     await p.repo.flush()
     await p.repo.shutdown()
     // Native hydration verifies every blob digest on open (see fragments.test.ts).
-    const key = (await p.storage.list("subduction-v2/")).find(k =>
+    const key = (await p.storage.list("subduction/")).find(k =>
       k.includes("/commits/blob/")
     )!
     await p.storage.save(

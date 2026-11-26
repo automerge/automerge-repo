@@ -208,7 +208,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     await a.backend.store(tree, records)
     await vi.waitFor(async () => {
       expect(
-        (await b.storage.list("subduction-v2/")).some(key =>
+        (await b.storage.list("subduction/")).some(key =>
           key.includes("/commits/")
         )
       ).toBe(true)
@@ -396,7 +396,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     await vi.waitFor(
       async () =>
         expect(
-          (await b.storage.list("subduction-v2/")).some(key =>
+          (await b.storage.list("subduction/")).some(key =>
             key.includes("/commits/")
           )
         ).toBe(true),
@@ -405,7 +405,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     await bounded(track(b.backend.deleteLocal(tree)), "delete")
     expect(right.events.at(-1)).toMatchObject({ type: "deleted" })
     expect(
-      (await b.storage.list("subduction-v2/")).filter(key =>
+      (await b.storage.list("subduction/")).filter(key =>
         key.includes("/commits/")
       )
     ).toEqual([])
@@ -427,7 +427,7 @@ describe("authenticated network failure and lifecycle barriers", () => {
     gate.release()
     await bounded(deleting, "delete")
     expect(
-      (await b.storage.list("subduction-v2/")).filter(key =>
+      (await b.storage.list("subduction/")).filter(key =>
         key.includes("/commits/")
       )
     ).toEqual([])
@@ -466,12 +466,12 @@ describe("authenticated network failure and lifecycle barriers", () => {
 
     const fresh = await observe(b)
     expect(initialRecords(fresh.events)).toEqual(persistedRecords)
-    expect(await b.storage.list("subduction-v2/ids/")).toHaveLength(1)
+    expect(await b.storage.list("subduction/ids/")).toHaveLength(1)
     // A retry can repair the optional inventory marker omitted by the failed
     // transaction. Re-storing held records rewrites them under the same keys
     // (native re-signs them locally); blobs stay identical.
     const recordKeys = async () =>
-      (await b.storage.list("subduction-v2/")).filter(key =>
+      (await b.storage.list("subduction/")).filter(key =>
         key.includes("/commits/")
       )
     const keys = await recordKeys()

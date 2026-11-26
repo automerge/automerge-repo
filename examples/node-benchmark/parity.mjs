@@ -16,7 +16,7 @@ for (let tree = 0; tree < trees; tree++) {
       value
     )
     await bytes.save(
-      `subduction-v2/trees/${tree}/commits/meta/${record}`,
+      `subduction/trees/${tree}/commits/meta/${record}`,
       value
     )
   }
@@ -38,7 +38,7 @@ store.resetStats()
 const byteStart = performance.now()
 for (let tree = 0; tree < trees; tree++) {
   const entries = await bytes.loadPrefix(
-    `subduction-v2/trees/${tree}/commits/meta/`
+    `subduction/trees/${tree}/commits/meta/`
   )
   assert.equal(entries.length, records)
   assert.equal(entries[0][1][0], tree)

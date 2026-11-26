@@ -248,7 +248,7 @@ describe("local Subduction fragments", () => {
       const backend = create()
       await backend.store(tree, [fragment(4)])
       await backend.close()
-      const key = (await storage.list("subduction-v2/")).find(k =>
+      const key = (await storage.list("subduction/")).find(k =>
         k.includes("/fragments/signed/")
       )!
       if (field === "missing-blob")
@@ -262,7 +262,7 @@ describe("local Subduction fragments", () => {
       const stream = reloaded.open(tree).events[Symbol.asyncIterator]()
       expect(await next(stream)).toMatchObject({ type: "failure" })
       expect((await stream.next()).done).toBe(true)
-      expect(await storage.list("subduction-v2/ids/")).toHaveLength(1)
+      expect(await storage.list("subduction/ids/")).toHaveLength(1)
     }
   )
 
@@ -278,8 +278,8 @@ describe("local Subduction fragments", () => {
     expect((await initial(backend)).records).toEqual([])
     // Native may register the tree first; no record is stored.
     expect(
-      (await storage.list("subduction-v2/")).filter(
-        key => !key.startsWith("subduction-v2/ids/")
+      (await storage.list("subduction/")).filter(
+        key => !key.startsWith("subduction/ids/")
       )
     ).toEqual([])
     storage.beforeSave = undefined
@@ -376,7 +376,7 @@ describe("local Subduction fragments", () => {
     "a persisted %s blob corrupted on disk is rejected by native hydration",
     async kind => {
       await create().store(tree, [loose(1), fragment(4)])
-      const key = (await storage.list("subduction-v2/")).find(k =>
+      const key = (await storage.list("subduction/")).find(k =>
         k.includes(`/${kind}/blob/`)
       )!
       // Same size, different digest: only the blob content check can catch it.
@@ -430,7 +430,7 @@ describe("local Subduction fragments", () => {
       const reopened = create()
       // Open reads and validates storage before the corruption, so it succeeds.
       expect((await initial(reopened)).records).toHaveLength(2)
-      const key = (await storage.list("subduction-v2/")).find(k =>
+      const key = (await storage.list("subduction/")).find(k =>
         k.includes(`/${kind}/signed/`)
       )!
       await storage.save(
@@ -459,7 +459,7 @@ describe("local Subduction fragments", () => {
         code: "invalid-record",
         retryable: false,
       })
-      expect(await storage.list("subduction-v2/")).toEqual([])
+      expect(await storage.list("subduction/")).toEqual([])
       expect(rounds).not.toHaveBeenCalled()
       await backend.flush().catch(() => {})
     }
@@ -472,14 +472,14 @@ describe("local Subduction fragments", () => {
     let fail = true
     vi.spyOn(storage, "removeBatch").mockImplementation(async keys => {
       await remove(keys)
-      if (keys.some(key => key.startsWith("subduction-v2/ids/")) && fail) {
+      if (keys.some(key => key.startsWith("subduction/ids/")) && fail) {
         fail = false
         throw new Error("ambiguous removal")
       }
     })
     await expect(backend.deleteLocal(tree)).rejects.toThrow()
     await backend.deleteLocal(tree)
-    expect(await storage.list("subduction-v2/")).toEqual([])
+    expect(await storage.list("subduction/")).toEqual([])
   })
 
   it("close fences watches and drains a delayed fragment write", async () => {
@@ -527,6 +527,6 @@ describe("local Subduction fragments", () => {
     release.resolve()
     await writing
     await ending
-    expect(await storage.list("subduction-v2/")).toEqual([])
+    expect(await storage.list("subduction/")).toEqual([])
   })
 })

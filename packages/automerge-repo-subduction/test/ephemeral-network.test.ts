@@ -148,8 +148,8 @@ describe("real native ephemerals", () => {
     )
     expect(ephemerals(twin.events)[0].message).toEqual(outgoing)
     await Promise.all([a.backend.flush(), b.backend.flush()])
-    expect(await a.storage.list("subduction-v2/")).toEqual([])
-    expect(await b.storage.list("subduction-v2/")).toEqual([])
+    expect(await a.storage.list("subduction/")).toEqual([])
+    expect(await b.storage.list("subduction/")).toEqual([])
   })
 
   it("does not replay offline messages; restores interests after reopen and reconnect", async () => {

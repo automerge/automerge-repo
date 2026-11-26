@@ -1,7 +1,7 @@
 import type * as N from "@automerge/subduction/slim"
 import type { SubductionStorageAdapterInterface } from "./storage/SubductionStorageAdapterInterface.js"
 
-const ROOT = "subduction-v2/"
+const ROOT = "subduction/"
 const IDS = `${ROOT}ids/`
 
 type Kind = "commits" | "fragments"

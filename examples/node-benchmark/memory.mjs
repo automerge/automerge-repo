@@ -80,7 +80,7 @@ export class MemoryStore {
     // Legacy storage shards by document ID; Subduction by tree ID.
     if (Array.isArray(key))
       return key[0] === "subduction" && key.length >= 3 ? key[2] : key[0]
-    if (key.startsWith("subduction-v2/trees/"))
+    if (key.startsWith("subduction/trees/"))
       return key.split("/").slice(0, 3).join("/")
     return key.split("/").slice(0, 2).join("/")
   }
@@ -126,7 +126,7 @@ export class MemoryStore {
         prefix.length < 3) ||
       (!Array.isArray(prefix) &&
         (prefix.split("/").length < 3 ||
-          (prefix.startsWith("subduction-v2/trees/") &&
+          (prefix.startsWith("subduction/trees/") &&
             prefix.split("/").length < 4)))
     const keys = fullScan
       ? this.#data.keys()

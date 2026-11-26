@@ -8,7 +8,7 @@ const tree = sedimentreeId("ab".repeat(16) + "00".repeat(16))
 const other = sedimentreeId("cd".repeat(16) + "00".repeat(16))
 const head = (n: number) => n.toString(16).padStart(64, "0")
 const bytes = (...values: number[]) => new Uint8Array(values)
-const root = `subduction-v2/trees/${tree}`
+const root = `subduction/trees/${tree}`
 
 class CountingStore extends DummySubductionStorageAdapter {
   readonly calls: string[] = []
@@ -36,7 +36,7 @@ describe("StorageBridge", () => {
     const bridge = new StorageBridge(store)
     await bridge.saveSedimentreeId(tree)
     await bridge.saveSedimentreeId(other)
-    expect(await store.loadMany([`subduction-v2/ids/${tree}`])).toEqual([
+    expect(await store.loadMany([`subduction/ids/${tree}`])).toEqual([
       bytes(),
     ])
     expect((await bridge.loadAllSedimentreeIds()).sort()).toEqual(
