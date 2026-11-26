@@ -23,13 +23,13 @@ const SCHEME = /^[a-z][a-z0-9+.-]*$/
 const SCHEME_PREFIX = /^([a-z][a-z0-9+.-]*):(.+)$/
 const AUTOMERGE_URL = /^automerge:([^/?#]+)(?:\/(.*))?$/
 
-/** Lowercase URL schemes, as in RFC 3986: a letter, then letters, digits, `+`, `.` or `-`. */
+/** Valid URL scheme: a lowercase letter followed by lowercase letters, digits, `+`, `.` or `-`. */
 export const isValidUrlScheme = (scheme: unknown): scheme is string =>
   typeof scheme === "string" && SCHEME.test(scheme)
 
 /**
  * Extract the URL scheme from any `<scheme>:<nonempty>` string, or
- * `undefined` if it does not begin with a valid lowercase RFC 3986 scheme.
+ * `undefined` if it does not begin with a valid scheme (see {@link isValidUrlScheme}).
  * Works regardless of the doc type's URL format after `<scheme>:`.
  */
 export const parseUrlScheme = (url: unknown): string | undefined =>

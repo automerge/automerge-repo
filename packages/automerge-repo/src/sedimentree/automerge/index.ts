@@ -68,7 +68,7 @@ export function extractNewCommits(
   return extractCommitsSince(after, A.getHeads(before))
 }
 
-/** The changes in `doc` outside `heads`, as loose commits. */
+/** The changes in `doc` since `heads` (not in `heads` or their ancestors), as loose commits. */
 export function extractCommitsSince(
   doc: A.Doc<unknown>,
   heads: readonly string[]

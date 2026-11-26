@@ -66,8 +66,9 @@ export interface DocType<
   H extends HandleClass | undefined = HandleClass | undefined,
 > {
   /** The type's URL scheme and identity, e.g. `gcounter`: written in its
-   * documents' URLs (`gcounter:<id>`). Lowercase RFC 3986 scheme (letter,
-   * then letters, digits, `+`, `.`, `-`); `automerge` is Automerge's. */
+   * documents' URLs (`gcounter:<id>`). Must start with a lowercase letter,
+   * followed by lowercase letters, digits, `+`, `.` or `-`; `automerge` is
+   * Automerge's. */
   readonly scheme: Scheme
 
   /** A new document's state, with at least one commit. Its ID is not
@@ -90,8 +91,9 @@ export interface DocType<
   /** Whether `heads` are all applied, excluding pending changes. */
   hasHeads(state: State, heads: readonly string[]): boolean
 
-  /** History outside `heads` as records: loose commits, plus fragments
-   * where the type has them at hand. With no heads, the whole history. */
+  /** Records since `heads` (everything not in `heads` or their ancestors, or
+   * the whole history when `heads` is empty): loose commits, plus fragments
+   * where the type has them at hand. */
   recordsSince(state: State, heads: readonly string[]): RecordBatch
 
   /** Fragments headed by these boundary commits. Heads without a fragment

@@ -1,21 +1,19 @@
 # Document types
 
 A document type tells a Repo how to store, read and change one kind of
-document. Automerge is the default type (`automerge`); anything whose history
-is a graph of commits can be another. For example, a grow-only counter
-(`gcounter`) can be stored and synced by the same Repo and backend without
-using Automerge. Every handle is a `DocHandle`, whatever its type.
+document. Automerge is the default type (`automerge`), but any document that can
+be represented as a sedimentree can be defined as a docType.
 
 > **Beta.** Names and types may change.
 
 ## How it works
 
-1. You define the doc type with `defineDocType` and give it a URL `scheme`.
+1. Define the doc type with `defineDocType` and give it a URL `scheme`.
 2. Callers pass `{ docType }` to `repo.create`, `repo.find` or `repo.query`
    (without it they get Automerge).
 3. Each document's URL starts with that scheme (`gcounter:<id>`).
 4. Repo converts the document's history into sedimentree records and stores and
-   syncs them through the backend, which stays ignorant of the doc type.
+   syncs them through the backend, which stays doc-type-agnostic.
 
 ## Writing a doc type
 
@@ -24,53 +22,35 @@ including the plain-JS commit graph it builds on, is in
 `packages/automerge-repo/test/doctypes/gcounter/` and
 `packages/automerge-repo/test/doctypes/common/commitGraph.ts`.
 
-### 1. Define the storage functions
-
-A doc type turns its own state into sedimentree records (`RecordBatch`,
-`CommitId`, `FragmentRecord` from `@automerge/automerge-repo/sedimentree`) and
-rebuilds state from them.
-
-Required fields:
-
-- `scheme`: lowercase RFC 3986 URL scheme, e.g. `"gcounter"`.
-- `create(init, { repoId })`: returns a new document's state, with at least one
-  commit.
-- `value(state)`: what `handle.doc()` returns.
-- `change(state, input, { documentId, repoId })`: applies a local change and
-  returns the next state.
-- `apply(state, records)`: applies records from storage or peers. `state` is
-  `undefined` on the first load; `apply(undefined, [])` returns an empty state.
-- `heads(state)`: the state's current heads.
-- `hasHeads(state, heads)`: whether every head is applied (excluding pending
-  commits waiting on parents).
-- `recordsSince(state, heads)`: commits outside `heads`, or the whole history
-  when `heads` is empty.
-
-Optional fields:
-
-- `view(state, heads)`: state as of `heads`, for read-only views. Without it,
-  the type has no views.
-- `merge(state, other)`: merges another document's state into `state`. Defaults
-  to applying all of `other`'s records.
-- `fragments(state, heads)`: given boundary commits, returns compacted
-  fragments covering the history below them so the backend can compact storage.
-  Without it, history stays as single commits and is never compacted.
+### 1. Define the doc type
 
 ```ts
 import { defineDocType } from "@automerge/automerge-repo"
 
 export const gcounter = defineDocType({
-  scheme: "gcounter",
-  create: (start: number | undefined) => newCounter(start), // >= 1 commit
-  value: (state: CounterState) => sum(state), // what doc() returns
-  change: (state: CounterState, amount: number) => add(state, amount),
-  apply: (state, records) => applyCommits(state, records),
-  heads: state => headsOf(state),
-  hasHeads: (state, heads) => heads.every(h => isApplied(state, h)),
-  recordsSince: (state, heads) => commitsOutside(state, heads),
-  view: (state, heads) => stateAt(state, heads), // optional
+  scheme: "gcounter", // URL prefix before `:` (`gcounter:<id>`)
+  create: (start: number | undefined) => newCounter(start), // new state (>= 1 commit); also gets `{ repoId }`
+  value: (state: CounterState) => sum(state), // what `handle.doc()` returns
+  change: (state: CounterState, amount: number) => add(state, amount), // local edit; also gets `{ documentId, repoId }`
+  apply: (state, records) => applyCommits(state, records), // apply records to state(`undefined` on first load; `[]` = empty)
+  heads: state => headsOf(state), // current applied heads
+  hasHeads: (state, heads) => heads.every(h => isApplied(state, h)), // true if all heads are applied (not pending)
+  recordsSince: (state, heads) => commitsSince(state, heads), // records since `heads`
+
+  // Optional:
+  view: (state, heads) => stateAt(state, heads), // read-only state at `heads`
+  // merge: (state, other) => ..., // defaults to applying `other`'s records
+  // fragments: (state, heads) => ..., // `{ records, absent }` for storage compaction
+  // handle: CounterHandle, // custom handle class (step 2)
+  // openUrl / formatUrl // custom URL format (see below)
 })
 ```
+
+`state` is the document's underlying CRDT or data structure (an `A.Doc` for
+Automerge, or a `CounterState` commit graph for `gcounter`). Repo holds one
+`state` per open document, which can be immutable or mutated in place.
+See `DocType` in `packages/automerge-repo/src/DocType.ts` for full field signatures and
+contracts.
 
 ### 2. Optional: add a handle class
 
@@ -87,10 +67,6 @@ export class CounterHandle extends Handle<number, number> {
   }
 }
 ```
-
-`defineDocType` takes `View` and `Change` from `value` and `change`, and checks
-the class against them. Its `doc()` may also return `undefined`, for handles
-that may not resolve.
 
 ### 3. Optional: name the handles
 
@@ -118,7 +94,8 @@ export const gcounter = defineDocType({
 
 ### 4. Test it
 
-Run `runDocTypeTests` (`src/helpers/tests/doc-type-tests.ts`) against your doc
+Run `runDocTypeTests`
+(`packages/automerge-repo/src/helpers/tests/doc-type-tests.ts`) against your doc
 type to check the storage, ordering, replay and sync contract.
 
 ### The result
@@ -241,17 +218,15 @@ openUrl(url) {
 
 ## Rules and restrictions
 
-- **Schemes and URL checks.** A scheme must be a lowercase RFC 3986 URL scheme.
-  `find` and `query` reject typed URLs of another scheme at compile time and
-  throw at runtime if a URL's scheme or an already-open document disagrees with
-  `docType`.
+- **Schemes and URL checks.** A scheme must start with a lowercase letter
+  followed by lowercase letters, digits, `+`, `.` or `-`. `find` and `query`
+  reject typed URLs of another scheme at compile time and throw at runtime if a
+  URL's scheme or an already-open document disagrees with `docType`.
 - **Hex heads.** Heads and commit IDs are 64 lowercase hex characters; every
   head is a commit.
 - **`apply` contract.** `apply` must hold commits whose parents are missing and
   apply them once their parents arrive, and must produce the same state if
   records arrive twice or out of order.
-- **In-place mutation is allowed.** State may be mutated in place: Repo reads
-  heads before each change and never retains an old state.
 - **Handle classes.** Handles are built by Repo, never by apps: do not add
   constructor parameters. A handle method whose name clashes with a backend
   extension throws when the Repo first uses the type. Use methods, getters and
