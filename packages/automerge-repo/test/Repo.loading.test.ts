@@ -652,6 +652,43 @@ describe("Repo loading", () => {
       })
       expect(handle.doc()?.count).toBe(1)
     })
+
+    it("reports loadIncremental for initial and live backend records, and merge for import", async () => {
+      let remote = A.from<Doc>({ count: 1 })
+      const initial = A.getAllChanges(remote)
+      const { r, id, handle, session } = await lookup()
+      const sources: A.PatchSource[] = []
+      handle.on("change", ({ patchInfo }) => sources.push(patchInfo.source))
+
+      await scan(session, initial)
+      expect(sources).toEqual(["loadIncremental"])
+
+      const prev = remote
+      remote = A.change(remote, d => {
+        d.count = 2
+      })
+      handle.once("heads-changed", () => {
+        void handle.change(d => {
+          d.count = 3
+        })
+      })
+      await session.push({
+        type: "records",
+        records: extractNewCommits(prev, remote),
+        phase: "live",
+        sequence: 2,
+      })
+      expect(sources).toEqual(["loadIncremental", "loadIncremental", "change"])
+
+      const extra = A.from<Doc>({ count: 9 })
+      await r.import<Doc>(A.save(extra), { docId: id })
+      expect(sources).toEqual([
+        "loadIncremental",
+        "loadIncremental",
+        "change",
+        "merge",
+      ])
+    })
   })
 
   describe("peers", () => {

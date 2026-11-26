@@ -7,6 +7,7 @@ import {
   extractRecords,
 } from "../sedimentree/automerge/index.js"
 import { AutomergeHandle } from "./handle.js"
+import { withPatchSource } from "./helpers.js"
 import { parseAutomergeUrl, type AutomergeUrl } from "./url.js"
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -38,9 +39,10 @@ export const automerge = defineDocType({
     // On first load, construct the document directly rather than incrementally.
     // Allow missing parents so records from an interrupted sync or crash stay
     // pending while the complete prefix loads.
-    return doc
+    const next = doc
       ? A.loadIncremental(doc, bytes)
       : A.load(bytes, { allowMissingChanges: true })
+    return next === doc ? next : withPatchSource(next, "loadIncremental")
   },
   heads: doc => A.getHeads(doc),
   hasHeads: (doc, heads) => A.hasHeads(doc, [...heads]),
@@ -49,7 +51,10 @@ export const automerge = defineDocType({
     heads.length ? extractCommitsSince(doc, heads) : extractRecords(doc),
   fragments: extractFragments,
   view: (doc, heads) => A.view(doc, [...heads]),
-  merge: (doc, other) => A.merge(doc, other),
+  merge: (doc, other) => {
+    const next = A.merge(doc, other)
+    return next === doc ? next : withPatchSource(next, "merge")
+  },
   handle: AutomergeHandle,
   // Formatting lives on `AutomergeHandle.url`, which reads the handle's private
   // path, range and heads.

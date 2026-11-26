@@ -16,6 +16,7 @@ import type { DocHandleEvents } from "./events.js"
 // The public type: this class's members and the backend's extension members.
 // Methods returning handles return it, so derived handles keep the extensions.
 import type { BackendOf, DocHandle as Handle } from "../types/DocHandle.js"
+import { withPatchSource } from "./helpers.js"
 import { stringifyAutomergeUrl, type AutomergeUrl } from "./url.js"
 import {
   isCursorMarker,
@@ -405,7 +406,9 @@ export class AutomergeHandle<T> extends BaseHandle<
       .applyMutation(doc => {
         const result = A.changeAt(doc as A.Doc<T>, decoded, options, inner)
         resultHeads = result.newHeads ? encodeHeads(result.newHeads) : undefined
-        return result.newDoc
+        return result.newDoc === doc
+          ? result.newDoc
+          : withPatchSource(result.newDoc, "changeAt")
       })
       .then(() => resultHeads)
   }

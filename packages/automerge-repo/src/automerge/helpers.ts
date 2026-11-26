@@ -17,3 +17,19 @@ export const saveAutomerge = (doc: AutomergeDoc): Uint8Array => A.save(doc)
  * a new document on the backend. */
 export const ensureAutomergeCommit = (doc: AutomergeDoc): AutomergeDoc =>
   A.getHeads(doc).length ? doc : A.emptyChange(doc)
+
+const patchSources = new WeakMap<A.Doc<any>, A.PatchSource>()
+
+/** @internal Record the Automerge operation that produced `doc`, for `patchInfo.source`. */
+export function withPatchSource<D extends A.Doc<any>>(
+  doc: D,
+  source: A.PatchSource
+): D {
+  patchSources.set(doc, source)
+  return doc
+}
+
+/** @internal The Automerge operation that produced `doc`, defaulting to `"change"`. */
+export function patchSourceOf(doc: A.Doc<any>): A.PatchSource {
+  return patchSources.get(doc) ?? "change"
+}

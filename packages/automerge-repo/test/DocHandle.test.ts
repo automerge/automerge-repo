@@ -722,4 +722,52 @@ describe("DocHandle", () => {
     const viewDoc = A.view(handle.doc(), A.getHeads(handle.doc()))
     assert.ok(viewDoc)
   })
+
+  describe("patchInfo.source", () => {
+    it("reports the Automerge operation for change, changeAt, remove and merge", async () => {
+      const handle = setup()
+      const sources: A.PatchSource[] = []
+      const subSources: A.PatchSource[] = []
+
+      handle.on("change", ({ patchInfo }) => sources.push(patchInfo.source))
+      handle
+        .sub("foo")
+        .on("change", ({ patchInfo }) => subSources.push(patchInfo.source))
+
+      await handle.change(d => {
+        d.foo = "one"
+      })
+      const heads = handle.heads()
+      await handle.change(d => {
+        d.foo = "two"
+      })
+      await handle.changeAt(heads, d => {
+        d.foo = "branch"
+      })
+      await handle.sub("foo").remove()
+
+      const other = setup({
+        documentId: parseAutomergeUrl(generateAutomergeUrl()).documentId,
+      })
+      await other.change(d => {
+        d.foo = "merged"
+      })
+      await handle.merge(other)
+
+      expect(sources).toEqual([
+        "change",
+        "change",
+        "changeAt",
+        "change",
+        "merge",
+      ])
+      expect(subSources).toEqual([
+        "change",
+        "change",
+        "changeAt",
+        "change",
+        "merge",
+      ])
+    })
+  })
 })

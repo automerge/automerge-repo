@@ -84,6 +84,7 @@ Probably the most important things here are:
 | `Presence` keyed by peer ID                           | Keyed by `originId`                                                                                                                 |
 | 16-byte document IDs                                  | 32-byte; 16-byte IDs and URLs still work in any form and keep their URLs                                                            |
 | Failed saves logged; included in the next save        | `change()` and `flush()` reject; no retry; the document rejects further local edits (peer changes still apply)                      |
+| `change` event's `patchInfo.source` always `"change"` | Reports the Automerge operation: `"change"`, `"changeAt"`, `"merge"`, or `"loadIncremental"` (backend records)                      |
 
 ### `Repo.id` and peer IDs
 

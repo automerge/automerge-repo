@@ -5,6 +5,7 @@ import { scopedValueAt } from "./path-ops.js"
 import type { DocumentState } from "../../DocumentState.js"
 import type { StateChange } from "../../Handle.js"
 import type { DocHandle } from "../../types/DocHandle.js"
+import { patchSourceOf } from "../helpers.js"
 import { KIND } from "./types.js"
 import type { CursorRange, PathSegment, Pattern } from "./types.js"
 import { matchesPattern } from "./utils.js"
@@ -242,7 +243,7 @@ export class HandleRegistry {
       const patchInfo: A.PatchInfo<any> = {
         before: beforeDoc,
         after,
-        source: "change",
+        source: patchSourceOf(after),
       }
       if (patches.length > 0) {
         const resolvedNodes = new Set<TrieNode>()
