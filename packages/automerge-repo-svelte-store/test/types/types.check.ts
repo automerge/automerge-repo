@@ -2,11 +2,11 @@
 // package. Not a test: checked by `pnpm lint`.
 import {
   automerge,
+  defineDocType,
   Handle,
   MemoryBackend,
   Repo,
   type DocType,
-  type DocTypeHelpers,
   type DocumentUrl,
   type HandleKind,
   type Shaped,
@@ -89,9 +89,8 @@ declare const counterType: DocType<
   number,
   "counter",
   typeof CounterHandle
-> &
-  DocTypeHelpers<CounterHandle, "counter">
-const counter = counterType.as<Counter>()
+> & { readonly handle: typeof CounterHandle }
+const counter = defineDocType(counterType).as<Counter>()
 declare const counterUrl: DocumentUrl<"counter">
 
 // A doc type whose handles are generic in the shape, given with `of`.
@@ -109,9 +108,8 @@ declare const registerType: DocType<
   unknown,
   "register",
   typeof RegisterHandle
-> &
-  DocTypeHelpers<RegisterHandle<unknown>, "register">
-const register = registerType.as<Register>()
+> & { readonly handle: typeof RegisterHandle }
+const register = defineDocType(registerType).as<Register>()
 declare const registerUrl: DocumentUrl<"register">
 
 export async function shaped() {

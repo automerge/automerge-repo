@@ -2,6 +2,7 @@
 // Not a test: checked by `pnpm lint`.
 import {
   automerge,
+  defineDocType,
   useDocHandle,
   useDocHandles,
   useDocument,
@@ -15,7 +16,6 @@ import {
   type AutomergeUrl,
   type DocHandle,
   type DocType,
-  type DocTypeHelpers,
   type DocumentUrl,
   type HandleKind,
   type Shaped,
@@ -99,9 +99,8 @@ declare const counter: DocType<
   number,
   "counter",
   typeof CounterHandle
-> &
-  DocTypeHelpers<CounterHandle, "counter">
-const counterType = counter.as<Counter>()
+> & { readonly handle: typeof CounterHandle }
+const counterType = defineDocType(counter).as<Counter>()
 declare const counterUrl: DocumentUrl<"counter">
 declare const todoUrl: AutomergeUrl
 export function docTypes(url: DocumentUrl) {
@@ -188,9 +187,8 @@ declare const registerType: DocType<
   unknown,
   "register",
   typeof RegisterHandle
-> &
-  DocTypeHelpers<RegisterHandle<unknown>, "register">
-const register = registerType.as<Register>()
+> & { readonly handle: typeof RegisterHandle }
+const register = defineDocType(registerType).as<Register>()
 declare const registerUrl: DocumentUrl<"register">
 
 export function shaped() {

@@ -134,19 +134,21 @@ export type {
   AnyDocType,
   DocType,
   DocTypeContext,
-  DocTypeHelpers,
   HandleKind,
-  HandleOfClass,
   InitOf,
-  Kinded,
   KindOf,
   Of,
-  PlainHandle,
   SchemeOf,
-  ShapeOf,
   Shaped,
   UrlTarget,
 } from "./DocType.js"
+// Internal doc-type plumbing, re-exported for TypeScript declaration portability.
+export type {
+  DocTypeHelpers,
+  HandleOfClass,
+  Kinded,
+  PlainHandle,
+} from "./docTypeKinds.js"
 export type { BackendOf, SameBackend, WithBackend } from "./types/DocHandle.js"
 
 export * from "./types.js"
