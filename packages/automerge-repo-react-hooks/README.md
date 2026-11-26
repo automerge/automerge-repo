@@ -2,6 +2,11 @@
 
 These hooks are provided as helpers for using Automerge in your React project.
 
+## Changes from v2
+
+Hooks must now be created using `createRepoHooks(repo)` rather than imported
+directly.
+
 #### [createRepoHooks](./src/createRepoHooks.ts)
 
 The recommended way to use the hooks. It makes a provider and the hooks

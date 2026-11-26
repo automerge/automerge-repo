@@ -7,6 +7,11 @@ href="https://automerge.org/docs/repositories/"> Automerge</a>.
 pnpm add solid-js @automerge/automerge-repo @automerge/automerge-repo-solid-primitives
 ```
 
+## Changes from v2
+
+You should use `createRepoPrimitives(repo)` rather than directly calling 
+`useDocHandle`, `RepoProvider` etc.
+
 ## Setup
 
 Make the primitives once, next to the Repo, with `createRepoPrimitives`, and import

@@ -2,6 +2,11 @@
 
 Repo and React hooks in one package.
 
+## Changes from v2
+
+When creating a hook you should use `createRepoHooks(repo)` rather than
+directly calling `useDocHandle` etc.
+
 ## React usage
 
 The package has no backend of its own: install one, such as the

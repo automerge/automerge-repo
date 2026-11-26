@@ -6,7 +6,7 @@ supports working with many documents at once, with pluggable persistence and syn
 Automerge Repo 3 switches from the use of 1st party network and storage adapters to using the new [Sedimentree Backend](./src/sedimentree/README.md) interface.
 We have included a [Subduction Backend](../automerge-repo-subduction/) in this initial alpha release.
 
-> **Alpha.** This is not yet ready for use in production
+> **Beta.** This is not yet ready for use in production
 
 ## Quick Start
 
@@ -49,7 +49,17 @@ await storage.close()
 
 See [automerge-repo-subduction](../automerge-repo-subduction/) for backend configuration.
 
-## Breaking Changes from v2
+## Changes from v2
+
+Probably the most important things here are:
+
+* Networking and storage are now managed by Subduction
+* `repo.create()` is now asynchronous
+* We recommend using `repo.query()` instead of `repo.find()` see the
+  [DocumentQuery](#documentquery) section for more details.
+* If you're using TypeScript you'll notice that the `DocHandle` has a few extra
+  generics. This is because the backend supports
+  [extensions](#Extensions)
 
 | v2                                                    | v3                                                                                                                                  |
 | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
@@ -186,7 +196,16 @@ handle.off("change", onChange)
 
 ## DocumentQuery
 
-`repo.query(id)` returns a `DocumentQuery`, and starts loading the document if needed.
+`repo.query(id)` returns a `DocumentQuery`, and starts loading the document if
+needed. This is different to `find(). `find()` resolves to `undefined` if it
+was unable to find the document - even if a peer connects later who has the
+document. `query()` on the other hand returns a `DocumentQuery` which gives you
+a way to subscribe to observe the document arriving later. For most
+applications this is more useful as you can show a "not found" screen which
+updates when the document is found. The exception is in programs like scripts
+which can't do anything at all if the document is not found.
+
+`DocumentQuery` has the following properties:
 
 - `documentId`: the queried document ID
 - `state()`: the current QueryState.
