@@ -145,6 +145,7 @@ type AnyHandle = {
   doc(): unknown
   change(...args: any[]): Promise<void>
   on(event: "change", fn: (payload: { doc: unknown }) => void): unknown
+  off(event: "change", fn: (payload: { doc: unknown }) => void): unknown
 }
 
 /**
@@ -201,16 +202,17 @@ export function createAutomergeStore<R extends Repo>(
    * Create a reactive document store for a handle
    */
   function createDocumentStore(handle: AnyHandle) {
-    // Create a writable store with the current document
-    const { subscribe, set } = writable<unknown>(handle.doc() ?? null)
-
-    // Set up change listener
-    const onChange = ({ doc }: { doc: unknown }) => {
-      set(doc ?? null)
-    }
-
-    // Subscribe to changes
-    handle.on("change", onChange)
+    // Attach the handle listener only while the store has subscribers.
+    const { subscribe, set } = writable<unknown>(handle.doc() ?? null, set => {
+      set(handle.doc() ?? null)
+      const onChange = ({ doc }: { doc: unknown }) => {
+        set(doc ?? null)
+      }
+      handle.on("change", onChange)
+      return () => {
+        handle.off("change", onChange)
+      }
+    })
 
     // Create the store implementation
     const store = {

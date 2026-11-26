@@ -50,3 +50,44 @@ it("wraps async creation and lookup, preserving immediate edits and persistence 
     await repo.shutdown()
   }
 })
+
+it("attaches the change listener on subscribe and detaches when unsubscribed", async () => {
+  const repo = new Repo()
+  try {
+    const stores = createAutomergeStore(repo)
+    const store = await stores.create({ count: 0 })
+    expect(store.handle.listenerCount("change")).toBe(0)
+
+    const seen: number[] = []
+    const unsub1 = store.subscribe(doc => {
+      if (doc) seen.push(doc.count)
+    })
+    const unsub2 = store.subscribe(() => {})
+    expect(store.handle.listenerCount("change")).toBe(1)
+
+    await store.change(doc => {
+      doc.count = 1
+    })
+    expect(seen).toEqual([0, 1])
+
+    unsub1()
+    expect(store.handle.listenerCount("change")).toBe(1)
+    unsub2()
+    expect(store.handle.listenerCount("change")).toBe(0)
+
+    // Changes while unsubscribed are picked up on the next subscription.
+    await store.change(doc => {
+      doc.count = 2
+    })
+    const after: number[] = []
+    const unsub3 = store.subscribe(doc => {
+      if (doc) after.push(doc.count)
+    })
+    expect(after).toEqual([2])
+    expect(store.handle.listenerCount("change")).toBe(1)
+    unsub3()
+    expect(store.handle.listenerCount("change")).toBe(0)
+  } finally {
+    await repo.shutdown()
+  }
+})
