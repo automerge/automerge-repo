@@ -33,34 +33,26 @@ export function usePresence<State extends PresenceState>({
   const [localState, setLocalState] = createStore<State>(initialState)
   const [peerStates, setPeerStates] = createStore(new PeerStateView<State>({}))
   const presence = new Presence<State>({ handle })
-  const firstInitialState = initialState
   let currentTiming = { heartbeatMs, peerTtlMs }
 
-  const setupPresenceHandlers = () => {
-    const presenceHandle = presence
-
-    presenceHandle.on("heartbeat", () =>
-      setPeerStates(reconcile(presenceHandle.getPeerStates()))
-    )
-    presenceHandle.on("snapshot", () =>
-      setPeerStates(reconcile(presenceHandle.getPeerStates()))
-    )
-    presenceHandle.on("update", () =>
-      setPeerStates(reconcile(presenceHandle.getPeerStates()))
-    )
-    presenceHandle.on("goodbye", () =>
-      setPeerStates(reconcile(presenceHandle.getPeerStates()))
-    )
+  // Presence keeps its own listeners across stop/start, so attach them once.
+  const syncPeerStates = () =>
+    setPeerStates(reconcile(presence.getPeerStates()))
+  for (const event of [
+    "heartbeat",
+    "snapshot",
+    "update",
+    "goodbye",
+    "pruning",
+  ] as const) {
+    presence.on(event, syncPeerStates)
   }
 
-  presence.start({
-    initialState: firstInitialState,
-    ...currentTiming,
-  })
-  setupPresenceHandlers()
+  presence.start({ initialState, ...currentTiming })
 
   onCleanup(() => {
     presence.stop()
+    presence.removeAllListeners()
   })
 
   const update = <Channel extends keyof State>(
@@ -82,7 +74,6 @@ export function usePresence<State extends PresenceState>({
       initialState,
       ...currentTiming,
     })
-    setupPresenceHandlers()
   }
 
   const stop = () => {

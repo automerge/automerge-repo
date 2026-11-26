@@ -8,6 +8,11 @@ export { default as createDocSignal } from "./createDocSignal.js"
 export { default as useDocSignal } from "./useDocSignal.js"
 export { default as useRepo } from "./useRepo.js"
 export {
+  usePresence,
+  type UsePresenceConfig,
+  type UsePresenceResult,
+} from "./usePresence.js"
+export {
   createRepoPrimitives,
   type RepoPrimitiveOptions,
   type RepoPrimitives,
