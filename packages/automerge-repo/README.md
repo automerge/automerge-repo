@@ -160,17 +160,14 @@ To add features to handles from your own backend, see
 
 ### Document types
 
-Automerge is the default document type. Other types (anything whose history is a graph of
-commits) are chosen per call, and their URLs name the type:
+Automerge is the default document type returned by repo. Other types can be created, queried and found
+by passing a docType option. See [Document types](./src/DOCTYPES.md).
 
 ```ts
 const counter = await repo.create(5, { docType: gcounter }) // gcounter:…
 await counter.increment()
 await repo.find(counter.url, { docType: gcounter })
 ```
-
-Every handle is a `DocHandle`; `repo.handles` and the `document` event list every type, so
-narrow with `isHandleOf(handle, automerge)`. See [Document types](./src/DOCTYPES.md).
 
 ### Events
 
