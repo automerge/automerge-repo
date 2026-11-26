@@ -71,7 +71,7 @@ See [automerge-repo-subduction](../automerge-repo-subduction/) for backend confi
 | `handle.broadcast()`, `ephemeral-message` event       | Added by the backend, e.g. the Subduction backend; absent on `MemoryBackend` handles. See [Ephemeral messages](#ephemeral-messages) |
 | `DocHandleEphemeralMessagePayload`                    | `EphemeralMessagePayload` from `@automerge/automerge-repo-subduction`                                                               |
 | `Presence<State, DocType>`                            | `Presence<State>`, taking any handle with ephemeral messaging (`PresenceHandle`)                                                    |
-| `useRemoteAwareness<T>`, `UseRemoteAwarenessProps<T>` | No type parameter                                                                                                                   |
+| `useLocalAwareness`, `useRemoteAwareness`             | Removed; use `usePresence`                                                                                                          |
 | `BackendError` operation `"ephemeral"`                | `"extension"`                                                                                                                       |
 | `Presence` keyed by peer ID                           | Keyed by `originId`                                                                                                                 |
 | 16-byte document IDs                                  | 32-byte; 16-byte IDs and URLs still work in any form and keep their URLs                                                            |

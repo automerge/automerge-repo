@@ -16,11 +16,9 @@
  * #### {@link useDocHandle}
  * Return a DocHandle by passing in a DocumentURL.
  *
- * #### {@link useLocalAwareness} & {@link useRemoteAwareness}
- * These hooks implement ephemeral awareness/presence, similar to [Yjs Awareness](https://docs.yjs.dev/getting-started/adding-awareness).
- * They allow temporary state to be shared, such as cursor positions or peer online/offline status.
- *
- * Ephemeral messages are replicated between peers, but not saved to the Automerge doc, and are used for temporary updates that will be discarded.
+ * #### {@link usePresence}
+ * Share short-lived state, such as cursor positions or who is online, over
+ * ephemeral messages. Not saved to the document.
  *
  */
 export { useDocument } from "./useDocument.js"
@@ -47,17 +45,6 @@ export { useDocHandles } from "./useDocHandles.js"
 export type { UseDocHandlesParams, DocHandleMap } from "./useDocHandles.js"
 export { RepoContext, useRepo } from "./useRepo.js"
 export { createRepoHooks, type RepoHooks } from "./createRepoHooks.js"
-export {
-  useLocalAwareness,
-  type UseLocalAwarenessProps,
-} from "./useLocalAwareness.js"
-export {
-  useRemoteAwareness,
-  type PeerStates,
-  type Heartbeats,
-  type UseRemoteAwarenessProps,
-} from "./useRemoteAwareness.js"
-
 export {
   usePresence,
   type UsePresenceResult,

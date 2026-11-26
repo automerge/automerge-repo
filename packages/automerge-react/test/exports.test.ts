@@ -18,15 +18,15 @@ describe("@automerge/react built entrypoints", () => {
       import * as api from '@automerge/react'
       for (const name of ['Repo', 'DocHandle', 'RepoContext', 'useRepo',
         'useDocument', 'useDocuments', 'useDocHandle', 'useDocHandles',
-        'useLocalAwareness', 'useRemoteAwareness', 'usePresence',
-        'createRepoHooks', 'MemoryBackend']) {
+        'usePresence', 'createRepoHooks', 'MemoryBackend']) {
         assert.notEqual(api[name], undefined, name)
       }
       for (const name of ['createRepo', 'RepoHandle', 'RepoQuery',
         'BroadcastChannelNetworkAdapter', 'MessageChannelNetworkAdapter',
         'WebSocketClientAdapter', 'IndexedDBStorageAdapter',
         'SubductionBackend', 'WebSocketSubductionNetworkAdapter',
-        'IndexedDBSubductionStorageAdapter']) {
+        'IndexedDBSubductionStorageAdapter', 'useLocalAwareness',
+        'useRemoteAwareness']) {
         assert.equal(name in api, false, name)
       }
       const slim = await import('@automerge/react/slim')

@@ -321,9 +321,6 @@ importers:
       '@automerge/automerge-repo':
         specifier: workspace:*
         version: link:../automerge-repo
-      eventemitter3:
-        specifier: 'catalog:'
-        version: 5.0.4
     devDependencies:
       '@testing-library/dom':
         specifier: ^10.0.0

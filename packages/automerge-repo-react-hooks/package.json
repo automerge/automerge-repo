@@ -19,8 +19,7 @@
   },
   "dependencies": {
     "@automerge/automerge": "catalog:",
-    "@automerge/automerge-repo": "workspace:*",
-    "eventemitter3": "catalog:"
+    "@automerge/automerge-repo": "workspace:*"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.0.0",

@@ -21,16 +21,6 @@ Each call makes its own provider, so several Repos can be used at once. See
 The hooks are also exported directly, for existing apps and shared components; they
 read the Repo from `RepoContext` and give plain handles.
 
-#### [useLocalAwareness](./src/useLocalAwareness.ts) & [useRemoteAwareness](./src/useRemoteAwareness.ts)
-
-These hooks implement ephemeral awareness/presence, similar to [Yjs Awareness](https://docs.yjs.dev/getting-started/adding-awareness).
-They allow temporary state to be shared, such as cursor positions or peer online/offline status.
-
-Ephemeral messages are replicated between peers, but not saved to the Automerge doc, and are used for temporary updates that will be discarded.
-
-They need a handle with ephemeral messaging, which the Repo's backend provides (e.g. the Subduction backend).
-Deprecated in favour of `usePresence`, so `createRepoHooks` does not include them.
-
 #### [useRepo/RepoContext](./src/useRepo.ts)
 
 Use RepoContext to set up react context for an Automerge repo, without the factory.
