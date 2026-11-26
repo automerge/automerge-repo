@@ -3,7 +3,7 @@
 A [Sedimentree backend](../automerge-repo/src/sedimentree/README.md) for Automerge Repo,
 built on [Subduction](https://github.com/inkandswitch/subduction)
 
-> **Beta.** This is not yet ready for use in production
+> **Alpha.** This is not yet ready for use in production
 
 ## Quick start
 

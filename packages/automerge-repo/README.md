@@ -4,9 +4,9 @@ A wrapper for the [Automerge](https://github.com/automerge/automerge) CRDT libra
 supports working with many documents at once, with pluggable persistence and synchronization.
 
 Automerge Repo 3 switches from the use of 1st party network and storage adapters to using the new [Sedimentree Backend](./src/sedimentree/README.md) interface.
-We have included a [Subduction Backend](../automerge-repo-subduction/) in this initial alpha release.
+We have included a [Subduction Backend](../automerge-repo-subduction/) in this alpha release.
 
-> **Beta.** This is not yet ready for use in production
+> **Alpha.** This is not yet ready for use in production
 
 ## Quick Start
 
@@ -195,7 +195,7 @@ handle.off("change", onChange)
 ## DocumentQuery
 
 `repo.query(id)` returns a `DocumentQuery`, and starts loading the document if
-needed. This is different to `find()`. `find()` resolves to `undefined` if it
+needed. This is different to `find()`. `find()` rejects if it
 was unable to find the document - even if a peer connects later who has the
 document. `query()` on the other hand returns a `DocumentQuery` which gives you
 a way to subscribe to observe the document arriving later. For most
