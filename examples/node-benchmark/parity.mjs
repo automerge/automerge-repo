@@ -15,10 +15,7 @@ for (let tree = 0; tree < trees; tree++) {
       ["subduction", "commits", String(tree), String(record)],
       value
     )
-    await bytes.save(
-      `subduction/trees/${tree}/commits/meta/${record}`,
-      value
-    )
+    await bytes.save(`subduction/trees/${tree}/commits/meta/${record}`, value)
   }
 }
 store.resetStats()

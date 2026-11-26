@@ -36,9 +36,7 @@ describe("StorageBridge", () => {
     const bridge = new StorageBridge(store)
     await bridge.saveSedimentreeId(tree)
     await bridge.saveSedimentreeId(other)
-    expect(await store.loadMany([`subduction/ids/${tree}`])).toEqual([
-      bytes(),
-    ])
+    expect(await store.loadMany([`subduction/ids/${tree}`])).toEqual([bytes()])
     expect((await bridge.loadAllSedimentreeIds()).sort()).toEqual(
       [tree, other].sort()
     )
