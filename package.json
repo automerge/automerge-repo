@@ -10,7 +10,7 @@
   "type": "module",
   "scripts": {
     "version:bump": "node scripts/version.mjs bump",
-    "build": "pnpm -r build",
+    "build": "pnpm -r build && pnpm run check:bundles",
     "build:docs": "typedoc",
     "bench:fixtures": "node examples/browser-benchmark/generate.mjs",
     "bench:browser": "node examples/browser-benchmark/browser.mjs",
@@ -28,12 +28,14 @@
     "test:coverage": "vitest --coverage",
     "test:ui": "vitest --coverage --ui",
     "watch": "pnpm run --parallel --stream -r watch ",
-    "lint:check-types": "pnpm run lint:check-types:packages && pnpm run lint:check-types:checks",
+    "lint:check-types": "pnpm run lint:check-types:packages && pnpm run lint:check-types:checks && pnpm run lint:check-types:scripts",
     "lint:check-types:packages": "pnpm --filter './packages/*' exec tsc --noEmit",
-    "lint:check-types:checks": "node scripts/check-types.mjs"
+    "lint:check-types:checks": "node scripts/check-types.mjs",
+    "check:bundles": "node scripts/check-bundles.ts",
+    "lint:check-types:scripts": "tsc --noEmit -p scripts/tsconfig.json"
   },
   "engines": {
-    "node": ">=22.13",
+    "node": ">=22.18",
     "pnpm": "^11"
   },
   "manypkg": {

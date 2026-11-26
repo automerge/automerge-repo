@@ -34,7 +34,7 @@ catalog:
   "@vitejs/plugin-react": ^6.0.3
   "@vitest/coverage-v8": ^4.1.10
   "@vitest/ui": ^4.1.10
-  cbor-x: ^1.6.4
+  cbor-x: ^1.6.6
   debug: ^4.4.3
   eventemitter3: ^5.0.4
   execa: ^9.6.1
@@ -49,4 +49,4 @@ catalog:
   vite-plugin-dts: ^5.0.3
   vite-plugin-wasm: ^3.6.0
   vitest: ^4.1.10
-  ws: ^8.21.0
+  ws: ^8.21.3
