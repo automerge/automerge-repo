@@ -139,6 +139,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     return this.#track(this.#createDocument(state, undefined, docType))
   }
 
+  /** Copy a document, with its history, under a new ID. Automerge only. */
   async clone<T>(handle: DocHandle<T>): Promise<DocHandle<T, X>> {
     this.#checkOpen()
     if (!isHandleOf(handle, automerge))
@@ -278,7 +279,8 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     return query
   }
 
-  /** Import preserves history, including when the supplied ID is only stored on disk. */
+  /** Import an `Automerge.save()` binary. Preserves history, including when
+   * the supplied ID is only stored on disk. Automerge only. */
   async import<T>(
     binary: Uint8Array,
     args?: { docId?: DocumentId }
@@ -405,6 +407,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     return document
   }
 
+  /** A document as an `Automerge.save()` binary. Automerge only. */
   async export(id: AnyDocumentId): Promise<Uint8Array | undefined> {
     const handle = await this.find(id)
     if (!isHandleOf(handle, automerge))
@@ -539,6 +542,7 @@ export class Repo<X extends HandleExtensionSpec = {}> extends EventEmitter<
     return this.#shutdown
   }
 
+  /** Op and change counts of open Automerge documents; other types are skipped. */
   metrics(): {
     documents: Record<string, { numOps: number; numChanges: number }>
   } {

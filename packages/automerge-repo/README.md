@@ -107,6 +107,10 @@ In v2, `peerId` identified both the Repo and its network peer. v3 splits them:
   existing `docId` merges into it.
 - `export(id)`: exports a document as an Automerge binary.
 - `clone(handle)`: copies a document, with its history, under a new ID.
+- `metrics()`: per-document op and change counts.
+
+`import`, `export`, `clone` and `metrics` are currently for Automerge handles only.
+
 - `delete(id)`: deletes the local copy. _Not deleted on other peers._
 - `removeFromCache(id)`: stores, then unloads a document without deleting it.
 - `flush(ids?)`: waits until pending writes are stored. Rejects on write failures.
@@ -134,6 +138,10 @@ repo.on("document", ({ handle }) => {})
 - `heads()`, `history()`, `diff()`, `view(heads)`: as in v2.
 - `merge(otherHandle)`: merges another document into this one.
 - `sub(...path)`: a handle scoped to a path inside the document. `remove()` deletes it.
+
+`changeAt`, `history`, `diff`, `sub` and `remove` are Automerge only; other document
+types have `doc`, `change`, `heads`, `merge` and (if the type has views) `view`, plus
+their own members.
 
 ### Extensions
 

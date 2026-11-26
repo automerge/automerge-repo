@@ -256,5 +256,7 @@ openUrl(url) {
   extension throws when the Repo first uses the type. Use methods, getters and
   `#private` fields, not public class fields: those are set on each instance,
   where the clash check cannot see them.
-- **Automerge only.** `clone`, `import`, `export` and sub-handles (`sub()`) are
-  Automerge only.
+- **Automerge only.** `repo.clone`, `repo.import`, `repo.export` and
+  `repo.metrics` (skips other types), and the Automerge handle's own members:
+  `fullDoc`, `history`, `diff`, `changeAt`, `metrics` and sub-handles (`sub()`
+  and related). `merge` works for every type.
