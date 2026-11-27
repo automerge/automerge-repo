@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.app.json",
+  "compilerOptions": { "paths": { "bench-target": ["./src/targets/poc.ts"] } },
+  "include": ["src", "vite.config.ts"],
+  "exclude": ["src/targets/legacy.ts", "src/targets/subductionjs.ts"]
+}

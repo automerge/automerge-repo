@@ -12,3 +12,5 @@ yarn-error.log
 wallaby.conf.cjs
 *.tgz
 .svelte-kit
+examples/browser-benchmark/public/fixtures/
+examples/browser-benchmark/results/
