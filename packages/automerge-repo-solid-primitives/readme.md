@@ -4,8 +4,57 @@
 href="https://automerge.org/docs/repositories/"> Automerge</a>.
 
 ```sh
-pnpm add solid-js @automerge/automerge-repo @automerge/automerge-repo-solid-primitives
+pnpm add solid-js @automerge/automerge-repo@next @automerge/automerge-repo-solid-primitives@next
 ```
+
+## Changes from v2
+
+You should use `createRepoPrimitives(repo)` rather than directly calling
+`useDocHandle`, `RepoProvider` etc.
+
+## Setup
+
+Make the primitives once, next to the Repo, with `createRepoPrimitives`, and import
+every primitive from there. They are typed for that Repo, so handles have
+[the features its backend adds](../automerge-repo/README.md#extensions), such as
+`handle.broadcast` from Subduction:
+
+```tsx
+// repo.ts
+export const repo = new Repo({ backend })
+export const {
+  RepoProvider,
+  useRepo,
+  useDocument,
+  useDocSignal,
+  useDocHandle,
+  createDocumentProjection,
+  makeDocumentProjection,
+  createDocSignal,
+  makeDocSignal,
+  autoproduce,
+} = createRepoPrimitives(repo)
+// If the Repo is made later, give its type instead:
+// createRepoPrimitives<Repo<SubductionExtensions>>()
+
+// main.tsx
+<RepoProvider value={repo}>
+  <App />
+</RepoProvider>
+
+// App.tsx: import from "./repo"
+const handle = useDocHandle<Todo>(url) // handle()?.broadcast
+```
+
+The provider only accepts a Repo of that type, so the two cannot disagree. It also
+sets [`RepoContext`](#repocontext). Primitives that find documents throw outside
+it, and take no `repo` option. Each `createRepoPrimitives` call makes its own
+provider, so an app can use several Repos.
+
+Import the primitives from your `repo.ts`, not from this package: the package
+exports primitives of the same names, documented below, and an editor's auto-import
+may pick those. They work without the factory, for existing apps and shared
+components, but give plain handles.
 
 ## useDocument ✨
 
@@ -13,7 +62,8 @@ Get a fine-grained live view of an automerge document from its URL.
 
 When the handle receives changes, it converts the incoming automerge patch ops
 to precise solid store updates, giving you fine-grained reactivity that's
-consistent across space and time.
+consistent across space and time. Fine-grained updates are for Automerge only;
+other doc types update coarse-grained, like `useDocSignal`.
 
 Returns `[doc, handle]`.
 
@@ -41,35 +91,35 @@ Get a fine-grained live view from a signal automerge `DocHandle`.
 
 Underlying primitive for [`useDocument`](#usedocument-).
 
-Works with [`useHandle`](#usehandle).
+Works with [`useDocHandle`](#usedochandle).
 
 ```ts
-createDocumentProjection<T>(() => AutomergeUrl): Doc<T>
+createDocumentProjection<T>(handle: Accessor<DocHandle<T> | undefined>): Accessor<Doc<T> | undefined>
 ```
 
 ```tsx
 // example
-const handle = repo.find(url)
-const doc = makeDocumentProjection<{ items: { title: string }[] }>(handle)
+const handle = useDocHandle<{ items: { title: string }[] }>(() => props.url)
+const doc = createDocumentProjection(handle)
 
-// subscribes fine-grained to doc.items[1].title
-return <h1>{doc.items[1].title}</h1>
+// subscribes fine-grained to doc()?.items[1].title
+return <h1>{doc()?.items[1].title}</h1>
 ```
 
 ## makeDocumentProjection
 
 Just like `createDocumentProjection`, but without a reactive input.
 
-Underlying primitive for [`createDocumentProjection`](#createDocumentProjection).
+Underlying primitive for [`createDocumentProjection`](#createdocumentprojection).
 
 ```ts
-makeDocumentProjection<T>(handle: Handle<T>): Doc<T>
+makeDocumentProjection<T>(handle: DocHandle<T>): Doc<T>
 ```
 
 ```tsx
 // example
-const handle = repo.find(url)
-const doc = makeDocumentProjection<{ items: { title: string }[] }>(handle)
+const handle = await repo.find<{ items: { title: string }[] }>(url)
+const doc = makeDocumentProjection(handle)
 
 // subscribes fine-grained to doc.items[1].title
 return <h1>{doc.items[1].title}</h1>
@@ -123,8 +173,8 @@ makeDocSignal<T>(handle: DocHandle<T>): Accessor<Doc<T>>
 
 ```tsx
 // example
-const handle = repo.find(url)
-const doc = makeDocSignal<{ count: number }>(handle)
+const handle = await repo.find<{ count: number }>(url)
+const doc = makeDocSignal(handle)
 
 return <span>{doc()?.count}</span>
 ```
@@ -141,7 +191,7 @@ Perfect for handing to `createDocumentProjection`.
 useDocHandle<T>(
     () => AnyDocumentId,
     options?: {repo: Repo}
-): Resource<Handle<T>>
+): Resource<DocHandle<T>>
 ```
 
 ```tsx
@@ -154,8 +204,8 @@ The `repo` option can be left out if you are using [RepoContext](#repocontext).
 
 ## context
 
-If you prefer the context pattern for some reason, you can pass the repo higher
-up in your app with `RepoContext`
+Without the factory, you can pass the repo higher up in your app with
+`RepoContext`
 
 ### `RepoContext`
 
@@ -163,7 +213,7 @@ A convenience context for Automerge-Repo Solid apps. Optional: if you prefer you
 can pass a repo as an option to `useDocHandle` and `useDocument`.
 
 ```tsx
-<RepoContext.Provider repo={Repo}>
+<RepoContext.Provider value={repo}>
   <App />
 </RepoContext.Provider>
 ```
@@ -185,5 +235,13 @@ const repo = useRepo()
 ### `usePresence`
 
 This [hook](./src/usePresence.ts) allows temporary state to be shared, such as cursor positions or peer online/offline status.
+The handle must support ephemeral messages (a `PresenceHandle`), which depends on the Repo's backend.
+
+```ts
+const { peerStates, localState, update, start, stop } = usePresence({
+  handle,
+  initialState: { cursor: null },
+})
+```
 
 Ephemeral messages are replicated between peers, but not saved to the Automerge doc, and are used for temporary updates that will be discarded.

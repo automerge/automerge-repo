@@ -1,4 +1,4 @@
-import { type PeerId, Repo, type AutomergeUrl } from "@automerge/automerge-repo"
+import { Repo, type AutomergeUrl } from "@automerge/automerge-repo"
 import { render, renderHook, testEffect } from "@solidjs/testing-library"
 import { describe, expect, it, vi } from "vitest"
 import { RepoContext } from "../src/context.js"
@@ -11,10 +11,8 @@ import {
 import useDocument from "../src/useDocument.js"
 
 describe("useDocument", () => {
-  function setup() {
-    const repo = new Repo({
-      peerId: "bob" as PeerId,
-    })
+  async function setup() {
+    const repo = new Repo()
 
     const create = () =>
       repo.create<ExampleDoc>({
@@ -27,7 +25,7 @@ describe("useDocument", () => {
         ],
       })
 
-    const handle = create()
+    const handle = await create()
     const wrapper: ParentComponent = props => {
       return (
         <RepoContext.Provider value={repo}>
@@ -46,10 +44,10 @@ describe("useDocument", () => {
   }
 
   it("should notify on a property change", async () => {
-    const { create, options } = setup()
+    const { handle: created, options } = await setup()
 
     await testEffect(done => {
-      const [doc, handle] = useDocument<ExampleDoc>(create().url, options)
+      const [doc, handle] = useDocument<ExampleDoc>(created.url, options)
       createEffect((run: number = 0) => {
         if (run == 0) {
           expect(doc()?.key).toBe("value")
@@ -70,7 +68,7 @@ describe("useDocument", () => {
     const {
       handle: { url },
       options,
-    } = setup()
+    } = await setup()
 
     const done2 = testEffect(done => {
       const [two, handle] = useDocument<ExampleDoc>(url, options)
@@ -108,7 +106,8 @@ describe("useDocument", () => {
   })
 
   it("should work with a signal url", async () => {
-    const { create, wrapper } = setup()
+    const { create, wrapper } = await setup()
+    const [first, second] = await Promise.all([create(), create()])
     const [url, setURL] = createSignal<AutomergeUrl>()
     const {
       result: [doc, handle],
@@ -121,13 +120,13 @@ describe("useDocument", () => {
       createEffect((run: number = 0) => {
         if (run == 0) {
           expect(doc()?.key).toBe(undefined)
-          setURL(create().url)
+          setURL(first.url)
         } else if (run == 1) {
           expect(doc()?.key).toBe("value")
           handle()?.change(doc => (doc.key = "hello world!"))
         } else if (run == 2) {
           expect(doc()?.key).toBe("hello world!")
-          setURL(create().url)
+          setURL(second.url)
         } else if (run == 3) {
           expect(doc()?.key).toBe("value")
           handle()?.change(doc => (doc.key = "friday night!"))
@@ -143,7 +142,8 @@ describe("useDocument", () => {
   })
 
   it("should clear the store when the url signal returns to nothing", async () => {
-    const { create, options } = setup()
+    const { create, options } = await setup()
+    const [first, second] = await Promise.all([create(), create()])
     const [url, setURL] = createSignal<AutomergeUrl>()
 
     const done = testEffect(done => {
@@ -152,7 +152,7 @@ describe("useDocument", () => {
         if (run == 0) {
           expect(doc()?.key).toBe(undefined)
           expect(handle()).toBe(undefined)
-          setURL(create().url)
+          setURL(first.url)
         } else if (run == 1) {
           expect(doc()?.key).toBe("value")
           expect(handle()).not.toBe(undefined)
@@ -160,7 +160,7 @@ describe("useDocument", () => {
         } else if (run == 2) {
           expect(doc()?.key).toBe(undefined)
           expect(handle()).toBe(undefined)
-          setURL(create().url)
+          setURL(second.url)
         } else if (run == 3) {
           expect(doc()?.key).toBe("value")
           expect(handle()).not.toBe(undefined)
@@ -174,9 +174,9 @@ describe("useDocument", () => {
   })
 
   it("should not return the wrong store when url changes", async () => {
-    const { create, repo } = setup()
-    const h1 = create()
-    const h2 = create()
+    const { create, repo } = await setup()
+    const h1 = await create()
+    const h2 = await create()
     const u1 = h1.url
     const u2 = h2.url
 
@@ -215,24 +215,24 @@ describe("useDocument", () => {
       expect(result.getByTestId("key-changing").textContent).toBe("value")
 
       h1.change(doc => (doc.key = "hello"))
-      await new Promise(yay => setImmediate(yay))
+      await new Promise(resolve => setTimeout(resolve, 0))
 
       expect(result.getByTestId("key-stable").textContent).toBe("hello")
       expect(result.getByTestId("key-changing").textContent).toBe("hello")
 
       setChangingURL(u2)
-      await new Promise(yay => setImmediate(yay))
+      await new Promise(resolve => setTimeout(resolve, 0))
       expect(result.getByTestId("key-stable").textContent).toBe("hello")
       expect(result.getByTestId("key-changing").textContent).toBe("document-2")
       h2.change(doc => (doc.key = "world"))
 
       setChangingURL(u1)
-      await new Promise(yay => setImmediate(yay))
+      await new Promise(resolve => setTimeout(resolve, 0))
       expect(result.getByTestId("key-stable").textContent).toBe("hello")
       expect(result.getByTestId("key-changing").textContent).toBe("hello")
 
       setChangingURL(u2)
-      await new Promise(yay => setImmediate(yay))
+      await new Promise(resolve => setTimeout(resolve, 0))
 
       expect(result.getByTestId("key-stable").textContent).toBe("hello")
       expect(result.getByTestId("key-changing").textContent).toBe("world")
@@ -242,9 +242,9 @@ describe("useDocument", () => {
   })
 
   it("should work with a slow handle", async () => {
-    const { repo } = setup()
+    const { repo } = await setup()
 
-    const slowHandle = repo.create({ im: "slow" })
+    const slowHandle = await repo.create({ im: "slow" })
     const originalFind = repo.find.bind(repo)
     repo.find = vi.fn().mockImplementation(async (...args) => {
       await new Promise(resolve => setTimeout(resolve, 100))
@@ -275,7 +275,7 @@ describe("useDocument", () => {
     const {
       handle: { url },
       options,
-    } = setup()
+    } = await setup()
 
     let fn = vi.fn()
 
@@ -326,7 +326,7 @@ describe("useDocument", () => {
   })
 
   it("should resolve a ref (sub-document) url to a scoped handle", async () => {
-    const { handle, options } = setup()
+    const { handle, options } = await setup()
     const subUrl = handle.sub("projects", 0).url
     // index segments serialize as `@0`
     expect(subUrl).toBe(`${handle.url}/projects/@0`)
@@ -356,7 +356,7 @@ describe("useDocument", () => {
   })
 
   it("should update a ref-url projection when an ancestor mutates the sub-tree", async () => {
-    const { handle, options } = setup()
+    const { handle, options } = await setup()
     const subUrl = handle.sub("projects", 0, "items", 0).url
 
     await testEffect(done => {
@@ -376,7 +376,7 @@ describe("useDocument", () => {
   })
 
   it("clears a pattern-ref projection when its matched element is deleted", async () => {
-    const { handle, options } = setup()
+    const { handle, options } = await setup()
     // Pattern sub-URL: the element of `hellos` matching `{ hello: "hedgehog" }`.
     const subUrl = handle.sub("hellos", { hello: "hedgehog" }).url
 
@@ -386,7 +386,7 @@ describe("useDocument", () => {
         if (run == 0) {
           expect(doc()?.hello).toBe("hedgehog")
           // Delete the matched element through the root handle.
-          handle.change(d => d.hellos.deleteAt(1))
+          handle.change(d => d.hellos.splice(1, 1))
         } else if (run == 1) {
           // The scoped projection must react to the disappearance.
           expect(doc()?.hello).toBeUndefined()
@@ -398,7 +398,7 @@ describe("useDocument", () => {
   })
 
   it("should resolve a ref url pinned at heads (heads + path)", async () => {
-    const { handle, options } = setup()
+    const { handle, options } = await setup()
     // heads at the initial value, then mutate the scoped sub-tree
     const headsAtOne = handle.heads()
     handle.change(d => (d.projects[0].title = "two"))

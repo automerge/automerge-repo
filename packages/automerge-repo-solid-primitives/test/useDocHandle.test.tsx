@@ -1,7 +1,6 @@
 import {
   type AutomergeUrl,
   type DocHandle,
-  type PeerId,
   Repo,
   stringifyAutomergeUrl,
 } from "@automerge/automerge-repo"
@@ -33,15 +32,13 @@ describe("useDocHandle", () => {
   afterEach(() => {
     document.body.innerHTML = ""
   })
-  const repo = new Repo({
-    peerId: "bob" as PeerId,
-  })
+  const repo = new Repo()
 
-  function setup() {
-    const handleA = repo.create<ExampleDoc>()
+  async function setup() {
+    const handleA = await repo.create<ExampleDoc>()
     handleA.change(doc => (doc.foo = "A"))
 
-    const handleB = repo.create<ExampleDoc>()
+    const handleB = await repo.create<ExampleDoc>()
     handleB.change(doc => (doc.foo = "B"))
 
     return {
@@ -75,7 +72,7 @@ describe("useDocHandle", () => {
   }
 
   it("loads a handle", async () => {
-    const { handleA, wrapper } = setup()
+    const { handleA, wrapper } = await setup()
     const onHandle = vi.fn()
 
     render(() => <Component url={handleA.url} onHandle={onHandle} />, {
@@ -85,7 +82,7 @@ describe("useDocHandle", () => {
   })
 
   it("throws if called without any kinda repo", async () => {
-    const { handleA } = setup()
+    const { handleA } = await setup()
     const onHandle = vi.fn()
 
     expect(() =>
@@ -96,7 +93,7 @@ describe("useDocHandle", () => {
   })
 
   it("works without a context if given a repo in options", async () => {
-    const { handleA } = setup()
+    const { handleA } = await setup()
     const onHandle = vi.fn()
 
     render(
@@ -109,7 +106,7 @@ describe("useDocHandle", () => {
   })
 
   it("returns undefined when no url given", async () => {
-    const { wrapper } = setup()
+    const { wrapper } = await setup()
     const onHandle = vi.fn()
 
     render(() => <Component url={undefined} onHandle={onHandle} />, { wrapper })
@@ -117,7 +114,7 @@ describe("useDocHandle", () => {
   })
 
   it("returns view at heads when url contains heads", async () => {
-    const { handleA, wrapper } = setup()
+    const { handleA, wrapper } = await setup()
     const initialHeads = handleA.heads()!
     handleA.change(d => (d.foo = "later"))
 
@@ -141,7 +138,7 @@ describe("useDocHandle", () => {
   })
 
   it("updates the handle when the url changes", async () => {
-    const { handleA, handleB, wrapper } = setup()
+    const { handleA, handleB, wrapper } = await setup()
     const onHandle = vi.fn()
     const [url, updateURL] = createSignal<AutomergeUrl | undefined>(undefined)
 
@@ -177,7 +174,7 @@ describe("useDocHandle", () => {
   })
 
   it("does not return undefined after the url is updated", async () => {
-    const { wrapper, handleA, handleB } = setup()
+    const { wrapper, handleA, handleB } = await setup()
     const onHandle = vi.fn()
     const [url, updateURL] = createSignal<AutomergeUrl | undefined>(handleA.url)
 
@@ -192,7 +189,7 @@ describe("useDocHandle", () => {
   })
 
   it("does not return a handle for a different url after the url is updated", async () => {
-    const { wrapper, handleA, handleB } = setup()
+    const { wrapper, handleA, handleB } = await setup()
     const onHandle = vi.fn()
     const [url, updateURL] = createSignal<AutomergeUrl | undefined>(handleA.url)
 
