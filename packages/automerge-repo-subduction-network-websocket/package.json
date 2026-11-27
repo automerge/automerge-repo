@@ -23,8 +23,8 @@
     "test": "vitest"
   },
   "peerDependencies": {
-    "@automerge/automerge-repo": "workspace:^",
-    "@automerge/automerge-repo-subduction": "workspace:^"
+    "@automerge/automerge-repo": "workspace:*",
+    "@automerge/automerge-repo-subduction": "workspace:*"
   },
   "devDependencies": {
     "@automerge/automerge-repo": "workspace:*",
