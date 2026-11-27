@@ -23,6 +23,7 @@ minimumReleaseAgeExclude:
 catalog:
   # Includes fragment checkpoint fixes; keep experimental API changes tested.
   "@automerge/automerge": 3.5.0
+  "@automerge/subduction": 0.27.0
   "@clack/prompts": ^1.7.0
   "@testing-library/jest-dom": ^6.9.1
   "@types/node": ^22.20.0
