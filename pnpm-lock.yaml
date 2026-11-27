@@ -152,9 +152,21 @@ importers:
 
   examples/react-todo:
     dependencies:
+      '@automerge/automerge-repo-subduction':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-subduction
+      '@automerge/automerge-repo-subduction-network-websocket':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-subduction-network-websocket
+      '@automerge/automerge-repo-subduction-storage-indexeddb':
+        specifier: workspace:*
+        version: link:../../packages/automerge-repo-subduction-storage-indexeddb
       '@automerge/react':
         specifier: workspace:*
         version: link:../../packages/automerge-react
+      '@automerge/subduction':
+        specifier: 'catalog:'
+        version: 0.27.0
       autoprefixer:
         specifier: ^10.5.2
         version: 10.5.2(postcss@8.5.26)
@@ -174,18 +186,27 @@ importers:
         specifier: 'catalog:'
         version: 6.1.2(react@19.2.7)
     devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.20.0
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.2.3
+        version: 19.2.3(@types/react@19.2.17)
       '@vitejs/plugin-react':
         specifier: 'catalog:'
-        version: 6.0.3(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
+        version: 6.0.3(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
       tailwindcss:
         specifier: ^3.4.19
         version: 3.4.19
       vite:
         specifier: 'catalog:'
-        version: 8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)
+        version: 8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)
       vite-plugin-wasm:
         specifier: 'catalog:'
-        version: 3.6.0(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
+        version: 3.6.0(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/automerge-react:
     dependencies:
@@ -3758,11 +3779,6 @@ snapshots:
       '@rolldown/pluginutils': 1.0.1
       vite: 8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)
 
-  '@vitejs/plugin-react@6.0.3(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))':
-    dependencies:
-      '@rolldown/pluginutils': 1.0.1
-      vite: 8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)
-
   '@vitest/coverage-v8@4.1.10(vitest@4.1.10)':
     dependencies:
       '@bcoe/v8-coverage': 1.0.2
@@ -5206,10 +5222,6 @@ snapshots:
   vite-plugin-wasm@3.6.0(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)):
     dependencies:
       vite: 8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)
-
-  vite-plugin-wasm@3.6.0(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)):
-    dependencies:
-      vite: 8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0)
 
   vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0):
     dependencies:

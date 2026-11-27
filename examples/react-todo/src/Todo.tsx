@@ -1,4 +1,4 @@
-import { AutomergeUrl, useDocument } from "@automerge/react"
+import { useDocument, type AutomergeUrl } from "@automerge/react"
 import cx from "clsx"
 import { useEffect, useRef, useState } from "react"
 import { Filter, TodoData } from "./types.js"
@@ -42,10 +42,10 @@ export const Todo = ({ url, onDestroy, filter }: TodoProps) => {
           className="w-4 h-4 flex-none cursor-pointer"
           type="checkbox"
           checked={todo.completed}
-          onChange={e => {
-            changeTodo(t => {
+          onChange={() => {
+            void changeTodo(t => {
               t.completed = !t.completed
-            })
+            }).catch(console.error)
           }}
         />
 
@@ -54,7 +54,7 @@ export const Todo = ({ url, onDestroy, filter }: TodoProps) => {
           className="flex-1 mx-1 p-1"
           ref={contentInput}
           value={content}
-          onFocus={e => setEditing(true)}
+          onFocus={() => setEditing(true)}
           onBlur={e => {
             const newContent = e.target.value.trim()
             if (newContent.length === 0) {
@@ -62,9 +62,9 @@ export const Todo = ({ url, onDestroy, filter }: TodoProps) => {
               onDestroy(url)
             } else {
               // otherwise, update the content
-              changeTodo(t => {
+              void changeTodo(t => {
                 t.content = newContent
-              })
+              }).catch(console.error)
             }
             setEditing(false)
           }}
@@ -90,7 +90,7 @@ export const Todo = ({ url, onDestroy, filter }: TodoProps) => {
             "font-extrabold text-danger-500"
           )}
           style={{ cursor: "pointer" }}
-          onClick={e => onDestroy(url)}
+          onClick={() => onDestroy(url)}
         />
       </li>
     )

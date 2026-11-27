@@ -11,7 +11,6 @@ export interface State {
 }
 
 export interface TodoData {
-  url: AutomergeUrl
   content: string
   completed: boolean
 }
