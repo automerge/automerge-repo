@@ -47,6 +47,13 @@ await storage.close()
 
 See [automerge-repo-subduction](../automerge-repo-subduction/) for backend configuration.
 
+### Slim entrypoint
+
+The default entrypoint initializes Automerge's WASM. If you prefer not to,
+use `@automerge/automerge-repo/slim` and call its `initializeWasm` (or
+`initializeBase64Wasm`) before creating a Repo. It also exports `Automerge`
+(`@automerge/automerge/slim`) so you can use the same version of Automerge that Repo uses.
+
 ## Changes from v2
 
 Probably the most important things here are:

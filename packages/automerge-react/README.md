@@ -117,5 +117,7 @@ If you want to make sure you always use the typed hooks, you can add the followi
 
 ## Slim entrypoint
 
-The default entrypoint initializes Automerge's WASM. `@automerge/react/slim` does
-not: initialize Automerge yourself before creating a Repo.
+The default entrypoint initializes Automerge's WASM. If you prefer not to initialize it on
+import, use `@automerge/react/slim` and call its `initializeWasm` (or
+`initializeBase64Wasm`) before creating a Repo. It also exports `Automerge`
+(`@automerge/automerge/slim`) so you can use the same version of Automerge that Repo uses.
