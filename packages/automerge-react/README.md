@@ -1,70 +1,123 @@
 # @automerge/react
 
-A minimalist React package for Automerge Repo; does nothing but re-export other packages for your convenience.
+Repo and React hooks in one package.
 
-## Installation
+## Changes from v2
 
-```bash
-npm install @automerge/react
-# or
-yarn add @automerge/react
-# or
-pnpm add @automerge/react
-```
+When creating a hook you should use `createRepoHooks(repo)` rather than
+directly calling `useDocHandle` etc.
 
-## Usage
+## React usage
+
+The package has no backend of its own: install one, such as the
+[Subduction backend](../automerge-repo-subduction/README.md), and pass it to the
+Repo. See the [Automerge Repo quick start](../automerge-repo/README.md#quick-start)
+for making a Repo and its backend, and for shutting them down.
+
+Make the hooks once, next to the Repo, with `createRepoHooks`, and import every
+hook from there:
 
 ```tsx
-import { createRepo, useDocument } from "@automerge/react"
+// repo.ts
+import { Repo, createRepoHooks } from "@automerge/react"
 
-// Create a pre-configured repo instance
-const repo = createRepo({
-  websocketUrl: "ws://localhost:8080", // optional
-  enableStorage: true, // optional, defaults to true
-  enableMessageChannel: true, // optional, defaults to true
-})
+export const repo = new Repo({ backend })
 
-// Use in your React components
-function MyComponent() {
-  const doc = useDocument(repo, "my-doc-id")
+export const {
+  RepoProvider,
+  useRepo,
+  useDocument,
+  useDocuments,
+  useDocHandle,
+  useDocHandles,
+  usePresence,
+} = createRepoHooks(repo)
+// If the Repo is made later, give its type instead, e.g. for Subduction:
+// createRepoHooks<Repo<SubductionExtensions>>()
+```
 
-  if (!doc) return <div>Loading...</div>
+```tsx
+// App.tsx
+import { Suspense } from "react"
+import type { AutomergeUrl } from "@automerge/react"
+import { RepoProvider, repo, useDocument } from "./repo"
 
-  return <div>{doc.content}</div>
+type CounterDoc = { count: number }
+
+function Counter({ url }: { url: AutomergeUrl }) {
+  const [doc, change] = useDocument<CounterDoc>(url, { suspense: true })
+  return (
+    <button
+      onClick={() => {
+        void change(value => {
+          value.count++
+        }).catch(console.error)
+      }}
+    >
+      {doc.count}
+    </button>
+  )
+}
+
+const handle = await repo.create<CounterDoc>({ count: 0 })
+
+export function App() {
+  return (
+    <RepoProvider value={repo}>
+      <Suspense fallback="Loading...">
+        <Counter url={handle.url} />
+      </Suspense>
+    </RepoProvider>
+  )
 }
 ```
 
-## Features
+The hooks are typed for that Repo, so their handles have
+[the features its backend adds](../automerge-repo/README.md#extensions):
 
-- Pre-configured Automerge Repo setup with common adapters
-- Re-exports all React hooks from `@automerge/automerge-repo-react-hooks`
-- TypeScript support
-- Minimalist API surface
+```tsx
+const handle = useDocHandle<CounterDoc>(url, { suspense: true })
+handle.broadcast("hello") // if the backend has ephemeral messages
+```
 
-## API
+Each `createRepoHooks` call makes its own provider, so an app can use several Repos,
+each with its own hooks.
 
-### `createRepo(options?: CreateRepoOptions)`
+### Without the factory
 
-Creates a pre-configured Automerge Repo instance with common adapters.
+The package also exports the hooks directly, for existing apps and for shared
+components that work with any Repo. They read the Repo from `RepoContext`, which
+the factory's provider also sets:
 
-Options:
+```tsx
+import { RepoContext, useDocument } from "@automerge/react"
 
-- `websocketUrl?: string` - The URL of the WebSocket server to connect to
-- `enableStorage?: boolean` - Whether to enable IndexedDB storage (default: true)
-- `enableMessageChannel?: boolean` - Whether to enable MessageChannel network adapter (default: true)
+export function App() {
+  return (
+    <RepoContext.Provider value={repo}>
+      <Counter url={url} />
+    </RepoContext.Provider>
+  )
+}
+```
 
-### Hooks
+These give plain handles, without the features the backend adds.
+`useRepo<typeof repo>()` names the Repo's type without checking it.
 
-All hooks from `@automerge/automerge-repo-react-hooks` are re-exported:
+If you want to make sure you always use the typed hooks, you can add the following lint rule:
 
-- `useRepo`
-- `useDocument`
-- `useDocuments`
-- `useDocHandle`
-- `useDocHandles`
-- `useLocalAwareness`
-- `useRemoteAwareness`
+```json
+"no-restricted-imports": ["error", {
+  "paths": [{
+    "name": "@automerge/react",
+    "importNames": ["useRepo", "useDocument", "useDocuments", "useDocHandle", "useDocHandles", "usePresence"]
+  }]
+}]
+```
 
-## License
+## Slim entrypoint
 
-MIT
+The default entrypoint initializes Automerge's WASM. If you prefer not to initialize it on
+import, use `@automerge/react/slim` and call its `initializeWasm` (or
+`initializeBase64Wasm`) before creating a Repo. It also exports `Automerge`
+(`@automerge/automerge/slim`) so you can use the same version of Automerge that Repo uses.

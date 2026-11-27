@@ -23,7 +23,7 @@ describe("useRepo", () => {
 
   test("should return repo from context", () => {
     const repo = new Repo()
-    const wrapper = ({ children }) => (
+    const wrapper = ({ children }: React.PropsWithChildren) => (
       <RepoContext.Provider value={repo} children={children} />
     )
     const onRepo = vi.fn()

@@ -1,4 +1,9 @@
-import { defineConfig, mergeConfig } from "vitest/config"
-import rootConfig from "../../vitest.config"
+import { defineProject } from "vitest/config"
 
-export default mergeConfig(rootConfig, defineConfig({}))
+export default defineProject({
+  test: {
+    name: "@automerge/react",
+    environment: "node",
+    include: ["test/**/*.test.ts"],
+  },
+})

@@ -9,9 +9,15 @@ import "@testing-library/jest-dom"
 
 import { describe, expect, it, vi } from "vitest"
 import { ErrorBoundary } from "react-error-boundary"
-import { setup, setupPairedRepos } from "./testSetup"
+import {
+  longUrl,
+  setup,
+  setupDelayedRepo,
+  setupLongUrl,
+  setupSharedDoc,
+  pause,
+} from "./testSetup"
 import { useDocHandles } from "../src/useDocHandles"
-import { pause } from "../src/helpers/DummyNetworkAdapter"
 
 describe("useDocHandles", () => {
   function mockOnHandles() {
@@ -35,8 +41,25 @@ describe("useDocHandles", () => {
       return null
     }
 
+    it("keys a long URL's handle by the URL passed in", async () => {
+      const { handle, wrapper } = await setupLongUrl()
+      const onHandles = mockOnHandles()
+
+      render(
+        <Suspense fallback={null}>
+          <Component urls={[longUrl]} onHandles={onHandles} />
+        </Suspense>,
+        { wrapper }
+      )
+
+      await waitFor(() =>
+        expect(onHandles.mock.lastCall?.at(0)?.get(longUrl)).toBe(handle)
+      )
+      expect(handle.url).not.toBe(longUrl)
+    })
+
     it("loads some handles", async () => {
-      const { handleA, handleB, wrapper } = setup()
+      const { handleA, handleB, wrapper } = await setup()
       const onHandles = mockOnHandles()
 
       render(
@@ -54,7 +77,7 @@ describe("useDocHandles", () => {
     })
 
     it("updates the result map when the url changes", async () => {
-      const { wrapper, handleA, handleB } = setup()
+      const { wrapper, handleA, handleB } = await setup()
       const onHandles = mockOnHandles()
 
       const { rerender } = render(
@@ -76,7 +99,7 @@ describe("useDocHandles", () => {
     })
 
     it("does not update the result map when the urls do not change", async () => {
-      const { wrapper, handleA, handleB } = setup()
+      const { wrapper, handleA, handleB } = await setup()
       const onHandles = mockOnHandles()
 
       const { rerender } = render(
@@ -103,7 +126,7 @@ describe("useDocHandles", () => {
       // suppress console.error from the error boundary
       const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {})
 
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
       const noSuchDocUrl = generateAutomergeUrl()
 
       render(
@@ -127,9 +150,9 @@ describe("useDocHandles", () => {
       consoleSpy.mockRestore()
     })
 
-    it("handles slow network correctly", async () => {
-      const { repoCreator, wrapper } = setupPairedRepos()
-      const handleA = repoCreator.create({ foo: "A" })
+    it("handles delayed lookup correctly", async () => {
+      const { repoCreator, wrapper } = setupDelayedRepo()
+      const handleA = await repoCreator.create({ foo: "A" })
       const onHandles = mockOnHandles()
 
       render(
@@ -160,8 +183,8 @@ describe("useDocHandles", () => {
     })
 
     it("suspends while loading a handle", async () => {
-      const { repoCreator, wrapper } = await setupPairedRepos()
-      const handleA = repoCreator.create({ foo: "A" })
+      const { repoCreator, wrapper } = setupDelayedRepo()
+      const handleA = await repoCreator.create({ foo: "A" })
       const onHandles = mockOnHandles()
 
       render(
@@ -186,9 +209,9 @@ describe("useDocHandles", () => {
     })
 
     it("handles rapid url changes during loading", async () => {
-      const { repoCreator, repoFinder, wrapper } = await setupPairedRepos()
-      const handleA = repoCreator.create({ foo: "A" })
-      const handleB = repoFinder.create({ foo: "B" })
+      const { repoCreator, repoFinder, wrapper } = setupDelayedRepo()
+      const handleA = await repoCreator.create({ foo: "A" })
+      const handleB = await repoFinder.create({ foo: "B" })
       const onHandles = mockOnHandles()
 
       const { rerender } = render(
@@ -231,9 +254,23 @@ describe("useDocHandles", () => {
       return null
     }
 
+    it("keys a loaded long URL's handle by the URL passed in", async () => {
+      const { handle, wrapper } = await setupLongUrl()
+      const onHandles = mockOnHandles()
+
+      render(<Component urls={[longUrl]} onHandles={onHandles} />, {
+        wrapper,
+      })
+
+      await waitFor(() =>
+        expect(onHandles.mock.lastCall?.at(0)?.get(longUrl)).toBe(handle)
+      )
+      expect(onHandles.mock.lastCall?.at(0)?.size).toBe(1)
+    })
+
     it("returns and empty map while loading then resolves to handle", async () => {
-      const { repoCreator, wrapper } = await setupPairedRepos()
-      const handleA = repoCreator.create({ foo: "A" })
+      const { repoCreator, wrapper } = setupDelayedRepo()
+      const handleA = await repoCreator.create({ foo: "A" })
 
       const onHandles = mockOnHandles()
 
@@ -256,7 +293,7 @@ describe("useDocHandles", () => {
     })
 
     it("handles unavailable documents by omitting them", async () => {
-      const { handleA, wrapper } = setup()
+      const { handleA, wrapper } = await setup()
       const noSuchDocUrl = generateAutomergeUrl()
       const onHandles = mockOnHandles()
 
@@ -273,7 +310,7 @@ describe("useDocHandles", () => {
     })
 
     it("updates the handle map when urls change", async () => {
-      const { wrapper, handleA, handleB } = setup()
+      const { wrapper, handleA, handleB } = await setup()
       const onHandles = mockOnHandles()
 
       const { rerender } = render(
@@ -294,10 +331,34 @@ describe("useDocHandles", () => {
       expect(result2?.get(handleB.url)?.url).toEqual(handleB.url)
     })
 
+    it("gives the new Repo's handles when the provided Repo changes", async () => {
+      const { first, second, source, copy, Provider } = await setupSharedDoc()
+      const onHandles = mockOnHandles()
+      const last = () => onHandles.mock.lastCall?.at(0)?.get(source.url)
+
+      const { rerender } = render(
+        <Provider repo={first.repoFinder}>
+          <Component urls={[source.url]} onHandles={onHandles} />
+        </Provider>
+      )
+      await waitFor(() => expect(last()).toBe(source))
+      onHandles.mockClear()
+      rerender(
+        <Provider repo={second.repoFinder}>
+          <Component urls={[source.url]} onHandles={onHandles} />
+        </Provider>
+      )
+      await waitFor(() => expect(last()).toBe(copy))
+      // Dropped at once, not shown until the new Repo's handle loads.
+      expect(
+        onHandles.mock.calls.map(([handles]) => handles.get(source.url))
+      ).not.toContain(source)
+    })
+
     it("does not let a superseded url set overwrite the current one", async () => {
-      const { repoCreator, repoFinder, wrapper } = await setupPairedRepos()
-      const handleA = repoCreator.create({ foo: "A" })
-      const handleB = repoFinder.create({ foo: "B" })
+      const { repoCreator, repoFinder, wrapper } = setupDelayedRepo()
+      const handleA = await repoCreator.create({ foo: "A" })
+      const handleB = await repoFinder.create({ foo: "B" })
       const onHandles = mockOnHandles()
 
       const { rerender } = render(

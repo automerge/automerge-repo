@@ -1,7 +1,22 @@
-import { AnyDocumentId } from "@automerge/automerge-repo/slim"
+import type {
+  AnyDocType,
+  AnyDocumentId,
+  AutomergeDocType,
+  AutomergeKind,
+  DocHandle,
+  HandleKind,
+  KindOf,
+  Repo,
+  SchemeOf,
+} from "@automerge/automerge-repo/slim"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim"
 import { useCallback, useEffect, useState } from "react"
-import { useDocHandle } from "./useDocHandle.js"
+import {
+  useDocHandleIn,
+  type AnyHookParams,
+  type DocTypeOption,
+} from "./useDocHandle.js"
+import { useRepo } from "./useRepo.js"
 
 /**
  * A hook which returns a document and a function to change it.
@@ -32,43 +47,81 @@ export interface UseDocumentSynchronousParams {
   suspense: false
 }
 
-type UseDocumentParams =
+export type UseDocumentParams =
   | UseDocumentSuspendingParams
   | UseDocumentSynchronousParams
 
 export type UseDocumentReturn<T> = [
   Doc<T>,
-  (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => void,
+  (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => Promise<void>,
 ]
 
-export function useDocument<T>(
-  id: AnyDocumentId,
-  params: UseDocumentSuspendingParams
-): UseDocumentReturn<T>
-export function useDocument<T>(
+/**
+ * What `useDocument` returns for a document of shape `S` whose doc type's
+ * handles are `K`: Automerge's as {@link UseDocumentReturn}, others' as the
+ * handle's `doc()` and `change`.
+ */
+export type UseDocumentReturnOf<S, K extends HandleKind> = [K] extends [
+  AutomergeKind,
+]
+  ? UseDocumentReturn<S>
+  : [
+      Exclude<ReturnType<DocHandle<S, {}, K>["doc"]>, undefined>,
+      DocHandle<S, {}, K>["change"],
+    ]
+
+/**
+ * A document and a function to change it, from the Repo in
+ * {@link RepoContext}. In app code, prefer the `useDocument` from
+ * {@link createRepoHooks}, so all hooks come from one place.
+ *
+ * Opens an Automerge document unless `docType` names another doc type, as
+ * `repo.find` does; the function changes it as its handle's `change` does.
+ */
+export function useDocument<
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
+>(
+  id: AnyDocumentId<SchemeOf<D>>,
+  params: UseDocumentSuspendingParams & DocTypeOption<D, S>
+): UseDocumentReturnOf<S, KindOf<D>>
+export function useDocument<
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
+>(
+  id: AnyDocumentId<SchemeOf<D>> | undefined,
+  params?: { suspense?: false } & DocTypeOption<D, S>
+): UseDocumentReturnOf<S, KindOf<D>> | [undefined, () => Promise<void>]
+export function useDocument(
   id: AnyDocumentId | undefined,
-  params?: UseDocumentSynchronousParams
-): UseDocumentReturn<T> | [undefined, () => void]
-export function useDocument<T>(
+  params?: AnyHookParams
+): [unknown, (...args: any[]) => Promise<void>] {
+  return useDocumentIn(useRepo(), id, params)
+}
+
+/** @internal {@link useDocument} on a given Repo. */
+export function useDocumentIn(
+  repo: Repo,
   id: AnyDocumentId | undefined,
-  params: UseDocumentParams = { suspense: false }
-): UseDocumentReturn<T> | [undefined, () => void] {
-  // @ts-expect-error -- typescript doesn't realize we're discriminating these types the same way in both functions
-  const handle = useDocHandle<T>(id, params)
+  params: AnyHookParams = { suspense: false }
+): [unknown, (...args: any[]) => Promise<void>] {
+  const handle = useDocHandleIn(repo, id, params)
   // Initialize with current doc state
-  const [doc, setDoc] = useState<Doc<T> | undefined>(() => handle?.doc())
+  const [doc, setDoc] = useState<unknown>(() => handle?.doc())
   const [deleteError, setDeleteError] = useState<Error>()
 
   // Reinitialize doc when handle changes
   useEffect(() => {
-    setDoc(handle?.doc())
+    setDoc(() => handle?.doc())
   }, [handle])
 
   useEffect(() => {
     if (!handle) {
       return
     }
-    const onChange = () => setDoc(handle.doc())
+    const onChange = () => setDoc(() => handle.doc())
     const onDelete = () => {
       setDeleteError(new Error(`Document ${id} was deleted`))
     }
@@ -83,9 +136,7 @@ export function useDocument<T>(
   }, [handle, id])
 
   const changeDoc = useCallback(
-    (changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => {
-      handle!.change(changeFn, options)
-    },
+    (...args: any[]) => handle!.change(...(args as [any])),
     [handle]
   )
 
@@ -93,8 +144,8 @@ export function useDocument<T>(
     throw deleteError
   }
 
-  if (!doc) {
-    return [undefined, () => {}]
+  if (doc === undefined) {
+    return [undefined, async () => {}]
   }
   return [doc, changeDoc]
 }

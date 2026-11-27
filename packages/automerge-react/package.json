@@ -1,7 +1,7 @@
 {
   "name": "@automerge/react",
-  "version": "2.6.0-alpha.5",
-  "description": "A quick-import React package for Automerge Repo",
+  "version": "3.0.0-alpha.3",
+  "description": "Repo and React hooks in one convenience package",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/automerge/automerge-repo.git",
@@ -15,35 +15,40 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "vitest",
+    "test": "vitest run",
     "test:watch": "vitest --watch"
   },
   "dependencies": {
     "@automerge/automerge-repo": "workspace:*",
-    "@automerge/automerge-repo-network-broadcastchannel": "workspace:*",
-    "@automerge/automerge-repo-network-messagechannel": "workspace:*",
-    "@automerge/automerge-repo-network-websocket": "workspace:*",
-    "@automerge/automerge-repo-react-hooks": "workspace:*",
-    "@automerge/automerge-repo-storage-indexeddb": "workspace:*"
+    "@automerge/automerge-repo-react-hooks": "workspace:*"
   },
   "peerDependencies": {
-    "react": "^18.0.0 || ^19.0.0"
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "@types/react": "catalog:",
     "react": "catalog:",
+    "react-dom": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
   "exports": {
-    ".": "./dist/index.js",
-    "./slim": "./dist/slim.js"
-  },
-  "publishConfig": {
-    "access": "public"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./slim": {
+      "types": "./dist/slim.d.ts",
+      "default": "./dist/slim.js"
+    }
   },
   "engines": {
     "node": ">=22.13"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "dist",

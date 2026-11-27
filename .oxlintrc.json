@@ -66,13 +66,5 @@
   },
   "options": {
     "typeAware": true
-  },
-  "overrides": [
-    {
-      "files": ["packages/automerge-react/**"],
-      "rules": {
-        "no-restricted-imports": "off"
-      }
-    }
-  ]
+  }
 }

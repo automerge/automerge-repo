@@ -1,44 +1,101 @@
-import { AutomergeUrl } from "@automerge/automerge-repo/slim"
+import type {
+  AnyDocType,
+  AutomergeDocType,
+  AutomergeKind,
+  AutomergeUrl,
+  DocHandle,
+  DocumentUrl,
+  HandleKind,
+  KindOf,
+  Repo,
+  SchemeOf,
+} from "@automerge/automerge-repo/slim"
 import { ChangeFn, ChangeOptions, Doc } from "@automerge/automerge/slim"
 import { useCallback, useEffect, useState } from "react"
-import { useDocHandles } from "./useDocHandles.js"
+import { useDocHandlesIn } from "./useDocHandles.js"
+import type { AnyHookParams, DocTypeOption } from "./useDocHandle.js"
+import { useRepo } from "./useRepo.js"
 
 export type DocMap<T> = Map<AutomergeUrl, Doc<T>>
 export type ChangeDocFn<T> = (
   id: AutomergeUrl,
   changeFn: ChangeFn<T>,
   options?: ChangeOptions<T>
-) => void
+) => Promise<void>
 
 export interface UseDocumentsOptions {
   suspense?: boolean
 }
 
-export function useDocuments<T>(
-  ids: AutomergeUrl[],
-  { suspense = true }: UseDocumentsOptions = {}
-): [DocMap<T>, ChangeDocFn<T>] {
-  const handleMap = useDocHandles<T>(ids, { suspense })
-  const [docMap, setDocMap] = useState<DocMap<T>>(() => {
-    const docs: DocMap<T> = new Map()
-    handleMap.forEach(handle => {
-      const url = handle?.url
-      if (url) {
-        docs.set(url, handle?.doc() as Doc<T>)
-      }
+/**
+ * What `useDocuments` returns for documents of shape `S` whose doc type's
+ * handles are `K`: Automerge's as a {@link DocMap} and {@link ChangeDocFn},
+ * others' as their handles' `doc()` and `change`.
+ */
+export type UseDocumentsReturnOf<S, K extends HandleKind> = [K] extends [
+  AutomergeKind,
+]
+  ? [DocMap<S>, ChangeDocFn<S>]
+  : [
+      Map<
+        DocumentUrl<K["scheme"]>,
+        Exclude<ReturnType<DocHandle<S, {}, K>["doc"]>, undefined>
+      >,
+      (
+        id: DocumentUrl<K["scheme"]>,
+        ...args: Parameters<DocHandle<S, {}, K>["change"]>
+      ) => Promise<void>,
+    ]
+
+/**
+ * Several documents and a function to change them, from the Repo in
+ * {@link RepoContext}. In app code, prefer the `useDocuments` from
+ * {@link createRepoHooks}, so all hooks come from one place.
+ *
+ * Opens Automerge documents unless `docType` names another doc type, as
+ * `repo.find` does.
+ */
+export function useDocuments<
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
+>(
+  ids: DocumentUrl<SchemeOf<D>>[],
+  options?: UseDocumentsOptions & DocTypeOption<D, S>
+): UseDocumentsReturnOf<S, KindOf<D>> {
+  return useDocumentsIn(useRepo(), ids, options) as UseDocumentsReturnOf<
+    S,
+    KindOf<D>
+  >
+}
+
+/** @internal {@link useDocuments} on a given Repo. */
+export function useDocumentsIn(
+  repo: Repo,
+  ids: DocumentUrl[],
+  { suspense = true, docType }: AnyHookParams = {}
+): [
+  Map<DocumentUrl, unknown>,
+  (id: DocumentUrl, ...args: any[]) => Promise<void>,
+] {
+  const handleMap = useDocHandlesIn(repo, ids, { suspense, docType })
+  const [docMap, setDocMap] = useState(() => {
+    const docs = new Map<DocumentUrl, unknown>()
+    handleMap.forEach((handle, id) => {
+      if (handle) docs.set(id, handle.doc())
     })
     return docs
   })
 
   useEffect(() => {
-    const listeners = new Map<AutomergeUrl, () => void>()
+    const listeners = new Map<DocumentUrl, () => void>()
 
     handleMap.forEach((handle, id) => {
       if (handle) {
         const onChange = () => {
           setDocMap(prev => {
             const next = new Map(prev)
-            next.set(id, handle.doc() as Doc<T>)
+            next.set(id, handle.doc())
             return next
           })
         }
@@ -46,7 +103,7 @@ export function useDocuments<T>(
         // Initial state
         setDocMap(prev => {
           const next = new Map(prev)
-          next.set(id, handle.doc() as Doc<T>)
+          next.set(id, handle.doc())
           return next
         })
 
@@ -77,10 +134,10 @@ export function useDocuments<T>(
   }, [handleMap])
 
   const changeDoc = useCallback(
-    (id: AutomergeUrl, changeFn: ChangeFn<T>, options?: ChangeOptions<T>) => {
+    async (id: DocumentUrl, ...args: any[]) => {
       const handle = handleMap.get(id)
       if (handle) {
-        handle.change(changeFn, options)
+        return handle.change(...(args as [any]))
       }
     },
     [handleMap]
