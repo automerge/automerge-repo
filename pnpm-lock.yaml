@@ -42,9 +42,6 @@ catalogs:
     eventemitter3:
       specifier: ^5.0.4
       version: 5.0.4
-    portfinder:
-      specifier: ^1.0.38
-      version: 1.0.38
     react:
       specifier: ^19.2.7
       version: 19.2.7
@@ -104,9 +101,6 @@ importers:
       '@types/react-dom':
         specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.17)
-      '@types/ws':
-        specifier: 'catalog:'
-        version: 8.18.1
       '@vitejs/plugin-react':
         specifier: 'catalog:'
         version: 6.0.3(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
@@ -131,9 +125,6 @@ importers:
       oxlint-tsgolint:
         specifier: ^0.23.0
         version: 0.23.0
-      portfinder:
-        specifier: 'catalog:'
-        version: 1.0.38
       typedoc:
         specifier: ^0.28.19
         version: 0.28.19(typescript@6.0.3)
@@ -273,69 +264,6 @@ importers:
         specifier: 'catalog:'
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@22.20.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
 
-  packages/automerge-repo-network-broadcastchannel:
-    dependencies:
-      '@automerge/automerge-repo':
-        specifier: workspace:*
-        version: link:../automerge-repo
-    devDependencies:
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
-
-  packages/automerge-repo-network-messagechannel:
-    dependencies:
-      '@automerge/automerge-repo':
-        specifier: workspace:*
-        version: link:../automerge-repo
-      eventemitter3:
-        specifier: 'catalog:'
-        version: 5.0.4
-    devDependencies:
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
-
-  packages/automerge-repo-network-websocket:
-    dependencies:
-      '@automerge/automerge-repo':
-        specifier: workspace:*
-        version: link:../automerge-repo
-      cbor-x:
-        specifier: 'catalog:'
-        version: 1.6.6
-      debug:
-        specifier: 'catalog:'
-        version: 4.4.3
-      eventemitter3:
-        specifier: 'catalog:'
-        version: 5.0.4
-      ws:
-        specifier: 'catalog:'
-        version: 8.21.3
-    devDependencies:
-      '@automerge/automerge':
-        specifier: 'catalog:'
-        version: 3.5.0
-      '@types/ws':
-        specifier: 'catalog:'
-        version: 8.18.1
-      portfinder:
-        specifier: 'catalog:'
-        version: 1.0.38
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
-
   packages/automerge-repo-react-hooks:
     dependencies:
       '@automerge/automerge':
@@ -418,32 +346,6 @@ importers:
       vitest:
         specifier: 'catalog:'
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
-
-  packages/automerge-repo-storage-indexeddb:
-    dependencies:
-      '@automerge/automerge-repo':
-        specifier: workspace:*
-        version: link:../automerge-repo
-    devDependencies:
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-
-  packages/automerge-repo-storage-nodefs:
-    dependencies:
-      '@automerge/automerge-repo':
-        specifier: workspace:*
-        version: link:../automerge-repo
-    devDependencies:
-      '@types/node':
-        specifier: 'catalog:'
-        version: 22.20.0
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@22.20.0)(@vitest/coverage-v8@4.1.10)(@vitest/ui@4.1.10)(happy-dom@20.10.6)(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.0)(jiti@1.21.7)(tsx@4.23.0)(yaml@2.9.0))
 
   packages/automerge-repo-subduction:
     dependencies:
