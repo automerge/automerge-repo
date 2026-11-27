@@ -1,14 +1,14 @@
 # Automerge Repo
 
 > [!IMPORTANT]
-> This branch is for the alpha of `automerge-repo` v3, APIs are reasonably
+> This branch is for the beta of `automerge-repo` v3, APIs are reasonably
 > stable but things will still change and there may be bugs (please tell us
 > about them)
 
 If you're coming from the v2 branch and wondering what's changed see [what
 changed from v2](./packages/automerge-repo/README.md#breaking-changes-from-v2)
 but the short version is that storage and networking is now managed by
-[Subduction](./packages/automerge-repo-subduction/). This alpha currently doesn't
+[Subduction](./packages/automerge-repo-subduction/). This beta currently doesn't
 have a migration path from v2, but we will be adding one.
 
 Automerge Repo manages many [Automerge](https://github.com/automerge/automerge)

@@ -6,7 +6,7 @@ For example, the Subduction backend uses one to give handles ephemeral
 messaging: `handle.broadcast()` and the `ephemeral-message` event. A backend
 with no extensions gives plain handles.
 
-> **Alpha.** Names and types may change.
+> **Beta.** Names and types may change.
 
 ## How it Works
 

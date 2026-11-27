@@ -4,7 +4,7 @@ A document type tells a Repo how to store, read and change one kind of
 document. Automerge is the default type (`automerge`), but any document that can
 be represented as a sedimentree can be defined as a docType.
 
-> **Alpha.** Names and types may change.
+> **Beta.** Names and types may change.
 
 ## How it works
 

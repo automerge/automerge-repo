@@ -4,9 +4,9 @@ A wrapper for the [Automerge](https://github.com/automerge/automerge) CRDT libra
 supports working with many documents at once, with pluggable persistence and synchronization.
 
 Automerge Repo 3 switches from the use of 1st party network and storage adapters to using the new [Sedimentree Backend](./src/sedimentree/README.md) interface.
-We have included a [Subduction Backend](../automerge-repo-subduction/) in this alpha release.
+We have included a [Subduction Backend](../automerge-repo-subduction/) in this beta release.
 
-> **Alpha.** This is not yet ready for use in production
+> **Beta.** This is not yet ready for use in production
 
 ## Quick Start
 
