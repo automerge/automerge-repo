@@ -1,56 +1,53 @@
 # Automerge Repo
 
-Automerge Repo is a wrapper for the [Automerge](https://github.com/automerge/automerge) CRDT library
-which provides facilities to support working with many documents at once, as well as pluggable
-networking and storage.
+> [!IMPORTANT]
+> This branch is for the beta of `automerge-repo` v3, APIs are reasonably
+> stable but things will still change and there may be bugs (please tell us
+> about them)
 
-## Getting started
+If you're coming from v2 and wondering what's changed see [what changed from
+v2](./packages/automerge-repo/README.md#changes-from-v2) but the short version
+is that storage and networking is now managed by
+[Subduction](./packages/automerge-repo-subduction/). This beta currently doesn't
+have a migration path from v2, but we will be adding one.
 
-After cloning this repo, run `pnpm install` and `pnpm build`.
+While v3 is in beta, packages are published under the `next` npm dist-tag:
 
-This is a monorepo containing the following packages:
+```sh
+npm install @automerge/automerge-repo@next @automerge/automerge-repo-subduction@next @automerge/subduction
+```
 
-- [automerge-repo](/packages/automerge-repo/): The core library. Handles dispatch of events and
-  provides shared functionality such as deciding which peers to connect to or when to write data out
-  to storage. Start here.
+Automerge Repo manages many [Automerge](https://github.com/automerge/automerge)
+documents at once, with pluggable persistence and synchronization.
 
-#### Demos / Example Code
+## Packages
 
-- [automerge-repo-demo-todo](/examples/react-todo/): A React-based to-do list.
-- [automerge-repo-demo-counter](/examples/react-counter/): A React-based demonstration
-  application.
-- [automerge-repo-demo-counter-svelte](/examples/svelte-counter/): A Svelte-based
-  example project.
-- [sync-server](/examples/sync-server): A very simple sync server which the other examples can use
-  - Please note this is different from [automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server)
+- [automerge-repo](./packages/automerge-repo/): The core `Repo` and `DocHandle`. Start here.
 
-#### Front-end adapters
+#### Subduction backend
 
-- [automerge-repo-react-hooks](/packages/automerge-repo-react-hooks/): Example hooks for use with
-  React.
-- [automerge-repo-svelte-store](/packages/automerge-repo-svelte-store/): A custom store for use with
-  Svelte.
-- [automerge-repo-solid-primitives](/packages/automerge-repo-solid-primitives/): Primitives for use with
-  Solid JS.
+- [automerge-repo-subduction](./packages/automerge-repo-subduction/): The backend.
+- [automerge-repo-subduction-storage-indexeddb](./packages/automerge-repo-subduction-storage-indexeddb/):
+  Browser storage.
+- [automerge-repo-subduction-network-websocket](./packages/automerge-repo-subduction-network-websocket/):
+  WebSocket client.
 
-#### Storage adapters
+#### Front-end bindings
 
-- [automerge-repo-storage-indexeddb](/packages/automerge-repo-storage-indexeddb/): A storage
-  adapter to persist data in a browser.
-- [automerge-repo-storage-nodefs](/packages/automerge-repo-storage-nodefs/): A storage adapter to
-  write changes to the filesystem.
+- [automerge-repo-react-hooks](./packages/automerge-repo-react-hooks/): React hooks.
+- [automerge-repo-svelte-store](./packages/automerge-repo-svelte-store/): Svelte stores.
+- [automerge-repo-solid-primitives](./packages/automerge-repo-solid-primitives/): Solid primitives.
+- [automerge-react](./packages/automerge-react/): Repo and React hooks in one package.
 
-#### Network adapters
+#### Examples
 
-- [automerge-repo-network-websocket](/packages/automerge-repo-network-websocket/): Network adapters
-  for both sides of a client/server configuration over websocket.
-- [automerge-repo-network-messagechannel](/packages/automerge-repo-network-messagechannel/): A
-  network adapter that uses the [MessageChannel
-  API](https://developer.mozilla.org/en-US/docs/Web/API/MessageChannel) to communicate between tabs.
-- [automerge-repo-network-broadcastchannel](/packages/automerge-repo-network-broadcastchannel/):
-  Likely only useful for experimentation, but allows simple (inefficient) tab-to-tab data
-  synchronization.
+- [react-todo](./examples/react-todo/): A React to-do list synced through Subduction.
 
-Please note that a reference sync-server peer which demonstrates the use of
-[automerge-repo-network-websocket](/packages/automerge-repo-network-websocket/)
-is available at [automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server) (this is different from [sync-server](/examples/sync-server)).
+## Development
+
+```sh
+pnpm install
+pnpm build
+pnpm test
+pnpm --filter @automerge/automerge-repo-demo-todo dev # react-todo against the hosted Subduction server
+```

@@ -5,7 +5,7 @@ A reactive Svelte store for Automerge documents. Compatible with Svelte 3, 4, an
 ## Installation
 
 ```bash
-npm install @automerge/automerge-repo-svelte-store
+npm install @automerge/automerge-repo-svelte-store@next
 ```
 
 ## Example Usage
@@ -125,13 +125,13 @@ With Svelte 5, you can use the store with runes syntax for a more ergonomic expe
 <script>
   import { document } from "@automerge/automerge-repo-svelte-store"
 
-  export let docUrl
+  let { docUrl } = $props()
 
   // Initialize state
   let docStore = $state(null)
   let loading = $state(true)
   let error = $state(null)
-  let count = $derived(docStore?.$doc?.count || 0)
+  let count = $derived($docStore?.count || 0)
 
   // Load document when component initializes
   $effect(() => {
@@ -184,19 +184,30 @@ Sets the Automerge repo in the current component's context.
 
 Gets the Automerge repo from the current component's context.
 
-### `document(docIdOrUrl, repoInstance?)`
+### `document(docIdOrUrl, repoOrOptions?)`
 
-Convenience method to load a document from the repo in context or a provided repo.
+Convenience method to load a document from the repo in context, a provided repo,
+or `{ repo?, docType? }`.
 **Important:** This function returns a Promise that resolves to the document store.
+
+## Typed handles
+
+For handles with [the features a backend adds](../automerge-repo/README.md#extensions),
+such as `handle.broadcast`:
+
+- **`createAutomergeStore(repo)`** is typed from `repo`: its stores' `handle` has those
+  features, with nothing written.
+- **`document()`** reads the Repo from context, which only knows a plain `Repo`, so its
+  stores' `handle` is plain.
 
 ## Store API
 
 The document store returned by `find()` and `create()` implements Svelte's writable store contract with these additional methods:
 
-- `change(fn)`: Make changes to the document
+- `change(fn)`: Apply edits immediately; return `Promise<void>` for persistence. Await it to observe persistence failures.
 - `url`: Get the document URL
 - `documentId`: Get the document ID
-- `handle`: Access the underlying Automerge document handle
+- `handle`: Access the underlying Automerge document handle (see [Typed handles](#typed-handles))
 
 ## Contributors
 

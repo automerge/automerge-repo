@@ -1,6 +1,5 @@
 import {
   Repo,
-  type PeerId,
   type AutomergeUrl,
   type DocHandle,
 } from "@automerge/automerge-repo"
@@ -17,10 +16,8 @@ import useDocHandle from "../src/useDocHandle.js"
 import createDocumentProjection from "../src/createDocumentProjection.js"
 
 describe("createDocumentProjection", () => {
-  function setup() {
-    const repo = new Repo({
-      peerId: "bob" as PeerId,
-    })
+  async function setup() {
+    const repo = new Repo()
 
     const create = () =>
       repo.create<ExampleDoc>({
@@ -33,7 +30,7 @@ describe("createDocumentProjection", () => {
         ],
       })
 
-    const handle = create()
+    const handle = await create()
     const wrapper: ParentComponent = props => {
       return (
         <RepoContext.Provider value={repo}>
@@ -51,7 +48,7 @@ describe("createDocumentProjection", () => {
   }
 
   it("should notify on a property change", async () => {
-    const { handle } = setup()
+    const { handle } = await setup()
     const { result: doc, owner } = renderHook(
       createDocumentProjection<ExampleDoc>,
       {
@@ -78,7 +75,7 @@ describe("createDocumentProjection", () => {
   })
 
   it("should not apply patches multiple times just because there are multiple projections", async () => {
-    const { handle } = setup()
+    const { handle } = await setup()
     const { result: one, owner: owner1 } = renderHook(
       createDocumentProjection<ExampleDoc>,
       {
@@ -129,7 +126,7 @@ describe("createDocumentProjection", () => {
     const {
       handle: { url: startingUrl },
       wrapper,
-    } = setup()
+    } = await setup()
 
     const [url, setURL] = createSignal<AutomergeUrl>()
 
@@ -169,7 +166,8 @@ describe("createDocumentProjection", () => {
   })
 
   it("should work with a signal url", async () => {
-    const { create, wrapper } = setup()
+    const { create, wrapper } = await setup()
+    const [first, second] = await Promise.all([create(), create()])
     const [url, setURL] = createSignal<AutomergeUrl>()
     const { result: handle } = renderHook(useDocHandle<ExampleDoc>, {
       initialProps: [url],
@@ -186,13 +184,13 @@ describe("createDocumentProjection", () => {
       createEffect((run: number = 0) => {
         if (run == 0) {
           expect(doc()?.key).toBe(undefined)
-          setURL(create().url)
+          setURL(first.url)
         } else if (run == 1) {
           expect(doc()?.key).toBe("value")
           handle()?.change(doc => (doc.key = "hello world!"))
         } else if (run == 2) {
           expect(doc()?.key).toBe("hello world!")
-          setURL(create().url)
+          setURL(second.url)
         } else if (run == 3) {
           expect(doc()?.key).toBe("value")
           handle()?.change(doc => (doc.key = "friday night!"))
@@ -208,7 +206,8 @@ describe("createDocumentProjection", () => {
   })
 
   it("should clear the store when the signal returns to nothing", async () => {
-    const { create, wrapper } = setup()
+    const { create, wrapper } = await setup()
+    const [first, second] = await Promise.all([create(), create()])
     const [url, setURL] = createSignal<AutomergeUrl>()
     const { result: handle } = renderHook(useDocHandle<ExampleDoc>, {
       initialProps: [url],
@@ -226,13 +225,13 @@ describe("createDocumentProjection", () => {
       createEffect((run: number = 0) => {
         if (run == 0) {
           expect(doc()?.key).toBe(undefined)
-          setURL(create().url)
+          setURL(first.url)
         } else if (run == 1) {
           expect(doc()?.key).toBe("value")
           setURL(undefined)
         } else if (run == 2) {
           expect(doc()?.key).toBe(undefined)
-          setURL(create().url)
+          setURL(second.url)
         } else if (run == 3) {
           expect(doc()?.key).toBe("value")
           done()
@@ -245,10 +244,10 @@ describe("createDocumentProjection", () => {
   })
 
   it("should not return the wrong store when handle changes", async () => {
-    const { create } = setup()
+    const { create } = await setup()
 
-    const h1 = create()
-    const h2 = create()
+    const h1 = await create()
+    const h2 = await create()
 
     const [stableHandle] = createSignal(h1)
     // initially handle2 is the same as handle1
@@ -283,7 +282,7 @@ describe("createDocumentProjection", () => {
       expect(result()).toEqual(["value", "value"])
 
       h1.change(doc => (doc.key = "hello"))
-      await new Promise<void>(setImmediate)
+      await new Promise(resolve => setTimeout(resolve, 0))
       expect(result()).toEqual(["hello", "hello"])
 
       setChangingHandle(() => h2)
@@ -294,14 +293,15 @@ describe("createDocumentProjection", () => {
 
       setChangingHandle(h2)
       h2.change(doc => (doc.key = "world"))
-      await new Promise<void>(setImmediate)
+      await new Promise(resolve => setTimeout(resolve, 0))
       expect(result()).toEqual(["hello", "world"])
       done()
     })
   })
 
   it("should work ok with a slow handle", async () => {
-    const { repo } = setup()
+    const { repo } = await setup()
+    const slowHandle = await repo.create({ im: "slow" })
 
     const originalFind = repo.find.bind(repo)
     repo.find = vi.fn().mockImplementation(async (...args) => {
@@ -311,10 +311,9 @@ describe("createDocumentProjection", () => {
     })
 
     await testEffect(done => {
-      const handle = useDocHandle<{ im: "slow" }>(
-        () => repo.create({ im: "slow" }).url,
-        { repo }
-      )
+      const handle = useDocHandle<{ im: "slow" }>(() => slowHandle.url, {
+        repo,
+      })
       const doc = createDocumentProjection(handle)
 
       createEffect((run: number = 0) => {
@@ -330,7 +329,7 @@ describe("createDocumentProjection", () => {
   })
 
   it("should not notify on properties nobody cares about", async () => {
-    const { handle } = setup()
+    const { handle } = await setup()
     let fn = vi.fn()
 
     const { result: doc, owner } = renderHook(

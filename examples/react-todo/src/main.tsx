@@ -1,12 +1,13 @@
+import "@automerge/subduction" // initializes Subduction's WASM
 import {
-  DocHandle,
   Repo,
-  isValidAutomergeUrl,
-  BroadcastChannelNetworkAdapter,
-  WebSocketClientAdapter,
-  IndexedDBStorageAdapter,
   RepoContext,
+  isValidAutomergeUrl,
+  type DocHandle,
 } from "@automerge/react"
+import { SubductionBackend } from "@automerge/automerge-repo-subduction"
+import { WebSocketNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
+import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
 
 import React, { Suspense } from "react"
 import { ErrorBoundary } from "react-error-boundary"
@@ -15,13 +16,18 @@ import { App } from "./App.js"
 import { State } from "./types.js"
 import "./index.css"
 
-const repo = new Repo({
-  network: [
-    new BroadcastChannelNetworkAdapter(),
-    new WebSocketClientAdapter("ws://localhost:3030"),
-  ],
-  storage: new IndexedDBStorageAdapter("automerge-repo-demo-todo"),
+const server = new URL(
+  new URLSearchParams(location.search).get("server") ??
+    "wss://subduction.sync.inkandswitch.com"
+)
+const storage = new IndexedDBStorageAdapter({
+  database: "automerge-repo-demo-todo",
 })
+const backend = new SubductionBackend({
+  storage,
+  network: [new WebSocketNetworkAdapter(server)],
+})
+const repo = new Repo({ backend })
 
 declare global {
   interface Window {
@@ -31,15 +37,31 @@ declare global {
 }
 
 const rootDocUrl = `${document.location.hash.substring(1)}`
-let handle
+let handle: DocHandle<State>
 if (isValidAutomergeUrl(rootDocUrl)) {
-  handle = await repo.find(rootDocUrl)
+  handle = await repo.find<State>(rootDocUrl)
 } else {
-  handle = repo.create<State>({ todos: [] })
+  handle = await repo.create<State>({ todos: [] })
 }
 const docUrl = (document.location.hash = handle.url)
 window.handle = handle // we'll use this later for experimentation
 window.repo = repo
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    void (async () => {
+      try {
+        await repo.shutdown()
+      } finally {
+        try {
+          await backend.close()
+        } finally {
+          await storage.close()
+        }
+      }
+    })().catch(console.error)
+  })
+}
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <RepoContext.Provider value={repo}>

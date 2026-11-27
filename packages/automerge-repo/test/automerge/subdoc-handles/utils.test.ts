@@ -1,0 +1,224 @@
+import { describe, it, expect, beforeEach } from "vitest"
+import * as Automerge from "@automerge/automerge"
+import { Repo } from "../../../src/Repo.js"
+import type { DocHandle } from "../../../src/types/DocHandle.js"
+import { cursor } from "../../../src/automerge/subdoc-handles/utils.js"
+import { encodeHeads } from "../../../src/DocumentId.js"
+import { CURSOR_MARKER } from "../../../src/automerge/subdoc-handles/types.js"
+
+describe("utils", () => {
+  describe("cursor", () => {
+    it("should create a cursor marker", () => {
+      const marker = cursor(0, 5)
+      expect(marker[CURSOR_MARKER]).toBe(true)
+      expect(marker.start).toBe(0)
+      expect(marker.end).toBe(5)
+    })
+
+    it("should work with different positions", () => {
+      const marker = cursor(10, 20)
+      expect(marker[CURSOR_MARKER]).toBe(true)
+      expect(marker.start).toBe(10)
+      expect(marker.end).toBe(20)
+    })
+  })
+
+  describe("handle.ref", () => {
+    let repo: Repo
+    let handle: DocHandle<any>
+
+    beforeEach(async () => {
+      repo = new Repo()
+      handle = await repo.create()
+    })
+
+    it("should create a ref with variadic arguments", () => {
+      handle.change(d => {
+        d.user = { name: "Alice" }
+      })
+
+      const nameRef = handle.sub("user", "name")
+      expect(nameRef.doc()).toBe("Alice")
+    })
+
+    it("should work with numeric indices", () => {
+      handle.change(d => {
+        d.items = ["a", "b", "c"]
+      })
+
+      const itemRef = handle.sub("items", 1)
+      expect(itemRef.doc()).toBe("b")
+    })
+
+    it("should work with where clauses", () => {
+      handle.change(d => {
+        d.todos = [
+          { id: "a", title: "First" },
+          { id: "b", title: "Second" },
+        ]
+      })
+
+      const todoRef = handle.sub("todos", { id: "b" }, "title")
+      expect(todoRef.doc()).toBe("Second")
+    })
+
+    it("should work with numeric indices in nested paths", () => {
+      handle.change(d => {
+        d.items = [{ name: "A" }, { name: "B" }]
+      })
+
+      const indexRef = handle.sub("items", 0, "name")
+      expect(indexRef.doc()).toBe("A")
+    })
+
+    it("should handle deep paths", () => {
+      handle.change(d => {
+        d.app = {
+          settings: {
+            theme: {
+              color: "blue",
+            },
+          },
+        }
+      })
+
+      const colorRef = handle.sub("app", "settings", "theme", "color")
+      expect(colorRef.doc()).toBe("blue")
+    })
+  })
+
+  describe("find by sub-handle URL", () => {
+    let repo: Repo
+    let handle: DocHandle<any>
+
+    beforeEach(async () => {
+      repo = new Repo()
+      handle = await repo.create()
+    })
+
+    it("should reconstruct a ref from its URL", async () => {
+      handle.change((d: any) => {
+        d.user = { name: "Alice", age: 30 }
+      })
+
+      const nameRef = handle.sub("user", "name")
+      const url = nameRef.url
+
+      const foundRef = await repo.find(url)
+      expect(foundRef.doc()).toBe("Alice")
+      expect(foundRef.url).toBe(url)
+    })
+
+    it("should handle nested paths", async () => {
+      handle.change((d: any) => {
+        d.app = {
+          settings: {
+            theme: { color: "blue" },
+          },
+        }
+      })
+
+      const colorRef = handle.sub("app", "settings", "theme", "color")
+      const url = colorRef.url
+
+      const foundRef = await repo.find(url)
+      expect(foundRef.doc()).toBe("blue")
+    })
+
+    it("should handle array indices", async () => {
+      handle.change((d: any) => {
+        d.todos = [
+          { title: "first", done: false },
+          { title: "second", done: true },
+        ]
+      })
+
+      const titleRef = handle.sub("todos", 0, "title")
+      const url = titleRef.url
+
+      // Reorder array
+      handle.change((d: any) => {
+        d.todos.insertAt(0, { title: "zeroth", done: false })
+      })
+
+      // With numeric indices, ref still points to position 0 (now "zeroth")
+      const foundRef = await repo.find(url)
+      expect(foundRef.doc()).toBe("zeroth")
+    })
+
+    it("should handle where clauses", async () => {
+      handle.change((d: any) => {
+        d.users = [
+          { id: "user1", name: "Alice" },
+          { id: "user2", name: "Bob" },
+        ]
+      })
+
+      const aliceRef = handle.sub("users", { id: "user1" }, "name")
+      const url = aliceRef.url
+
+      const foundRef = await repo.find(url)
+      expect(foundRef.doc()).toBe("Alice")
+    })
+
+    it("should handle cursor ranges", async () => {
+      handle.change((d: any) => {
+        d.text = "hello world"
+      })
+
+      const rangeRef = handle.sub("text", cursor(0, 5))
+      const url = rangeRef.url
+
+      const foundRef = await repo.find(url)
+      expect(foundRef.doc()).toBe("hello")
+    })
+
+    it("should handle refs with heads", async () => {
+      handle.change((d: any) => {
+        d.counter = 1
+      })
+
+      // Get heads using Automerge.getHeads (hex format) and encode to base58
+      const heads1 = Automerge.getHeads(handle.doc())
+      const encodedHeads1 = encodeHeads(heads1)
+
+      handle.change((d: any) => {
+        d.counter = 2
+      })
+
+      // Create a view handle at the old heads and get a ref from it
+      const viewHandle = handle.view(encodedHeads1)
+      const counterRef = viewHandle.sub("counter")
+      const url = counterRef.url
+
+      // Verify URL format: automerge:docId/path#head1,head2
+      expect(url).toMatch(/^automerge:[^/]+\/counter#.+$/)
+      expect(counterRef.doc()).toBe(1) // Should see old value
+
+      const foundRef = await repo.find(url)
+      expect(foundRef.doc()).toBe(1) // Should see old value
+      expect(foundRef.url).toBe(url)
+    })
+
+    it("should throw on invalid URL format", async () => {
+      await expect(repo.find("not-a-valid-url")).rejects.toThrow(
+        /Invalid (Automerge|Document)?Url/i
+      )
+      await expect(repo.find("wrong:abc/path")).rejects.toThrow(
+        /of doc type wrong/i
+      )
+    })
+
+    it("should handle root path (document ref)", async () => {
+      handle.change((d: any) => {
+        d.value = 42
+      })
+
+      const rootRef = handle.sub()
+      const url = rootRef.url
+
+      const foundRef = await repo.find(url)
+      expect(foundRef.doc()).toEqual({ value: 42 })
+    })
+  })
+})

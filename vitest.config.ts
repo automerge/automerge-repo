@@ -1,10 +1,29 @@
 import { defineConfig } from "vitest/config"
 import path from "path"
-import solid from "vite-plugin-solid"
 
 export default defineConfig({
   test: {
-    projects: ["packages/*"],
+    projects: [
+      "packages/*",
+      {
+        extends: true,
+        test: {
+          name: "repo-sedimentree",
+          environment: "node",
+          include: ["packages/automerge-repo/test/sedimentree/**/*.test.ts"],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "repo-sedimentree-automerge",
+          environment: "node",
+          include: [
+            "packages/automerge-repo/test/sedimentree-automerge/**/*.test.ts",
+          ],
+        },
+      },
+    ],
     globals: true,
     setupFiles: [path.join(__dirname, "./testSetup.ts")],
 
@@ -21,16 +40,7 @@ export default defineConfig({
       provider: "v8",
       reporter: ["lcov", "text", "html"],
       skipFull: true,
-      exclude: [
-        "**/fuzz",
-        // Test doubles and shared test utilities that live under src.
-        "**/src/helpers/Dummy*",
-        "**/src/helpers/tests/**",
-        "**/coverage",
-        "examples/**/*",
-        "docs/**/*",
-        "**/test/**/*",
-      ],
+      exclude: ["**/coverage", "docs/**/*", "**/test/**/*"],
     },
   },
 })

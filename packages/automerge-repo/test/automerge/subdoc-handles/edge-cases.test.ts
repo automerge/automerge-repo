@@ -1,0 +1,1099 @@
+import { describe, it, expect, beforeEach } from "vitest"
+import * as Automerge from "@automerge/automerge"
+import { Repo } from "../../../src/Repo.js"
+import type { DocHandle } from "../../../src/types/DocHandle.js"
+import { cursor } from "../../../src/automerge/subdoc-handles/utils.js"
+import {
+  parsePath,
+  parseSegment,
+  serializeSegment,
+} from "../../../src/automerge/subdoc-handles/parser.js"
+import {
+  parseAutomergeUrl,
+  isValidAutomergeUrl,
+  type AutomergeUrl,
+} from "../../../src/automerge/url.js"
+import { KIND } from "../../../src/automerge/subdoc-handles/types.js"
+import { splice } from "../../../src/index.js"
+
+describe("Edge Cases", () => {
+  let repo: Repo
+  let handle: DocHandle<any>
+
+  beforeEach(async () => {
+    repo = new Repo()
+    handle = await repo.create()
+  })
+
+  describe("cursor() edge cases", () => {
+    /**
+     * Automerge cursor behavior:
+     * - Negative positions are clamped to 0
+     * - Positions beyond string length are clamped to string length
+     * - Empty strings allow cursor at position 0
+     * - Inverted ranges (start > end) result in empty string from slice()
+     * - Zero-width ranges (start === end) return empty string
+     */
+    it("should follow Automerge cursor clamping behavior", () => {
+      handle.change(d => {
+        d.text = "Hello"
+        d.empty = ""
+      })
+
+      // Zero-width cursor range
+      expect(handle.sub("text", cursor(2, 2)).doc()).toBe("")
+
+      // Empty string allows cursor at 0
+      expect(handle.sub("empty", cursor(0, 0)).doc()).toBe("")
+
+      // Negative positions clamped to 0
+      expect(handle.sub("text", cursor(-5, 3)).doc()).toBe("Hel")
+
+      // Out-of-bounds positions clamped to string length
+      expect(handle.sub("text", cursor(0, 100)).doc()).toBe("Hello")
+
+      // Inverted range (start > end) returns empty string
+      expect(handle.sub("text", cursor(4, 2)).doc()).toBe("")
+    })
+
+    it("should track cursors when text around them changes", () => {
+      handle.change(d => {
+        d.text = "Hello World"
+      })
+
+      const ref = handle.sub("text", cursor(6, 11)) // "World"
+      expect(ref.doc()).toBe("World")
+
+      // Delete "Hello " - cursors track the content
+      handle.change(d => {
+        splice(d, ["text"], 0, 6, "")
+      })
+      expect(ref.doc()).toBe("World")
+
+      // Delete "World" entirely - cursors collapse
+      handle.change(d => {
+        splice(d, ["text"], 0, 5, "")
+      })
+      expect(ref.doc()).toBe("")
+    })
+
+    it("should throw error when cursor() is followed by more segments", () => {
+      handle.change(d => {
+        d.text = "Hello World"
+      })
+
+      // cursor() must be the last segment - segments after it are an error
+      expect(() => {
+        handle.sub("text", cursor(0, 5), "invalid")
+      }).toThrow("cursor() must be the last segment")
+    })
+  })
+
+  describe("parser edge cases - keys", () => {
+    /**
+     * New encoding scheme - keys are default, special prefixes for other types:
+     * - `@n` for indices
+     * - `{...}` for match patterns
+     * - `[...]` for cursor ranges
+     * - `~` escapes keys that start with @, {, [, or ~
+     *
+     * This means:
+     * - Numeric keys like "123" round-trip correctly (they're just keys!)
+     * - Keys starting with special chars get escaped with ~
+     * - Slashes are URL-encoded as %2F
+     */
+
+    it("should round-trip numeric-looking keys correctly", () => {
+      handle.change(d => {
+        d["123"] = "value at string key '123'"
+      })
+
+      // Ref creation works - stores as key segment
+      const ref = handle.sub("123")
+      expect(ref.path[0][KIND]).toBe("key")
+      expect((ref.path[0] as any).key).toBe("123")
+      expect(ref.doc()).toBe("value at string key '123'")
+
+      // URL serialization - "123" is just a key (no @ prefix)
+      const url = ref.url
+      expect(url).toContain("/123")
+
+      // Round-trips correctly as key!
+      const parsed = parseAutomergeUrl(url)
+      expect(parsed.segments[0][KIND]).toBe("key")
+      expect((parsed.segments[0] as any).key).toBe("123")
+    })
+
+    it("should handle key containing dash (round-trips correctly)", () => {
+      handle.change(d => {
+        d["my-key"] = "value"
+      })
+
+      const ref = handle.sub("my-key")
+      const url = ref.url
+
+      // Dash is fine in keys (only [cursor-cursor] is special)
+      const parsed = parseAutomergeUrl(url)
+      expect(parsed.segments[0][KIND]).toBe("key")
+      expect((parsed.segments[0] as any).key).toBe("my-key")
+    })
+
+    it("should handle key starting with colon (round-trips correctly)", () => {
+      handle.change(d => {
+        d[":special"] = "value"
+      })
+
+      const ref = handle.sub(":special")
+      const url = ref.url
+
+      // Colons are fine in keys now
+      const parsed = parseAutomergeUrl(url)
+      expect(parsed.segments[0][KIND]).toBe("key")
+      expect((parsed.segments[0] as any).key).toBe(":special")
+    })
+
+    it("should escape and round-trip key starting with opening brace", () => {
+      handle.change(d => {
+        d["{notjson"] = "value"
+      })
+
+      // Ref creation works
+      const ref = handle.sub("{notjson")
+      expect(ref.doc()).toBe("value")
+
+      // URL should have backslash escape prefix (%5C is URL-encoded \)
+      const url = ref.url
+      expect(url).toContain("%5C%7Bnotjson") // \{notjson URL-encoded
+
+      // Round-trips correctly
+      const parsed = parseAutomergeUrl(url)
+      expect(parsed.segments[0][KIND]).toBe("key")
+      expect((parsed.segments[0] as any).key).toBe("{notjson")
+    })
+
+    it("should round-trip key containing slash via URL encoding", () => {
+      handle.change(d => {
+        d["path/with/slashes"] = "value"
+      })
+
+      // Ref creation works
+      const ref = handle.sub("path/with/slashes")
+      expect(ref.doc()).toBe("value")
+
+      // Slashes are URL-encoded, not split
+      const url = ref.url
+      expect(url).toContain("path%2Fwith%2Fslashes")
+
+      // Round-trips correctly as single key
+      const parsed = parseAutomergeUrl(url)
+      expect(parsed.segments.length).toBe(1)
+      expect((parsed.segments[0] as any).key).toBe("path/with/slashes")
+    })
+
+    it("should reject empty string keys", () => {
+      handle.change(d => {
+        d[""] = "empty key value"
+      })
+
+      // Empty keys can't be represented in a URL path (`automerge:docId/`
+      // parses as no path), so we reject them at construction rather than
+      // silently dropping them.
+      expect(() => handle.sub("")).toThrow(/empty-string keys/i)
+      expect(() => handle.sub("a", "", "b")).toThrow(/empty-string keys/i)
+    })
+
+    it("should escape key starting with @", () => {
+      handle.change(d => {
+        d["@mention"] = "value"
+      })
+
+      const ref = handle.sub("@mention")
+      const url = ref.url
+
+      // Should be escaped with backslash (%5C is URL-encoded \)
+      expect(url).toContain("%5C%40mention") // \@mention URL-encoded
+
+      // Round-trips correctly
+      const parsed = parseAutomergeUrl(url)
+      expect(parsed.segments[0][KIND]).toBe("key")
+      expect((parsed.segments[0] as any).key).toBe("@mention")
+    })
+
+    it("should escape key starting with [", () => {
+      handle.change(d => {
+        d["[array]"] = "value"
+      })
+
+      const ref = handle.sub("[array]")
+      const url = ref.url
+
+      // Should be escaped with backslash (%5C is URL-encoded \)
+      expect(url).toContain("%5C%5Barray%5D") // \[array] URL-encoded
+
+      // Round-trips correctly
+      const parsed = parseAutomergeUrl(url)
+      expect(parsed.segments[0][KIND]).toBe("key")
+      expect((parsed.segments[0] as any).key).toBe("[array]")
+    })
+
+    it("should escape key starting with backslash", () => {
+      handle.change(d => {
+        d["\\backslash"] = "value"
+      })
+
+      const ref = handle.sub("\\backslash")
+      const url = ref.url
+
+      // Should be double-escaped: \\ becomes %5C%5C (two URL-encoded backslashes)
+      expect(url).toContain("%5C%5Cbackslash")
+
+      // Round-trips correctly
+      const parsed = parseAutomergeUrl(url)
+      expect(parsed.segments[0][KIND]).toBe("key")
+      expect((parsed.segments[0] as any).key).toBe("\\backslash")
+    })
+
+    it("should NOT escape key starting with ~ (tilde is no longer special)", () => {
+      handle.change(d => {
+        d["~tilde"] = "value"
+      })
+
+      const ref = handle.sub("~tilde")
+      const url = ref.url
+
+      // Tilde is no longer special - just URL-encoded as-is
+      expect(url).toContain("~tilde")
+      expect(url).not.toContain("%5C") // No backslash escape
+
+      // Round-trips correctly
+      const parsed = parseAutomergeUrl(url)
+      expect(parsed.segments[0][KIND]).toBe("key")
+      expect((parsed.segments[0] as any).key).toBe("~tilde")
+    })
+  })
+
+  describe("parser edge cases - parsing", () => {
+    it("should parse empty path as empty array", () => {
+      const segments = parsePath("")
+      expect(segments).toEqual([])
+    })
+
+    it("should throw on path with only slashes", () => {
+      expect(() => parsePath("/")).toThrow()
+      expect(() => parsePath("//")).toThrow()
+      expect(() => parsePath("///")).toThrow()
+    })
+
+    it("should throw on path with empty segment (double slash)", () => {
+      expect(() => parsePath("foo//bar")).toThrow("empty segment")
+    })
+
+    it("should handle leading/trailing slashes", () => {
+      const segments = parsePath("/foo/bar/")
+      expect(segments.length).toBe(2)
+      expect((segments[0] as any).key).toBe("foo")
+      expect((segments[1] as any).key).toBe("bar")
+    })
+
+    it("should parse segment that looks like invalid JSON", () => {
+      // Starts with { but isn't valid JSON
+      expect(() => parseSegment("{notjson}")).toThrow("Invalid match pattern")
+    })
+
+    it("should parse cursor range with bracket format", () => {
+      const segment = parseSegment("[abc123-def456]")
+      expect(segment[KIND]).toBe("cursors")
+      expect((segment as any).start).toBe("abc123")
+      expect((segment as any).end).toBe("def456")
+    })
+
+    it("should parse collapsed cursor (single cursor)", () => {
+      const segment = parseSegment("[abc123]")
+      expect(segment[KIND]).toBe("cursors")
+      expect((segment as any).start).toBe("abc123")
+      expect((segment as any).end).toBe("abc123") // Same as start
+    })
+
+    it("should throw on empty cursor brackets", () => {
+      expect(() => parseSegment("[]")).toThrow("empty brackets")
+    })
+
+    it("should parse index with @ prefix", () => {
+      const segment = parseSegment("@42")
+      expect(segment[KIND]).toBe("index")
+      expect((segment as any).index).toBe(42)
+    })
+
+    it("should throw for invalid @ usage (not followed by digits)", () => {
+      // @prefix is reserved for indices - invalid use throws
+      // To use "@notanumber" as a key, escape it: ~@notanumber
+      expect(() => parseSegment("@notanumber")).toThrow(
+        'Invalid segment: "@notanumber"'
+      )
+    })
+  })
+
+  describe("parser edge cases - match patterns", () => {
+    it("should handle empty match pattern", () => {
+      handle.change(d => {
+        d.items = [{ a: 1 }, { b: 2 }]
+      })
+
+      // Empty pattern {} should match any object
+      const ref = handle.sub("items", {})
+      expect(ref.doc()).toEqual({ a: 1 }) // First item
+    })
+
+    it("should handle match pattern with null value", () => {
+      handle.change(d => {
+        d.items = [{ status: null }, { status: "active" }]
+      })
+
+      const ref = handle.sub("items", { status: null })
+      expect(ref.doc()).toEqual({ status: null })
+    })
+
+    it("should handle match pattern with boolean values", () => {
+      handle.change(d => {
+        d.items = [{ done: false }, { done: true }]
+      })
+
+      const trueRef = handle.sub("items", { done: true })
+      expect(trueRef.doc()).toEqual({ done: true })
+
+      const falseRef = handle.sub("items", { done: false })
+      expect(falseRef.doc()).toEqual({ done: false })
+    })
+
+    it("should serialize and deserialize match patterns correctly", () => {
+      const segment = {
+        [KIND]: "match" as const,
+        match: { id: "test", count: 42, active: true },
+      }
+      const serialized = serializeSegment(segment)
+      // Keys are sorted at serialize time so semantically equivalent
+      // patterns (regardless of property insertion order) produce
+      // identical URLs.
+      expect(serialized).toBe(
+        encodeURIComponent('{"active":true,"count":42,"id":"test"}')
+      )
+
+      const parsed = parseSegment(serialized)
+      expect(parsed[KIND]).toBe("match")
+      expect((parsed as any).match).toEqual({
+        id: "test",
+        count: 42,
+        active: true,
+      })
+    })
+
+    it("serializes equivalently regardless of property insertion order", () => {
+      const a = serializeSegment({
+        [KIND]: "match" as const,
+        match: { id: "x", count: 1 },
+      })
+      const b = serializeSegment({
+        [KIND]: "match" as const,
+        match: { count: 1, id: "x" },
+      })
+      expect(a).toBe(b)
+    })
+  })
+
+  describe("path construction edge cases", () => {
+    it("should handle negative array index", () => {
+      handle.change(d => {
+        d.items = ["a", "b", "c"]
+      })
+
+      // Negative indices don't make sense in Automerge
+      const ref = handle.sub("items", -1)
+      expect(ref.doc()).toBeUndefined()
+    })
+
+    it("should handle float array index", () => {
+      handle.change(d => {
+        d.items = ["a", "b", "c"]
+      })
+
+      // 1.5 will be used as-is, which JS will truncate to 1 when indexing
+      const ref = handle.sub("items", 1.5)
+      // JavaScript arrays coerce 1.5 to "1.5" as a key, not index 1
+      expect(ref.doc()).toBeUndefined()
+    })
+
+    it("should handle NaN as index", () => {
+      handle.change(d => {
+        d.items = ["a", "b", "c"]
+      })
+
+      const ref = handle.sub("items", NaN)
+      expect(ref.doc()).toBeUndefined()
+    })
+
+    it("should handle Infinity as index", () => {
+      handle.change(d => {
+        d.items = ["a", "b", "c"]
+      })
+
+      const ref = handle.sub("items", Infinity)
+      expect(ref.doc()).toBeUndefined()
+    })
+
+    it("should handle very large index", () => {
+      handle.change(d => {
+        d.items = ["a"]
+      })
+
+      const ref = handle.sub("items", Number.MAX_SAFE_INTEGER)
+      expect(ref.doc()).toBeUndefined()
+    })
+
+    it("should handle root ref (empty path)", () => {
+      handle.change(d => {
+        d.title = "Test"
+        d.count = 42
+      })
+
+      const rootRef = handle.sub()
+      const value = rootRef.doc()
+      expect(value).toHaveProperty("title", "Test")
+      expect(value).toHaveProperty("count", 42)
+    })
+  })
+
+  describe("URL edge cases", () => {
+    it("should reject invalid URL prefix", () => {
+      expect(isValidAutomergeUrl("http://example.com")).toBe(false)
+      expect(isValidAutomergeUrl("automerge-repo:abc")).toBe(false)
+    })
+
+    it("should reject URL with multiple # (heads sections)", () => {
+      expect(() => {
+        parseAutomergeUrl("automerge:abc/path#head1#head2" as any)
+      }).toThrow("multiple heads sections")
+    })
+
+    it("should handle URL with no path", () => {
+      const docId = handle.documentId
+      const parsed = parseAutomergeUrl(`automerge:${docId}` as AutomergeUrl)
+      expect(parsed.documentId).toBe(docId)
+      // No `/` path component → no segments.
+      expect(parsed.segments).toBeUndefined()
+    })
+
+    it("should handle URL with only heads", () => {
+      handle.change(d => {
+        d.x = 1
+      })
+      // Use a real head from the doc - the URL parser now validates
+      // heads as base58check, not arbitrary strings.
+      const realHead = handle.heads()[0]
+      const docId = handle.documentId
+      const parsed = parseAutomergeUrl(
+        `automerge:${docId}#${realHead}` as AutomergeUrl
+      )
+      expect(parsed.documentId).toBe(docId)
+      expect(parsed.segments).toBeUndefined()
+      expect(parsed.heads).toEqual([realHead])
+    })
+
+    // TODO: this makes me think we should prefix indexes with a colon or possibly another character
+    it("should preserve key vs index distinction through URL round-trip", () => {
+      handle.change(d => {
+        d["0"] = "string key"
+        d.items = ["index"]
+      })
+
+      // The URL format uses numbers for indices, so "0" as a key
+      // will be indistinguishable from index 0 after parsing
+      const stringKeyRef = handle.sub("0")
+      const url = stringKeyRef.url
+
+      // This is a known limitation: URL parsing treats "0" as index, not key
+      // The URL will contain "/0" which parses as index segment
+      expect(url).toContain("/0")
+    })
+  })
+
+  describe("MutableText edge cases", () => {
+    it("should handle splice at start of string", () => {
+      handle.change(d => {
+        d.text = "World"
+      })
+
+      const ref = handle.sub("text")
+      ref.change((text: any) => {
+        text.splice(0, 0, "Hello ")
+      })
+
+      expect(handle.doc().text).toBe("Hello World")
+    })
+
+    it("should handle splice at end of string", () => {
+      handle.change(d => {
+        d.text = "Hello"
+      })
+
+      const ref = handle.sub("text")
+      ref.change((text: any) => {
+        text.splice(5, 0, " World")
+      })
+
+      expect(handle.doc().text).toBe("Hello World")
+    })
+
+    it("should handle splice deleting entire string", () => {
+      handle.change(d => {
+        d.text = "Hello World"
+      })
+
+      const ref = handle.sub("text")
+      ref.change((text: any) => {
+        text.splice(0, 11, "")
+      })
+
+      expect(handle.doc().text).toBe("")
+    })
+
+    it("should handle updateText to empty string", () => {
+      handle.change(d => {
+        d.text = "Hello"
+      })
+
+      const ref = handle.sub("text")
+      ref.change((text: any) => {
+        text.updateText("")
+      })
+
+      expect(handle.doc().text).toBe("")
+    })
+
+    it("should handle updateText on empty string", () => {
+      handle.change(d => {
+        d.text = ""
+      })
+
+      const ref = handle.sub("text")
+      ref.change((text: any) => {
+        text.updateText("New content")
+      })
+
+      expect(handle.doc().text).toBe("New content")
+    })
+  })
+
+  describe("concurrent/state edge cases", () => {
+    it("should handle ref to value that gets deleted", () => {
+      handle.change(d => {
+        d.nested = { deep: { value: 42 } }
+      })
+
+      const ref = handle.sub("nested", "deep", "value")
+      expect(ref.doc()).toBe(42)
+
+      // Delete the intermediate object
+      handle.change(d => {
+        delete d.nested.deep
+      })
+
+      expect(ref.doc()).toBeUndefined()
+    })
+
+    it("should handle ref to array element when array is replaced", () => {
+      handle.change(d => {
+        d.items = ["a", "b", "c"]
+      })
+
+      const ref = handle.sub("items", 1)
+      expect(ref.doc()).toBe("b")
+
+      // Replace entire array
+      handle.change(d => {
+        d.items = ["x", "y"]
+      })
+
+      // Numeric index still works on new array
+      expect(ref.doc()).toBe("y")
+    })
+
+    it("should handle match ref when matched item is deleted", () => {
+      handle.change(d => {
+        d.items = [
+          { id: "a", value: 1 },
+          { id: "b", value: 2 },
+        ]
+      })
+
+      const ref = handle.sub("items", { id: "b" }, "value")
+      expect(ref.doc()).toBe(2)
+
+      // Delete the matched item using Automerge's deleteAt
+      // (can't use .filter() in Automerge change callbacks - creates references)
+      handle.change(d => {
+        d.items.deleteAt(1) // Delete item at index 1 (the one with id: "b")
+      })
+
+      expect(ref.doc()).toBeUndefined()
+    })
+
+    it("should handle multiple refs to same location", () => {
+      handle.change(d => {
+        d.counter = 0
+      })
+
+      const ref1 = handle.sub("counter")
+      const ref2 = handle.sub("counter")
+
+      // Both refs see the same value
+      expect(ref1.doc()).toBe(0)
+      expect(ref2.doc()).toBe(0)
+
+      // Change via ref1
+      ref1.change(() => 10)
+
+      // Both refs should see the change
+      expect(ref1.doc()).toBe(10)
+      expect(ref2.doc()).toBe(10)
+    })
+  })
+
+  describe("serialization round-trip edge cases", () => {
+    it("should round-trip match pattern with multiple fields", () => {
+      handle.change(d => {
+        d.items = [{ type: "task", status: "done", priority: 1 }]
+      })
+
+      const ref = handle.sub("items", { type: "task", status: "done" })
+      const url = ref.url
+
+      const parsed = parseAutomergeUrl(url)
+      const matchSegment = parsed.segments[1]
+      expect(matchSegment[KIND]).toBe("match")
+      expect((matchSegment as any).match).toEqual({
+        type: "task",
+        status: "done",
+      })
+    })
+
+    it("should round-trip cursor range", () => {
+      handle.change(d => {
+        d.text = "Hello World"
+      })
+
+      const ref = handle.sub("text", cursor(0, 5))
+      const url = ref.url
+
+      // Parse and verify new bracket format: [cursor-cursor]
+      expect(url).toMatch(/\[\d+@[a-f0-9]+-\d+@[a-f0-9]+\]$/)
+    })
+  })
+
+  describe("URI encoding survival - double encoding", () => {
+    /**
+     * When ref URLs are placed in browser address bars or used as query params,
+     * they get URI-encoded again. This tests that our encoding scheme survives
+     * this double-encoding:
+     *
+     * 1. Create ref URL (contains internal URI encoding, e.g. %2F for /)
+     * 2. Browser/system URI-encodes the whole URL (% becomes %25)
+     * 3. Browser/system URI-decodes when navigating/extracting
+     * 4. Our parser decodes the ref URL correctly
+     *
+     * This should be a no-op since encodeURIComponent(url) + decodeURIComponent
+     * returns the original url.
+     */
+
+    it("should survive full URI encoding/decoding - simple key", () => {
+      handle.change(d => {
+        d.title = "Hello"
+      })
+
+      const ref = handle.sub("title")
+      const originalUrl = ref.url
+
+      // Simulate putting URL in browser address bar (gets encoded)
+      const browserEncoded = encodeURIComponent(originalUrl)
+      // Simulate extracting URL from address bar (gets decoded)
+      const recovered = decodeURIComponent(browserEncoded)
+
+      // URL should be unchanged
+      expect(recovered).toBe(originalUrl)
+
+      // Should still parse correctly
+      const parsed = parseAutomergeUrl(recovered as any)
+      expect(parsed.segments[0][KIND]).toBe("key")
+      expect((parsed.segments[0] as any).key).toBe("title")
+    })
+
+    it("should survive full URI encoding/decoding - key with slash", () => {
+      handle.change(d => {
+        d["path/with/slashes"] = "value"
+      })
+
+      const ref = handle.sub("path/with/slashes")
+      const originalUrl = ref.url
+
+      // Original URL should have %2F for slashes
+      expect(originalUrl).toContain("path%2Fwith%2Fslashes")
+
+      // Simulate browser double-encoding and decoding
+      const browserEncoded = encodeURIComponent(originalUrl)
+      // The %2F becomes %252F (% encoded as %25)
+      expect(browserEncoded).toContain("path%252Fwith%252Fslashes")
+
+      const recovered = decodeURIComponent(browserEncoded)
+
+      // Should get back original URL
+      expect(recovered).toBe(originalUrl)
+
+      // Should parse correctly to original key
+      const parsed = parseAutomergeUrl(recovered as any)
+      expect((parsed.segments[0] as any).key).toBe("path/with/slashes")
+    })
+
+    it("should survive full URI encoding/decoding - escaped key with @", () => {
+      handle.change(d => {
+        d["@mention"] = "value"
+      })
+
+      const ref = handle.sub("@mention")
+      const originalUrl = ref.url
+
+      // Should have backslash escape prefix (%5C) and URL-encoded @
+      expect(originalUrl).toContain("%5C%40mention")
+
+      // Simulate double encoding/decoding
+      const recovered = decodeURIComponent(encodeURIComponent(originalUrl))
+
+      expect(recovered).toBe(originalUrl)
+
+      const parsed = parseAutomergeUrl(recovered as any)
+      expect((parsed.segments[0] as any).key).toBe("@mention")
+    })
+
+    it("should survive full URI encoding/decoding - match pattern", () => {
+      handle.change(d => {
+        d.items = [{ id: "test/path", value: 1 }]
+      })
+
+      const ref = handle.sub("items", { id: "test/path" })
+      const originalUrl = ref.url
+
+      // Match pattern is URL-encoded to protect slashes from being path separators
+      // The JSON {"id":"test/path"} becomes URL-encoded
+      expect(originalUrl).toContain(encodeURIComponent('{"id":"test/path"}'))
+
+      const recovered = decodeURIComponent(encodeURIComponent(originalUrl))
+
+      expect(recovered).toBe(originalUrl)
+
+      // Most importantly: the match pattern with slash round-trips correctly!
+      const parsed = parseAutomergeUrl(recovered as any)
+      expect(parsed.segments[1][KIND]).toBe("match")
+      expect((parsed.segments[1] as any).match).toEqual({ id: "test/path" })
+    })
+
+    it("should survive full URI encoding/decoding - cursor range", () => {
+      handle.change(d => {
+        d.text = "Hello World"
+      })
+
+      const ref = handle.sub("text", cursor(0, 5))
+      const originalUrl = ref.url
+
+      // Cursor format uses @ which might be encoded
+      expect(originalUrl).toMatch(/\[\d+@[a-f0-9]+-\d+@[a-f0-9]+\]$/)
+
+      const recovered = decodeURIComponent(encodeURIComponent(originalUrl))
+
+      expect(recovered).toBe(originalUrl)
+
+      // Value should still resolve correctly
+      const parsed = parseAutomergeUrl(recovered as any)
+      expect(parsed.segments[1][KIND]).toBe("cursors")
+    })
+
+    it("should survive full URI encoding/decoding - complex nested path", () => {
+      handle.change(d => {
+        d["root/path"] = {
+          items: [{ "@id": "test~value" }],
+        }
+      })
+
+      const ref = handle.sub("root/path", "items", { "@id": "test~value" })
+      const originalUrl = ref.url
+
+      const recovered = decodeURIComponent(encodeURIComponent(originalUrl))
+
+      expect(recovered).toBe(originalUrl)
+
+      const parsed = parseAutomergeUrl(recovered as any)
+      expect((parsed.segments[0] as any).key).toBe("root/path")
+      expect((parsed.segments[1] as any).key).toBe("items")
+      expect((parsed.segments[2] as any).match).toEqual({
+        "@id": "test~value",
+      })
+    })
+
+    it("should survive full URI encoding/decoding - with heads", () => {
+      handle.change(d => {
+        d.counter = 1
+      })
+
+      const encodedHeads = handle.heads() // base58check-encoded
+      const rawHeads = Automerge.getHeads(handle.doc()) // hex
+
+      // Create a view handle with these heads
+      const viewHandle = handle.view(encodedHeads)
+      const ref = viewHandle.sub("counter")
+      const originalUrl = ref.url
+
+      // Should have heads section (URL stores them base58check-encoded).
+      expect(originalUrl).toContain("#")
+      expect(originalUrl).toContain(encodedHeads[0])
+
+      const recovered = decodeURIComponent(encodeURIComponent(originalUrl))
+      expect(recovered).toBe(originalUrl)
+
+      const parsed = parseAutomergeUrl(recovered as AutomergeUrl)
+      expect(parsed.heads).toEqual(encodedHeads)
+      expect(parsed.hexHeads).toEqual(rawHeads)
+    })
+
+    it("should survive URL query param encoding/decoding", () => {
+      handle.change(d => {
+        d["special&chars=here"] = "value"
+      })
+
+      const ref = handle.sub("special&chars=here")
+      const originalUrl = ref.url
+
+      // Simulate being used as a query param value
+      // In query strings, & and = have special meaning
+      const asQueryParam = `?ref=${encodeURIComponent(originalUrl)}`
+
+      // Extract and decode
+      const extracted = decodeURIComponent(asQueryParam.split("=")[1])
+
+      expect(extracted).toBe(originalUrl)
+
+      const parsed = parseAutomergeUrl(extracted as any)
+      expect((parsed.segments[0] as any).key).toBe("special&chars=here")
+    })
+
+    it("should survive multiple levels of URI encoding", () => {
+      handle.change(d => {
+        d["key%with%percent"] = "value"
+      })
+
+      const ref = handle.sub("key%with%percent")
+      const originalUrl = ref.url
+
+      // The % should be encoded as %25 in the URL
+      expect(originalUrl).toContain("key%25with%25percent")
+
+      // First level of encoding (e.g., embedding in another URL)
+      const level1 = encodeURIComponent(originalUrl)
+      // Second level (e.g., that URL is then embedded again)
+      const level2 = encodeURIComponent(level1)
+
+      // Decode both levels
+      const decoded1 = decodeURIComponent(level2)
+      const decoded2 = decodeURIComponent(decoded1)
+
+      expect(decoded2).toBe(originalUrl)
+
+      const parsed = parseAutomergeUrl(decoded2 as any)
+      expect((parsed.segments[0] as any).key).toBe("key%with%percent")
+    })
+
+    it("should handle Unicode characters through encoding/decoding", () => {
+      handle.change(d => {
+        d["日本語キー"] = "value"
+        d["emoji🎉key"] = "other"
+      })
+
+      const ref1 = handle.sub("日本語キー")
+      const originalUrl1 = ref1.url
+
+      const ref2 = handle.sub("emoji🎉key")
+      const originalUrl2 = ref2.url
+
+      // Simulate browser encoding/decoding
+      const recovered1 = decodeURIComponent(encodeURIComponent(originalUrl1))
+      const recovered2 = decodeURIComponent(encodeURIComponent(originalUrl2))
+
+      expect(recovered1).toBe(originalUrl1)
+      expect(recovered2).toBe(originalUrl2)
+
+      const parsed1 = parseAutomergeUrl(recovered1 as any)
+      const parsed2 = parseAutomergeUrl(recovered2 as any)
+
+      expect((parsed1.segments[0] as any).key).toBe("日本語キー")
+      expect((parsed2.segments[0] as any).key).toBe("emoji🎉key")
+    })
+
+    it("should handle fragment identifier in ref URL through encoding", () => {
+      handle.change(d => {
+        d.value = 1
+      })
+
+      const encodedHeads = handle.heads() // base58check
+      const viewHandle = handle.view(encodedHeads)
+      const ref = viewHandle.sub("value")
+      const originalUrl = ref.url
+
+      // The # is part of the ref URL format
+      expect(originalUrl).toContain("#")
+
+      // In a real browser, # has special meaning (fragment identifier)
+      // encodeURIComponent encodes # as %23
+      const encoded = encodeURIComponent(originalUrl)
+      expect(encoded).toContain("%23")
+
+      const recovered = decodeURIComponent(encoded)
+      expect(recovered).toBe(originalUrl)
+
+      const parsed = parseAutomergeUrl(recovered as AutomergeUrl)
+      expect(parsed.heads).toEqual(encodedHeads)
+    })
+  })
+
+  describe("branch-review regressions", () => {
+    it("matches patterns over arrays containing null/primitive items without throwing", () => {
+      handle.change(d => {
+        d.items = [null, "str", { id: "x", label: "found" }]
+      })
+
+      const ref = handle.sub("items", { id: "x" })
+      expect(ref.doc()).toEqual({ id: "x", label: "found" })
+
+      // Mutating through the matched ref must not crash on the null/primitive
+      // siblings during pattern resolution/dispatch.
+      expect(() =>
+        ref.change(d => {
+          d.label = "updated"
+        })
+      ).not.toThrow()
+      expect(handle.doc().items[2].label).toBe("updated")
+    })
+
+    it("stabilizes cursors on a pinned view against the view's text, not the live doc", () => {
+      handle.change(d => {
+        d.text = "Hello World"
+      })
+      const oldHeads = handle.heads()
+
+      // Edit the text so live positions differ from the pinned view.
+      handle.change(d => {
+        splice(d, ["text"], 0, 0, "PREFIX ")
+      })
+
+      // cursor(0, 5) on the OLD view should read "Hello" - the cursors must be
+      // built against the view's text, not the live (shifted) text.
+      const pinned = handle.view(oldHeads).sub("text", cursor(0, 5))
+      expect(pinned.doc()).toBe("Hello")
+    })
+
+    it("ignores a function callback's return value on an object scope (like root change)", () => {
+      handle.change(d => {
+        d.profile = { name: "ada", age: 36 }
+      })
+
+      const profile = handle.sub("profile")
+      // Arrow *expression* body: the callback returns the assigned value. As on
+      // a root handle, that return must be ignored - the object is mutated in
+      // place, not replaced with the string "ada".
+      profile.change(d => (d.name = "grace"))
+
+      expect(handle.doc().profile).toEqual({ name: "grace", age: 36 })
+    })
+
+    it("replaces via the shorthand value form on an object scope", () => {
+      handle.change(d => {
+        d.profile = { name: "ada", age: 36 }
+      })
+
+      // Non-function shorthand is an explicit replacement.
+      handle.sub("profile").change({ name: "grace", age: 0 } as any)
+
+      expect(handle.doc().profile).toEqual({ name: "grace", age: 0 })
+    })
+
+    it("uses a function callback's return value on a primitive scope", () => {
+      handle.change(d => {
+        d.count = 1
+      })
+
+      // Primitives have no in-place proxy, so the return value sets the slot -
+      // this is the one case where a function callback's return is consumed.
+      handle.sub("count").change((n: number) => n + 1)
+
+      expect(handle.doc().count).toBe(2)
+    })
+
+    it("ignores a function callback's return value on an array scope (push returns length)", () => {
+      handle.change(d => {
+        d.list = ["a"]
+      })
+
+      // `Array.push` returns the new length (a number). That return must be
+      // ignored - otherwise the array would be replaced by the number 2.
+      handle.sub("list").change((a: string[]) => a.push("b"))
+
+      expect(handle.doc().list).toEqual(["a", "b"])
+    })
+
+    it("replaces via the shorthand value form on an array scope", () => {
+      handle.change(d => {
+        d.list = ["a", "b"]
+      })
+
+      handle.sub("list").change(["x", "y", "z"] as any)
+
+      expect(handle.doc().list).toEqual(["x", "y", "z"])
+    })
+
+    it("replaces a string scope via a returned string (updateText)", () => {
+      handle.change(d => {
+        d.title = "hello"
+      })
+
+      // A function that returns a string replaces the text.
+      handle.sub("title").change(() => "HELLO")
+
+      expect(handle.doc().title).toBe("HELLO")
+    })
+
+    it("replaces a string scope via the shorthand value form", () => {
+      handle.change(d => {
+        d.title = "hello"
+      })
+
+      handle.sub("title").change("world" as any)
+
+      expect(handle.doc().title).toBe("world")
+    })
+
+    it("changeAt ignores a function callback's return value on an object scope", async () => {
+      handle.change(d => {
+        d.profile = { name: "ada", age: 36 }
+      })
+      const oldHeads = handle.heads()
+      handle.change(d => {
+        d.profile.age = 37
+      })
+
+      // Arrow-expression return must be ignored on changeAt too (in-place),
+      // consistent with change() - the object stays an object.
+      await handle
+        .sub("profile")
+        .changeAt(oldHeads, (d: any) => (d.name = "grace"))
+
+      const profile = handle.doc().profile
+      expect(typeof profile).toBe("object")
+      expect(profile.name).toBe("grace")
+    })
+  })
+})

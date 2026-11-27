@@ -1,0 +1,444 @@
+// @vitest-environment node
+import { afterEach, describe, expect, it, vi } from "vitest"
+import {
+  MemoryBackend,
+  type MemoryBackendOptions,
+} from "../../src/sedimentree/memory/MemoryBackend.js"
+import {
+  recordHead,
+  type SedimentreeRecord,
+} from "../../src/sedimentree/index.js"
+import { recordBytes } from "../../src/sedimentree/memory/records.js"
+import {
+  sedimentreeId,
+  type SedimentreeId,
+} from "../../src/sedimentree/index.js"
+import { backendContract } from "./backend.contract.js"
+import {
+  cid,
+  commit,
+  event,
+  expectPending,
+  fragment,
+  initial,
+  next,
+  settled,
+  treeId,
+} from "./helpers.js"
+
+backendContract("MemoryBackend", () => new MemoryBackend())
+
+describe("MemoryBackend exact-representation / no-network model", () => {
+  const backends: MemoryBackend[] = []
+  function create(options?: MemoryBackendOptions) {
+    const backend = new MemoryBackend(options)
+    backends.push(backend)
+    return backend
+  }
+  afterEach(async () => {
+    await Promise.all(backends.splice(0).map(backend => backend.close()))
+  })
+
+  it("keeps padded and full 32-byte IDs distinct and validates IDs at every boundary", async () => {
+    const backend = create()
+    const padded = sedimentreeId("ab".repeat(16) + "00".repeat(16))
+    const full = sedimentreeId("ab".repeat(16) + "cd".repeat(16))
+    await backend.store(padded, [commit(1)])
+    await backend.store(full, [commit(2)])
+    expect(
+      (await initial(backend.open(padded).events[Symbol.asyncIterator]()))
+        .records
+    ).toEqual([commit(1)])
+    expect(
+      (await initial(backend.open(full).events[Symbol.asyncIterator]())).records
+    ).toEqual([commit(2)])
+    const invalidId = { name: "BackendError", code: "invalid-id" }
+    for (const raw of ["ab".repeat(16), "ab".repeat(33)]) {
+      const invalid = raw as SedimentreeId
+      expect(() => backend.open(invalid)).toThrow(
+        expect.objectContaining({ ...invalidId, operation: "open" })
+      )
+      await expect(backend.store(invalid, [])).rejects.toMatchObject({
+        ...invalidId,
+        operation: "store",
+      })
+      await expect(backend.flush([invalid])).rejects.toMatchObject({
+        ...invalidId,
+        operation: "flush",
+      })
+      await expect(backend.deleteLocal(invalid)).rejects.toMatchObject({
+        ...invalidId,
+        operation: "delete",
+      })
+      await expect(
+        backend.create([commit(1)], { documentId: invalid })
+      ).rejects.toMatchObject({ ...invalidId, operation: "create" })
+    }
+  })
+
+  it("mints distinct 32-byte IDs by default", async () => {
+    const backend = create()
+    const a = await backend.create([commit(1)])
+    const b = await backend.create([commit(1)])
+    expect(a).toMatch(/^[0-9a-f]{64}$/)
+    expect(b).toMatch(/^[0-9a-f]{64}$/)
+    expect(a).not.toBe(b)
+  })
+
+  it("mints with mintDocumentId, given the initial records", async () => {
+    const minted = new Uint8Array(32).fill(0xcd)
+    const mintDocumentId = vi.fn(() => minted)
+    const backend = create({ mintDocumentId })
+    expect(await backend.create([commit(1)])).toBe("cd".repeat(32))
+    expect(mintDocumentId).toHaveBeenCalledWith([commit(1)])
+    await expect(
+      create({ mintDocumentId: () => new Uint8Array(16) }).create([commit(1)])
+    ).rejects.toMatchObject({ operation: "create", code: "invalid-id" })
+    await expect(
+      create({
+        mintDocumentId: () => Promise.reject(new Error("no keyhive")),
+      }).create([commit(1)])
+    ).rejects.toMatchObject({ operation: "create", code: "invalid-id" })
+  })
+
+  it("snapshots create input before an async mint", async () => {
+    const minted = new Uint8Array(32).fill(0xcd)
+    const backend = create({ mintDocumentId: async () => minted })
+    const input = [commit(1)]
+    const pending = backend.create(input)
+    ;(input[0].blob as Uint8Array).fill(0)
+    input.push(commit(2))
+    const id = await pending
+    expect(
+      (await initial(backend.open(id).events[Symbol.asyncIterator]())).records
+    ).toEqual([commit(1)])
+  })
+
+  it("a new store after deletion can reacquire the ID without an open session", async () => {
+    const backend = create()
+    await backend.store(treeId(), [commit(1)])
+    const old = backend.open(treeId())
+    await backend.deleteLocal(treeId())
+    await backend.store(treeId(), [commit(2)])
+    await old.close()
+    expect(
+      (await initial(backend.open(treeId()).events[Symbol.asyncIterator]()))
+        .records
+    ).toEqual([commit(2)])
+  })
+
+  it("fences a pending deletion and covers it with flush", async () => {
+    let release!: () => void
+    const held = new Promise<void>(resolve => (release = resolve))
+    let hold = false
+    const backend = create({ beforeStore: () => (hold ? held : undefined) })
+    await backend.store(treeId(), [commit(1)])
+    hold = true
+    const write = backend.store(treeId(), [commit(2)])
+    const deletion = backend.deleteLocal(treeId())
+    expect(backend.deleteLocal(treeId())).toBe(deletion)
+    expect(() => backend.open(treeId())).toThrow(
+      expect.objectContaining({ code: "deleted" })
+    )
+    await expect(backend.store(treeId(), [commit(3)])).rejects.toMatchObject({
+      code: "deleted",
+    })
+    await expect(
+      backend.create([commit(3)], { documentId: treeId() })
+    ).rejects.toMatchObject({ code: "deleted" })
+    await settled(backend.flush([treeId(2)]))
+    const flushed = backend.flush([treeId()])
+    const all = backend.flush()
+    await expectPending(flushed)
+    await expectPending(all)
+    hold = false
+    release()
+    await settled(Promise.all([write, deletion, flushed, all]))
+    expect(
+      (await initial(backend.open(treeId()).events[Symbol.asyncIterator]()))
+        .complete.found
+    ).toBe(false)
+  })
+
+  it("delivers finite bounded initial batches despite live writes during enumeration", async () => {
+    const backend = create({ batchRecords: 1 })
+    await backend.store(treeId(), [commit(1), commit(2), commit(3)])
+    const iterator = backend.open(treeId()).events[Symbol.asyncIterator]()
+    const first = await event(iterator, "records")
+    expect(first).toMatchObject({ phase: "initial", records: [commit(1)] })
+    await backend.store(treeId(), [commit(4)])
+    for (const n of [2, 3]) {
+      expect(await event(iterator, "records")).toMatchObject({
+        phase: "initial",
+        sequence: first.sequence,
+        records: [commit(n)],
+      })
+      await backend.store(treeId(), [commit(n + 3)])
+    }
+    expect(await event(iterator, "local-load-complete")).toMatchObject({
+      marker: { sequence: first.sequence, heads: [cid(1), cid(2), cid(3)] },
+    })
+    for (const n of [4, 5, 6]) {
+      const live = await event(iterator, "records")
+      expect(live).toMatchObject({ phase: "live", records: [commit(n)] })
+      expect(live.sequence).toBeGreaterThan(first.sequence)
+      expect(
+        (await event(iterator, "history-marker")).marker.sequence
+      ).toBeGreaterThan(live.sequence)
+    }
+  })
+
+  it("deduplicates canonical records within/across batches, without extra record events", async () => {
+    const backend = create()
+    const session = backend.open(treeId())
+    const iterator = session.events[Symbol.asyncIterator]()
+    await initial(iterator)
+    const input = commit(4, [cid(3), cid(2), cid(3)])
+    await backend.store(treeId(), [input, commit(4, [cid(2), cid(3)])])
+    expect((await event(iterator, "records")).records).toEqual([
+      commit(4, [cid(2), cid(3)]),
+    ])
+    await event(iterator, "history-marker")
+    await backend.store(treeId(), [input])
+    await expectPending(iterator.next())
+  })
+
+  it("does not prune readiness targets using unverified fragment boundaries", async () => {
+    const backend = create()
+    await backend.store(treeId(), [commit(4, [cid(3)]), fragment(5)])
+    const loaded = await initial(
+      backend.open(treeId()).events[Symbol.asyncIterator]()
+    )
+    expect(loaded.complete.marker.heads).toEqual([cid(4), cid(5)])
+  })
+
+  it("retains a commit and fragment with the same head as distinct records", async () => {
+    const backend = create()
+    await backend.store(treeId(), [
+      commit(5),
+      fragment(5),
+      commit(5),
+      fragment(5),
+    ])
+    expect(
+      (await initial(backend.open(treeId()).events[Symbol.asyncIterator]()))
+        .records
+    ).toEqual([commit(5), fragment(5)])
+  })
+
+  // Exact conflict rejection for commits is this test double's policy, not a
+  // backend-wide requirement. These tests deliberately make no batch rollback
+  // assertions.
+  it.each(["blob", "parents"])(
+    "rejects a conflicting commit %s rather than overwriting the stored copy",
+    async field => {
+      const backend = create()
+      const original = commit(5)
+      await backend.store(treeId(), [original])
+      const conflict =
+        field === "blob"
+          ? { ...original, blob: new Uint8Array([99]) }
+          : { ...original, parents: [cid(2)] }
+      await expect(backend.store(treeId(), [conflict])).rejects.toMatchObject({
+        operation: "store",
+        code: "conflict",
+        retryable: false,
+      })
+      expect(
+        (await initial(backend.open(treeId()).events[Symbol.asyncIterator]()))
+          .records
+      ).toEqual([original])
+    }
+  )
+
+  // Like Subduction: Automerge can form different fragments for one head.
+  it.each(["blob", "boundary", "checkpoints"])(
+    "keeps a same-head fragment variant differing in %s alongside the original",
+    async field => {
+      const backend = create()
+      const original = fragment(5)
+      await backend.store(treeId(), [original])
+      const variant =
+        field === "blob"
+          ? { ...original, blob: new Uint8Array([99]) }
+          : field === "boundary"
+            ? { ...original, boundary: [cid(2)] }
+            : { ...original, checkpoints: [] }
+      await backend.store(treeId(), [variant])
+      await backend.store(treeId(), [variant])
+      expect(
+        (await initial(backend.open(treeId()).events[Symbol.asyncIterator]()))
+          .records
+      ).toEqual([original, variant])
+    }
+  )
+
+  it("reports conflicts within a batch and malformed records without promising rollback", async () => {
+    const backend = create()
+    await expect(
+      backend.store(treeId(), [commit(1), commit(1, [], new Uint8Array([99]))])
+    ).rejects.toMatchObject({ code: "conflict" })
+    await expect(
+      backend.store(treeId(), [commit(2), { ...commit(3), parents: [cid(3)] }])
+    ).rejects.toMatchObject({ operation: "store", code: "invalid-record" })
+    await expect(
+      backend.store(treeId(), [
+        commit(2),
+        {
+          ...fragment(3),
+          checkpoints: [cid(1)],
+        } as unknown as SedimentreeRecord,
+      ])
+    ).rejects.toMatchObject({ code: "invalid-record" })
+    // Valid records preceding an error may or may not have persisted. Retrying
+    // them must be safe regardless; exact batch atomicity is not the contract.
+    await backend.store(treeId(), [commit(1), commit(2)])
+    const loaded = await initial(
+      backend.open(treeId()).events[Symbol.asyncIterator]()
+    )
+    expect(loaded.records).toHaveLength(2)
+    expect(loaded.records).toEqual(
+      expect.arrayContaining([commit(1), commit(2)])
+    )
+  })
+
+  it("empty batches neither materialize IDs nor emit events on existing trees", async () => {
+    const backend = create()
+    await backend.store(treeId(), [])
+    const session = backend.open(treeId())
+    const iterator = session.events[Symbol.asyncIterator]()
+    expect((await initial(iterator)).complete.found).toBe(false)
+    await backend.store(treeId(), [])
+    await expectPending(iterator.next())
+    await backend.store(treeId(2), [commit(1)])
+    const stored = backend.open(treeId(2))
+    const si = stored.events[Symbol.asyncIterator]()
+    await initial(si)
+    await backend.store(treeId(2), [])
+    await expectPending(si.next())
+  })
+
+  it("retains out-of-order records and fragment metadata before dependencies arrive", async () => {
+    const backend = create()
+    const child = commit(3, [cid(2)])
+    const f = fragment(4)
+    await backend.store(treeId(), [child, f])
+    let load = await initial(
+      backend.open(treeId()).events[Symbol.asyncIterator]()
+    )
+    expect(load.records).toEqual([child, f])
+    expect(load.complete.marker.heads).toEqual([cid(3), cid(4)])
+    await backend.store(treeId(), [commit(2, [cid(1)]), commit(1)])
+    load = await initial(backend.open(treeId()).events[Symbol.asyncIterator]())
+    expect(load.records).toEqual([child, f, commit(2, [cid(1)]), commit(1)])
+    expect(load.complete.marker.heads).toEqual([cid(3), cid(4)])
+  })
+
+  it("orders live history markers after data on every session", async () => {
+    const backend = create()
+    const iterators = [backend.open(treeId()), backend.open(treeId())].map(s =>
+      s.events[Symbol.asyncIterator]()
+    )
+    const cuts = await Promise.all(iterators.map(initial))
+    await backend.store(treeId(), [commit(2), commit(1)])
+    for (const [i, iterator] of iterators.entries()) {
+      const records = await event(iterator, "records")
+      const marker = await event(iterator, "history-marker")
+      expect(cuts[i].complete.marker.sequence).toBeLessThan(records.sequence)
+      expect(records.sequence).toBeLessThan(marker.marker.sequence)
+      expect(marker.marker.heads).toEqual([cid(1), cid(2)])
+    }
+  })
+
+  it("flush settles local persistence without starting a network round or waiting for consumers", async () => {
+    const backend = create()
+    const session = backend.open(treeId())
+    const iterator = session.events[Symbol.asyncIterator]()
+    await initial(iterator)
+    const write = backend.store(treeId(), [commit(1)])
+    await settled(backend.flush([treeId()]))
+    await settled(backend.flush())
+    await write
+    await event(iterator, "records")
+    await event(iterator, "history-marker")
+    await expectPending(iterator.next())
+  })
+
+  it("delivers every live event to a consumer that reads late", async () => {
+    const backend = create({ batchRecords: 1 })
+    const iterator = backend.open(treeId()).events[Symbol.asyncIterator]()
+    await initial(iterator)
+    for (let n = 1; n <= 20; n++) await backend.store(treeId(), [commit(n)])
+    for (let n = 1; n <= 20; n++) {
+      expect((await event(iterator, "records")).records).toEqual([commit(n)])
+      await event(iterator, "history-marker")
+    }
+    await expectPending(iterator.next())
+  })
+
+  it("finishes the pinned initial cut before live stores made while loading", async () => {
+    const backend = create({ batchRecords: 1 })
+    await backend.store(treeId(), [commit(1), commit(2)])
+    const iterator = backend.open(treeId()).events[Symbol.asyncIterator]()
+    expect((await event(iterator, "records")).records).toEqual([commit(1)])
+    await backend.store(treeId(), [commit(3)])
+    expect((await event(iterator, "records")).records).toEqual([commit(2)])
+    expect((await event(iterator, "local-load-complete")).marker.heads).toEqual(
+      [cid(1), cid(2)]
+    )
+    const live = await event(iterator, "records")
+    expect(live.phase).toBe("live")
+    expect(live.records).toEqual([commit(3)])
+  })
+
+  it("batchBytes bounds batches but allows one record over the target below maxRecordBytes", async () => {
+    const backend = create({
+      batchRecords: 10,
+      batchBytes: 66,
+      maxRecordBytes: 100,
+    })
+    const records = [
+      commit(1),
+      commit(2),
+      commit(3, [], new Uint8Array(40)),
+      commit(4),
+    ]
+    await backend.store(treeId(), records)
+    const iterator = backend.open(treeId()).events[Symbol.asyncIterator]()
+    expect((await event(iterator, "records")).records).toEqual(
+      records.slice(0, 2)
+    )
+    expect((await event(iterator, "records")).records).toEqual([records[2]])
+    expect((await event(iterator, "records")).records).toEqual([records[3]])
+    await event(iterator, "local-load-complete")
+  })
+
+  it("rejects oversized metadata/payload and accepts the exact limit", async () => {
+    const record = commit(3, [cid(1)], new Uint8Array(2))
+    const backend = create({ maxRecordBytes: recordBytes(record) })
+    const tooLarge = { ...record, blob: new Uint8Array(3) }
+    await expect(backend.store(treeId(), [tooLarge])).rejects.toMatchObject({
+      operation: "store",
+      code: "invalid-record",
+    })
+    await backend.store(treeId(), [record])
+    expect(
+      (await initial(backend.open(treeId()).events[Symbol.asyncIterator]()))
+        .records
+    ).toEqual([record])
+  })
+
+  const optionNames: (keyof MemoryBackendOptions)[] = [
+    "batchRecords",
+    "batchBytes",
+    "maxRecordBytes",
+  ]
+  for (const option of optionNames) {
+    it.each([0, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
+      `rejects invalid ${option}: %s`,
+      value => {
+        expect(() => create({ [option]: value })).toThrow(RangeError)
+      }
+    )
+  }
+})

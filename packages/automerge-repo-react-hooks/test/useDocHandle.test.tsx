@@ -8,10 +8,17 @@ import { render, screen, waitFor } from "@testing-library/react"
 import "@testing-library/jest-dom"
 
 import { describe, expect, it, vi } from "vitest"
-import { useDocHandle, wrapperCache } from "../src/useDocHandle"
+import { useDocHandle } from "../src/useDocHandle"
+import { cacheKey, handleCache } from "../src/handleCache"
 import { ErrorBoundary } from "react-error-boundary"
-import { setup, setupPairedRepos } from "./testSetup"
-import { pause } from "../src/helpers/DummyNetworkAdapter"
+import {
+  longUrl,
+  setup,
+  setupDelayedRepo,
+  setupLongUrl,
+  setupSharedDoc,
+  pause,
+} from "./testSetup"
 
 describe("useDocHandle", () => {
   const Component = ({
@@ -27,7 +34,7 @@ describe("useDocHandle", () => {
   }
 
   it("loads a handle", async () => {
-    const { handleA, wrapper } = setup()
+    const { handleA, wrapper } = await setup()
     const onHandle = vi.fn()
 
     render(
@@ -39,8 +46,26 @@ describe("useDocHandle", () => {
     await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleA))
   })
 
+  it("loads a long URL and keeps its handle across rerenders", async () => {
+    const { handle, wrapper } = await setupLongUrl()
+    const onHandle = vi.fn()
+    const { rerender } = render(
+      <Suspense fallback={null}>
+        <Component url={longUrl} onHandle={onHandle} />
+      </Suspense>,
+      { wrapper }
+    )
+    await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handle))
+    rerender(
+      <Suspense fallback={null}>
+        <Component url={longUrl} onHandle={onHandle} />
+      </Suspense>
+    )
+    expect(onHandle).toHaveBeenLastCalledWith(handle)
+  })
+
   it("updates the handle when the url changes", async () => {
-    const { wrapper, handleA, handleB } = setup()
+    const { wrapper, handleA, handleB } = await setup()
     const onHandle = vi.fn()
 
     const { rerender } = render(
@@ -55,7 +80,7 @@ describe("useDocHandle", () => {
   })
 
   it("does not return undefined after the url is updated", async () => {
-    const { wrapper, handleA, handleB } = setup()
+    const { wrapper, handleA, handleB } = await setup()
     const onHandle = vi.fn()
 
     const { rerender } = render(
@@ -102,9 +127,9 @@ describe("useDocHandle", () => {
     consoleSpy.mockRestore()
   })
 
-  it("handles slow network correctly", async () => {
-    const { repoCreator, wrapper } = setupPairedRepos()
-    const handleA = repoCreator.create({ foo: "A" })
+  it("handles delayed lookup correctly", async () => {
+    const { repoCreator, wrapper } = setupDelayedRepo()
+    const handleA = await repoCreator.create({ foo: "A" })
     const onHandle = vi.fn()
 
     render(
@@ -136,8 +161,8 @@ describe("useDocHandle", () => {
   })
 
   it("suspends while loading a handle", async () => {
-    const { repoCreator, wrapper } = setupPairedRepos()
-    const handleA = repoCreator.create({ foo: "A" })
+    const { repoCreator, wrapper } = setupDelayedRepo()
+    const handleA = await repoCreator.create({ foo: "A" })
     const onHandle = vi.fn()
 
     render(
@@ -160,9 +185,9 @@ describe("useDocHandle", () => {
   })
 
   it("handles rapid url changes during loading", async () => {
-    const { repoCreator, repoFinder, wrapper } = setupPairedRepos()
-    const handleA = repoCreator.create({ foo: "A" })
-    const handleB = repoFinder.create({ foo: "B" })
+    const { repoCreator, repoFinder, wrapper } = setupDelayedRepo()
+    const handleA = await repoCreator.create({ foo: "A" })
+    const handleB = await repoFinder.create({ foo: "B" })
     const onHandle = vi.fn()
 
     const { rerender } = render(
@@ -190,8 +215,8 @@ describe("useDocHandle", () => {
 
   describe("with suspense: false", () => {
     it("returns undefined while loading then resolves to handle", async () => {
-      const { repoCreator, wrapper } = setupPairedRepos()
-      const handleA = repoCreator.create({ foo: "A" })
+      const { repoCreator, wrapper } = setupDelayedRepo()
+      const handleA = await repoCreator.create({ foo: "A" })
 
       const onHandle = vi.fn()
 
@@ -253,7 +278,7 @@ describe("useDocHandle", () => {
     })
 
     it("evicts a rejected wrapper so a later attempt can retry", async () => {
-      const { wrapper } = await setup()
+      const { wrapper, repo } = await setup()
       const url = generateAutomergeUrl() // unavailable document
       const onHandle = vi.fn()
 
@@ -277,12 +302,12 @@ describe("useDocHandle", () => {
       // later render re-fetches instead of replaying the stored rejection.
       await waitFor(() => {
         expect(onHandle).toHaveBeenLastCalledWith(undefined)
-        expect(wrapperCache.has(url)).toBe(false)
+        expect(handleCache(repo).has(cacheKey(url))).toBe(false)
       })
     })
 
     it("updates the handle when url changes (docs are loaded)", async () => {
-      const { wrapper, handleA, handleB } = setup()
+      const { wrapper, handleA, handleB } = await setup()
       const onHandle = vi.fn()
 
       const NonSuspenseComponent = ({
@@ -314,7 +339,7 @@ describe("useDocHandle", () => {
     })
 
     it("updates the handle when url changes (docs are not loaded)", async () => {
-      const { wrapper, nonLocalDocUrlD, nonLocalDocUrlE, repo } = setup()
+      const { wrapper, delayedDocUrlD, delayedDocUrlE, repo } = await setup()
       const onHandle = vi.fn()
 
       const NonSuspenseComponent = ({
@@ -331,26 +356,26 @@ describe("useDocHandle", () => {
       }
 
       const { rerender } = render(
-        <NonSuspenseComponent url={nonLocalDocUrlD} onHandle={onHandle} />,
+        <NonSuspenseComponent url={delayedDocUrlD} onHandle={onHandle} />,
         { wrapper }
       )
 
       // Wait for first handle to load
-      const handleD = await repo.find(nonLocalDocUrlD)
+      const handleD = await repo.find(delayedDocUrlD)
       await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleD))
 
       // Change URL
       rerender(
-        <NonSuspenseComponent url={nonLocalDocUrlE} onHandle={onHandle} />
+        <NonSuspenseComponent url={delayedDocUrlE} onHandle={onHandle} />
       )
 
       // Then resolve to new handle
-      const handleE = await repo.find(nonLocalDocUrlE)
+      const handleE = await repo.find(delayedDocUrlE)
       await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(handleE))
     })
 
     it("does not re-render unnecessarily when the handle does not change", async () => {
-      const { wrapper, handleA } = setup()
+      const { wrapper, handleA } = await setup()
       const onHandle = vi.fn()
 
       const NonSuspenseComponent = ({
@@ -377,6 +402,77 @@ describe("useDocHandle", () => {
       rerender(<NonSuspenseComponent url={handleA.url} onHandle={onHandle} />)
       await act(pause) // allow time for extra re-renders
       expect(onHandle).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe("lookup cache", () => {
+    it("gives each Repo its own handle for one document", async () => {
+      const { first, second, source, copy } = await setupSharedDoc()
+      const onFirst = vi.fn()
+      const onSecond = vi.fn()
+
+      render(
+        <Suspense fallback={null}>
+          <Component url={source.url} onHandle={onFirst} />
+        </Suspense>,
+        { wrapper: first.wrapper }
+      )
+      await waitFor(() => expect(onFirst).toHaveBeenLastCalledWith(source))
+      render(
+        <Suspense fallback={null}>
+          <Component url={source.url} onHandle={onSecond} />
+        </Suspense>,
+        { wrapper: second.wrapper }
+      )
+      await waitFor(() => expect(onSecond).toHaveBeenLastCalledWith(copy))
+    })
+
+    it("gives the new Repo's handle when the provided Repo changes", async () => {
+      const { first, second, source, copy, Provider } = await setupSharedDoc()
+      const onHandle = vi.fn()
+      const NonSuspense = () => {
+        onHandle(useDocHandle(source.url, { suspense: false }))
+        return null
+      }
+
+      const { rerender } = render(
+        <Provider repo={first.repoFinder}>
+          <NonSuspense />
+        </Provider>
+      )
+      await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(source))
+      onHandle.mockClear()
+      rerender(
+        <Provider repo={second.repoFinder}>
+          <NonSuspense />
+        </Provider>
+      )
+      await waitFor(() => expect(onHandle).toHaveBeenLastCalledWith(copy))
+      // Dropped at once, not shown until the new Repo's handle loads.
+      expect(onHandle).not.toHaveBeenCalledWith(source)
+    })
+
+    it("shares one lookup between a URL and its document ID", async () => {
+      const { repoCreator, repoFinder, wrapper } = setupDelayedRepo()
+      const handle = await repoCreator.create({ foo: "same" })
+      const onUrl = vi.fn()
+      const onId = vi.fn()
+
+      render(
+        <Suspense fallback={null}>
+          <Component url={handle.url} onHandle={onUrl} />
+          <Component
+            url={handle.documentId as unknown as AutomergeUrl}
+            onHandle={onId}
+          />
+        </Suspense>,
+        { wrapper }
+      )
+      await waitFor(() => {
+        expect(onUrl).toHaveBeenLastCalledWith(handle)
+        expect(onId).toHaveBeenLastCalledWith(handle)
+      })
+      expect(repoFinder.find).toHaveBeenCalledTimes(1)
     })
   })
 })

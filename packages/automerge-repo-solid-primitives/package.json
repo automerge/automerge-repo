@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-solid-primitives",
-  "version": "2.6.0-alpha.5",
+  "version": "3.0.0-beta.0",
   "description": "Access Automerge Repo in your SolidJS application",
   "type": "module",
   "main": "dist/index.js",
@@ -12,9 +12,11 @@
   },
   "author": "chee <chee@rabbits.computer>",
   "license": "MIT",
+  "dependencies": {
+    "@automerge/automerge-repo": "workspace:*"
+  },
   "devDependencies": {
     "@automerge/automerge": "catalog:",
-    "@automerge/automerge-repo": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
     "@testing-library/jest-dom": "catalog:",
     "@testing-library/user-event": "^14.6.1",

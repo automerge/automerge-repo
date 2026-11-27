@@ -1,4 +1,4 @@
-import { useDocument, useRepo, AutomergeUrl } from "@automerge/react"
+import { useDocument, useRepo, type AutomergeUrl } from "@automerge/react"
 import cx from "clsx"
 import { Suspense, useRef, useState } from "react"
 
@@ -14,33 +14,30 @@ export function App({ url }: { url: AutomergeUrl }) {
   const repo = useRepo()
 
   const destroy = (url: AutomergeUrl) => {
-    changeState(s => {
-      console.log(s)
+    return changeState(s => {
       const todos = s.todos as ExtendedArray<AutomergeUrl>
       const index = todos.findIndex(_ => _ === url)
-      console.log(index)
-      todos.deleteAt(index)
-    })
-  }
-
-  const getFilteredTodos = async (filter: Filter) => {
-    if (!state) return []
-    return state.todos.filter(async url => {
-      if (filter === Filter.all) return true
-      const todo = (await repo.find<TodoData>(url)).doc()
-      if (!todo) return false
-      if (filter === Filter.completed) return todo.completed
-      if (filter === Filter.incomplete) return !todo.completed
-      return false
+      if (index >= 0) todos.deleteAt(index)
     })
   }
 
   const destroyCompleted = async () => {
     if (!state) return
-    for (const url of await getFilteredTodos(Filter.completed)) {
-      const todo = (await repo.find<TodoData>(url)).doc()
-      if (todo?.completed) destroy(url)
-    }
+    const completed = await Promise.all(
+      state.todos.map(async url => ({
+        url,
+        completed: (await repo.find<TodoData>(url)).doc()?.completed,
+      }))
+    )
+    const urls = new Set(
+      completed.filter(todo => todo.completed).map(todo => todo.url)
+    )
+    if (urls.size === 0) return
+    await changeState(s => {
+      const todos = s.todos as ExtendedArray<AutomergeUrl>
+      for (let index = todos.length - 1; index >= 0; index--)
+        if (urls.has(todos[index])) todos.deleteAt(index)
+    })
   }
 
   if (!state) return null
@@ -61,21 +58,16 @@ export function App({ url }: { url: AutomergeUrl }) {
                 // don't create empty todos
                 if (newTodoText.length === 0) return
 
-                const handle = repo.create<TodoData>()
-                const url = handle.url
-                handle.change(t => {
-                  t.url = url
-                  t.content = newTodoText
-                  t.completed = false
-                })
-
-                // update state with new todo
-                changeState(s => {
-                  s.todos.push(url)
-                })
-
-                // clear input
                 newTodoInput.current.value = ""
+                void (async () => {
+                  const handle = await repo.create<TodoData>({
+                    content: newTodoText,
+                    completed: false,
+                  })
+                  await changeState(s => {
+                    s.todos.push(handle.url)
+                  })
+                })().catch(console.error)
               }}
             >
               <input
@@ -95,7 +87,9 @@ export function App({ url }: { url: AutomergeUrl }) {
                   <Todo
                     key={url}
                     url={url}
-                    onDestroy={url => destroy(url)}
+                    onDestroy={url => {
+                      void destroy(url).catch(console.error)
+                    }}
                     filter={filter}
                   />
                 ))}
@@ -147,7 +141,7 @@ export function App({ url }: { url: AutomergeUrl }) {
                 )}
                 onClick={e => {
                   e.preventDefault()
-                  destroyCompleted()
+                  void destroyCompleted().catch(console.error)
                 }}
               >
                 Clear completed

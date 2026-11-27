@@ -13,9 +13,7 @@ pnpm install
 pnpm build
 ```
 
-Note: You need to build the packages before running the demo apps.
-
-### Running the demo apps
+### Watching packages
 
 ```sh
 pnpm dev

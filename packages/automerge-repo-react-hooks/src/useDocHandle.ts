@@ -1,20 +1,18 @@
-import {
-  anyDocumentIdToAutomergeUrl,
+import type {
+  AnyDocType,
   AnyDocumentId,
+  AnyHandleKind,
+  AutomergeDocType,
   DocHandle,
+  KindOf,
+  Of,
+  Repo,
+  SchemeOf,
 } from "@automerge/automerge-repo/slim"
-import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
+import { wrapPromise, type PromiseWrapper } from "./wrapPromise.js"
 import { useRepo } from "./useRepo.js"
+import { cacheKey, handleCache } from "./handleCache.js"
 import { useEffect, useRef, useState } from "react"
-
-// Shared with useDocHandles
-export const wrapperCache = new Map<
-  AnyDocumentId,
-  PromiseWrapper<DocHandle<unknown>>
->()
-// NB: this is a global cache that isn't keyed on the Repo
-//     so if your app uses the same documents in two Repos
-//     this could cause problems. please let me know if you do.
 
 export interface UseDocHandleSuspendingParams {
   suspense: true
@@ -23,49 +21,95 @@ export interface UseDocHandleSynchronousParams {
   suspense: false
 }
 
-type UseDocHandleParams =
+export type UseDocHandleParams =
   | UseDocHandleSuspendingParams
   | UseDocHandleSynchronousParams
 
-export function useDocHandle<T>(
-  id: AnyDocumentId,
-  params: UseDocHandleSuspendingParams
-): DocHandle<T>
-export function useDocHandle<T>(
+/** The option of a hook opening a document of the doc type `D`, for
+ * documents of shape `S`: as `repo.find`'s `{ docType }`. Without it, an
+ * Automerge document. */
+export type DocTypeOption<D, S> = { docType?: Of<D, S> }
+
+/** @internal A handle of a document of any type. */
+export type AnyHandle = DocHandle<any, {}, AnyHandleKind>
+
+/** @internal What the hooks take, at runtime. */
+export type AnyHookParams = {
+  suspense?: boolean
+  docType?: AnyDocType
+}
+
+/**
+ * The handle for a document, from the Repo in {@link RepoContext}, as a
+ * plain `DocHandle`. In app code, prefer the `useDocHandle` from
+ * {@link createRepoHooks}: its handles have the features the Repo's backend
+ * adds.
+ *
+ * Opens an Automerge document unless `docType` names another doc type, as
+ * `repo.find` does.
+ */
+export function useDocHandle<
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
+>(
+  id: AnyDocumentId<SchemeOf<D>>,
+  params: UseDocHandleSuspendingParams & DocTypeOption<D, S>
+): DocHandle<S, {}, KindOf<D>>
+export function useDocHandle<
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
+>(
+  id: AnyDocumentId<SchemeOf<D>> | undefined,
+  params?: { suspense?: false } & DocTypeOption<D, S>
+): DocHandle<S, {}, KindOf<D>> | undefined
+export function useDocHandle(
   id: AnyDocumentId | undefined,
-  params?: UseDocHandleSynchronousParams
-): DocHandle<T> | undefined
-export function useDocHandle<T>(
+  params?: AnyHookParams
+): AnyHandle | undefined {
+  return useDocHandleIn(useRepo(), id, params)
+}
+
+/** @internal {@link useDocHandle} on a given Repo. */
+export function useDocHandleIn(
+  repo: Repo,
   id: AnyDocumentId | undefined,
-  { suspense }: UseDocHandleParams = { suspense: false }
-): DocHandle<T> | undefined {
-  const repo = useRepo()
+  { suspense = false, docType }: AnyHookParams = {}
+): AnyHandle | undefined {
   const controllerRef = useRef<AbortController | undefined>(undefined)
-  const [handle, setHandle] = useState<DocHandle<T> | undefined>()
+  // With the Repo and lookup key it came from: a handle found on another Repo
+  // or for another ID/docType is not this lookup's.
+  const [found, setFound] = useState<
+    { repo: Repo; key: string; handle: AnyHandle } | undefined
+  >()
+  const key = id ? cacheKey(id, docType) : undefined
 
-  let currentHandle: DocHandle<T> | undefined =
-    // make sure the handle matches the id
-    id && handle && handle.url === anyDocumentIdToAutomergeUrl(id)
-      ? handle
-      : undefined
+  let currentHandle: AnyHandle | undefined =
+    found && found.repo === repo && found.key === key ? found.handle : undefined
 
+  // Typed as Automerge's: `repo.query` and `repo.find` default to it.
+  const options = { docType } as { docType: AnyDocType }
   if (id && !currentHandle) {
-    // if we haven't saved a handle yet, check if one is immediately available
-    const progress = repo.findWithProgress<T>(id)
-    const state = progress.peek()
-    if (state.state === "ready") {
-      currentHandle = state.handle
+    // Preserve synchronous initial values; find() resolves asynchronously.
+    const state = repo.query(id as AnyDocumentId<string>, options).state()
+    if (state.status === "ready") {
+      currentHandle = state.handle as AnyHandle
     }
   }
 
-  let wrapper = id ? wrapperCache.get(id) : undefined
-  if (!wrapper && id) {
+  const cache = handleCache(repo)
+  let wrapper = key ? cache.get(key) : undefined
+  if (!wrapper && id && key) {
     controllerRef.current?.abort()
     controllerRef.current = new AbortController()
 
-    const promise = repo.find<T>(id, { signal: controllerRef.current.signal })
-    wrapper = wrapPromise(promise)
-    wrapperCache.set(id, wrapper)
+    const promise = repo.find(id as AnyDocumentId<string>, {
+      ...options,
+      signal: controllerRef.current.signal,
+    })
+    wrapper = wrapPromise(promise) as PromiseWrapper<DocHandle<unknown>>
+    cache.set(key, wrapper)
   }
 
   /* From here we split into two paths: suspense and not.
@@ -75,7 +119,7 @@ export function useDocHandle<T>(
    * re-running this function until it succeeds, whereas the synchronous
    * form uses a setState to track the value. */
   useEffect(() => {
-    if (currentHandle || suspense || !wrapper) {
+    if (currentHandle || suspense || !wrapper || !key) {
       return
     }
     // Stays true until this effect run is torn down (unmount or id change); a
@@ -83,24 +127,22 @@ export function useDocHandle<T>(
     let active = true
     wrapper.promise
       .then(handle => {
-        if (active) setHandle(handle as DocHandle<T>)
+        if (active) setFound({ repo, key, handle: handle as AnyHandle })
       })
       .catch(() => {
         // Drop the failed wrapper so a later render retries instead of reusing
         // the rejection.
-        if (id && wrapperCache.get(id) === wrapper) {
-          wrapperCache.delete(id)
-        }
-        if (active) setHandle(undefined)
+        if (key && cache.get(key) === wrapper) cache.delete(key)
+        if (active) setFound(undefined)
       })
     return () => {
       active = false
     }
-  }, [currentHandle, suspense, wrapper, id])
+  }, [currentHandle, suspense, wrapper, key, cache, repo])
 
   if (currentHandle || !suspense || !wrapper) {
     return currentHandle
   }
 
-  return wrapper.read() as DocHandle<T>
+  return wrapper.read() as AnyHandle
 }

@@ -1,4 +1,4 @@
-import { PeerId } from "../types.js"
+import { RepoId, PeerId } from "../types.js"
 import { PeerStateView } from "./PeerStateView.js"
 import { PresenceState } from "./types.js"
 
@@ -13,24 +13,24 @@ export class PeerPresenceInfo<State extends PresenceState> {
    */
   constructor(readonly ttl: number) {}
 
-  has(peerId: PeerId) {
-    return peerId in this.#peerStates.value
+  has(originId: RepoId) {
+    return originId in this.#peerStates.value
   }
 
   /**
    * Record that we've seen the given peer recently.
    *
-   * @param peerId
+   * @param originId
    */
-  markSeen(peerId: PeerId) {
-    if (!(peerId in this.#peerStates.value)) {
+  markSeen(originId: RepoId) {
+    if (!(originId in this.#peerStates.value)) {
       // Ignore heartbeats from peers we have not seen before: they will send a snapshot
       return
     }
     this.#peerStates = new PeerStateView<State>({
       ...this.#peerStates.value,
-      [peerId]: {
-        ...this.#peerStates.value[peerId],
+      [originId]: {
+        ...this.#peerStates.value[originId],
         lastSeenAt: Date.now(),
       },
     })
@@ -40,17 +40,27 @@ export class PeerPresenceInfo<State extends PresenceState> {
    * Record a state update for the given peer. Note that existing state is not
    * overwritten.
    *
-   * @param peerId
+   * @param senderId
+   * @param originId
    * @param value
    */
-  update({ peerId, value }: { peerId: PeerId; value: Partial<State> }) {
-    const peerState = this.#peerStates.value[peerId]
+  update({
+    senderId,
+    originId,
+    value,
+  }: {
+    senderId: PeerId
+    originId: RepoId
+    value: Partial<State>
+  }) {
+    const peerState = this.#peerStates.value[originId]
     const existingState = peerState?.value ?? ({} as State)
     const now = Date.now()
     this.#peerStates = new PeerStateView<State>({
       ...this.#peerStates.value,
-      [peerId]: {
-        peerId,
+      [originId]: {
+        senderId,
+        originId,
         lastSeenAt: now,
         lastActiveAt: now,
         value: {
@@ -64,13 +74,13 @@ export class PeerPresenceInfo<State extends PresenceState> {
   /**
    * Forget the given peer.
    *
-   * @param peerId
+   * @param originId
    */
-  delete(peerId: PeerId) {
+  delete(originId: RepoId) {
     this.#peerStates = new PeerStateView<State>(
       Object.fromEntries(
         Object.entries(this.#peerStates.value).filter(([existingId]) => {
-          return existingId != peerId
+          return existingId != originId
         })
       )
     )
@@ -82,13 +92,13 @@ export class PeerPresenceInfo<State extends PresenceState> {
    */
   prune() {
     const threshold = Date.now() - this.ttl
-    const pruned: PeerId[] = []
+    const pruned: RepoId[] = []
     this.#peerStates = new PeerStateView<State>(
       Object.fromEntries(
         Object.entries(this.#peerStates.value).filter(([id, state]) => {
           const keep = state.lastSeenAt >= threshold
           if (!keep) {
-            pruned.push(id as PeerId)
+            pruned.push(id as RepoId)
           }
           return keep
         })

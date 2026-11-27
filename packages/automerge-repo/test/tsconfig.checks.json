@@ -1,0 +1,18 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "files": [
+    "./handleExtensions.check.ts",
+    "./docTypes.check.ts",
+    "./doctypes/gcounter/gcounter.test.ts",
+    "./doctypes/register/register.test.ts",
+    "./handleExtensions.test.ts",
+    "./helpers/ephemeralHub.ts",
+    "./Listeners.test.ts"
+  ]
+}

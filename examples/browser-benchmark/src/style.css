@@ -1,0 +1,134 @@
+:root {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #d9e8dc;
+  background: #101a18;
+  font-size: 14px;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  padding: 32px 20px;
+}
+main {
+  max-width: 940px;
+  margin: 0 auto;
+}
+.eyebrow {
+  color: #95c9aa;
+  letter-spacing: 0.2em;
+  font-size: 12px;
+}
+h1 {
+  font-size: clamp(32px, 6vw, 64px);
+  letter-spacing: -0.06em;
+  line-height: 1.05;
+  margin: 20px 0;
+}
+h2 {
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  color: #95c9aa;
+}
+.intro {
+  color: #a6b9af;
+  line-height: 1.6;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 32px 0 22px;
+}
+button {
+  font: inherit;
+  padding: 12px 18px;
+  background: #baf2c5;
+  color: #101a18;
+  border: 0;
+  cursor: pointer;
+}
+button + button {
+  background: transparent;
+  color: #baf2c5;
+  border: 1px solid #56866e;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+#status {
+  min-height: 22px;
+}
+.meter {
+  height: 4px;
+  background: #243d33;
+}
+.meter div {
+  height: 100%;
+  width: 0;
+  background: #baf2c5;
+}
+section {
+  border-top: 1px solid #365044;
+  margin-top: 42px;
+  padding-top: 12px;
+}
+.scroll {
+  overflow-x: auto;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  white-space: nowrap;
+  text-align: right;
+}
+th,
+td {
+  padding: 14px 10px;
+  border-bottom: 1px solid #293e34;
+}
+th:first-child,
+td:first-child {
+  text-align: left;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.stats > div {
+  padding: 16px;
+  background: #1a2a23;
+}
+.stats span {
+  display: block;
+  color: #96b2a0;
+  font-size: 11px;
+  margin-bottom: 12px;
+}
+.stats strong {
+  font-size: 18px;
+}
+#document-view {
+  margin-top: 16px;
+  color: #baf2c5;
+  font-size: 40px;
+  font-weight: bold;
+}
+pre {
+  max-height: 340px;
+  overflow: auto;
+  line-height: 1.6;
+  color: #baf2c5;
+}
+@media (max-width: 650px) {
+  .stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  body {
+    padding: 18px 14px;
+  }
+}

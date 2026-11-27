@@ -1,287 +1,266 @@
 # Automerge Repo
 
-This is a wrapper for the [Automerge](https://github.com/automerge/automerge) CRDT library which
-provides facilities to support working with many documents at once, as well as pluggable networking
-and storage.
+A wrapper for the [Automerge](https://github.com/automerge/automerge) CRDT library which
+supports working with many documents at once, with pluggable persistence and synchronization.
 
-This is the core library. It handles dispatch of events and provides shared functionality such as
-deciding which peers to connect to or when to write data out to storage.
+Automerge Repo 3 switches from the use of 1st party network and storage adapters to using the new [Sedimentree Backend](./src/sedimentree/README.md) interface.
+We have included a [Subduction Backend](../automerge-repo-subduction/) in this beta release.
 
-Other packages in this monorepo include:
+> **Beta.** This is not yet ready for use in production
 
-- [@automerge/automerge-repo-demo-counter](/packages/automerge-repo-demo-counter/): A React-based demonstration
-  application.
-- [@automerge/automerge-repo-react-hooks](/packages/automerge-repo-react-hooks/): Example hooks for use with
-  React.
+## Quick Start
 
-#### Storage adapters
+While v3 is in beta, install from the `next` dist-tag:
 
-- [@automerge/automerge-repo-storage-indexeddb](/packages/automerge-repo-storage-indexeddb/): A storage
-  adapter to persist data in a browser
-- [@automerge/automerge-repo-storage-nodefs](/packages/automerge-repo-storage-nodefs/): A storage adapter to
-  write changes to the filesystem
-
-#### Network adapters
-
-- [@automerge/automerge-repo-network-websocket](/packages/automerge-repo-network-websocket/): Network adapters
-  for both sides of a client/server configuration over websocket
-- [@automerge/automerge-repo-network-messagechannel](/packages/automerge-repo-network-messagechannel/): A
-  network adapter that uses the [MessageChannel
-  API](https://developer.mozilla.org/en-US/docs/Web/API/MessageChannel) to communicate between tabs
-- [@automerge/automerge-repo-network-broadcastchannel](/packages/automerge-repo-network-broadcastchannel/):
-  Likely only useful for experimentation, but allows simple (inefficient) tab-to-tab data
-  synchronization
-
-## Usage
-
-This library provides two main components: the `Repo` itself, and the `DocHandle`s it contains.
-
-A `Repo` exposes these methods:
-
-- `create<T>(initialValue: T?)`
-  Creates a new `Automerge.Doc` and returns a `DocHandle` for it. Accepts an optional initial value for the document. Produces an empty document (potentially violating the type!) otherwise.
-- `find<T>(docId: DocumentId): Promise<DocHandle<T>>`  
-  Looks up a given document either on the local machine or (if necessary) over any configured
-  networks. Returns a promise that resolves when the document is loaded or throws if load fails.
-- `delete(docId: DocumentId)`  
-  Deletes the local copy of a document from the local cache and local storage. _This does not currently delete the document from any other peers_.
-- `import(binary: Uint8Array)`  
-  Imports a document binary (from `export()` or `Automerge.save(doc)`) into the repo, returning a new handle
-- `export(docId: DocumentId)`  
-  Exports the document. Returns a Promise containing either the Uint8Array of the document or undefined if the document is currently unavailable. See the [Automerge binary format spec](https://automerge.org/automerge-binary-format-spec/) for more details on the shape of the Uint8Array.
-- `.on("document", ({handle: DocHandle}) => void)`  
-  Registers a callback to be fired each time a new document is loaded or created.
-- `.on("delete-document", ({handle: DocHandle}) => void)`  
-  Registers a callback to be fired each time a new document is deleted.
-
-A `DocHandle` is a wrapper around an `Automerge.Doc`. Its primary function is to dispatch changes to
-the document.
-
-- `handle.doc()`
-  Returns a `Doc<T>` that will contain the current value of the document.
-  Throws an error if the document is deleted.
-- `handle.change((doc: T) => void)`  
-  Calls the provided callback with an instrumented mutable object
-  representing the document. Any changes made to the document will be recorded and distributed to
-  other nodes.
-
-A `DocHandle` also emits these events:
-
-- `change({handle: DocHandle, patches: Patch[], patchInfo: PatchInfo})`
-  Called whenever the document changes, the handle's .doc
-- `delete`  
-  Called when the document is deleted locally.
-
-`handle.off(event)` and `handle.removeAllListeners()` do not remove the listeners the repo itself attaches for storage autosave, query updates and sync, so the document keeps saving and syncing. Listeners attached on your behalf, by `Presence` or by `subscribe`/`whenReady` on a `findWithProgress` result for a URL with heads, are removed along with your own.
-
-## Creating a repo
-
-The repo needs to be configured with storage and network adapters. If you give it neither, it will
-still work, but you won't be able to find any data and data created won't outlast the process.
-
-Multiple network adapters (even of the same type) can be added to a repo, even after it is created.
-
-A repo currently only supports a single storage adapter, and it must be provided at creation.
-
-Here is an example of creating a repo with a indexeddb storage adapter and a broadcast channel
-network adapter:
+```sh
+npm install @automerge/automerge-repo@next @automerge/automerge-repo-subduction@next @automerge/automerge-repo-subduction-storage-indexeddb@next @automerge/automerge-repo-subduction-network-websocket@next @automerge/subduction
+```
 
 ```ts
-const repo = new Repo({
-  network: [new BroadcastChannelNetworkAdapter()],
-  storage: new IndexedDBStorageAdapter(),
-  sharePolicy: async (peerId: PeerId, documentId: DocumentId) => true, // this is the default
-})
-```
-
-### Share Policy
-
-The share policy is used to determine which document in your repo should be _automatically_ shared with other peers. **The default setting is to share all documents with all peers.**
-
-> **Warning**
-> If your local repo has deleted a document, a connecting peer with the default share policy will still share that document with you.
-
-You can override this by providing a custom share policy. The function should return a promise resolving to a boolean value indicating whether the document should be shared with the peer.
-
-The share policy will not stop a document being _requested_ by another peer by its `DocumentId`.
-
-## Logging
-
-`automerge-repo` routes all of its output (trace, info, warnings, errors) through a single `Logger` interface. The default writes `.debug` through the [`debug`](https://www.npmjs.com/package/debug) package and the other levels through `console`, prefixed with the subsystem namespace (e.g. `[automerge-repo:repo]`).
-
-Trace output is silent unless you opt in:
-
-```bash
-DEBUG=automerge-repo:* node ./your-app.js
-```
-
-To route output through your own logger (winston, pino, bunyan, etc.), call `setLoggerFactory` once at startup:
-
-```ts
-import { setLoggerFactory } from "@automerge/automerge-repo"
-import winston from "winston"
-
-const logger = winston.createLogger({
-  /* ... */
-})
-
-setLoggerFactory(namespace => ({
-  debug: (msg, ...args) => logger.debug(msg, { namespace, args }),
-  info: (msg, ...args) => logger.info(msg, { namespace, args }),
-  warn: (msg, ...args) => logger.warn(msg, { namespace, args }),
-  error: (msg, ...args) => logger.error(msg, { namespace, args }),
-}))
-```
-
-The factory is called once per subsystem instance with a namespace such as `automerge-repo:repo`, `automerge-repo:docsync:abc12`, or `automerge-repo:storage-subsystem`.
-
-## Starting the demo app
-
-```bash
-yarn
-yarn dev
-```
-
-## Quickstart
-
-The following instructions will get you a working React app running in a browser.
-
-```bash
-yarn create vite
-# Project name: hello-automerge-repo
-# Select a framework: React
-# Select a variant: TypeScript
-
-cd hello-automerge-repo
-yarn
-yarn add @automerge/automerge @automerge/automerge-repo-react-hooks @automerge/automerge-repo-network-broadcastchannel @automerge/automerge-repo-storage-indexeddb vite-plugin-wasm
-```
-
-Edit the `vite.config.ts`. (This is all needed to work around packaging hiccups due to WASM. We look
-forward to the day that we can delete this step entirely.)
-
-```ts
-// vite.config.ts
-import { defineConfig } from "vite"
-import react from "@vitejs/plugin-react"
-import wasm from "vite-plugin-wasm"
-
-export default defineConfig({
-  plugins: [wasm(), react()],
-
-  worker: {
-    format: "es",
-    plugins: () => [wasm()],
-  },
-})
-```
-
-Now set up the repo in `src/main.tsx` by importing the bits, creating the repo, and passing down a
-RepoContext. We also create a document and store its `documentId` in localStorage.
-
-```tsx
-// src/main.tsx
-import React from "react"
-import ReactDOM from "react-dom/client"
-import App from "./App.js"
+import "@automerge/subduction" // initializes Subduction's WASM
 import { Repo } from "@automerge/automerge-repo"
-import { BroadcastChannelNetworkAdapter } from "@automerge/automerge-repo-network-broadcastchannel"
-import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb"
-import { RepoContext } from "@automerge/automerge-repo-react-hooks"
+import { SubductionBackend } from "@automerge/automerge-repo-subduction"
+import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-subduction-storage-indexeddb"
+import { WebSocketNetworkAdapter } from "@automerge/automerge-repo-subduction-network-websocket"
 
+const storage = new IndexedDBStorageAdapter()
+const backend = new SubductionBackend({
+  storage,
+  network: [
+    new WebSocketNetworkAdapter("wss://subduction.sync.inkandswitch.com"),
+  ],
+})
 const repo = new Repo({
-  network: [new BroadcastChannelNetworkAdapter()],
-  storage: new IndexedDBStorageAdapter(),
+  backend,
 })
 
-let rootDocId = localStorage.rootDocId
-if (!rootDocId) {
-  const handle = repo.create()
-  localStorage.rootDocId = rootDocId = handle.documentId
-}
+const handle = await repo.create({ count: 0 })
+await handle.change(doc => {
+  doc.count++
+})
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <RepoContext.Provider value={repo}>
-    <React.StrictMode>
-      <App documentId={rootDocId} />
-    </React.StrictMode>
-  </RepoContext.Provider>
-)
+const found = await repo.find<{ count: number }>(handle.url)
 ```
 
-Now update `App.tsx` to load the document from the Repo based on the documentId passed in. Then, use
-the document to render a button that increments the count.
+`new Repo()` uses an in-memory `MemoryBackend`: documents survive `removeFromCache`, but nothing outlives the process or reaches other peers.
 
-```tsx
-// App.tsx
-import { useDocument } from "@automerge/automerge-repo-react-hooks"
-import { DocumentId } from "@automerge/automerge-repo"
-
-interface Doc {
-  count: number
-}
-
-export default function App(props: { documentId: DocumentId }) {
-  const [doc, changeDoc] = useDocument<Doc>(props.documentId)
-
-  return (
-    <button
-      onClick={() => {
-        changeDoc((d: any) => {
-          d.count = (d.count || 0) + 1
-        })
-      }}
-    >
-      count is: {doc?.count ?? 0}
-    </button>
-  )
-}
-```
-
-You should now have a working React application using Automerge. Try running it with `yarn dev`, and
-open it in two browser windows. You should see the count increment in both windows.
-
-![](/images/hello-automerge-repo.gif)
-
-This application is also available as a package in this repo in
-[automerge-repo-demo-counter](/packages/automerge-repo-demo-counter). You can run it with `yarn
-dev:demo`.
-
-### Adding a sync server
-
-First, get a sync-server running locally, following the instructions for the
-[automerge-repo-sync-server](https://github.com/automerge/automerge-repo-sync-server) package.
-
-Next, update your application to synchronize with it:
-
-Install the websocket network adapter:
-
-```bash
-yarn add automerge-repo-network-websocket
-```
-
-Now import it and add it to your list of network adapters:
+When you are finished, close down the repo. This also closes the backend and flushes any pending writes.
 
 ```ts
-// main.tsx
-import { WebSocketClientAdapter } from "@automerge/automerge-repo-network-websocket" // <-- add this line
-
-// ...
-
-const repo = new Repo({
-  network: [
-    new BroadcastChannelNetworkAdapter(),
-    new WebSocketClientAdapter("ws://localhost:3030"), // <-- add this line
-  ],
-  storage: new IndexedDBStorageAdapter(),
-})
-
-// ...
+await repo.shutdown()
+await storage.close()
 ```
 
-And you're finished! You can test that your sync server is opening the same document in two
-different browsers (e.g. Chrome and Firefox). (Note that with our current trivial implementation
-you'll need to manually copy the `rootDocId` value between the browsers.)
+See [automerge-repo-subduction](../automerge-repo-subduction/) for backend configuration.
+
+### Slim entrypoint
+
+The default entrypoint initializes Automerge's WASM. If you prefer not to,
+use `@automerge/automerge-repo/slim` and call its `initializeWasm` (or
+`initializeBase64Wasm`) before creating a Repo. It also exports `Automerge`
+(`@automerge/automerge/slim`) so you can use the same version of Automerge that Repo uses.
+
+## Changes from v2
+
+Probably the most important things here are:
+
+- Networking and storage are now managed by Subduction
+- `repo.create()` is now asynchronous
+- We recommend using `repo.query()` instead of `repo.find()` see the
+  [DocumentQuery](#documentquery) section for more details.
+- If you're using TypeScript you'll notice that the `DocHandle` has a few extra
+  generics. This is because the backend supports
+  [extensions](#extensions)
+
+| v2                                                    | v3                                                                                                                                  |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `new Repo({ network, storage, sharePolicy, ... })`    | `new Repo({ backend })`                                                                                                             |
+| Network/storage adapter packages                      | Subduction backend with its own storage and network adapters                                                                        |
+| `sharePolicy`, `shareConfig`, `denylist`              | Backend option; see [Sync policy](../automerge-repo-subduction/README.md#sync-policy)                                               |
+| `RepoConfig.peerId`, `repo.peerId`                    | `RepoConfig.id`, `repo.id` (a `RepoId`)                                                                                             |
+| `repo.peers`, `StorageId`                             | Removed                                                                                                                             |
+| `create()`, `import()`, `clone()` return `DocHandle`  | Return `Promise<DocHandle>`                                                                                                         |
+| `handle.change()` returns `void`                      | Returns `Promise<void>`, resolving once the edit is stored                                                                          |
+| `repo.delete()` returns `void`                        | Returns `Promise<void>`                                                                                                             |
+| `findWithProgress()`                                  | Deprecated; use `query()`                                                                                                           |
+| `handle.whenReady()`, `inState()`                     | Removed; handles from `find()`/`create()` are always ready                                                                          |
+| `getRemoteHeads(storageId)`, `getSyncInfo(storageId)` | `getSyncInfo(peerId)`                                                                                                               |
+| `remote-heads` event's `storageId`                    | `peerId`                                                                                                                            |
+| `ephemeral-message` event's `senderId`                | `senderId` (authenticated peer) and `originId` (sending Repo)                                                                       |
+| `doc-metrics` event                                   | Removed                                                                                                                             |
+| `ephemeral-message-outbound` event                    | Removed                                                                                                                             |
+| `handle.broadcast()`, `ephemeral-message` event       | Added by the backend, e.g. the Subduction backend; absent on `MemoryBackend` handles. See [Ephemeral messages](#ephemeral-messages) |
+| `DocHandleEphemeralMessagePayload`                    | `EphemeralMessagePayload` from `@automerge/automerge-repo-subduction`                                                               |
+| `Presence<State, DocType>`                            | `Presence<State>`, taking any handle with ephemeral messaging (`PresenceHandle`)                                                    |
+| `useLocalAwareness`, `useRemoteAwareness`             | Removed; use `usePresence`                                                                                                          |
+| `BackendError` operation `"ephemeral"`                | `"extension"`                                                                                                                       |
+| `Presence` keyed by peer ID                           | Keyed by `originId`                                                                                                                 |
+| 16-byte document IDs                                  | 32-byte; 16-byte IDs and URLs still work in any form and keep their URLs                                                            |
+| Failed saves logged; included in the next save        | `change()` and `flush()` reject; no retry; the document rejects further local edits (peer changes still apply)                      |
+| `change` event's `patchInfo.source` always `"change"` | Reports the Automerge operation: `"change"`, `"changeAt"`, `"merge"`, or `"loadIncremental"` (backend records)                      |
+
+### `Repo.id` and peer IDs
+
+In v2, `peerId` identified both the Repo and its network peer. v3 splits them:
+
+- The **peer ID** belongs to the backend (`backend.peerId`, from Subduction's signer). It is
+  authenticated, and several Repos may share it, e.g. browser tabs using one signer.
+- **`repo.id`** identifies the Repo instance. It is a random UUID unless set with
+  `RepoConfig.id`, must be unique among live Repos, and is not verified.
+
+## New in v3
+
+- `repo.query(id)` observes loading. See [DocumentQuery](#documentquery).
+- `repo.flush()` rejects if any write has failed, and keeps rejecting for that document.
+- `repo.find(id, { signal })` can be aborted.
+- `handle.hasHeads(heads)` checks whether the document contains the given heads.
+- Document types other than Automerge: `repo.create(init, { docType })`. See
+  [Document types](#document-types).
+
+## Repo
+
+### Usage
+
+- `create<T>(initialValue?)`: creates a document. Resolves once it is stored locally.
+- `find<T>(id, { signal }?)`: loads a document locally or from peers. Rejects if it is
+  unavailable, fails, or the wait is aborted.
+- `query<T>(id)`: observes a document's loading. See [DocumentQuery](#documentquery).
+- `import<T>(binary, { docId }?)`: imports an `Automerge.save()` binary. Passing an
+  existing `docId` merges into it.
+- `export(id)`: exports a document as an Automerge binary.
+- `clone(handle)`: copies a document, with its history, under a new ID.
+- `metrics()`: per-document op and change counts.
+
+`import`, `export`, `clone` and `metrics` are currently for Automerge handles only.
+
+- `delete(id)`: deletes the local copy. _Not deleted on other peers._
+- `removeFromCache(id)`: stores, then unloads a document without deleting it.
+- `flush(ids?)`: waits until pending writes are stored. Rejects on write failures.
+- `shutdown()`: stores pending writes and closes. Logs errors rather than rejecting;
+  call `flush()` first if you need them.
+
+`id` may be a document ID or an Automerge URL, including heads or a path.
+
+### Events
+
+```ts
+repo.on("document", ({ handle }) => {})
+```
+
+- `document` `{ handle }`: a document was created, imported or loaded. Once per load.
+- `delete-document` `{ documentId }`: a document was deleted locally.
+- `unavailable-document` `{ documentId }`: a document was not found locally or on
+  connected peers. It may still arrive later.
+
+## DocHandle
+
+- `doc()`: the current document.
+- `change(fn, options?)`: applies an edit. Returns a promise which resolves when the change has been stored locally.
+- `changeAt(heads, fn, options?)`: edits as if at `heads`. Resolves with the new heads.
+- `heads()`, `history()`, `diff()`, `view(heads)`: as in v2.
+- `merge(otherHandle)`: merges another document into this one.
+- `sub(...path)`: a handle scoped to a path inside the document. `remove()` deletes it.
+
+`changeAt`, `history`, `diff`, `sub` and `remove` are Automerge only; other document
+types have `doc`, `change`, `heads`, `merge` and (if the type has views) `view`, plus
+their own members.
+
+### Extensions
+
+A backend can add its own features to handles eg [ephemeral messages](#ephemeral-messages).
+Handles returned from the Repo will be automatically typed with the extended members and events,
+and there are type helpers available if you need to use them explicitly.
+
+```ts
+const repo = new Repo({ backend })
+type AppRepo = typeof repo // or by the backend's extensions: Repo<SubductionExtensions>
+type AppHandle<T> = HandleOf<AppRepo, T>
+```
+
+To add features to handles from your own backend, see
+[Handle extensions](./src/sedimentree/EXTENSIONS.md).
+
+### Document types
+
+Automerge is the default document type returned by repo. Other types can be created, queried and found
+by passing a docType option. See [Document types](./src/DOCTYPES.md).
+
+```ts
+const counter = await repo.create(5, { docType: gcounter }) // gcounter:…
+await counter.increment()
+await repo.find(counter.url, { docType: gcounter })
+```
+
+### Events
+
+```ts
+const onChange = ({ doc, patches }) => {}
+handle.on("change", onChange)
+handle.off("change", onChange)
+```
+
+- `change` `{ handle, doc, patches, patchInfo, scopeReplaced }`: a local or remote edit.
+  On a sub-handle, `doc` and `patches` are scoped to its path, and `scopeReplaced` is
+  `true` when the whole subtree was replaced or removed.
+- `heads-changed` `{ handle, doc }`: the document's heads changed.
+- `delete` `{ handle }`: the document was deleted.
+- `remote-heads` `{ peerId, heads, timestamp }`: a peer reported its heads
+
+## DocumentQuery
+
+`repo.query(id)` returns a `DocumentQuery`, and starts loading the document if
+needed. This is different to `find()`. `find()` rejects if it
+was unable to find the document - even if a peer connects later who has the
+document. `query()` on the other hand returns a `DocumentQuery` which gives you
+a way to subscribe to observe the document arriving later. For most
+applications this is more useful as you can show a "not found" screen which
+updates when the document is found. The exception is in programs like scripts
+which can't do anything at all if the document is not found.
+
+`DocumentQuery` has the following properties:
+
+- `documentId`: the queried document ID
+- `state()`: the current QueryState.
+- `subscribe(fn)`: calls `fn` with the current QueryState before returning, then on every
+  status change. Returns an unsubscribe function.
+
+```ts
+const query = repo.query<{ count: number }>(url)
+const unsubscribe = query.subscribe(state => {
+  if (state.status === "ready") render(state.handle.doc())
+  if (state.status === "failed") console.error(state.error)
+})
+```
+
+`subscribe` reports loading only, once `ready`, the handle is returned and handle events can be subscribed to for changes.
+
+| Status        | Meaning                                                          |
+| ------------- | ---------------------------------------------------------------- |
+| `loading`     | Not loaded yet.                                                  |
+| `ready`       | `handle` is usable.                                              |
+| `unavailable` | Not in storage or on connected peers. May still become `ready`.  |
+| `deleted`     | Deleted locally. Final.                                          |
+| `failed`      | Backend error or shutdown. Final; a later `find()` starts again. |
+
+`find()` resolves on `ready` and rejects on anything else and uses DocumentQuery under the hood.
+
+## Ephemeral Messages
+
+Ephemeral messages are a backend feature and should not be assumed to be a part of every handle.
+For example, the [Subduction backend](../automerge-repo-subduction/README.md#ephemeral-messages) does.
+
+### Presence
+
+`Presence` shares short-lived state, such as who is online or where their cursor is, over
+ephemeral messages. It needs a handle that fits the
+[`PresenceHandle`](./src/presence/README.md#handles) interface.
+See [Presence](./src/presence/README.md).
+
+## Bindings
+
+- [React hooks](../automerge-repo-react-hooks/)
+- [Svelte stores](../automerge-repo-svelte-store/)
+- [Solid primitives](../automerge-repo-solid-primitives/)
 
 ## Acknowledgements
 

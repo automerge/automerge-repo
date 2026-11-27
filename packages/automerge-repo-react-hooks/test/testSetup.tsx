@@ -1,104 +1,146 @@
-import React from "react"
-
-import { PeerId, Repo } from "@automerge/automerge-repo"
+import React, { type PropsWithChildren } from "react"
+import {
+  MemoryBackend,
+  Repo,
+  parseAutomergeUrl,
+  type AutomergeUrl,
+  type PresenceInbound,
+  type DocumentQuery,
+  type QueryState,
+} from "@automerge/automerge-repo"
+import {
+  defineExtension,
+  provides,
+} from "@automerge/automerge-repo/sedimentree"
 import "@testing-library/jest-dom"
 import { cleanup } from "@testing-library/react"
-import { afterEach } from "vitest"
+import { afterEach, vi } from "vitest"
 import { RepoContext } from "../src/useRepo"
-import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter"
 
-afterEach(() => {
+interface EphemeralSpec {
+  members: { broadcast(message: unknown): void }
+  events: { "ephemeral-message": PresenceInbound }
+}
+
+/** Stands in for a backend with ephemeral messaging; broadcasts go nowhere. */
+const ephemeral = defineExtension<EphemeralSpec>({
+  members: {
+    broadcast(_context, _handle, _message: unknown): void {},
+  },
+})
+
+class EphemeralBackend extends MemoryBackend {
+  readonly handleExtensions = provides(ephemeral)
+}
+
+const repos = new Set<Repo<EphemeralSpec>>()
+
+afterEach(async () => {
   cleanup()
+  vi.restoreAllMocks()
+  await Promise.all(Array.from(repos, repo => repo.shutdown()))
+  repos.clear()
 })
 
 export interface ExampleDoc {
   foo: string
   counter?: number
-  nested?: {
-    value: string
-  }
+  nested?: { value: string }
 }
 
-export function setup(latency = 100) {
-  const [adapterBob, adapterServer] = DummyNetworkAdapter.createConnectedPair({
-    latency,
+/**
+ * The long form of a zero-suffixed ID; Repo opens it under its short form,
+ * `automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu`.
+ */
+export const longUrl =
+  "automerge:2qUSWfR7AQBD4z7Lh8YgGtagq5tSbE1cejwHVKC6MCzFEtHmR7" as AutomergeUrl
+
+/** A delayed document reachable through {@link longUrl}. */
+export async function setupLongUrl(latency = 100) {
+  const { repoCreator, repoFinder: repo, wrapper } = setupDelayedRepo(latency)
+  const source = await repoCreator.create<ExampleDoc>({ foo: "Long" })
+  const handle = await repoCreator.import<ExampleDoc>(
+    (await repoCreator.export(source.url))!,
+    { docId: parseAutomergeUrl(longUrl).documentId }
+  )
+  return { repo, handle, wrapper }
+}
+
+export const pause = (ms = 0) =>
+  new Promise<void>(resolve => setTimeout(resolve, ms))
+
+// Mock the lookup boundary, not the removed network protocol.
+export function setupDelayedRepo(latency = 10) {
+  const repoCreator = new Repo({ backend: new EphemeralBackend() })
+  const repoFinder = new Repo({ backend: new EphemeralBackend() })
+  repos.add(repoCreator)
+  repos.add(repoFinder)
+  const localQuery = repoFinder.query.bind(repoFinder)
+  const localFind = repoFinder.find.bind(repoFinder)
+  const loaded = new Set<string>()
+
+  vi.spyOn(repoFinder, "query").mockImplementation(id => {
+    const local = localQuery(id)
+    if (local.state().status === "ready") return local
+    const query = repoCreator.query(id)
+    // Hide the creator's state until the delayed find has "loaded" it.
+    const hide = (state: QueryState<unknown>): QueryState<unknown> =>
+      loaded.has(String(id)) ? state : { status: "loading" }
+    return {
+      documentId: query.documentId,
+      state: () => hide(query.state()),
+      subscribe: callback => query.subscribe(state => callback(hide(state))),
+    } as DocumentQuery<unknown>
+  })
+  vi.spyOn(repoFinder, "find").mockImplementation(async (id, options) => {
+    const local = localQuery(id)
+    if (local.state().status === "ready") return localFind(id, options)
+    await pause(latency)
+    options?.signal?.throwIfAborted()
+    const handle = await repoCreator.find(id, options)
+    loaded.add(String(id))
+    return handle
   })
 
-  const peerIdBob = "bob" as PeerId
-  const peerIdServer = "server" as PeerId
-  const repo = new Repo({
-    peerId: peerIdBob,
-    network: [adapterBob],
-  })
+  const wrapper = ({ children }: PropsWithChildren) => (
+    <RepoContext.Provider value={repoFinder}>{children}</RepoContext.Provider>
+  )
+  return { repoCreator, repoFinder, wrapper }
+}
 
-  const remoteRepo = new Repo({
-    peerId: peerIdServer,
-    network: [adapterServer],
-  })
+/** One document in two Repos, each with its own handle for it, and a
+ * component providing whichever Repo it is given. */
+export async function setupSharedDoc() {
+  const first = setupDelayedRepo()
+  const second = setupDelayedRepo()
+  const source = await first.repoCreator.create<ExampleDoc>({ foo: "shared" })
+  const copy = await second.repoCreator.import<ExampleDoc>(
+    (await first.repoCreator.export(source.url))!,
+    { docId: source.documentId }
+  )
+  const Provider = ({ repo, children }: PropsWithChildren<{ repo: Repo }>) => (
+    <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
+  )
+  return { first, second, source, copy, Provider }
+}
 
-  adapterBob.peerCandidate(peerIdServer)
-  adapterServer.peerCandidate(peerIdBob)
-
-  const handleA = repo.create<ExampleDoc>()
-  handleA.change(doc => (doc.foo = "A"))
-
-  const handleB = repo.create<ExampleDoc>()
-  handleB.change(doc => (doc.foo = "B"))
-
-  const handleC = repo.create<ExampleDoc>()
-  handleC.change(doc => (doc.foo = "C"))
-
-  const remoteHandleD = remoteRepo.create<ExampleDoc>()
-  remoteHandleD.change(doc => (doc.foo = "D"))
-
-  const remoteHandleE = remoteRepo.create<ExampleDoc>()
-  remoteHandleE.change(doc => (doc.foo = "E"))
-
-  const wrapper = ({ children }) => {
-    return <RepoContext.Provider value={repo}>{children}</RepoContext.Provider>
-  }
-
+export async function setup(latency = 100) {
+  const { repoCreator, repoFinder: repo, wrapper } = setupDelayedRepo(latency)
+  const [handleA, handleB, handleC] = await Promise.all(
+    ["A", "B", "C"].map(foo => repo.create<ExampleDoc>({ foo }))
+  )
+  const [handleD, handleE] = await Promise.all(
+    ["D", "E"].map(foo => repoCreator.create<ExampleDoc>({ foo }))
+  )
   return {
     repo,
     handleA,
     handleB,
     handleC,
-    nonLocalDocUrlD: remoteHandleD.url,
-    nonLocalDocUrlE: remoteHandleE.url,
+    delayedDocUrlD: handleD.url,
+    delayedDocUrlE: handleE.url,
     handles: [handleA, handleB, handleC],
     urls: [handleA.url, handleB.url, handleC.url],
     wrapper,
   }
-}
-
-export function setupPairedRepos(latency = 10) {
-  // Create two connected repos with network delay
-  const [adapterCreator, adapterFinder] =
-    DummyNetworkAdapter.createConnectedPair({
-      latency,
-    })
-
-  const peerIdCreator = "peer-creator" as PeerId
-  const peerIdFinder = "peer-finder" as PeerId
-  const repoCreator = new Repo({
-    peerId: peerIdCreator,
-    network: [adapterCreator],
-  })
-  const repoFinder = new Repo({
-    peerId: peerIdFinder,
-    network: [adapterFinder],
-  })
-
-  // TODO: dummynetwork adapter should probably take care of this
-  // Initialize the network.
-  adapterCreator.peerCandidate(peerIdFinder)
-  adapterFinder.peerCandidate(peerIdCreator)
-
-  function Wrapper({ children }) {
-    return (
-      <RepoContext.Provider value={repoFinder}>{children}</RepoContext.Provider>
-    )
-  }
-
-  return { repoCreator, repoFinder, wrapper: Wrapper }
 }

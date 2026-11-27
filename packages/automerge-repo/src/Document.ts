@@ -1,100 +1,534 @@
-import { next as A } from "@automerge/automerge/slim"
-import { makeLogger, Logger } from "./Logger.js"
-import { decodeHeads } from "./AutomergeUrl.js"
-import type { DocumentId, UrlHeads } from "./types.js"
-import type { StorageId } from "./storage/types.js"
-import type { SyncInfo } from "./DocHandle.js"
-import { HandleRegistry } from "./subdoc-handles/handle-registry.js"
-import { WeakValueMap } from "./helpers/WeakValueMap.js"
+import type { AnyHandleKind, DocHandle } from "./types/DocHandle.js"
+import type { Handle as BaseHandle } from "./Handle.js"
+import { DocumentState } from "./DocumentState.js"
+import type { RootQuery } from "./DocumentQuery.js"
+import type { DocumentId, RepoId, PeerId } from "./types.js"
+import {
+  checkpointForCommit,
+  fragmentRequests,
+  recordHead,
+  type CommitId,
+  type ExtensionEvent,
+  type ExtensionContext,
+  type FragmentRecord,
+  type HistoryMarker,
+  type RecordBatch,
+  type SedimentreeBackend,
+  type SedimentreeEvent,
+  type SedimentreeId,
+  type SedimentreeRecord,
+  type SedimentreeSession,
+} from "./sedimentree/index.js"
+import { isBoundary } from "./sedimentree/records.js"
+import { mergeStates, type AnyDocType } from "./DocType.js"
+import { automerge } from "./automerge/docType.js"
+
+/** Compaction delay after a document first has a boundary due, so sustained
+ * edits share one bundling run, plus jitter so documents that become due
+ * together do not compact together. */
+const COMPACTION_DELAY_MS = 1_000
+const COMPACTION_JITTER_MS = 2_000
+/** Longest a busy page can defer a due compaction once its timer has fired. */
+const COMPACTION_IDLE_TIMEOUT_MS = 3_000
+
+type IdleGlobal = {
+  requestIdleCallback?: (
+    callback: () => void,
+    options?: { timeout: number }
+  ) => number
+  cancelIdleCallback?: (handle: number) => void
+}
+
+/** Run when the event loop is idle; returns a cancel function. */
+function whenIdle(run: () => void): () => void {
+  const idle = globalThis as IdleGlobal
+  if (typeof idle.requestIdleCallback === "function") {
+    const handle = idle.requestIdleCallback(run, {
+      timeout: COMPACTION_IDLE_TIMEOUT_MS,
+    })
+    return () => idle.cancelIdleCallback?.(handle)
+  }
+  const timer = setTimeout(run, 0)
+  ;(timer as { unref?: () => void }).unref?.()
+  return () => clearTimeout(timer)
+}
 
 /**
- * Per-document shared state - one per `documentId`, referenced by every
- * `DocHandle` (root, sub, view) into that document. Owns the Automerge
- * snapshot and the {@link HandleRegistry} (identity, pattern resolution,
- * listeners, dispatch). Not part of the public API.
+ * Per-document backend consumer: owns the session, applies its events to the
+ * CRDT and verifies readiness markers. Each edit is stored at once, without
+ * ordering or batching; the backend owns those, durability, the flush barrier
+ * and deletion fences. A failed store is not retried: the document stops
+ * accepting local edits, and Repo reports the failure on every later flush.
  *
- * @internal
+ * Edits are stored as loose commits. Each writer compacts the boundary commits
+ * (which head a fragment) it stores; others receive its fragments. Boundaries
+ * the initial load finds with no covering fragment, e.g. after a crash, are
+ * also due. Once one is due, a jittered timer per document waits for an idle
+ * moment, then the fragments are bundled and stored like any write. Flush
+ * compacts at once.
  */
-export class Document<T = unknown> {
-  readonly documentId: DocumentId
-  readonly registry: HandleRegistry
-  readonly log: Logger
-
-  /** Current snapshot. Replaced (not mutated) by {@link applyMutation}. */
-  doc: A.Doc<T>
-
-  /** Set by {@link DocHandle.delete} on any handle into this document. */
-  deleted = false
-
-  /** Sync-info lookup injected by `Repo` from its `SyncStateTracker`. */
-  syncInfoLookup?: (storageId: StorageId) => SyncInfo | undefined
-
-  /**
-   * Materialized `A.view`s, keyed by heads. Heads precisely specify an
-   * immutable state, so a view never changes once computed and the cache
-   * never needs invalidating - the live doc only ever grows past these
-   * heads, and `A.view` at a historical point is identical regardless.
-   *
-   * Held weakly: heads keys are unbounded over a document's life. A view
-   * stays cached while held and is recomputed on a cold read.
-   */
-  #viewCache = new WeakValueMap<string, A.Doc<T>>()
+export class Document {
+  #targets = new Map<"local" | "live" | "sync", HistoryMarker>()
+  /** Initial-cut records, applied together at local-load-complete. */
+  #initial: SedimentreeRecord[] = []
+  /** The session's first local-load-complete has arrived. */
+  #loaded = false
+  #session?: SedimentreeSession
+  #consumer: Promise<void> = Promise.resolve()
+  #deleted = false
+  /** Own or loaded boundary commits with no covering fragment seen since. */
+  #due = new Set<CommitId>()
+  #timer?: ReturnType<typeof setTimeout>
+  #cancelIdle?: () => void
+  #compacting: Promise<void> = Promise.resolve()
+  #running = false
+  /** Created locally with initial history: ready as soon as it starts. */
+  #created: boolean
+  readonly state: DocumentState
+  /** What the backend's handle extensions can do with this document. */
+  readonly extensionContext: ExtensionContext
 
   constructor(
+    readonly sedimentreeId: SedimentreeId,
     documentId: DocumentId,
-    initialDoc: A.Doc<T>,
-    syncInfoLookup?: (storageId: StorageId) => SyncInfo | undefined
+    private backend: SedimentreeBackend,
+    readonly repoId: RepoId,
+    initial?: unknown,
+    /** The handle class built for the type and the backend's extensions. */
+    readonly Handle?: typeof BaseHandle,
+    /** How the document is stored, read and changed. */
+    readonly docType: AnyDocType = automerge
   ) {
-    this.documentId = documentId
-    this.doc = initialDoc
-    this.syncInfoLookup = syncInfoLookup
-    this.registry = new HandleRegistry(this)
-    this.log = makeLogger(`automerge-repo:doc:${documentId.slice(0, 5)}`)
+    this.#created = initial !== undefined
+    this.state = new DocumentState(documentId, this, initial)
+    const session = () => (this.state.closed ? undefined : this.#session)
+    this.extensionContext = {
+      documentId,
+      sedimentreeId,
+      repoId,
+      get session() {
+        return session()
+      },
+      requireSession: () => {
+        const current = session()
+        if (!current) throw new Error("No active session")
+        return current
+      },
+      emit: (event, payload) => {
+        const { state } = this
+        if (!state.closed && !state.deleted)
+          state.listeners.emitAll(event, handle => ({
+            ...(payload as object),
+            handle,
+          }))
+      },
+      log: (message, detail) => this.state.log.error(message, detail),
+    }
   }
 
-  /**
-   * The whole document at `heads` (the live snapshot when `heads` is
-   * undefined). Views are memoized per snapshot so repeated reads from
-   * view-pinned handles don't re-run `A.view`.
-   */
-  viewAt(heads: UrlHeads | undefined): A.Doc<T> {
-    if (!heads) return this.doc
-    const key = [...heads].sort().join(",")
-    return this.#viewCache.getOrCompute(
-      key,
-      () => A.view(this.doc, decodeHeads(heads)) as A.Doc<T>
+  /** The root handle. */
+  get handle(): DocHandle<any, {}, AnyHandleKind> {
+    return this.state.handle
+  }
+
+  get query(): RootQuery<any> {
+    return this.state.query
+  }
+
+  /** Open the backend session and start consuming its events. */
+  start(): void {
+    // Before the session opens, so it is told the snapshot is complete.
+    if (this.#created) {
+      this.#created = false
+      this.#complete()
+    }
+    if (this.state.closed || this.#session) return
+    let session: SedimentreeSession
+    try {
+      session = this.backend.open(this.sedimentreeId)
+    } catch (error) {
+      this.fail(error)
+      return
+    }
+    this.#session = session
+    this.#initial = []
+    this.#loaded = false
+    if (!this.query.pending) session.markReady()
+    this.#consumer = this.#consume(session).catch(error => {
+      if (this.#session !== session) return
+      this.#session = undefined
+      this.fail(error)
+    })
+  }
+
+  /** Resolves once the current event loop has ended. */
+  settled(): Promise<void> {
+    return this.#consumer
+  }
+
+  async #consume(session: SedimentreeSession): Promise<void> {
+    for await (const event of session.events) {
+      if (this.#session !== session) return
+      if (event.type === "deleted") {
+        this.#session = undefined
+        try {
+          this.markDeleted()
+        } finally {
+          await session.close()
+        }
+        return
+      }
+      this.onEvent(event)
+    }
+    if (this.#session === session && !this.state.closed)
+      this.fail(new Error("Backend observation ended"))
+  }
+
+  // -- Writes --
+
+  /** Store new changes as loose commits, capturing them synchronously before
+   * reentrant listeners run. Boundaries among them are compacted later, or
+   * with `compact` (merges and imports) bundled into this batch. */
+  commit(
+    beforeHeads: readonly string[],
+    after: unknown,
+    options: { compact?: boolean } = {}
+  ): Promise<void> {
+    const failure = this.state.writeFailure
+    if (failure) return Promise.reject(failure.error)
+    if (this.#deleted) return Promise.reject(new Error("Document deleted"))
+    // The document has already adopted `after`: a failure to prepare its
+    // records is a failed write, so it fail-stops like one.
+    return this.#store(() => {
+      const records = this.docType.recordsSince(after, beforeHeads)
+      if (!records.length) return []
+      // Without fragments, a type's boundaries are never compacted.
+      const boundaries = this.docType.fragments
+        ? records.flatMap(r =>
+            r.kind === "commit" && isBoundary(r.id) ? [r.id] : []
+          )
+        : []
+      if (!options.compact) {
+        for (const head of boundaries) this.#markDue(head)
+        return records
+      }
+      // Local changes are all in `after`, so an absent head was absorbed into
+      // a higher fragment in the same batch.
+      return [
+        ...records,
+        ...(this.#fragments(after, boundaries)?.records ?? []),
+      ]
+    })
+  }
+
+  /** Prepare and submit one batch; any failure fail-stops the document. */
+  #store(prepare: () => RecordBatch): Promise<void> {
+    let stored: Promise<void>
+    try {
+      const records = prepare()
+      stored = records.length
+        ? this.backend.store(this.sedimentreeId, records)
+        : Promise.resolve()
+    } catch (error) {
+      stored = Promise.reject(error)
+    }
+    return stored.catch(error => {
+      if (!this.#deleted) this.state.writeFailure ??= { error }
+      throw error
+    })
+  }
+
+  // -- Compaction --
+
+  /** Bundle and store fragments for every due boundary now, after any run in
+   * progress. When none is running, the store is submitted synchronously, so
+   * a backend barrier taken right after includes it. Runs after close too, so
+   * flush and shutdown can compact. */
+  compactNow(): Promise<void> {
+    this.#cancelScheduled()
+    const run = this.#running
+      ? this.#compacting.then(() => this.#compact())
+      : this.#compact()
+    this.#running = true
+    const settled = run.catch(() => {})
+    this.#compacting = settled
+    void settled.then(() => {
+      if (this.#compacting === settled) this.#running = false
+    })
+    return run
+  }
+
+  async #compact(): Promise<void> {
+    if (!this.#due.size || this.#stopped) return
+    const doc = this.state.peek()
+    if (doc === undefined) return
+    let fragments: FragmentRecord[] = []
+    await this.#store(() => {
+      const found = this.#fragments(doc, this.#due)
+      if (!found) {
+        this.#due.clear()
+        return []
+      }
+      const { records, absent } = found
+      // Absorbed into a higher fragment, unless the head is still pending.
+      for (const head of absent)
+        if (this.docType.hasHeads(doc, [head])) this.#due.delete(head)
+      fragments = records
+      return records
+    })
+    for (const record of fragments) this.#due.delete(record.head)
+  }
+
+  #fragments(state: unknown, heads: Iterable<CommitId>) {
+    return this.docType.fragments?.(state, heads)
+  }
+
+  /** Deleted (through Repo or a handle) or fail-stopped: no more stores. */
+  get #stopped(): boolean {
+    return this.#deleted || this.state.deleted || !!this.state.writeFailure
+  }
+
+  #markDue(head: CommitId): void {
+    this.#due.add(head)
+    this.#schedule()
+  }
+
+  /** Throttle per document: the first due boundary starts the timer. */
+  #schedule(): void {
+    if (this.#timer || this.#cancelIdle || !this.#due.size) return
+    if (this.#stopped || this.state.closed) return
+    const delay = COMPACTION_DELAY_MS + Math.random() * COMPACTION_JITTER_MS
+    this.#timer = setTimeout(() => {
+      this.#timer = undefined
+      this.#cancelIdle = whenIdle(() => {
+        this.#cancelIdle = undefined
+        // Heads left due are pending dependencies; later records re-arm.
+        this.compactNow().catch(error =>
+          this.state.log.error("compaction failed: %o", error)
+        )
+      })
+    }, delay)
+    // Never keep a Node process alive just to compact.
+    ;(this.#timer as { unref?: () => void }).unref?.()
+  }
+
+  #cancelScheduled(): void {
+    if (this.#timer) clearTimeout(this.#timer)
+    this.#timer = undefined
+    this.#cancelIdle?.()
+    this.#cancelIdle = undefined
+  }
+
+  /** A fragment in storage covers its head and its checkpoint commits. */
+  #covered(fragment: FragmentRecord): void {
+    this.#due.delete(fragment.head)
+    if (!fragment.checkpoints.length || !this.#due.size) return
+    const checkpoints = new Set<string>(fragment.checkpoints)
+    for (const head of this.#due)
+      if (checkpoints.has(checkpointForCommit(head))) this.#due.delete(head)
+  }
+
+  // -- Lifecycle --
+
+  /** Creation finished while a lookup was already observing this document. */
+  adopt(state: unknown): void {
+    void this.state.applyMutation(
+      current => mergeStates(this.docType, current, state),
+      { incoming: true }
+    )
+    this.#complete()
+  }
+
+  /** Stop edits; stores in flight can still be awaited with the backend's flush. */
+  close(): void {
+    this.#cancelScheduled()
+    this.state.close()
+  }
+
+  /** Stop edits and stores, settle the query as deleted, and notify handles. */
+  markDeleted(): void {
+    this.close()
+    this.#deleted = true
+    this.#due.clear()
+    this.#initial = []
+    this.state.delete()
+  }
+
+  /** Close the session, keeping it for a retry if closing fails. Interest
+   * has ended, so nothing further is compacted. */
+  async release(): Promise<void> {
+    this.#cancelScheduled()
+    const session = this.#session
+    if (!session) return
+    this.#session = undefined
+    try {
+      await session.close()
+    } catch (error) {
+      this.#session ??= session
+      throw error
+    }
+  }
+
+  // -- Events --
+
+  onEvent(event: SedimentreeEvent | ExtensionEvent): void {
+    if (this.state.closed || this.query.terminal) return
+    switch (event.type) {
+      // Typed by kind for whoever sends it; routed here by name alone.
+      case "extension": {
+        const failed = (error: unknown) =>
+          this.state.log.error("extension event failed: %o", error)
+        try {
+          const result: unknown = this.backend.handleExtensions
+            ?.find(
+              ({ receive }) => receive && Object.hasOwn(receive, event.kind)
+            )
+            ?.receive?.[event.kind](this.extensionContext, event.payload)
+          // `receive` is typed as synchronous, but an async one compiles.
+          if (result instanceof Promise) result.catch(failed)
+        } catch (error) {
+          failed(error)
+        }
+        break
+      }
+      case "records": {
+        // The initial cut is applied in one load at local-load-complete.
+        if (event.phase === "initial" && !this.#loaded) {
+          this.#initial.push(...event.records)
+          break
+        }
+        const unknown = this.#unknown(event.records)
+        if (unknown.length) {
+          void this.state.applyMutation(
+            current => this.docType.apply(current, unknown),
+            { incoming: true }
+          )
+        }
+        // Every stored fragment, including echoes of our own and those in
+        // this same batch, covers its head and checkpoints.
+        for (const record of event.records)
+          if (record.kind === "fragment") this.#covered(record)
+        // New records may also complete a due head's pending dependencies.
+        if (unknown.length) this.#schedule()
+        this.#checkTargets()
+        break
+      }
+      case "local-load-complete":
+        this.#loaded = true
+        this.#applyInitial()
+        this.#marker("local", event.marker)
+        break
+      case "history-marker":
+        this.#marker("live", event.marker)
+        break
+      case "synchronized": {
+        this.#marker("sync", event.result.marker)
+        const { outcome, peers, marker } = event.result
+        // Still empty and no peer supplied it: none has it, or none could be
+        // reached. Later data can still make the document ready.
+        if (
+          this.query.pending &&
+          this.#targets.size === 0 &&
+          marker.heads.length === 0 &&
+          this.state.heads().length === 0 &&
+          (outcome === "no-peers" ||
+            (peers.length > 0 &&
+              peers.every(peer => peer.outcome !== "complete")))
+        ) {
+          this.#unavailable()
+        }
+        break
+      }
+      case "failure":
+        if (event.error.retryable)
+          this.state.log.error("backend failure: %o", event.error)
+        else this.fail(event.error)
+        break
+      case "remote-heads":
+        this.state.recordRemoteHeads(event.remote.id as PeerId, event.heads)
+        break
+    }
+  }
+
+  /** Terminal: stop edits and surface the error through the query. */
+  fail(reason: unknown): void {
+    if (this.state.closed) return
+    this.state.log.error("backend observation failed: %o", reason)
+    this.close()
+    this.query.fail(
+      reason instanceof Error ? reason : new Error(String(reason))
     )
   }
 
   /**
-   * Run `mutator`, adopt its result, and fan `heads-changed` / `change`
-   * out via the registry. No dispatch if heads didn't move. Pairing
-   * mutation and dispatch here means callers can't forget the dispatch.
+   * Records whose heads the document does not already include. An applied
+   * head includes all its dependencies, even when delivered through a
+   * fragment; pending heads are not reported by hasHeads. This is a
+   * materialization shortcut, not a persistence receipt.
    */
-  applyMutation(mutator: (doc: A.Doc<any>) => A.Doc<any>): void {
-    const before = this.doc
-    const after = mutator(before)
-    // Always adopt the new snapshot even when heads are unchanged -
-    // `A.change` can hand back a fresh snapshot whose `before` is now
-    // "outdated" for subsequent mutations.
-    this.doc = after
-    const beforeHeads = A.getHeads(before)
-    const afterHeads = A.getHeads(after)
-    if (arrayEqual(beforeHeads, afterHeads)) return
-    this.registry.dispatchHeadsChanged(after)
-    const patches = A.diff(after, beforeHeads, afterHeads)
-    if (patches.length > 0) {
-      this.registry.dispatchChange(after, patches, {
-        before,
-        after,
-        source: "change",
+  #unknown(records: RecordBatch): RecordBatch {
+    const current = this.state.peek()
+    if (current === undefined) return records
+    return records.filter(
+      record => !this.docType.hasHeads(current, [recordHead(record)])
+    )
+  }
+
+  /** Apply the buffered initial cut in one update, and mark due the boundary
+   * commits it holds with no covering fragment. */
+  #applyInitial(): void {
+    const records = this.#initial
+    this.#initial = []
+    if (this.docType.fragments)
+      for (const head of fragmentRequests(records)) this.#due.add(head)
+    for (const record of records)
+      if (record.kind === "fragment") this.#covered(record)
+    this.#schedule()
+    const unknown = this.#unknown(records)
+    if (!unknown.length) return
+    const current = this.state.peek()
+    if (current === undefined) {
+      // The first scan can become the document directly.
+      const next = this.docType.apply(undefined, unknown)
+      void this.state.applyLoaded(next)
+    } else {
+      void this.state.applyMutation(doc => this.docType.apply(doc, unknown), {
+        incoming: true,
       })
     }
   }
-}
 
-function arrayEqual(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
-  return true
+  #marker(source: "local" | "live" | "sync", marker: HistoryMarker): void {
+    if (!this.query.pending || marker.heads.length === 0) return
+    if (!this.#targets.has(source)) this.#targets.set(source, marker)
+    this.#checkTargets()
+  }
+
+  #checkTargets(): void {
+    if (!this.query.pending) return
+    const doc = this.state.peek()
+    if (doc === undefined) return
+    for (const target of this.#targets.values()) {
+      // History inclusion, not head equality. Empty targets are never
+      // evidence that a document is ready.
+      if (target.heads.length && this.docType.hasHeads(doc, target.heads)) {
+        this.#complete()
+        return
+      }
+    }
+  }
+
+  #complete(): void {
+    this.#targets.clear()
+    this.query.ready()
+    this.state.flushRemoteHeads()
+    // Let the backend skip history-marker work once Repo has a verified snapshot.
+    this.#session?.markReady()
+  }
+
+  #unavailable(): void {
+    if (!this.query.pending) return
+    this.state.discardRemoteHeads()
+    this.query.unavailable()
+  }
 }

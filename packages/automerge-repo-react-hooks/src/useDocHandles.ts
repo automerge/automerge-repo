@@ -1,9 +1,19 @@
-import { AutomergeUrl, DocHandle } from "@automerge/automerge-repo/slim"
+import type {
+  AnyDocType,
+  AutomergeDocType,
+  AutomergeUrl,
+  DocHandle,
+  DocumentUrl,
+  KindOf,
+  Repo,
+  SchemeOf,
+} from "@automerge/automerge-repo/slim"
 import { useState, useEffect } from "react"
 import { useRepo } from "./useRepo.js"
 import { PromiseWrapper, wrapPromise } from "./wrapPromise.js"
-import { wrapperCache } from "./useDocHandle.js"
+import { cacheKey, handleCache } from "./handleCache.js"
 import { useSet } from "./helpers/useSet.js"
+import type { AnyHandle, AnyHookParams, DocTypeOption } from "./useDocHandle.js"
 
 export interface UseDocHandlesParams {
   suspense?: boolean
@@ -11,45 +21,89 @@ export interface UseDocHandlesParams {
 
 export type DocHandleMap<T> = Map<AutomergeUrl, DocHandle<T> | undefined>
 
-export function useDocHandles<T>(
-  ids: AutomergeUrl[],
-  { suspense = false }: UseDocHandlesParams = {}
-): DocHandleMap<T> {
-  const idSet = useSet(ids)
-  const repo = useRepo()
-  const [handleMap, setHandleMap] = useState<DocHandleMap<T>>(() => {
-    const map = new Map()
+/**
+ * Handles for several documents, from the Repo in {@link RepoContext}, as
+ * plain `DocHandle`s. In app code, prefer the `useDocHandles` from
+ * {@link createRepoHooks}: its handles have the features the Repo's backend
+ * adds.
+ *
+ * Opens Automerge documents unless `docType` names another doc type, as
+ * `repo.find` does.
+ */
+export function useDocHandles<
+  T = unknown,
+  D extends AnyDocType = AutomergeDocType,
+  S = T,
+>(
+  ids: DocumentUrl<SchemeOf<D>>[],
+  params?: UseDocHandlesParams & DocTypeOption<D, S>
+): Map<DocumentUrl<SchemeOf<D>>, DocHandle<S, {}, KindOf<D>> | undefined> {
+  return useDocHandlesIn(useRepo(), ids, params) as Map<
+    DocumentUrl<SchemeOf<D>>,
+    DocHandle<S, {}, KindOf<D>> | undefined
+  >
+}
 
-    // Initialize the map with any handles that are ready
-    for (const id of idSet.values()) {
-      let progress
-      try {
-        progress = repo.findWithProgress<T>(id)
-      } catch (e) {
-        continue
-      }
-
-      const state = progress.peek()
-      if (state.state === "ready") {
-        map.set(id, state.handle)
-      }
+/** The handles of `ids` that `repo` already has ready. */
+function readyHandles(
+  repo: Repo,
+  ids: Set<DocumentUrl>,
+  docType: AnyDocType | undefined
+): Map<DocumentUrl, AnyHandle | undefined> {
+  const map = new Map<DocumentUrl, AnyHandle | undefined>()
+  for (const id of ids.values()) {
+    let state
+    try {
+      state = repo.query(id, { docType } as { docType: AnyDocType }).state()
+    } catch (e) {
+      continue
     }
 
-    return map
-  })
+    if (state.status === "ready") {
+      map.set(id, state.handle as AnyHandle)
+    }
+  }
+  return map
+}
 
-  const pendingPromises: PromiseWrapper<DocHandle<T>>[] = []
-  const nextHandleMap = new Map<AutomergeUrl, DocHandle<T> | undefined>()
+/** @internal {@link useDocHandles} on a given Repo. */
+export function useDocHandlesIn(
+  repo: Repo,
+  ids: DocumentUrl[],
+  { suspense = false, docType }: AnyHookParams = {}
+): Map<DocumentUrl, AnyHandle | undefined> {
+  type HandleMap = Map<DocumentUrl, AnyHandle | undefined>
+  const idSet = useSet(ids)
+  // Initialize the map with any handles that are ready
+  const [found, setFound] = useState(() => ({
+    repo,
+    docType,
+    map: readyHandles(repo, idSet, docType),
+  }))
+  let handleMap = found.map
+  if (found.repo !== repo || found.docType !== docType) {
+    // The provided Repo (or doc type) changed: its handles replace the
+    // other's.
+    handleMap = readyHandles(repo, idSet, docType)
+    setFound({ repo, docType, map: handleMap })
+  }
+  const setHandleMap = (map: HandleMap) => setFound({ repo, docType, map })
 
+  const pendingPromises: PromiseWrapper<AnyHandle>[] = []
+  const pendingIds: DocumentUrl[] = []
+  const nextHandleMap: HandleMap = new Map()
+
+  const cache = handleCache(repo)
   // Check if we need any new wrappers
   for (const id of idSet.values()) {
     let handle = handleMap.get(id)
-    let wrapper = wrapperCache.get(id)
+    const key = cacheKey(id, docType)
+    let wrapper = cache.get(key)
     if (!wrapper) {
       try {
-        const promise = repo.find<T>(id)
-        wrapper = wrapPromise(promise)
-        wrapperCache.set(id, wrapper)
+        const promise = repo.find(id, { docType } as { docType: AnyDocType })
+        wrapper = wrapPromise(promise) as PromiseWrapper<DocHandle<unknown>>
+        cache.set(key, wrapper)
       } catch (e) {
         continue
       }
@@ -59,11 +113,12 @@ export function useDocHandles<T>(
     // Update handleMap with any available handles,
     // and collect any pending promises
     try {
-      handle ??= wrapper.read() as DocHandle<T>
+      handle ??= wrapper.read() as AnyHandle
       nextHandleMap.set(id, handle)
     } catch (e) {
       if (e instanceof Promise) {
-        pendingPromises.push(wrapper as PromiseWrapper<DocHandle<T>>)
+        pendingPromises.push(wrapper as unknown as PromiseWrapper<AnyHandle>)
+        pendingIds.push(id)
       } else {
         nextHandleMap.set(id, undefined)
       }
@@ -81,11 +136,10 @@ export function useDocHandles<T>(
       void Promise.allSettled(pendingPromises.map(p => p.promise)).then(
         handles => {
           if (!active) return
-          handles.forEach(r => {
-            if (r.status === "fulfilled") {
-              const h = r.value as DocHandle<T>
-              nextHandleMap.set(h.url, h)
-            }
+          // Keyed by the requested URL, which may differ from handle.url.
+          handles.forEach((r, i) => {
+            if (r.status === "fulfilled")
+              nextHandleMap.set(pendingIds[i], r.value as AnyHandle)
           })
           setHandleMap(nextHandleMap)
         }
@@ -96,7 +150,7 @@ export function useDocHandles<T>(
     return () => {
       active = false
     }
-  }, [suspense, idSet])
+  }, [suspense, idSet, repo, docType])
 
   // If any promises are pending, suspend with Promise.all
   // Note that this behaviour is different from the synchronous

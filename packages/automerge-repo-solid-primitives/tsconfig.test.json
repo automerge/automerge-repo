@@ -8,5 +8,5 @@
     "declarationMap": true,
     "composite": true
   },
-  "include": ["test/**/*.tsx", "src/**/*.ts"]
+  "include": ["test/**/*.tsx", "test/*.ts", "src/**/*.ts"]
 }

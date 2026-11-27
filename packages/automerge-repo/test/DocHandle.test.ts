@@ -1,32 +1,54 @@
 import { next as A } from "@automerge/automerge"
 import assert from "assert"
-import { decode } from "cbor-x"
 import { describe, expect, it, vi } from "vitest"
+import { encodeHeads } from "../src/DocumentId.js"
 import {
-  encodeHeads,
   generateAutomergeUrl,
   parseAutomergeUrl,
-} from "../src/AutomergeUrl.js"
-import { eventPromise } from "../src/helpers/eventPromise.js"
+} from "../src/automerge/url.js"
+import { eventPromise } from "./helpers/eventPromise.js"
 import { DocHandle, DocHandleChangePayload } from "../src/index.js"
-import { Document } from "../src/Document.js"
+import type { DocumentState } from "../src/DocumentState.js"
+import { createTestDocument } from "./helpers/testHandle.js"
+import type { PeerId } from "../src/types.js"
 import { TestDoc } from "./types.js"
-import { kOnInternal } from "../src/internals.js"
 
 describe("DocHandle", () => {
   const TEST_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
 
+  const states = new WeakMap<DocHandle<any>, DocumentState>()
   const setup = (options?: any) => {
     const { quick, documentId, doc, ...rest } = options ?? {}
-    let id = documentId ?? TEST_ID
-    const document = new Document<TestDoc>(id, doc ?? A.init<TestDoc>())
-    const handle = new DocHandle<TestDoc>(document, rest)
+    const { state, handle: root } = createTestDocument<TestDoc>(
+      documentId ?? TEST_ID,
+      doc
+    )
+    const handle = Object.keys(rest).length
+      ? (new state.Handle(state, rest) as DocHandle<TestDoc>)
+      : root
+    states.set(handle, state)
     return handle
   }
+  /** Inbound (storage/peer) data path: mutate the DocumentState directly. */
+  const update = (
+    handle: DocHandle<TestDoc>,
+    fn: (doc: A.Doc<TestDoc>) => A.Doc<TestDoc>
+  ) => states.get(handle)!.applyMutation(fn, { incoming: true })
 
   it("should take the UUID passed into it", () => {
     const handle = setup({ quick: true })
     assert.equal(handle.documentId, TEST_ID)
+  })
+
+  it("shares document-owned remote sync info across root and sub-handles", () => {
+    const { state, handle } = createTestDocument<TestDoc>(TEST_ID)
+    const peer = "peer" as PeerId
+    const heads = A.getHeads(A.from({ count: 1 }))
+    state.recordRemoteHeads(peer, heads)
+    expect(handle.getSyncInfo(peer)?.lastHeads).toEqual(encodeHeads(heads))
+    expect(handle.sub("foo").getSyncInfo(peer)).toEqual(
+      handle.getSyncInfo(peer)
+    )
   })
 
   /** HISTORY TRAVERSAL
@@ -57,9 +79,9 @@ describe("DocHandle", () => {
     assert.deepEqual(doc, {})
   })
 
-  it("should return data after update", () => {
+  it("should return data after inbound data arrives", () => {
     const handle = setup()
-    handle.update(doc => A.change(doc, d => (d.foo = "bar")))
+    update(handle, doc => A.change(doc, d => (d.foo = "bar")))
     assert.equal(handle.doc().foo, "bar")
   })
 
@@ -120,9 +142,6 @@ describe("DocHandle", () => {
       viewHandle.changeAt(handle.heads()!, d => (d.foo = "one"))
     )
     assert.throws(() => viewHandle.merge(handle))
-    // update() is the storage/network ingress path - it must not
-    // silently mutate the live doc through a view-pinned handle.
-    assert.throws(() => viewHandle.update(d => d))
   })
 
   it("should return fixed heads from heads()", async () => {
@@ -210,6 +229,34 @@ describe("DocHandle", () => {
     )
   })
 
+  describe("diffing against a handle of a forked document", () => {
+    const fork = () => {
+      const original = setup()
+      original.change(d => (d.foo = "zero"))
+      const forked = setup({
+        documentId: parseAutomergeUrl(generateAutomergeUrl()).documentId,
+        doc: A.clone(original.fullDoc()),
+      })
+      forked.change(d => (d.foo = "one"))
+      return { original, forked }
+    }
+    const expected = [
+      { action: "put", path: ["foo"], value: "" },
+      { action: "splice", path: ["foo", 0], value: "one" },
+    ]
+
+    it("diffs against the fork's root handle", () => {
+      const { original, forked } = fork()
+      assert.deepEqual(original.diff(forked), expected)
+    })
+
+    it("diffs against a sub-handle of the fork using its whole document", () => {
+      const { original, forked } = fork()
+      const sub = forked.sub("foo") as unknown as DocHandle<TestDoc>
+      assert.deepEqual(original.diff(sub), expected)
+    })
+  })
+
   // TODO: alexg -- should i remove this test? should this fail or no?
   it.skip("should fail diffing against unrelated handles", async () => {
     const handle1 = setup()
@@ -221,42 +268,9 @@ describe("DocHandle", () => {
     assert.throws(() => handle1.diff(handle2))
   })
 
-  it("should allow direct access to decoded changes", async () => {
-    const handle = setup()
-    const time = Date.now()
-    handle.change(d => (d.foo = "foo"), { message: "commitMessage" })
-    assert.equal(handle.isReady(), true)
-
-    const metadata = handle.metadata()
-    assert.deepEqual(metadata.message, "commitMessage")
-    // NOTE: I'm not testing time because of https://github.com/automerge/automerge/issues/965
-    // but it does round-trip successfully!
-  })
-
-  it("should allow direct access to a specific decoded change", async () => {
-    const handle = setup()
-    const time = Date.now()
-    handle.change(d => (d.foo = "foo"), { message: "commitMessage" })
-    handle.change(d => (d.foo = "foo"), { message: "commitMessage2" })
-    handle.change(d => (d.foo = "foo"), { message: "commitMessage3" })
-    handle.change(d => (d.foo = "foo"), { message: "commitMessage4" })
-    assert.equal(handle.isReady(), true)
-
-    const history = handle.history()
-    const metadata = handle.metadata(history[0][0])
-    assert.deepEqual(metadata.message, "commitMessage")
-    // NOTE: I'm not testing time because of https://github.com/automerge/automerge/issues/965
-    // but it does round-trip successfully!
-  })
-
   it("should return empty heads for a fresh handle", () => {
     const handle = setup()
     assert.deepEqual(handle.heads(), [])
-  })
-
-  it("metadata() returns undefined on a fresh handle without crashing", () => {
-    const handle = setup()
-    assert.equal(handle.metadata(), undefined)
   })
 
   it("should emit a change message when changes happen", async () => {
@@ -278,39 +292,17 @@ describe("DocHandle", () => {
     assert.deepStrictEqual(changePayload.handle, handle)
   })
 
-  it("should not emit a change message if no change happens via update", () =>
+  it("should not emit a change message if inbound data changes nothing", () =>
     new Promise<void>((done, reject) => {
       const handle = setup()
       handle.once("change", () => {
         reject(new Error("shouldn't have changed"))
       })
-      handle.update(d => {
+      update(handle, d => {
         queueMicrotask(done)
         return d
       })
     }))
-
-  it("public listener removal leaves repo-internal listeners attached", () => {
-    const handle = setup()
-    const seen: string[] = []
-    const internal = () => seen.push(handle.doc()!.foo ?? "")
-    handle[kOnInternal]("change", internal)
-    handle.on("change", () => {})
-
-    handle.removeAllListeners()
-    expect(handle.listeners("change")).toEqual([internal])
-
-    handle.on("change", () => {})
-    handle.off("change")
-    expect(handle.listeners("change")).toEqual([internal])
-
-    // off(event, fn) with an internal listener's function leaves it attached.
-    handle.off("change", internal as never)
-    handle.change(d => {
-      d.foo = "bar"
-    })
-    expect(seen).toEqual(["bar"])
-  })
 
   it("off(event, fn) removes a once() listener by the original function", () => {
     const handle = setup()
@@ -387,10 +379,10 @@ describe("DocHandle", () => {
       })
     }))
 
-  it("should emit a heads-changed event when data arrives via update", async () => {
+  it("should emit a heads-changed event when inbound data arrives", async () => {
     const handle = setup()
     const p = eventPromise(handle, "heads-changed")
-    handle.update(doc => A.change(doc, d => (d.foo = "bar")))
+    update(handle, doc => A.change(doc, d => (d.foo = "bar")))
     await p
     assert.equal(handle.doc().foo, "bar")
   })
@@ -409,7 +401,7 @@ describe("DocHandle", () => {
     })
 
     let wasBar = false
-    let newHeads = handle.changeAt(headsBefore, doc => {
+    let newHeads = await handle.changeAt(headsBefore, doc => {
       wasBar = doc.foo === "bar"
       doc.foo = "baz"
     })
@@ -420,30 +412,15 @@ describe("DocHandle", () => {
 
   it("should merge another handle", () => {
     const handle1 = setup()
-    handle1.update(() => A.from<TestDoc>({ foo: "one" }))
+    update(handle1, () => A.from<TestDoc>({ foo: "one" }))
 
     const OTHER_ID = parseAutomergeUrl(generateAutomergeUrl()).documentId
     const handle2 = setup({ documentId: OTHER_ID })
-    handle2.update(() => A.from<TestDoc>({ foo: "two" }))
+    update(handle2, () => A.from<TestDoc>({ foo: "two" }))
 
     handle1.merge(handle2)
     // After merge, handle1 should have data from both
     assert.ok(handle1.doc())
-  })
-
-  describe("ephemeral messaging", () => {
-    it("can broadcast a message for the network to send out", async () => {
-      const handle = setup()
-
-      const message = { foo: "bar" }
-
-      const promise = eventPromise(handle, "ephemeral-message-outbound")
-
-      handle.broadcast(message)
-
-      const { data } = await promise
-      assert.deepStrictEqual(decode(data), message)
-    })
   })
 
   it("should cache view handles based on heads", async () => {
@@ -511,6 +488,59 @@ describe("DocHandle", () => {
 
     // Cached access should be significantly faster
     expect(timeForCachedAccesses).toBeLessThan(timeForFirstAccess / 10)
+  })
+
+  describe("hasHeads", () => {
+    it("is true for current and past heads", () => {
+      const handle = setup()
+      handle.change(d => (d.foo = "one"))
+      handle.change(d => (d.foo = "two"))
+      expect(handle.hasHeads(handle.heads())).toBe(true)
+      for (const heads of handle.history()) {
+        expect(handle.hasHeads(heads)).toBe(true)
+      }
+    })
+
+    it("is false for unknown heads", () => {
+      const handle = setup()
+      handle.change(d => (d.foo = "one"))
+      const other = encodeHeads(A.getHeads(A.from({ foo: "other" })))
+      expect(handle.hasHeads(other)).toBe(false)
+      expect(handle.hasHeads([...handle.heads(), ...other] as any)).toBe(false)
+    })
+
+    it("only counts history up to a view's fixed heads", () => {
+      const handle = setup()
+      handle.change(d => (d.foo = "one"))
+      const pinned = handle.heads()
+      handle.change(d => (d.foo = "two"))
+      const later = handle.heads()
+      const view = handle.view(pinned)
+      expect(view.hasHeads(pinned)).toBe(true)
+      expect(view.hasHeads(later)).toBe(false)
+      expect(handle.view(later).hasHeads(pinned)).toBe(true)
+    })
+
+    it("is false for heads concurrent with a view's fixed heads", () => {
+      const handle = setup()
+      handle.change(d => (d.foo = "base"))
+      const fork = A.change(A.clone(handle.doc()), d => (d.bar = "fork"))
+      handle.change(d => (d.foo = "local"))
+      const pinned = handle.heads()
+      update(handle, doc => A.merge(doc, fork))
+      const forkHeads = encodeHeads(A.getHeads(fork))
+      expect(handle.hasHeads(forkHeads)).toBe(true)
+      expect(handle.view(pinned).hasHeads(forkHeads)).toBe(false)
+    })
+
+    it("ignores path scoping", () => {
+      const handle = setup()
+      handle.change(d => (d.foo = "one"))
+      const heads = handle.heads()
+      handle.change(d => (d.bar = "two"))
+      expect(handle.sub("foo").hasHeads(heads)).toBe(true)
+      expect(handle.sub("bar").hasHeads(handle.heads())).toBe(true)
+    })
   })
 
   describe("isReadOnly", () => {
@@ -594,21 +624,15 @@ describe("DocHandle", () => {
   describe("state observation", () => {
     it("reports ready by default", () => {
       const handle = setup()
-      assert.equal(handle.state, "ready")
       assert.equal(handle.isReady(), true)
       assert.equal(handle.isDeleted(), false)
-      assert.equal(handle.isUnloaded(), false)
-      assert.equal(handle.isUnavailable(), false)
-      assert.equal(handle.inState(["ready"]), true)
     })
 
     it("flips to deleted when delete() is called", () => {
       const handle = setup()
       handle.delete()
-      assert.equal(handle.state, "deleted")
       assert.equal(handle.isReady(), false)
       assert.equal(handle.isDeleted(), true)
-      assert.equal(handle.inState(["deleted"]), true)
     })
 
     it("user delete listener observes deleted state", async () => {
@@ -620,53 +644,57 @@ describe("DocHandle", () => {
       assert.equal(await seenDeleted, true)
     })
 
-    it("whenReady resolves immediately on a ready handle", async () => {
+    it("does not expose removed v1 or internal methods", () => {
       const handle = setup()
-      await handle.whenReady()
-    })
-
-    it("whenReady(['deleted']) resolves on delete", async () => {
-      const handle = setup()
-      const p = handle.whenReady(["deleted"])
-      handle.delete()
-      await p
-      assert.equal(handle.isDeleted(), true)
-    })
-
-    it("getRemoteHeads / getSyncInfo delegate to the lookup injected at construction", () => {
-      const sentinel = {
-        lastHeads: encodeHeads(["abcd"]),
-        lastSyncTimestamp: 12345,
+      for (const name of [
+        "state",
+        "isUnavailable",
+        "inState",
+        "whenReady",
+        "getRemoteHeads",
+        "isUnloaded",
+        "begin",
+        "doneLoading",
+        "unavailable",
+        "request",
+        "unload",
+        "reload",
+        "metadata",
+        "update",
+        "_handleRetainerSize",
+        "_trieNodeCount",
+        "_receiveInboundEphemeral",
+        "_docAt",
+      ]) {
+        assert.equal(name in handle, false)
       }
-      const document = new Document<TestDoc>(TEST_ID, A.init<TestDoc>(), sid =>
-        sid === "storage-1" ? sentinel : undefined
-      )
-      const handle = new DocHandle<TestDoc>(document, {})
-      assert.deepEqual(
-        handle.getRemoteHeads("storage-1" as any),
-        sentinel.lastHeads
-      )
-      assert.deepEqual(handle.getSyncInfo("storage-1" as any), sentinel)
-      assert.equal(handle.getRemoteHeads("storage-2" as any), undefined)
-      assert.equal(handle.getSyncInfo("storage-2" as any), undefined)
     })
 
-    it("view handles inherit the sync info lookup", () => {
-      const sentinel = {
+    it("getSyncInfo reads remote heads recorded by DocumentState", () => {
+      const { state, handle } = createTestDocument<TestDoc>(TEST_ID)
+      state.recordRemoteHeads("peer-1" as PeerId, ["abcd"])
+      expect(handle.getSyncInfo("peer-1" as PeerId)).toMatchObject({
         lastHeads: encodeHeads(["abcd"]),
-        lastSyncTimestamp: 12345,
-      }
-      const document = new Document<TestDoc>(TEST_ID, A.init<TestDoc>(), sid =>
-        sid === "storage-1" ? sentinel : undefined
+        lastSyncTimestamp: expect.any(Number),
+      })
+      assert.equal(handle.getSyncInfo("peer-2" as PeerId), undefined)
+    })
+
+    it("view handles share DocumentState sync info", () => {
+      const { state, handle } = createTestDocument<TestDoc>(TEST_ID)
+      state.recordRemoteHeads("peer-1" as PeerId, ["abcd"])
+      state.applyMutation((d: A.Doc<TestDoc>) =>
+        A.change(d, x => (x.foo = "bar"))
       )
-      const handle = new DocHandle<TestDoc>(document, {})
-      handle.update(d => A.change(d, x => (x.foo = "bar")))
       const view = handle.view(handle.heads())
-      assert.deepEqual(view.getSyncInfo("storage-1" as any), sentinel)
+      assert.deepEqual(
+        view.getSyncInfo("peer-1" as PeerId),
+        handle.getSyncInfo("peer-1" as PeerId)
+      )
     })
   })
 
-  it("should continue to function after recovering from an exception in changeAt", () => {
+  it("should continue to function after recovering from an exception in changeAt", async () => {
     const handle = setup()
     handle.change(d => (d.foo = "bar"))
 
@@ -687,11 +715,59 @@ describe("DocHandle", () => {
     assert.equal(err, expectedErr, "should have thrown the error")
 
     // Future changes should still work
-    const newHeads = handle.changeAt(heads, doc => {
+    const newHeads = await handle.changeAt(heads, doc => {
       doc.foo = "baz"
     })
     assert.ok(newHeads, "should have new heads")
     const viewDoc = A.view(handle.doc(), A.getHeads(handle.doc()))
     assert.ok(viewDoc)
+  })
+
+  describe("patchInfo.source", () => {
+    it("reports the Automerge operation for change, changeAt, remove and merge", async () => {
+      const handle = setup()
+      const sources: A.PatchSource[] = []
+      const subSources: A.PatchSource[] = []
+
+      handle.on("change", ({ patchInfo }) => sources.push(patchInfo.source))
+      handle
+        .sub("foo")
+        .on("change", ({ patchInfo }) => subSources.push(patchInfo.source))
+
+      await handle.change(d => {
+        d.foo = "one"
+      })
+      const heads = handle.heads()
+      await handle.change(d => {
+        d.foo = "two"
+      })
+      await handle.changeAt(heads, d => {
+        d.foo = "branch"
+      })
+      await handle.sub("foo").remove()
+
+      const other = setup({
+        documentId: parseAutomergeUrl(generateAutomergeUrl()).documentId,
+      })
+      await other.change(d => {
+        d.foo = "merged"
+      })
+      await handle.merge(other)
+
+      expect(sources).toEqual([
+        "change",
+        "change",
+        "changeAt",
+        "change",
+        "merge",
+      ])
+      expect(subSources).toEqual([
+        "change",
+        "change",
+        "changeAt",
+        "change",
+        "merge",
+      ])
+    })
   })
 })
