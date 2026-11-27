@@ -12,10 +12,7 @@
     "**/*.d.ts",
     "**/*.config.ts",
     "**/fuzz/**",
-    "**/testSetup.ts",
-    "playwright.base.ts",
-    "packages/create-vite-app/**",
-    "packages/create-repo-node-app/**"
+    "**/testSetup.ts"
   ],
   "rules": {
     "no-restricted-imports": [
@@ -71,10 +68,7 @@
   },
   "overrides": [
     {
-      "files": [
-        "packages/automerge-react/**",
-        "packages/automerge-vanillajs/**"
-      ],
+      "files": ["packages/automerge-react/**"],
       "rules": {
         "no-restricted-imports": "off"
       }
