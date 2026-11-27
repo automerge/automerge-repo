@@ -1,6 +1,6 @@
 {
   "name": "@automerge/automerge-repo-monorepo",
-  "version": "2.6.0-alpha.5",
+  "version": "3.0.0-alpha.3",
   "description": "Automerge Repo monorepo",
   "main": "packages/automerge-repo/dist/index.js",
   "repository": "https://github.com/automerge/automerge-repo",
@@ -28,9 +28,9 @@
     "test:coverage": "vitest --coverage",
     "test:ui": "vitest --coverage --ui",
     "watch": "pnpm run --parallel --stream -r watch ",
-    "lint:check-types": "pnpm run lint:check-types:packages && pnpm run lint:check-types:examples && pnpm run lint:check-types:scripts",
+    "lint:check-types": "pnpm run lint:check-types:packages && pnpm run lint:check-types:checks && pnpm run lint:check-types:scripts",
     "lint:check-types:packages": "pnpm --filter './packages/*' exec tsc --noEmit",
-    "lint:check-types:examples": "pnpm --filter './examples/react-*' exec tsc --noEmit",
+    "lint:check-types:checks": "node scripts/check-types.mjs",
     "check:bundles": "node scripts/check-bundles.ts",
     "lint:check-types:scripts": "tsc --noEmit -p scripts/tsconfig.json"
   },
