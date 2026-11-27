@@ -6,8 +6,8 @@
  * format and sync protocol but doesn't provide the plumbing to use these tools
  * in a JS application. `automerge-repo` provides the plumbing.
  *
- * The main entry point is the {@link Repo} class, which you instantiate with
- * a {@link StorageAdapter} and zero or more {@link NetworkAdapter}s. Once you
+ * The main entry point is the {@link Repo} class, with a sedimentree backend
+ * for storage and synchronization ({@link MemoryBackend} by default). Once you
  * have a repo you can use it to create {@link DocHandle}s. {@link DocHandle}s
  * are a reference to a document, identified by a {@link AutomergeUrl}, a place to
  * listen for changes to the document, and to make new changes.
@@ -17,39 +17,55 @@
  * ```typescript
  * import { Repo } from "@automerge/automerge-repo";
  *
- * const repo = new Repo({
- *   storage: <storage adapter>,
- *   network: [<network adapter>, <network adapter>]
- * })
+ * const repo = new Repo()
  *
- * const handle = repo.create
+ * const handle = await repo.create({ count: 0 })
+ * await handle.change(doc => { doc.count++ })
  * ```
  */
 
-export { DocHandle } from "./DocHandle.js"
+export { DocHandle } from "./types/DocHandle.js"
+/** @hidden The class's own type; use {@link DocHandle}. Exported so other
+ * packages' declarations can name handle types. */
+export type { Handle as DocHandleClass } from "./Handle.js"
+/** What a backend's extensions add to handles: the `X` of `Repo<X>` and
+ * `DocHandle<T, X>`. Extensions are written and listed with the
+ * `@automerge/automerge-repo/sedimentree` entry. */
+export type { HandleExtensionSpec } from "./sedimentree/extension.js"
 export {
-  anyDocumentIdToAutomergeUrl,
-  isValidAutomergeUrl,
+  isValidDocumentUrl,
+  isValidUrlScheme,
   isValidDocumentId,
-  parseAutomergeUrl,
-  stringifyAutomergeUrl,
+  parseDocumentUrl,
+  parseUrlScheme,
+  stringifyDocumentUrl,
   interpretAsDocumentId,
   documentIdToBinary,
-  generateAutomergeUrl,
+  binaryToDocumentId,
   encodeHeads,
   decodeHeads,
-} from "./AutomergeUrl.js"
-export type { ParsedAutomergeUrl, UrlOptions } from "./AutomergeUrl.js"
+} from "./DocumentUrl.js"
+export type {
+  DocumentUrlOptions,
+  ParsedDocumentUrl,
+  UrlDocType,
+} from "./DocumentUrl.js"
 export { Repo } from "./Repo.js"
 export { setLoggerFactory, makeLogger } from "./Logger.js"
 export type { Logger, LoggerFactory } from "./Logger.js"
 export { Presence } from "./presence/Presence.js"
-export { PeerStateView } from "./presence/PeerStateView.js"
+export {
+  PeerStateView,
+  originIdentity,
+  senderIdentity,
+} from "./presence/PeerStateView.js"
 export type { GetStatesOpts } from "./presence/PeerStateView.js"
 export type {
   PeerState,
   PresenceState,
   PresenceConfig,
+  PresenceHandle,
+  PresenceInbound,
   PeerStatesValue,
   PresenceEvents,
   PresenceEventUpdate,
@@ -65,161 +81,59 @@ export type {
   DEFAULT_PEER_TTL_MS,
 } from "./presence/constants.js"
 
-export { NetworkAdapter } from "./network/NetworkAdapter.js"
-export type { NetworkAdapterInterface } from "./network/NetworkAdapterInterface.js"
-export { isRepoMessage } from "./network/messages.js"
-export { StorageAdapter } from "./storage/StorageAdapter.js"
-export type { StorageAdapterInterface } from "./storage/StorageAdapterInterface.js"
-import { next as Automerge, type ObjID } from "@automerge/automerge/slim"
-
 /** @hidden **/
 export * as cbor from "./helpers/cbor.js"
 
 // types
 
 export type {
-  DocHandleChangePayload,
-  DocHandleDeletePayload,
-  DocHandleEncodedChangePayload,
-  DocHandleEphemeralMessagePayload,
-  DocHandleRemoteHeadsPayload,
-  DocHandleEvents,
-  DocHandleOptions,
-  DocHandleOutboundEphemeralMessagePayload,
-  HandleState,
-  SyncInfo,
-} from "./DocHandle.js"
-
-export type {
+  AbortOptions,
   DeleteDocumentPayload,
   DocumentPayload,
+  HandleOf,
   RepoConfig,
   RepoEvents,
   RepoFindOptions,
-  DocMetrics,
-  ShareConfig,
-  SharePolicy,
 } from "./Repo.js"
+export type { MintDocumentId } from "./sedimentree/backend.js"
+export { MemoryBackend } from "./sedimentree/memory/MemoryBackend.js"
+export type { MemoryBackendOptions } from "./sedimentree/memory/MemoryBackend.js"
 
+export type { DocumentQuery, QueryState } from "./DocumentQuery.js"
 export type {
   DocumentProgress,
-  QueryState,
+  ProgressState,
   SourceState,
-} from "./DocumentQuery.js"
-export type { AbortOptions } from "./helpers/abortable.js"
+} from "./DocumentProgress.js"
 
+export { isHandleOf } from "./types/DocHandle.js"
+export type { AnyDocHandle, AnyHandleKind } from "./types/DocHandle.js"
+export { Handle } from "./Handle.js"
+export type { StateChange } from "./Handle.js"
+export { defineDocType } from "./DocType.js"
 export type {
-  FindProgress,
-  FindProgressWithMethods,
-  ProgressSignal,
-} from "./_compat.js"
-
+  AnyDocType,
+  DocType,
+  DocTypeContext,
+  HandleKind,
+  InitOf,
+  KindOf,
+  Of,
+  SchemeOf,
+  Shaped,
+  UrlTarget,
+} from "./DocType.js"
+// Internal doc-type plumbing, re-exported for TypeScript declaration portability.
 export type {
-  NetworkAdapterEvents,
-  OpenPayload,
-  PeerCandidatePayload,
-  PeerDisconnectedPayload,
-  PeerMetadata,
-} from "./network/NetworkAdapterInterface.js"
-
-export type {
-  NetworkSubsystemEvents,
-  PeerPayload,
-} from "./network/NetworkSubsystem.js"
-
-export type {
-  DocumentUnavailableMessage,
-  EphemeralMessage,
-  Message,
-  RepoMessage,
-  RequestMessage,
-  SyncMessage,
-} from "./network/messages.js"
-
-export type {
-  Chunk,
-  ChunkInfo,
-  ChunkType,
-  StorageKey,
-  StorageId,
-} from "./storage/types.js"
+  DocTypeHelpers,
+  HandleOfClass,
+  Kinded,
+  PlainHandle,
+} from "./docTypeKinds.js"
+export type { BackendOf, SameBackend, WithBackend } from "./types/DocHandle.js"
 
 export * from "./types.js"
 
-// Sub-document handle helpers (experimental). A sub-handle is just a
-// `DocHandle` scoped to a path - `handle.sub(...)` returns a `DocHandle`.
-// Path-related types and the `cursor()` helper live here.
-export type {
-  PathInput,
-  MutableText,
-  InferSubType,
-  Pattern,
-  SubChangeFn,
-} from "./subdoc-handles/types.js"
-export { cursor } from "./subdoc-handles/utils.js"
-
-// Automerge re-exports
-//
-// Note that we can't use export type { .. } from "@automerge/automerge" because we are
-// importing automerge like this:
-//
-// import { next as Automerge } from "@automerge/automerge"
-//
-// I.e. we are using the `next` export from Automerge. Not the module itself. This is
-// to maintain compatiblity with Automerge 3.0 and 2.0. In 2.0 we used to have a
-// subpath export at `/next` so the re-exports looked like this:
-//
-// export { type .. } from "@automerge/automerge/slim/next"
-//
-// However, we have now removed the subpath export (and deprecated next generally)
-// so we need to explicitly name each type we are re-exporting here.
-export const Counter = Automerge.Counter
-export const RawString = Automerge.RawString
-// In automerge 3.0 RawString is renamed to ImmutableString
-export const ImmutableString = Automerge.RawString
-
-// Export separate RawString and ImmutableString types,
-// whose symbols are only usable as values otherwise.
-export type RawString = InstanceType<typeof Automerge.RawString>
-export type ImmutableString = RawString
-
-export type Counter = Automerge.Counter
-export type Doc<T> = Automerge.Doc<T>
-export type Heads = Automerge.Heads
-export type Patch = Automerge.Patch
-export type PatchCallback<T> = Automerge.PatchCallback<T>
-export type Prop = Automerge.Prop
-export type ActorId = Automerge.ActorId
-export type Change = Automerge.Change
-export type ChangeFn<T> = Automerge.ChangeFn<T>
-export type Mark = Automerge.Mark
-export type MarkSet = Automerge.MarkSet
-export type MarkRange = Automerge.MarkRange
-export type MarkValue = Automerge.MarkValue
-export type Cursor = Automerge.Cursor
-
-// export a few utility functions that aren't in automerge-repo
-// NB that these should probably all just be available via the dochandle
-export const getChanges = Automerge.getChanges
-export const getAllChanges = Automerge.getAllChanges
-export const applyChanges = Automerge.applyChanges
-export const view = Automerge.view
-export const getConflicts = Automerge.getConflicts
-
-// export type-specific utility functions
-// these mostly can't be on the data-type in question because
-// JS strings can't have methods added to them
-export const getCursor = Automerge.getCursor
-export const getCursorPosition = Automerge.getCursorPosition
-export const splice = Automerge.splice
-export const updateText = Automerge.updateText
-export const insertAt = Automerge.insertAt
-export const deleteAt = Automerge.deleteAt
-export const mark = Automerge.mark
-export const unmark = Automerge.unmark
-export const isRawString = Automerge.isRawString
-// In Automerge 3.0 raw string is renamed to immutable string
-export const isImmutableString = Automerge.isRawString
-
-export const getObjectId = Automerge.getObjectId
-export type { ObjID }
+// Automerge doc type: doc type definition, events, URLs, sub-document handles
+// and Automerge CRDT re-exports.
+export * from "./automerge/index.js"

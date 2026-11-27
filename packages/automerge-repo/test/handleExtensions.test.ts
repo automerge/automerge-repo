@@ -1,0 +1,167 @@
+import { next as A } from "@automerge/automerge"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { instanceMembers } from "../src/DocHandle.js"
+import { DocHandle } from "../src/types/DocHandle.js"
+import { Repo } from "../src/Repo.js"
+import {
+  defineExtension,
+  provides,
+  type AnyHandleExtension,
+  type SedimentreeSession,
+} from "../src/sedimentree/index.js"
+import { MemoryBackend } from "../src/sedimentree/memory/MemoryBackend.js"
+import { scriptedBackend } from "./helpers/scriptedBackend.js"
+
+/** What `ping` adds to the handles of a Repo on a backend listing it. */
+interface PingSpec {
+  session: PingSession
+  receives: { ping: number | "throw" }
+  members: { ping(): Promise<string>; caller(): string }
+  events: { pong: { n: number } }
+}
+
+/** The session `ping` needs of its backend. */
+interface PingSession extends SedimentreeSession {
+  ping(text: string): Promise<string>
+}
+
+/** Asks its backend to answer, and reports the backend's `pong`s. */
+const ping = defineExtension<PingSpec>({
+  members: {
+    async ping(context): Promise<string> {
+      const session = context.requireSession()
+      const { repoId, documentId } = context
+      return session.ping(`${repoId}/${documentId}`)
+    },
+    caller: (_context, handle) => handle.url,
+  },
+  receive: {
+    ping(context, payload) {
+      if (payload === "throw") throw new Error("receive failed")
+      context.emit("pong", { n: payload })
+    },
+  },
+})
+
+describe("backend handle extensions", () => {
+  const repos: Repo[] = []
+  afterEach(async () => {
+    await Promise.all(repos.splice(0).map(repo => repo.shutdown()))
+    vi.restoreAllMocks()
+  })
+
+  /** A Repo on a backend that lists `ping`; its sessions answer unless told not to. */
+  async function setup({ answers = true } = {}) {
+    const scripted = scriptedBackend()
+    const backend = Object.assign(scripted.backend, {
+      handleExtensions: provides(ping),
+    })
+    const repo = new Repo({ backend })
+    repos.push(repo)
+    const handle = await repo.import<{ count: number }>(
+      A.save(A.from({ count: 0 }))
+    )
+    const session = await scripted.session()
+    const answer = vi.fn(async (text: string) => `pong:${text}`)
+    if (answers) Object.assign(session, { ping: answer })
+    return { repo, handle, session, answer }
+  }
+
+  it("adds the extension's members to every handle of the Repo", async () => {
+    const { repo, handle, answer } = await setup()
+    const sub = handle.sub("count")
+    const view = handle.view(handle.heads())
+    for (const h of [handle, sub, view, await repo.find(handle.url)]) {
+      expect(h).toBeInstanceOf(DocHandle)
+      expect(await h.ping()).toBe(`pong:${repo.id}/${handle.documentId}`)
+      // Each call gets the handle it was made on.
+      expect(h.caller()).toBe(h.url)
+    }
+    expect(answer).toHaveBeenCalledTimes(4)
+    // A backend need not provide any: its handles are plain.
+    const plain = new Repo()
+    repos.push(plain)
+    expect("ping" in (await plain.create())).toBe(false)
+  })
+
+  it("gives the extension the document's session while it is open", async () => {
+    const { repo, handle } = await setup()
+    await repo.shutdown()
+    await expect(handle.ping()).rejects.toThrow("No active session")
+  })
+
+  it("fails at the call when the backend's sessions lack what the extension needs", async () => {
+    const { handle } = await setup({ answers: false })
+    await expect(handle.ping()).rejects.toThrow(TypeError)
+  })
+
+  it("routes the backend's extension events to its extension by kind", async () => {
+    const { handle, session } = await setup()
+    const sub = handle.sub("count")
+    const root = vi.fn(),
+      scoped = vi.fn()
+    handle.on("pong", root)
+    sub.on("pong", scoped)
+    const event = { type: "extension", sequence: 1, kind: "ping" } as const
+    // A kind the Repo does not have is dropped.
+    await session.push({ ...event, kind: "unknown", payload: 1 })
+    await session.push({ ...event, payload: "throw" })
+    await session.push({ ...event, payload: 2 })
+    expect(root.mock.calls).toEqual([[{ handle, n: 2 }]])
+    expect(scoped.mock.calls).toEqual([[{ handle: sub, n: 2 }]])
+    await handle.change(doc => {
+      doc.count++
+    })
+    expect(handle.doc()?.count).toBe(1)
+  })
+
+  describe("what an extension may add", () => {
+    /** An extension adding one method called `name`. */
+    const defining = (name: string): AnyHandleExtension => ({
+      members: { [name]: () => {} },
+    })
+
+    it("Repo rejects extensions that receive one kind or redefine a member", () => {
+      const repo = (...handleExtensions: AnyHandleExtension[]) =>
+        new Repo({
+          backend: Object.assign(new MemoryBackend(), { handleExtensions }),
+        })
+      expect(() => repo(ping, ping)).toThrow("receive ping")
+      // A method, a getter, and a member DocHandle defines per instance.
+      for (const name of ["change", "url", "isReady"])
+        expect(() => repo(defining(name))).toThrow(`redefines ${name}`)
+      expect(() => repo(ping, defining("ping"))).toThrow("redefines ping")
+    })
+
+    it("accepts an extension without members", async () => {
+      const received = vi.fn()
+      const notes = defineExtension<{ receives: { note: number } }>({
+        receive: { note: (_context, payload) => received(payload) },
+      })
+      const scripted = scriptedBackend()
+      const repo = new Repo({
+        backend: Object.assign(scripted.backend, {
+          handleExtensions: provides(notes),
+        }),
+      })
+      repos.push(repo)
+      await repo.import(A.save(A.from({ count: 0 })))
+      const session = await scripted.session()
+      await session.push({
+        type: "extension",
+        sequence: 1,
+        kind: "note",
+        payload: 3,
+      })
+      expect(received).toHaveBeenCalledWith(3)
+    })
+
+    it("knows every member DocHandle defines per instance", async () => {
+      const repo = new Repo()
+      repos.push(repo)
+      // A new one must be added to `instanceMembers`, or extensions could
+      // redefine it unnoticed.
+      expect(Reflect.ownKeys(await repo.create())).toEqual(instanceMembers)
+    })
+  })
+})

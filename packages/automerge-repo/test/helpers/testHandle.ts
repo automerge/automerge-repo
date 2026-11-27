@@ -1,15 +1,53 @@
 import { next as A } from "@automerge/automerge/slim"
-import { DocHandle } from "../../src/DocHandle.js"
-import { Document } from "../../src/Document.js"
-import { DocumentQuery } from "../../src/DocumentQuery.js"
+import type { DocHandle } from "../../src/types/DocHandle.js"
+import { DocumentState } from "../../src/DocumentState.js"
+import type { RootQuery } from "../../src/DocumentQuery.js"
 import type { DocumentId } from "../../src/types.js"
 
-/** Construct a fresh DocHandle suitable for use in tests. */
-export function createTestHandle<T>(documentId: DocumentId): DocHandle<T> {
-  return new DocHandle<T>(new Document<T>(documentId, A.init<T>()))
+const states = new WeakMap<DocHandle<any>, DocumentState>()
+
+/** Stands in for the owning Document: edits are accepted and stored nowhere. */
+export const noopOwner = {
+  commit: async () => {},
 }
 
-/** Construct a DocumentQuery wrapping a fresh DocHandle. */
-export function createTestQuery<T>(documentId: DocumentId): DocumentQuery<T> {
-  return new DocumentQuery<T>(createTestHandle<T>(documentId))
+/**
+ * A DocumentState with its root handle and query, without a backend. Ready unless
+ * `ready: false`, for tests driving the query themselves.
+ */
+export function createTestDocument<T>(
+  documentId: DocumentId,
+  doc: A.Doc<T> = A.init<T>(),
+  { ready = true }: { ready?: boolean } = {}
+): { state: DocumentState; handle: DocHandle<T>; query: RootQuery<T> } {
+  const state = new DocumentState(documentId, noopOwner, doc)
+  const handle = state.handle as unknown as DocHandle<T>
+  const query = state.query as RootQuery<T>
+  if (ready) query.ready()
+  states.set(handle, state)
+  return { state, handle, query }
+}
+
+/** Construct a fresh, ready DocHandle suitable for use in tests. */
+export function createTestHandle<T>(documentId: DocumentId): DocHandle<T> {
+  return createTestDocument<T>(documentId).handle
+}
+
+/** Construct a loading RootQuery, its root handle and its document state. */
+export function createTestQuery<T>(documentId: DocumentId): {
+  query: RootQuery<T>
+  handle: DocHandle<T>
+  state: DocumentState
+} {
+  return createTestDocument<T>(documentId, undefined, { ready: false })
+}
+
+/** Deliver inbound data to a handle created by {@link createTestDocument}. */
+export function applyInbound<T>(
+  handle: DocHandle<T>,
+  fn: (doc: A.Doc<T>) => A.Doc<T>
+): Promise<void> {
+  const state = states.get(handle)
+  if (!state) throw new Error("Not a test handle")
+  return state.applyMutation(fn, { incoming: true })
 }

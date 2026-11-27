@@ -63,4 +63,15 @@ describe("Logger", () => {
 
     expect(loggers.get("test:ns")?.warn).toHaveBeenCalledWith("after swap")
   })
+
+  it("swallows errors thrown by the application logger", () => {
+    const { loggers } = installMockFactory()
+    const log = makeLogger("test:ns")
+    log.error("prime")
+    loggers.get("test:ns")!.error.mockImplementation(() => {
+      throw new Error("transport closed")
+    })
+
+    expect(() => log.error("boom")).not.toThrow()
+  })
 })

@@ -1,15 +1,48 @@
-import { PeerId } from "../types.js"
+import { RepoId, PeerId } from "../types.js"
 import { PRESENCE_MESSAGE_MARKER } from "./constants.js"
 
 export type PresenceState = Record<string, any>
 
+/** An ephemeral message as Presence receives it. */
+export type PresenceInbound = {
+  /** The peer that sent it, as the backend authenticated it; several Repos
+   * may share one. */
+  senderId: PeerId
+  /** The Repo that sent it, telling one peer's Repos apart; claimed, not
+   * authenticated. */
+  originId: RepoId
+  /** What the sender passed to `broadcast`. */
+  message: unknown
+}
+
+/**
+ * A handle with ephemeral messaging, as {@link Presence} needs. A backend
+ * provides it with a handle extension; see `src/presence/README.md` for how
+ * the handle must behave.
+ */
+export interface PresenceHandle {
+  broadcast(message: unknown): void
+  on(
+    event: "ephemeral-message",
+    fn: (payload: PresenceInbound) => void
+  ): unknown
+  off(
+    event: "ephemeral-message",
+    fn?: (payload: PresenceInbound) => void
+  ): unknown
+}
+
+/** Peer states by the publishing Repo's {@link PeerState.originId}. */
 export type PeerStatesValue<State extends PresenceState> = Record<
-  PeerId,
+  RepoId,
   PeerState<State>
 >
 
 export type PeerState<State extends PresenceState> = {
-  peerId: PeerId
+  /** The peer that sent this state, as authenticated by the backend; several Repos may share one. */
+  senderId: PeerId
+  /** The Repo this state was sent for; tells one peer's Repos apart. Not authenticated. */
+  originId: RepoId
   lastActiveAt: number
   lastSeenAt: number
   value: State
@@ -45,13 +78,13 @@ export type PresenceMessage = {
 export type PresenceMessageType =
   PresenceMessage[typeof PRESENCE_MESSAGE_MARKER]["type"]
 
-type WithPeerId = { peerId: PeerId }
+type WithSource = { senderId: PeerId; originId: RepoId }
 
-export type PresenceEventUpdate = PresenceMessageUpdate & WithPeerId
-export type PresenceEventSnapshot = PresenceMessageSnapshot & WithPeerId
-export type PresenceEventHeartbeat = PresenceMessageHeartbeat & WithPeerId
-export type PresenceEventGoodbye = PresenceMessageGoodbye & WithPeerId
-export type PresenceEventPruning = { pruned: PeerId[] }
+export type PresenceEventUpdate = PresenceMessageUpdate & WithSource
+export type PresenceEventSnapshot = PresenceMessageSnapshot & WithSource
+export type PresenceEventHeartbeat = PresenceMessageHeartbeat & WithSource
+export type PresenceEventGoodbye = PresenceMessageGoodbye & WithSource
+export type PresenceEventPruning = { pruned: RepoId[] }
 
 /**
  * Events emitted by Presence when ephemeral messages are received from peers.

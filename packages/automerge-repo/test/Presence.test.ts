@@ -1,268 +1,317 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { Presence } from "../src/presence/Presence.js"
-import { PresenceEventHeartbeat } from "../src/presence/types.js"
+import {
+  originIdentity,
+  senderIdentity,
+} from "../src/presence/PeerStateView.js"
+import type {
+  PresenceEventHeartbeat,
+  PresenceEventPruning,
+} from "../src/presence/types.js"
 import { Repo } from "../src/Repo.js"
-import { PeerId } from "../src/types.js"
-import { DummyNetworkAdapter } from "../src/helpers/DummyNetworkAdapter.js"
-import { waitFor } from "./helpers/waitFor.js"
+import { setLoggerFactory } from "../src/Logger.js"
+import type { DocHandle } from "../src/types/DocHandle.js"
+import type { RepoId } from "../src/types.js"
+import { EphemeralHub, type HubExtensions } from "./helpers/ephemeralHub.js"
 
 type PresenceState = { position: number }
 
-describe("Presence", () => {
-  async function setup(opts?: { skipAnnounce?: boolean }) {
-    const alice = new Repo({ peerId: "alice" as PeerId })
-    const bob = new Repo({ peerId: "bob" as PeerId })
-    const [aliceToBob, bobToAlice] = DummyNetworkAdapter.createConnectedPair()
-    alice.networkSubsystem.addNetworkAdapter(aliceToBob)
-    bob.networkSubsystem.addNetworkAdapter(bobToAlice)
-    if (!opts?.skipAnnounce) {
-      aliceToBob.peerCandidate("bob" as PeerId)
-      bobToAlice.peerCandidate("alice" as PeerId)
+let hub: EphemeralHub
+const repos: Repo<HubExtensions>[] = []
+const presences: Presence<PresenceState>[] = []
+
+afterEach(async () => {
+  vi.useRealTimers()
+  setLoggerFactory(() => console)
+  presences.splice(0).forEach(presence => presence.stop())
+  await Promise.all(repos.splice(0).map(repo => repo.shutdown()))
+  await hub?.close()
+})
+
+/** Repos on one document; each entry names the sender it publishes as. */
+async function setup<const Names extends string>(
+  senders: Record<Names, string>
+) {
+  hub = new EphemeralHub()
+  const peers = {} as Record<
+    Names,
+    {
+      repo: Repo<HubExtensions>
+      handle: DocHandle<unknown, HubExtensions>
+      presence: Presence<PresenceState>
     }
-    await Promise.all([
-      alice.networkSubsystem.whenReady(),
-      bob.networkSubsystem.whenReady(),
-    ])
-
-    const aliceHandle = alice.create({
-      test: "doc",
+  >
+  let url: string | undefined
+  for (const [name, sender] of Object.entries<string>(senders)) {
+    const repo = new Repo({
+      backend: hub.backend(sender),
+      id: name as RepoId,
     })
-    const alicePresence = new Presence<PresenceState>({
-      handle: aliceHandle,
-    })
-
-    const bobHandle = await bob.find(aliceHandle.url)
-    const bobPresence = new Presence<PresenceState>({
-      handle: bobHandle,
-    })
-
-    return {
-      alice: {
-        repo: alice,
-        handle: aliceHandle,
-        presence: alicePresence,
-        network: aliceToBob,
-      },
-      bob: {
-        repo: bob,
-        handle: bobHandle,
-        presence: bobPresence,
-        network: bobToAlice,
-      },
-    }
+    repos.push(repo)
+    const handle: DocHandle<unknown, HubExtensions> = url
+      ? await repo.find(url)
+      : await repo.create({ test: "doc" })
+    url = handle.url
+    const presence = new Presence<PresenceState>({ handle })
+    presences.push(presence)
+    peers[name as Names] = { repo, handle, presence }
   }
+  return peers
+}
 
+function states(presence: Presence<PresenceState>) {
+  return Object.values(presence.getPeerStates().value)
+}
+
+function positions(presence: Presence<PresenceState>) {
+  return Object.fromEntries(
+    states(presence).map(state => [state.originId, state.value.position])
+  )
+}
+
+describe("Presence", () => {
   describe("start", () => {
     it("activates presence and shares initial state", async () => {
-      const { alice, bob } = await setup()
+      const { alice, bob } = await setup({ alice: "alice", bob: "bob" })
 
-      alice.presence.start({
-        initialState: {
-          position: 123,
-        },
-      })
+      alice.presence.start({ initialState: { position: 123 } })
       expect(alice.presence.running).toBe(true)
-
-      bob.presence.start({
-        initialState: {
-          position: 456,
-        },
-      })
+      bob.presence.start({ initialState: { position: 456 } })
       expect(bob.presence.running).toBe(true)
 
-      await waitFor(() => {
-        const bobPeerStates = bob.presence.getPeerStates().value
-        const bobPeers = Object.keys(bobPeerStates)
-
-        expect(bobPeers.length).toBe(1)
-        expect(bobPeers[0]).toBe(alice.repo.peerId)
-        expect(bobPeerStates[alice.repo.peerId].value.position).toBe(123)
-
-        const alicePeerStates = alice.presence.getPeerStates().value
-        const alicePeers = Object.keys(alicePeerStates)
-
-        expect(alicePeers.length).toBe(1)
-        expect(alicePeers[0]).toBe(bob.repo.peerId)
-        expect(alicePeerStates[bob.repo.peerId].value.position).toBe(456)
+      await vi.waitFor(() => {
+        expect(states(bob.presence)).toEqual([
+          expect.objectContaining({
+            senderId: "alice",
+            originId: alice.repo.id,
+            value: { position: 123 },
+          }),
+        ])
+        expect(states(alice.presence)).toEqual([
+          expect.objectContaining({
+            senderId: "bob",
+            originId: bob.repo.id,
+            value: { position: 456 },
+          }),
+        ])
       })
     })
 
     it("does nothing if invoked on an already-running Presence", async () => {
-      const { alice } = await setup()
+      const { alice } = await setup({ alice: "alice" })
 
-      alice.presence.start({
-        initialState: {
-          position: 123,
-        },
-      })
-      expect(alice.presence.running).toBe(true)
-
-      alice.presence.start({
-        initialState: {
-          position: 789,
-        },
-      })
+      alice.presence.start({ initialState: { position: 123 } })
+      alice.presence.start({ initialState: { position: 789 } })
       expect(alice.presence.running).toBe(true)
       expect(alice.presence.getLocalState().position).toBe(123)
+    })
+
+    it("ignores ephemeral messages that are not presence messages", async () => {
+      const { alice, bob } = await setup({ alice: "alice", bob: "bob" })
+      const error = vi.fn()
+      setLoggerFactory(() => ({ ...console, error }))
+      bob.presence.start({ initialState: { position: 456 } })
+      alice.handle.broadcast("not presence")
+      alice.handle.broadcast(null)
+      alice.handle.broadcast({ other: true })
+      alice.presence.start({ initialState: { position: 123 } })
+
+      await vi.waitFor(() =>
+        expect(positions(bob.presence)).toEqual({ alice: 123 })
+      )
+      // A throwing listener would be logged as an error.
+      expect(error).not.toHaveBeenCalled()
     })
   })
 
   describe("stop", () => {
     it("stops running presence and ignores further broadcasts", async () => {
-      const { alice, bob } = await setup()
-
-      alice.presence.start({
-        initialState: {
-          position: 123,
-        },
-      })
-      expect(alice.presence.running).toBe(true)
-
-      bob.presence.start({
-        initialState: {
-          position: 456,
-        },
-      })
-
-      await waitFor(() => {
-        const bobPeerStates = bob.presence.getPeerStates().value
-        const bobPeers = Object.keys(bobPeerStates)
-
-        expect(bobPeers.length).toBe(1)
-        expect(bobPeers[0]).toBe(alice.repo.peerId)
-        expect(bobPeerStates[alice.repo.peerId].value.position).toBe(123)
-      })
+      const { alice, bob } = await setup({ alice: "alice", bob: "bob" })
+      alice.presence.start({ initialState: { position: 123 } })
+      bob.presence.start({ initialState: { position: 456 } })
+      await vi.waitFor(() =>
+        expect(positions(bob.presence)).toEqual({ alice: 123 })
+      )
 
       alice.presence.stop()
       expect(alice.presence.running).toBe(false)
+      alice.presence.broadcast("position", 789)
 
-      console.log("waiting for peers to leave")
-      await waitFor(() => {
-        const bobPeerStates = bob.presence.getPeerStates().value
-        const bobPeers = Object.keys(bobPeerStates)
-
-        expect(bobPeers.length).toBe(0)
-      })
+      await vi.waitFor(() => expect(states(bob.presence)).toEqual([]))
     })
 
     it("does nothing if invoked on a non-running Presence", async () => {
-      const { alice } = await setup()
-
-      expect(alice.presence.running).toBe(false)
-
+      const { alice } = await setup({ alice: "alice" })
       alice.presence.stop()
-
       expect(alice.presence.running).toBe(false)
     })
   })
 
   describe("heartbeats", () => {
     it("sends heartbeats on the configured interval", async () => {
-      const { alice, bob } = await setup()
-      alice.presence.start({
-        initialState: {
-          position: 123,
-        },
-        heartbeatMs: 10,
+      const { alice, bob } = await setup({ alice: "alice", bob: "bob" })
+      alice.presence.start({ initialState: { position: 123 }, heartbeatMs: 10 })
+      bob.presence.start({ initialState: { position: 456 } })
+
+      let heartbeat: PresenceEventHeartbeat | undefined
+      bob.presence.on("heartbeat", event => {
+        heartbeat = event
       })
 
-      bob.presence.start({
-        initialState: {
-          position: 456,
-        },
-      })
-
-      let hbPeerMsg: PresenceEventHeartbeat
-      bob.presence.on("heartbeat", msg => {
-        hbPeerMsg = msg
-      })
-
-      await waitFor(() => {
-        expect(hbPeerMsg.peerId).toEqual(alice.repo.peerId)
-        expect(hbPeerMsg.type).toEqual("heartbeat")
-      })
+      await vi.waitFor(() =>
+        expect(heartbeat).toMatchObject({
+          type: "heartbeat",
+          senderId: "alice",
+          originId: alice.repo.id,
+        })
+      )
     })
 
     it("delays heartbeats when there is a state update", async () => {
-      // setup() runs a real network handshake, so install fake timers only
-      // afterwards. DummyNetworkAdapter delivers on a microtask rather than a
-      // timer, and advanceTimersByTimeAsync flushes microtasks between ticks,
-      // so heartbeats still round-trip to bob deterministically. With real
-      // timers these short waits overshoot the 10ms interval under CI load and
-      // the heartbeat fires before the "still delayed" assertion.
-      const { alice, bob } = await setup()
+      const { alice, bob } = await setup({ alice: "alice", bob: "bob" })
       vi.useFakeTimers()
-      try {
-        alice.presence.start({
-          initialState: {
-            position: 123,
-          },
-          heartbeatMs: 10,
-        })
+      alice.presence.start({ initialState: { position: 123 }, heartbeatMs: 10 })
+      bob.presence.start({ initialState: { position: 456 } })
 
-        bob.presence.start({
-          initialState: {
-            position: 456,
-          },
-        })
+      let heartbeat: PresenceEventHeartbeat | undefined
+      bob.presence.on("heartbeat", event => {
+        heartbeat = event
+      })
 
-        let hbPeerMsg: PresenceEventHeartbeat
-        bob.presence.on("heartbeat", msg => {
-          hbPeerMsg = msg
-        })
+      await vi.advanceTimersByTimeAsync(7)
+      // A state update resets the heartbeat timer.
+      alice.presence.broadcast("position", 789)
+      await vi.advanceTimersByTimeAsync(7)
+      expect(heartbeat).toBeUndefined()
 
-        await vi.advanceTimersByTimeAsync(7)
-        // A state update resets the heartbeat timer, so the next heartbeat is
-        // a full interval (10ms) away again.
-        alice.presence.broadcast("position", 789)
-        await vi.advanceTimersByTimeAsync(7)
-
-        // Only 7ms have elapsed since the reset (< 10ms), so no heartbeat has
-        // been sent yet.
-        expect(hbPeerMsg).toBeUndefined()
-
-        await vi.advanceTimersByTimeAsync(20)
-        expect(hbPeerMsg.peerId).toEqual(alice.repo.peerId)
-        expect(hbPeerMsg.type).toEqual("heartbeat")
-      } finally {
-        vi.useRealTimers()
-      }
+      await vi.advanceTimersByTimeAsync(20)
+      expect(heartbeat).toMatchObject({ type: "heartbeat", senderId: "alice" })
     })
   })
 
   describe("broadcast", () => {
     it("sends updates to peers", async () => {
-      const { alice, bob } = await setup()
-      alice.presence.start({
-        initialState: {
-          position: 123,
-        },
-      })
-
-      bob.presence.start({
-        initialState: {
-          position: 456,
-        },
-      })
-
-      await waitFor(() => {
-        const bobPeerStates = bob.presence.getPeerStates().value
-        const bobPeers = Object.keys(bobPeerStates)
-
-        expect(bobPeers.length).toBe(1)
-        expect(bobPeerStates[alice.repo.peerId].value.position).toBe(123)
-      })
+      const { alice, bob } = await setup({ alice: "alice", bob: "bob" })
+      alice.presence.start({ initialState: { position: 123 } })
+      bob.presence.start({ initialState: { position: 456 } })
+      await vi.waitFor(() =>
+        expect(positions(bob.presence)).toEqual({ alice: 123 })
+      )
 
       alice.presence.broadcast("position", 213)
 
-      await waitFor(() => {
-        const bobPeerStates = bob.presence.getPeerStates().value
-        const bobPeers = Object.keys(bobPeerStates)
+      await vi.waitFor(() =>
+        expect(positions(bob.presence)).toEqual({ alice: 213 })
+      )
+    })
+  })
 
-        expect(bobPeers.length).toBe(1)
-        expect(bobPeerStates[alice.repo.peerId].value.position).toBe(213)
+  describe("Repos sharing one sender", () => {
+    const senders = { tab1: "device", tab2: "device", bob: "bob" }
+
+    it("keeps one peer per publishing Repo, as seen remotely and by siblings", async () => {
+      const { tab1, tab2, bob } = await setup(senders)
+      tab1.presence.start({ initialState: { position: 1 } })
+      tab2.presence.start({ initialState: { position: 2 } })
+      bob.presence.start({ initialState: { position: 3 } })
+
+      await vi.waitFor(() => {
+        expect(positions(bob.presence)).toEqual({ tab1: 1, tab2: 2 })
+        expect(positions(tab1.presence)).toEqual({ tab2: 2, bob: 3 })
+        expect(positions(tab2.presence)).toEqual({ tab1: 1, bob: 3 })
       })
+      expect(
+        states(bob.presence).every(state => state.senderId === "device")
+      ).toBe(true)
+
+      tab1.presence.broadcast("position", 10)
+      await vi.waitFor(() =>
+        expect(positions(bob.presence)).toEqual({ tab1: 10, tab2: 2 })
+      )
+    })
+
+    it("groups by origin by default and by sender on request", async () => {
+      const { tab1, tab2, bob } = await setup(senders)
+      vi.useFakeTimers()
+      bob.presence.start({ initialState: { position: 3 } })
+      tab1.presence.start({ initialState: { position: 1 } })
+      tab2.presence.start({ initialState: { position: 2 } })
+      // Let every announcement go out, then make tab2 the last active Repo.
+      await vi.advanceTimersByTimeAsync(2000)
+      tab2.presence.broadcast("position", 20)
+      await vi.advanceTimersByTimeAsync(10)
+      expect(positions(bob.presence)).toEqual({ tab1: 1, tab2: 20 })
+
+      const view = bob.presence.getPeerStates()
+      const byOrigin = view.getStates()
+      expect(Object.keys(byOrigin).sort()).toEqual(["tab1", "tab2"])
+      expect(view.getStates({ groupingFn: originIdentity })).toEqual(byOrigin)
+      const bySender = view.getStates({ groupingFn: senderIdentity })
+      expect(Object.keys(bySender)).toEqual(["device"])
+      expect(bySender.device).toMatchObject({
+        originId: "tab2",
+        value: { position: 20 },
+      })
+    })
+
+    it("re-announces to a new Repo behind an already known sender", async () => {
+      const { tab1, tab2, bob } = await setup(senders)
+      vi.useFakeTimers()
+      bob.presence.start({ initialState: { position: 3 } })
+      tab1.presence.start({ initialState: { position: 1 } })
+      // Let every announcement of this first exchange go out.
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(positions(tab1.presence)).toEqual({ bob: 3 })
+
+      // Heartbeats are far off: tab2 can only learn bob's state from bob's
+      // announcement on seeing a new peer.
+      tab2.presence.start({ initialState: { position: 2 } })
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(positions(tab2.presence)).toEqual({ tab1: 1, bob: 3 })
+    })
+
+    it("forgets only the Repo that said goodbye", async () => {
+      const { tab1, tab2, bob } = await setup(senders)
+      tab1.presence.start({ initialState: { position: 1 } })
+      tab2.presence.start({ initialState: { position: 2 } })
+      bob.presence.start({ initialState: { position: 3 } })
+      await vi.waitFor(() =>
+        expect(positions(bob.presence)).toEqual({ tab1: 1, tab2: 2 })
+      )
+
+      const goodbye = vi.fn()
+      bob.presence.on("goodbye", goodbye)
+      tab1.presence.stop()
+
+      await vi.waitFor(() =>
+        expect(positions(bob.presence)).toEqual({ tab2: 2 })
+      )
+      expect(goodbye).toHaveBeenCalledOnce()
+      expect(goodbye).toHaveBeenCalledWith(
+        expect.objectContaining({ senderId: "device", originId: "tab1" })
+      )
+      expect(positions(tab2.presence)).toEqual({ bob: 3 })
+    })
+
+    it("prunes only the Repo that went silent", async () => {
+      const { tab1, tab2, bob } = await setup(senders)
+      vi.useFakeTimers()
+      const config = { heartbeatMs: 10, peerTtlMs: 50 }
+      tab1.presence.start({ initialState: { position: 1 }, ...config })
+      tab2.presence.start({ initialState: { position: 2 }, ...config })
+      bob.presence.start({ initialState: { position: 3 }, ...config })
+      await vi.advanceTimersByTimeAsync(20)
+      expect(positions(bob.presence)).toEqual({ tab1: 1, tab2: 2 })
+
+      const pruning: PresenceEventPruning[] = []
+      bob.presence.on("pruning", event => pruning.push(event))
+      // tab1 crashes: nothing more from it arrives, not even a goodbye.
+      hub.drop = message => message.originId === "tab1"
+      await vi.advanceTimersByTimeAsync(100)
+
+      expect(positions(bob.presence)).toEqual({ tab2: 2 })
+      expect(pruning).toEqual([{ pruned: ["tab1"] }])
     })
   })
 })

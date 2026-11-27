@@ -1,11 +1,9 @@
 import { EventEmitter } from "eventemitter3"
 
-import type {
-  DocHandle,
-  DocHandleEphemeralMessagePayload,
-} from "../DocHandle.js"
 import {
   PresenceConfig,
+  PresenceHandle,
+  PresenceInbound,
   PresenceEvents,
   PresenceMessage,
   PresenceMessageType,
@@ -31,16 +29,13 @@ import { PeerPresenceInfo } from "./PeerPresenceInfo.js"
  */
 export class Presence<
   State extends PresenceState,
-  DocType = any,
 > extends EventEmitter<PresenceEvents> {
-  #handle: DocHandle<DocType>
+  #handle: PresenceHandle
   #peers: PeerPresenceInfo<State>
   #localState: State
   #heartbeatMs?: number
 
-  #handleEphemeralMessage:
-    | ((e: DocHandleEphemeralMessagePayload<DocType>) => void)
-    | undefined
+  #handleEphemeralMessage: ((e: PresenceInbound) => void) | undefined
 
   #heartbeatInterval: ReturnType<typeof setInterval> | undefined
   #pruningInterval: ReturnType<typeof setInterval> | undefined
@@ -54,7 +49,7 @@ export class Presence<
    * @param config see {@link PresenceConfig}
    * @returns
    */
-  constructor({ handle }: { handle: DocHandle<DocType> }) {
+  constructor({ handle }: { handle: PresenceHandle }) {
     super()
     this.#handle = handle
     this.#peers = new PeerPresenceInfo<State>(DEFAULT_PEER_TTL_MS)
@@ -78,51 +73,57 @@ export class Presence<
     // N.B.: We can't use a regular member function here since member functions
     // of two distinct objects are identical, and we need to be able to stop
     // listening to the handle for just this Presence instance in stop()
-    this.#handleEphemeralMessage = (
-      e: DocHandleEphemeralMessagePayload<DocType>
-    ) => {
-      const peerId = e.senderId
+    this.#handleEphemeralMessage = (e: PresenceInbound) => {
       const envelope = e.message as PresenceMessage
 
-      if (!(PRESENCE_MESSAGE_MARKER in envelope)) {
+      if (
+        typeof envelope !== "object" ||
+        envelope === null ||
+        !(PRESENCE_MESSAGE_MARKER in envelope)
+      ) {
         return
       }
 
       const message = envelope[PRESENCE_MESSAGE_MARKER]
+      const { senderId, originId } = e
 
-      if (!this.#peers.has(peerId)) {
-        this.announce()
+      if (!this.#peers.has(originId)) {
+        this.#announce()
       }
 
       switch (message.type) {
         case "heartbeat":
-          this.#peers.markSeen(peerId)
-          this.emit("heartbeat", { type: "heartbeat", peerId })
+          this.#peers.markSeen(originId)
+          this.emit("heartbeat", { type: "heartbeat", senderId, originId })
           break
         case "goodbye":
-          this.#peers.delete(peerId)
-          this.emit("goodbye", { type: "goodbye", peerId })
+          this.#peers.delete(originId)
+          this.emit("goodbye", { type: "goodbye", senderId, originId })
           break
         case "update":
           this.#peers.update({
-            peerId,
+            senderId,
+            originId,
             value: { [message.channel]: message.value } as Partial<State>,
           })
           this.emit("update", {
             type: "update",
-            peerId,
+            senderId,
+            originId,
             channel: message.channel,
             value: message.value,
           })
           break
         case "snapshot":
           this.#peers.update({
-            peerId,
+            senderId,
+            originId,
             value: message.state as State,
           })
           this.emit("snapshot", {
             type: "snapshot",
-            peerId,
+            senderId,
+            originId,
             state: message.state,
           })
           break
@@ -130,8 +131,8 @@ export class Presence<
     }
     this.#handle.on("ephemeral-message", this.#handleEphemeralMessage)
 
-    this.broadcastLocalState() // also starts heartbeats
-    this.startPruningPeers()
+    this.#broadcastLocalState() // also starts heartbeats
+    this.#startPruningPeers()
   }
 
   /**
@@ -162,7 +163,7 @@ export class Presence<
     this.#localState = Object.assign({}, this.#localState, {
       [channel]: value,
     })
-    this.broadcastChannelState(channel)
+    this.#broadcastChannelState(channel)
   }
 
   /**
@@ -193,53 +194,50 @@ export class Presence<
     })
     this.#hellos = []
     this.#handle.off("ephemeral-message", this.#handleEphemeralMessage)
-    this.stopHeartbeats()
-    this.stopPruningPeers()
-    this.send({ type: "goodbye" })
+    this.#stopHeartbeats()
+    this.#stopPruningPeers()
+    this.#send({ type: "goodbye" })
     this.#running = false
   }
 
-  private announce() {
+  #announce() {
     // Broadcast our current state whenever we see new peers
     // TODO: We currently need to wait for the peer to be ready, but waiting
     // some arbitrary amount of time is brittle
     const helloId = setTimeout(() => {
-      this.broadcastLocalState()
+      this.#broadcastLocalState()
       this.#hellos = this.#hellos.filter(id => id !== helloId)
     }, 500)
     this.#hellos.push(helloId)
   }
 
-  private broadcastLocalState() {
-    this.doBroadcast("snapshot", { state: this.#localState })
-    this.resetHeartbeats()
+  #broadcastLocalState() {
+    this.#doBroadcast("snapshot", { state: this.#localState })
+    this.#resetHeartbeats()
   }
 
-  private broadcastChannelState<Channel extends keyof State>(channel: Channel) {
+  #broadcastChannelState<Channel extends keyof State>(channel: Channel) {
     const value = this.#localState[channel]
-    this.doBroadcast("update", { channel, value })
-    this.resetHeartbeats()
+    this.#doBroadcast("update", { channel, value })
+    this.#resetHeartbeats()
   }
 
-  private resetHeartbeats() {
+  #resetHeartbeats() {
     // Reset heartbeats every time we broadcast a message to avoid sending
     // unnecessary heartbeats when there is plenty of actual update activity
     // happening.
-    this.stopHeartbeats()
-    this.startHeartbeats()
+    this.#stopHeartbeats()
+    this.#startHeartbeats()
   }
 
-  private doBroadcast(
-    type: PresenceMessageType,
-    extra?: Record<string, unknown>
-  ) {
-    this.send({
+  #doBroadcast(type: PresenceMessageType, extra?: Record<string, unknown>) {
+    this.#send({
       type,
       ...extra,
     })
   }
 
-  private send(message: Record<string, unknown>) {
+  #send(message: Record<string, unknown>) {
     if (!this.#running) {
       return
     }
@@ -248,16 +246,16 @@ export class Presence<
     })
   }
 
-  private startHeartbeats() {
+  #startHeartbeats() {
     if (this.#heartbeatInterval !== undefined) {
       return
     }
     this.#heartbeatInterval = setInterval(() => {
-      this.send({ type: "heartbeat" })
+      this.#send({ type: "heartbeat" })
     }, this.#heartbeatMs)
   }
 
-  private stopHeartbeats() {
+  #stopHeartbeats() {
     if (this.#heartbeatInterval === undefined) {
       return
     }
@@ -265,7 +263,7 @@ export class Presence<
     this.#heartbeatInterval = undefined
   }
 
-  private startPruningPeers() {
+  #startPruningPeers() {
     if (this.#pruningInterval !== undefined) {
       return
     }
@@ -280,7 +278,7 @@ export class Presence<
     }, this.#heartbeatMs)
   }
 
-  private stopPruningPeers() {
+  #stopPruningPeers() {
     if (this.#pruningInterval === undefined) {
       return
     }

@@ -57,12 +57,22 @@ export function setLoggerFactory(f: LoggerFactory): void {
  * is current at the time each method is called. The factory is consulted on
  * every call so that consumers can replace it (via {@link setLoggerFactory})
  * after the library's modules have already been imported.
+ *
+ * A throwing application logger is swallowed: logging must never interrupt
+ * sync, dispatch or shutdown.
  */
 export function makeLogger(namespace: string): Logger {
+  const guarded =
+    (level: keyof Logger) =>
+    (message: string, ...args: unknown[]) => {
+      try {
+        factory(namespace)[level](message, ...args)
+      } catch {}
+    }
   return {
-    debug: (message, ...args) => factory(namespace).debug(message, ...args),
-    info: (message, ...args) => factory(namespace).info(message, ...args),
-    warn: (message, ...args) => factory(namespace).warn(message, ...args),
-    error: (message, ...args) => factory(namespace).error(message, ...args),
+    debug: guarded("debug"),
+    info: guarded("info"),
+    warn: guarded("warn"),
+    error: guarded("error"),
   }
 }
