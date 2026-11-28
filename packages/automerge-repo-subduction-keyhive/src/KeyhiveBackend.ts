@@ -202,7 +202,13 @@ export class KeyhiveBackend implements SedimentreeBackend {
       local,
       onIngest: () => this.#afterKeyhiveChange(),
       onDelivered: () => this.#resyncSessions(),
-      onFrame: () => this.#relayGrants.retry(),
+      onFrame: () => {
+        this.#relayGrants.retry()
+        // The resync after this replica's own ingest can reach a server that
+        // cannot serve the document yet: it has not ingested the writer's
+        // grant or accepted the writer's upload. Keep trying while connected.
+        this.#resyncLoading()
+      },
       syncIntervalMs,
       backupSyncIntervalMs,
       onBackup: () => {

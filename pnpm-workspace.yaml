@@ -1,6 +1,7 @@
 packages:
   - packages/**
   - examples/react-todo
+  - examples/react-todo-keyhive
   - examples/browser-benchmark
   - examples/node-benchmark
 allowBuilds:
@@ -11,6 +12,8 @@ allowBuilds:
   svelte-preprocess: true
 overrides:
   semver: ^7.5.2
+  # Local Subduction main with the keyhive JS API (not on npm yet). Do not commit.
+  "@automerge/subduction": link:/home/expede/Documents/Soft/subduction/subduction_wasm
 # Supply-chain guard: wait 3 days (4320 minutes) after a version is published before
 # installing it, so a malicious or compromised release has time to be detected and
 # unpublished from the registry before it can land in our dependency tree.

@@ -8,7 +8,7 @@ import { createServer, connect as dial } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { WebSocketSubductionNetworkAdapter } from "../../automerge-repo-subduction-network-websocket/src/index.js"
+import { WebSocketNetworkAdapter } from "../../automerge-repo-subduction-network-websocket/src/index.js"
 import {
   connect,
   createPeer,
@@ -106,7 +106,7 @@ describe.skipIf(!binary)("through a Subduction sync server", () => {
 
   /** A peer that connects to `server` through its options, as an application does. */
   async function connectedPeer(server: Server) {
-    const adapter = new WebSocketSubductionNetworkAdapter(server.url)
+    const adapter = new WebSocketNetworkAdapter(server.url)
     const peer = await createPeer(undefined, {
       relays: [server.key],
       network: [adapter],
