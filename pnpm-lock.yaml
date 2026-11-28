@@ -9,6 +9,9 @@ catalogs:
     '@automerge/automerge':
       specifier: 3.5.0
       version: 3.5.0
+    '@automerge/subduction':
+      specifier: 0.28.0
+      version: 0.28.0
     '@keyhive/keyhive':
       specifier: 0.8.3
       version: 0.8.3
@@ -78,7 +81,6 @@ catalogs:
 
 overrides:
   semver: ^7.5.2
-  '@automerge/subduction': link:/home/expede/Documents/Soft/subduction/subduction_wasm
 
 importers:
 
@@ -157,8 +159,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-repo-subduction-storage-indexeddb
       '@automerge/subduction':
-        specifier: link:/home/expede/Documents/Soft/subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 'catalog:'
+        version: 0.28.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
@@ -188,8 +190,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-repo-subduction
       '@automerge/subduction':
-        specifier: link:/home/expede/Documents/Soft/subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 'catalog:'
+        version: 0.28.0
 
   examples/react-todo:
     dependencies:
@@ -206,8 +208,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-react
       '@automerge/subduction':
-        specifier: link:/home/expede/Documents/Soft/subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 'catalog:'
+        version: 0.28.0
       autoprefixer:
         specifier: ^10.5.2
         version: 10.6.1(postcss@8.5.28)
@@ -267,8 +269,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/automerge-react
       '@automerge/subduction':
-        specifier: link:/home/expede/Documents/Soft/subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 'catalog:'
+        version: 0.28.0
       '@keyhive/keyhive':
         specifier: 'catalog:'
         version: 0.8.3
@@ -467,8 +469,8 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo
       '@automerge/subduction':
-        specifier: link:/home/expede/Documents/Soft/subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 'catalog:'
+        version: 0.28.0
       cbor-x:
         specifier: 'catalog:'
         version: 1.6.9
@@ -492,8 +494,8 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo-subduction
       '@automerge/subduction':
-        specifier: link:/home/expede/Documents/Soft/subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 'catalog:'
+        version: 0.28.0
       '@keyhive/keyhive':
         specifier: 'catalog:'
         version: 0.8.3
@@ -517,8 +519,8 @@ importers:
         specifier: workspace:*
         version: link:../automerge-repo-subduction
       '@automerge/subduction':
-        specifier: link:/home/expede/Documents/Soft/subduction/subduction_wasm
-        version: link:../../../subduction/subduction_wasm
+        specifier: 'catalog:'
+        version: 0.28.0
       '@types/ws':
         specifier: 'catalog:'
         version: 8.18.1
@@ -574,6 +576,9 @@ packages:
 
   '@automerge/automerge@3.5.0':
     resolution: {integrity: sha512-ejbqJWfXWM2QbTcUK/5ugYiQiyOP7LYVAp/RuSvthCc07oek0FClMxEuouuhjrLjVPDSI34RP1ftGc45PF7WRA==}
+
+  '@automerge/subduction@0.28.0':
+    resolution: {integrity: sha512-umxJ6p5Q6algS9VQOzl9PZyF33vnghi3S+TcGKVk5du6wry36r28RuxCiQbec1DsRqPhcaai5uZUO2AOt1MaNg==}
 
   '@babel/code-frame@7.29.0':
     resolution: {integrity: sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw==}
@@ -3089,6 +3094,8 @@ snapshots:
   '@alloc/quick-lru@5.3.0': {}
 
   '@automerge/automerge@3.5.0': {}
+
+  '@automerge/subduction@0.28.0': {}
 
   '@babel/code-frame@7.29.0':
     dependencies:
